@@ -99,6 +99,26 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.branch || github.ref }}
 
+      # The Discovery custom-tab specs need two external plugins (Custom Tabs +
+      # File Transformation) staged into the test Jellyfin. Check them out so
+      # stage-external-plugins.sh builds them; without these the two specs skip.
+      # Floating on main (not SHA-pinned) - an upstream break turns this job red.
+      - name: Checkout Custom Tabs plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: IAmParadox27/jellyfin-plugin-custom-tabs
+          ref: main
+          path: external/jellyfin-plugin-custom-tabs
+          persist-credentials: false
+
+      - name: Checkout File Transformation plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: IAmParadox27/jellyfin-plugin-file-transformation
+          ref: main
+          path: external/jellyfin-plugin-file-transformation
+          persist-credentials: false
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
@@ -119,6 +139,10 @@ jobs:
           # Require the non-admin fixture in CI so authorization / user-facing
           # tests fail loudly instead of silently skipping if provisioning breaks.
           E2E_REQUIRE_NORMAL_USER: "1"
+          # Point the staging script at the external checkouts above so the
+          # Discovery custom-tab specs run instead of skipping.
+          CUSTOMTABS_SRC: ${{ github.workspace }}/external/jellyfin-plugin-custom-tabs
+          FILETRANSFORMATION_SRC: ${{ github.workspace }}/external/jellyfin-plugin-file-transformation
 
       - name: Upload Playwright report
         if: always()
