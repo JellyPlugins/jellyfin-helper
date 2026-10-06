@@ -427,6 +427,13 @@ var MOCK_DISCOVERY=[
 ]}
 ];
 
+// Demo fixtures for the Discover preview tab: the personal Trakt grid reuses
+// Bob's items and the trending grid Alice's, so every poster URL is a known-good
+// TMDB path and no new image fixtures are needed. Served per request (cloned),
+// never mutated in place.
+var MOCK_TRAKT_PERSONAL={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[1].Recommendations};
+var MOCK_TRAKT_TRENDING={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[0].Recommendations};
+
 var MOCK_SEERR_SERVICES_RADARR=[{
 id:1,name:"Radarr Main",isDefault:true,is4k:false,
 activeProfileId:4,activeDirectory:"/SMB/media/movies",
@@ -503,6 +510,8 @@ else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:
 else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
 else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
 else if(url.includes("Discovery/Request")&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
+else if(url.includes("Discovery/My/Trakt/Trending"))resolve(structuredClone(MOCK_TRAKT_TRENDING));
+else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:structuredClone(MOCK_TRAKT_PERSONAL)});
 else if(url.includes("Discovery")&&!url.includes("Services")&&!url.includes("Request"))resolve(structuredClone(MOCK_DISCOVERY));
 else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Jellyseerr (demo)"});
 else if(url.includes("Trakt/Test"))resolve({success:true,message:"Connected to Trakt (demo)"});
