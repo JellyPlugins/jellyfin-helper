@@ -443,6 +443,35 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Equal("Movies 4K", liveConfig.RadarrInstances[0].Libraries);
     }
 
+    [Fact]
+    public void CreateBackup_ArrSkipCertValidation_SurvivesFullRestoreCycle()
+    {
+        // The per-instance TLS bypass must survive CreateBackup -> RestoreArrInstances,
+        // or a restore silently re-enables validation and breaks private-CA setups.
+        var sourceConfig = new PluginConfiguration();
+        sourceConfig.RadarrInstances.Add(new ArrInstanceConfig
+        { Name = "R1", Url = "https://r:7878", ApiKey = "rk", SkipCertificateValidation = true });
+        var sourceMock = new Mock<IPluginConfigurationService>();
+        sourceMock.Setup(c => c.GetConfiguration()).Returns(sourceConfig);
+        sourceMock.Setup(c => c.IsInitialized).Returns(true);
+        sourceMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        var exporter = new BackupService(
+            _tempDir,
+            sourceMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = exporter.CreateBackup(includeSecrets: true);
+
+        Assert.True(backup.RadarrInstances[0].SkipCertificateValidation);
+
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+    }
+
     public static TheoryData<int, int> SeerrCleanupAgeDaysApplyClampCases() => new()
     {
         { 0, 0 },
@@ -478,6 +507,27 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(45, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_SeerrSkipCertValidation_AppliesAndPreserves()
+    {
+        // A present value is applied; an absent (old-backup) value must not silently
+        // re-enable validation on a working private-CA setup.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrSkipCertificateValidation = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.SeerrSkipCertificateValidation);
+
+        backup.SeerrSkipCertificateValidation = null; // absent -> leave live value unchanged
+        liveConfig.SeerrSkipCertificateValidation = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.SeerrSkipCertificateValidation);
     }
 
     [Fact]

@@ -70,6 +70,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
+        serviceCollection.AddHttpClient("SeerrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
+        serviceCollection.AddHttpClient("SeerrDiscoveryInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
 
         // Trakt timeout is admin-configurable (already clamped by the config setter). Fall back to the
         // default when the plugin instance is not yet available during early DI construction.

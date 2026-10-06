@@ -229,6 +229,8 @@
   "seerrInstance": "Instância Seerr",
   "seerrUrl": "URL do Seerr",
   "seerrApiKey": "Chave API do Seerr",
+  "seerrSkipCertValidation": "Ignorar a validação do certificado para o Seerr",
+  "seerrSkipCertValidationHelp": "Desativa a verificação do certificado TLS para o Seerr (CA privada, autoassinado ou certificados IP). Use apenas em redes confiáveis: sem validação, qualquer pessoa que intercepte a conexão pode ler a chave API.",
   "seerrCleanupAgeDays": "Idade máxima do pedido (dias)",
   "seerrCleanupAgeDaysHelp": "Pedidos mais antigos serão eliminados. Padrão: 365 dias.",
   "seerrFillFields": "Por favor, preencha primeiro a URL e a chave API.",

@@ -127,6 +127,7 @@ public class I18NServiceTests : IDisposable
             // Seerr keys
             "seerrCleanup", "seerrNotConfigured", "settingsSeerrTitle", "settingsSeerrHelp",
             "seerrInstance", "seerrUrl", "seerrApiKey",
+            "seerrSkipCertValidation", "seerrSkipCertValidationHelp",
             "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields",
             // Unsaved changes dialog keys
             "unsavedChangesTitle", "unsavedChangesMsg", "discardChanges", "saveAndContinue",

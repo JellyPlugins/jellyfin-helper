@@ -78,6 +78,11 @@ public class ConfigurationUpdateRequest
     public string SeerrApiKey { get; init; } = string.Empty;
 
     /// <summary>
+    ///     Gets a value indicating whether TLS certificate validation is skipped for the Seerr instance.
+    /// </summary>
+    public bool SeerrSkipCertificateValidation { get; init; }
+
+    /// <summary>
     ///     Gets a value indicating whether the Trakt discovery source is enabled.
     /// </summary>
     /// <remarks>

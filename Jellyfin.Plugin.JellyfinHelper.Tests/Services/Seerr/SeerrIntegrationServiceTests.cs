@@ -1,8 +1,10 @@
-using System.Net;
+﻿using System.Net;
+using System.Security.Authentication;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -150,10 +152,68 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, body);
 
         var service = CreateService(handler.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.True(success);
         Assert.Contains(expectedSubstring, message);
+    }
+
+    [Fact]
+    public async Task TestConnection_SkipValidation_UsesInsecureClient()
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{\"applicationTitle\":\"Seerr\"}");
+        var httpClient = new HttpClient(handler.Object, disposeHandler: false);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("SeerrIntegrationInsecure")).Returns(httpClient);
+        var service = new SeerrIntegrationService(
+            factoryMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<SeerrIntegrationService>().Object);
+
+        var (success, _) = await service.TestConnectionAsync(BaseUrl, ApiKey, true, CancellationToken.None);
+
+        Assert.True(success);
+        factoryMock.Verify(f => f.CreateClient("SeerrIntegrationInsecure"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("SeerrIntegration"), Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_DefaultValidation_UsesStrictClient()
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{\"applicationTitle\":\"Seerr\"}");
+        var httpClient = new HttpClient(handler.Object, disposeHandler: false);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
+        var service = new SeerrIntegrationService(
+            factoryMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<SeerrIntegrationService>().Object);
+
+        var (success, _) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
+
+        Assert.True(success);
+        factoryMock.Verify(f => f.CreateClient("SeerrIntegration"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("SeerrIntegrationInsecure"), Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_CertificateError_ReturnsCertHint()
+    {
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "The SSL connection could not be established.",
+                new AuthenticationException("PartialChain")));
+
+        var service = CreateService(mock.Object, out _, out _);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("Skip certificate validation", message);
     }
 
     [Fact]
@@ -162,7 +222,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, "");
 
         var service = CreateService(handler.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.False(success);
         Assert.Contains("401", message);
@@ -190,7 +250,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ReturnsAsync(response);
 
         var service = CreateService(mock.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.False(success);
         Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
@@ -208,7 +268,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ThrowsAsync(new HttpRequestException("Connection refused"));
 
         var service = CreateService(mock.Object, out _, out _);
-        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.False(success);
         Assert.Contains("Connection refused", message);
@@ -231,7 +291,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ReturnsAsync(response);
 
         var service = CreateService(mock.Object, out _, out _);
-        await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.NotNull(capturedRequest);
         Assert.True(capturedRequest!.Headers.Contains("X-Api-Key"));
@@ -255,7 +315,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ReturnsAsync(response);
 
         var service = CreateService(mock.Object, out _, out _);
-        await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
+        await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
 
         Assert.NotNull(capturedRequest);
         Assert.Contains("api/v1/settings/main", capturedRequest!.RequestUri!.ToString());
@@ -268,8 +328,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, emptyPage);
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(0, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
@@ -291,8 +350,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(3, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
@@ -317,8 +375,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.OK, MakeMovieDetails("Expired Movie 3")));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         Assert.Equal(3, result.TotalChecked);
         Assert.Equal(2, result.ExpiredFound);
@@ -358,8 +415,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.NoContent, ""));
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(2, result.TotalChecked);
         Assert.Equal(1, result.ExpiredFound);
@@ -383,8 +439,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.InternalServerError, ""));
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(1, result.ExpiredFound);
@@ -407,8 +462,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateSequenceHandler((HttpStatusCode.OK, page));
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.ExpiredFound);
         Assert.Equal(0, result.Deleted);
@@ -438,7 +492,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var service = CreateService(handler.Object, out _, out _);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cts.Token));
+            service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -453,8 +507,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
@@ -475,8 +528,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.NoContent, ""));
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(1, result.ExpiredFound);
@@ -510,8 +562,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 90, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 90, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
@@ -535,8 +586,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var service = CreateService(handler.Object, out _, out _);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => service.CleanupExpiredRequestsAsync(
-                BaseUrl, ApiKey, maxAgeDays, false, CancellationToken.None));
+            () => service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, maxAgeDays, false, cancellationToken: CancellationToken.None));
     }
 
     [Fact]
@@ -550,8 +600,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(0, result.TotalChecked);
     }
@@ -580,8 +629,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.NoContent, ""));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(1, result.ExpiredFound);
@@ -704,8 +752,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.OK, MakeMovieDetails("Inception")));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         pluginLogMock.Verify(
             x => x.LogInfo(
@@ -730,8 +777,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.NoContent, ""));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         pluginLogMock.Verify(
             x => x.LogInfo(
@@ -767,8 +813,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.OK, MakeMovieDetails("Film C")));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         Assert.Equal(3, result.TotalChecked);
         Assert.Equal(3, result.ExpiredFound);
@@ -796,8 +841,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.OK, MakeTvDetails("Breaking Bad")));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         pluginLogMock.Verify(
             x => x.LogInfo(
@@ -822,8 +866,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.NotFound, ""));
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         pluginLogMock.Verify(
             x => x.LogInfo(
@@ -845,8 +888,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            baseUrl, apiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(baseUrl, apiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.TotalChecked);
@@ -867,8 +909,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ThrowsAsync(new HttpRequestException("connection reset"));
 
         var service = CreateService(mock.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.TotalChecked);
@@ -881,8 +922,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, "not-json{");
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
     }
@@ -908,8 +948,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, true, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
     }
@@ -1007,7 +1046,7 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var nonAsciiKey = "キー12345";
         var exception = await Record.ExceptionAsync(
-            () => service.TestConnectionAsync(BaseUrl, nonAsciiKey, CancellationToken.None));
+            () => service.TestConnectionAsync(BaseUrl, nonAsciiKey, cancellationToken: CancellationToken.None));
 
         Assert.Null(exception);
     }
@@ -1020,7 +1059,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var service = CreateService(handler.Object, out _, out _);
 
         var exception = await Record.ExceptionAsync(
-            () => service.TestConnectionAsync(BaseUrl, "key with spaces", CancellationToken.None));
+            () => service.TestConnectionAsync(BaseUrl, "key with spaces", cancellationToken: CancellationToken.None));
 
         Assert.Null(exception);
     }
@@ -1031,7 +1070,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object, out _, out _);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.TestConnectionAsync("http://seerr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+            service.TestConnectionAsync("http://seerr.local", "key\r\nX-Injected: evil", cancellationToken: CancellationToken.None));
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1112,8 +1151,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var service = CreateService(mock.Object, out _, out _);
 
         // Act
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         // Assert: two page GETs were made (pagination really continued past the partial page)
         var pageGetUrls = capturedUrls.Where(u => u.Contains("api/v1/request")).ToList();
@@ -1152,8 +1190,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 30, false, cancellationToken: CancellationToken.None);
 
         // Request is old enough, but status=2 (approved) must prevent deletion
         Assert.Equal(1, result.TotalChecked);
@@ -1197,8 +1234,7 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 30, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(3, result.TotalChecked);
         Assert.Equal(2, result.ExpiredFound);  // id=1 (pending) and id=3 (declined), not id=2 (approved)
@@ -1229,8 +1265,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 30, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
@@ -1295,8 +1330,7 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var service = CreateService(mock.Object, out _, out var pluginLogMock);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 30, false, cancellationToken: CancellationToken.None);
 
         // Phase 1 failed partway through: no deletion must occur regardless of what page 1 found
         Assert.Equal(0, result.Deleted);
@@ -1346,8 +1380,7 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var service = CreateService(handler.Object, out _, out _);
 
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 30, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Deleted);
         Assert.Equal(0, result.Failed);

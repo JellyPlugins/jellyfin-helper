@@ -42,6 +42,9 @@ public sealed class ConfigurationResponse
     /// <summary>Gets the Seerr instance URL.</summary>
     public string SeerrUrl { get; init; } = string.Empty;
 
+    /// <summary>Gets a value indicating whether TLS certificate validation is skipped for Seerr.</summary>
+    public bool SeerrSkipCertificateValidation { get; init; }
+
     /// <summary>
     ///     Gets the Seerr API key placeholder.
     ///     Returns <see cref="ApiKeyMask"/> when a key is configured, empty string otherwise.
@@ -137,6 +140,7 @@ public sealed class ConfigurationResponse
             SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
             SeerrUrl = config.SeerrUrl,
+            SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
             TraktEnabled = config.TraktEnabled,
             TraktClientId = config.TraktClientId,

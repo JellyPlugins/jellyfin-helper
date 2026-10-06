@@ -172,6 +172,7 @@ public sealed class BackupService : IBackupService
             // across hosts without the keyring. Redaction below still applies when includeSecrets is false.
             SeerrUrl = config.SeerrUrl,
             SeerrApiKey = _secretProtector.Unprotect(config.SeerrApiKey),
+            SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
 
             // Trakt settings. Client id + enabled flag are plain config; the secret is decrypted here like the
@@ -203,7 +204,8 @@ public sealed class BackupService : IBackupService
                     Name = instance.Name,
                     Url = instance.Url,
                     ApiKey = _secretProtector.Unprotect(instance.ApiKey),
-                    Libraries = instance.Libraries
+                    Libraries = instance.Libraries,
+                    SkipCertificateValidation = instance.SkipCertificateValidation
                 });
         }
 
@@ -215,7 +217,8 @@ public sealed class BackupService : IBackupService
                     Name = instance.Name,
                     Url = instance.Url,
                     ApiKey = _secretProtector.Unprotect(instance.ApiKey),
-                    Libraries = instance.Libraries
+                    Libraries = instance.Libraries,
+                    SkipCertificateValidation = instance.SkipCertificateValidation
                 });
         }
 
@@ -521,6 +524,13 @@ public sealed class BackupService : IBackupService
                 0,
                 BackupValidator.MaxRetentionDays);
         }
+
+        // Same absent-guard as above: an old backup without the field must not silently
+        // re-enable certificate validation on a working private-CA setup.
+        if (backup.SeerrSkipCertificateValidation.HasValue)
+        {
+            config.SeerrSkipCertificateValidation = backup.SeerrSkipCertificateValidation.Value;
+        }
     }
 
     /// <summary>
@@ -627,7 +637,8 @@ public sealed class BackupService : IBackupService
 
                     // Re-encrypt before persisting so the restored key matches the at-rest format. Empty stays empty.
                     ApiKey = _secretProtector.Protect(apiKey),
-                    Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength)
+                    Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength),
+                    SkipCertificateValidation = instance.SkipCertificateValidation
                 });
         }
 

@@ -91,6 +91,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
+    ///     Gets or sets a value indicating whether TLS certificate validation is skipped for the Seerr instance.
+    ///     Needed when Seerr sits behind a reverse proxy with a private CA, self-signed, or IP certificate.
+    ///     Only enable on networks you trust: without validation anyone intercepting the connection can read
+    ///     the API key. Defaults to false (validated).
+    /// </summary>
+    public bool SeerrSkipCertificateValidation { get; set; }
+
+    /// <summary>
     ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     public bool DiscoveryUserAccessEnabled { get; set; }

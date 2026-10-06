@@ -30,4 +30,10 @@ public class BackupArrInstance
     /// </summary>
     [JsonPropertyName("libraries")]
     public string Libraries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether TLS certificate validation is skipped for this instance.
+    /// </summary>
+    [JsonPropertyName("skipCertificateValidation")]
+    public bool SkipCertificateValidation { get; set; }
 }

@@ -229,6 +229,8 @@
   "seerrInstance": "Seerr 实例",
   "seerrUrl": "Seerr URL",
   "seerrApiKey": "Seerr API 密钥",
+  "seerrSkipCertValidation": "跳过 Seerr 证书验证",
+  "seerrSkipCertValidationHelp": "为 Seerr 禁用 TLS 证书检查（私有 CA、自签名或 IP 证书）。仅在受信任的网络中使用：未经验验证，任何拦截连接的人都可以读取 API 密钥。",
   "seerrCleanupAgeDays": "最大请求天数",
   "seerrCleanupAgeDaysHelp": "超过此天数的请求将被删除。默认：365 天。",
   "seerrFillFields": "请先填写 URL 和 API 密钥。",

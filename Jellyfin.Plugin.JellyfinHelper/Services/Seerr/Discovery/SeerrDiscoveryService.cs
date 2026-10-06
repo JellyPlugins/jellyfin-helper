@@ -493,7 +493,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
 
         try
         {
@@ -795,7 +795,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Invalid Seerr configuration.");
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
         return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
     }
@@ -991,7 +991,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             return await FetchAllUserPagesAsync(client, baseUri, apiKey, cancellationToken).ConfigureAwait(false);
@@ -1168,7 +1168,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             using var listRequest = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}", apiKey);
@@ -1730,7 +1730,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
         var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var allCandidates = new List<TmdbDiscoverItem>();
 
         // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
@@ -1856,7 +1856,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
         if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
         {
@@ -3039,8 +3039,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Returns a non-owning HttpClient from the factory. The client must NOT be disposed - its lifetime is managed by IHttpClientFactory.
     /// </summary>
-    private HttpClient GetSeerrClient() =>
-        _httpClientFactory.CreateClient("SeerrDiscovery");
+    private HttpClient GetSeerrClient(bool skipCertificateValidation) =>
+        _httpClientFactory.CreateClient(skipCertificateValidation ? "SeerrDiscoveryInsecure" : "SeerrDiscovery");
 
     /// <summary>
     ///     Builds an HttpRequestMessage with per-request authentication headers.

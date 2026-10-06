@@ -229,6 +229,8 @@
   "seerrInstance": "Seerr-instans",
   "seerrUrl": "Seerr-URL",
   "seerrApiKey": "Seerr API-nyckel",
+  "seerrSkipCertValidation": "Hoppa över certifikatvalidering för Seerr",
+  "seerrSkipCertValidationHelp": "Inaktiverar TLS-certifikatkontroller för Seerr (privat CA, självsignerade eller IP-certifikat). Använd endast på nätverk du litar på: utan validering kan alla som avlyssnar anslutningen läsa API-nyckeln.",
   "seerrCleanupAgeDays": "Max förfråganålder (dagar)",
   "seerrCleanupAgeDaysHelp": "Förfrågningar äldre än detta tas bort. Standard: 365 dagar.",
   "seerrFillFields": "Fyll i URL och API-nyckel först.",

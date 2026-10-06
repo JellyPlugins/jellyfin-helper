@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.JellyfinHelper.Configuration;
+﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -74,12 +74,7 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         var linkRepairServiceMock = new Mock<ILinkRepairService>();
         var seerrServiceMock = new Mock<ISeerrIntegrationService>();
         seerrServiceMock
-            .Setup(s => s.CleanupExpiredRequestsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<int>(),
-                It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()))
+            .Setup(s => s.CleanupExpiredRequestsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SeerrCleanupResult());
 
         var userActivityInsightsMock = new Mock<IUserActivityInsightsService>();

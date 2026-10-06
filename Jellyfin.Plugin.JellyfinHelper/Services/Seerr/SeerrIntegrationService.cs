@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Authentication;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,7 +52,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     public async Task<(bool Success, string Message)> TestConnectionAsync(
         string baseUrl,
         string apiKey,
-        CancellationToken cancellationToken)
+        bool skipCertificateValidation = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(apiKey);
 
@@ -68,7 +70,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         try
         {
-            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey, skipCertificateValidation);
             using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
             using var response = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
@@ -84,6 +86,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 ? settings.ApplicationTitle
                 : "Seerr";
 
+            if (skipCertificateValidation)
+            {
+                _pluginLog.LogWarning(LogCategory, "Seerr connection test OK, but TLS certificate validation is disabled.", null, _logger);
+            }
+
             return (true, $"Connected to {title}");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -97,6 +104,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException or FormatException)
         {
+            if (HasCertificateError(ex))
+            {
+                return (false, "Connection failed: TLS certificate validation failed. If Seerr uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' in Settings.");
+            }
+
             return (false, $"Connection failed: {ex.Message}");
         }
     }
@@ -107,7 +119,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string apiKey,
         int maxAgeDays,
         bool dryRun,
-        CancellationToken cancellationToken)
+        bool skipCertificateValidation = false,
+        CancellationToken cancellationToken = default)
     {
         if (maxAgeDays < 1)
         {
@@ -122,7 +135,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string key;
         try
         {
-            (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey, skipCertificateValidation);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
@@ -549,7 +562,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     /// <summary>
     ///     Validates the base URL and API key, returning the factory-managed HTTP client and the normalised base URI.
     /// </summary>
-    private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey)
+    private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey, bool skipCertificateValidation = false)
     {
         if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out var parsedBaseUrl) ||
             (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
@@ -575,8 +588,25 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
 
         var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
-        var client = _httpClientFactory.CreateClient("SeerrIntegration");
+        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime. The insecure
+        // client is a separate named registration with identical hardening except validation.
+        var client = _httpClientFactory.CreateClient(skipCertificateValidation ? "SeerrIntegrationInsecure" : "SeerrIntegration");
         return (client, baseUri, apiKey);
+    }
+
+    // Walks the exception chain for a TLS handshake failure (unknown issuer / PartialChain is the
+    // reverse-proxy-with-private-CA case) so the test can point at the opt-out instead of a bare message.
+    private static bool HasCertificateError(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is AuthenticationException)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
