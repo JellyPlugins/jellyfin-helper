@@ -20,4 +20,4 @@ changelog: |-
   - The sidebar "Seerr Discovery" link now opens the tab correctly on the modern Jellyfin 12 layout (both the top header and the narrow-screen menu), as well as on the classic layout
   - End-to-end tests now run the real Custom Tabs and File Transformation plugins and repeatedly navigate in and out of the Discovery tab to prove it never goes blank
   - Tested by 6231 unit tests and 354 end-to-end tests
-  - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6

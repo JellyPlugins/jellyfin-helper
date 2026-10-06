@@ -15,7 +15,7 @@ cat > "$OUT_DIR/meta.json" <<JSON
   "name": "${NAME}",
   "overview": "E2E test build",
   "owner": "JellyPlugins",
-  "targetAbi": "12.1.0.0",
+  "targetAbi": "12.2.0.0",
   "version": "${VERSION}",
   "status": "Active",
   "autoUpdate": false,

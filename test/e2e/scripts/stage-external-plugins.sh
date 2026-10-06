@@ -2,7 +2,7 @@
 # Build and stage the two external plugins the Discovery custom tab depends on
 # (Custom Tabs + File Transformation) into the e2e config volume, using the same
 # "<Name>_<Version>" folder layout Jellyfin's loader requires. Built from local
-# source checkouts for Jellyfin 12.x so the ABI matches the 12.1 test image.
+# source checkouts for Jellyfin 12.x so the ABI matches the 12.2 test image.
 #
 # Source checkouts default to siblings of the repo and are overridable:
 #   CUSTOMTABS_SRC, FILETRANSFORMATION_SRC
@@ -11,8 +11,8 @@ set -euo pipefail
 STAGE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGINS_DIR="${1:?usage: stage-external-plugins.sh <plugins-dir>}"
 
-# Build these against the same Jellyfin major as the test image (compose.yml: 12.1).
-JELLYFIN_BUILD_VERSION="${JELLYFIN_BUILD_VERSION:-12.1.0}"
+# Build these against the same Jellyfin major as the test image (compose.yml: 12.2).
+JELLYFIN_BUILD_VERSION="${JELLYFIN_BUILD_VERSION:-12.2.0}"
 
 # Default to sibling checkouts next to this repo's parent.
 REPO_PARENT="$(cd "$STAGE_SCRIPT_DIR/../../../.." && pwd)"

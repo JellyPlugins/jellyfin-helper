@@ -29,7 +29,7 @@ server**.
 
 ```text
 test/e2e/
-├── compose.yml            # Jellyfin 12.1 + mock-arr + mock-seerr
+ ├── compose.yml            # Jellyfin 12.2 + mock-arr + mock-seerr
 ├── playwright.config.ts   # two projects: "api" (HTTP) and "ui" (browser)
 ├── package.json
 ├── scripts/
@@ -72,10 +72,9 @@ ffmpeg needed.** Media is generated inside the Jellyfin container.
 
 ## Why the image tag is pinned
 
-The plugin targets ABI `12.1.0.0` (built against `Jellyfin.Controller
-12.1.0`). Jellyfin 12 is currently **release-candidate only**: the
-stable `latest` / `10.x` line would refuse to load the plugin. `compose.yml`
-pins `jellyfin/jellyfin:12.1`.
+The plugin targets ABI `12.2.0.0` (built against `Jellyfin.Controller
+12.2.0`). The `latest` / `10.x` line would refuse to load the plugin. `compose.yml`
+pins `jellyfin/jellyfin:12.2`.
 
 ## CI
 
