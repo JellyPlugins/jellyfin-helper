@@ -580,6 +580,9 @@ function loadSettings() {
             h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
             h += '<input type="password" id="cfgTraktClientSecret">';
             h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications with redirect URI urn:ietf:wg:oauth:2.0:oob.')) + '</div>';
+            h += '<div style="margin-top:0.5em;">';
+            h += '<button type="button" class="action-btn btn-arr-test" id="btnTestTrakt" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + escHtml(T('testConnection', 'Test Connection')) + '</button>';
+            h += '</div>';
             h += '</div></div>';
         }
 
@@ -621,7 +624,7 @@ function loadSettings() {
         h += '</div>';
 
         form.innerHTML = h;
-        ['Seerr', 'Radarr', 'Sonarr'].forEach(function (type) {
+        ['Seerr', 'Trakt', 'Radarr', 'Sonarr'].forEach(function (type) {
             var hdrBtn = document.getElementById('arrCollapsibleHeader' + type);
             if (hdrBtn) {
                 hdrBtn.addEventListener('click', function () {
@@ -647,6 +650,7 @@ function loadSettings() {
         attachAddHandlers();
         attachBackupHandlers();
         attachSeerrHandlers();
+        attachTraktHandlers();
         attachDiscoveryCopyHandler();
         attachTaskDescHandlers();
         attachAutoSaveHandlers();
@@ -1249,6 +1253,50 @@ function attachSeerrHandlers() {
         }, function () {
             btn.disabled = false;
             _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
+        });
+    });
+}
+
+/**
+ * Trakt admin test. Validates the shared OAuth application's Client ID against Trakt's client-id-only trending
+ * endpoint, then auto-saves on success (quiet) exactly like the Seerr test. The Client Secret is not tested:
+ * in the device flow it is only used during token exchange, which no admin-level call can exercise.
+ */
+function attachTraktHandlers() {
+    var btn = document.getElementById('btnTestTrakt');
+    if (!btn) return;
+    var _traktTimer = null;
+    btn.addEventListener('click', function () {
+        var clientId = (document.getElementById('cfgTraktClientId') || {}).value || '';
+        var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
+
+        if (_traktTimer) {
+            clearTimeout(_traktTimer);
+            _traktTimer = null;
+        }
+
+        if (!clientId) {
+            _traktTimer = showButtonFeedback(btn, false, T('traktFillFields', 'Please fill in the Client ID first.'), originalHtml, 3000);
+            return;
+        }
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-spinner"></span>' + escHtml(T('testing', 'Testing…'));
+        apiPost('JellyfinHelper/Trakt/Test', {ClientId: clientId}, function (res) {
+            btn.disabled = false;
+            // Jellyfin 12 serializes DTOs in PascalCase; accept camelCase too for parity with the Seerr handler.
+            var testOk = res && (res.Success || res.success);
+            var testMsg = res && (res.Message || res.message);
+            if (testOk) {
+                _traktTimer = showButtonFeedback(btn, true, testMsg || 'OK', originalHtml);
+                // Auto-save after a successful test (quiet to avoid double feedback), same as Seerr.
+                var payload = buildSettingsPayload();
+                doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderTrakt')});
+            } else {
+                _traktTimer = showButtonFeedback(btn, false, testMsg || 'Failed', originalHtml);
+            }
+        }, function () {
+            btn.disabled = false;
+            _traktTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
     });
 }

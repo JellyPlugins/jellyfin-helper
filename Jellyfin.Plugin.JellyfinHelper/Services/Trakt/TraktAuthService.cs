@@ -168,6 +168,47 @@ public sealed class TraktAuthService : ITraktAuthService
     public Task DisconnectAsync(Guid userId, CancellationToken cancellationToken)
         => _store.RemoveAsync(userId, cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<(bool Success, string Message)> TestClientIdAsync(string clientId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return (false, "A Trakt Client ID is required.");
+        }
+
+        // Trending is the only endpoint reachable with just a client id, so it is the honest admin-level check.
+        var uri = new Uri($"{TraktApi.BaseUrl}/movies/trending?limit=1", UriKind.Absolute);
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.TryAddWithoutValidation("trakt-api-version", "2");
+        request.Headers.TryAddWithoutValidation("trakt-api-key", clientId);
+
+        try
+        {
+            using var response = await Send(request, cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Trakt Client ID is valid.");
+            }
+
+            // Log the raw status server-side only; the client id itself is never logged.
+            _pluginLog.LogWarning(LogSource, $"Trakt client id test failed: {(int)response.StatusCode}.", logger: _logger);
+            return response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                ? (false, "Trakt rejected this Client ID. Verify it against your Trakt application.")
+                : (false, "Could not reach Trakt. Please try again.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ResponseTooLargeException)
+        {
+            _pluginLog.LogWarning(LogSource, "Trakt client id test errored.", ex, _logger);
+            return (false, "Could not reach Trakt. Please try again.");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pluginLog.LogWarning(LogSource, "Trakt client id test timed out.", logger: _logger);
+            return (false, "Trakt connection timed out.");
+        }
+    }
+
     // Exchanges a refresh token for a new token pair and persists it. Returns null (and clears nothing) when
     // the refresh fails, so the caller treats the user as needing a re-link without destroying the stored token.
     private async Task<TraktUserToken?> RefreshAsync(Guid userId, string refreshToken, CancellationToken cancellationToken)

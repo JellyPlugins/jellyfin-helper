@@ -42,4 +42,14 @@ public interface ITraktAuthService
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>A task that completes when the token has been removed.</returns>
     Task DisconnectAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Validates a Trakt client id by issuing the client-id-only trending request. The client secret is not
+    ///     exercised: in the device flow it is only used during token exchange, which cannot be tested without a
+    ///     user approving a device code.
+    /// </summary>
+    /// <param name="clientId">The client id to validate.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>Success plus a human-readable message describing the outcome.</returns>
+    Task<(bool Success, string Message)> TestClientIdAsync(string clientId, CancellationToken cancellationToken);
 }

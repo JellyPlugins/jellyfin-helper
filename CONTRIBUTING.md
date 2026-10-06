@@ -173,6 +173,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── RecommendationControllerTests.cs
 │   ├── RecommendationControllerDiagnosticsTests.cs      # GET /Recommendations/Diagnostics/Ensemble: 200 populated DTO, Available=false on null, 503 when deactivated
 │   ├── TrashControllerTests.cs
+│   ├── TraktControllerTests.cs                         # TestConnection: blank-input rejection, client-id trim, 200 valid, 502 rejected
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
@@ -453,6 +454,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
 │   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
+│   ├── TraktController.cs               # Admin-only Trakt config API. POST /JellyfinHelper/Trakt/Test validates the shared OAuth app's Client ID via Trakt's client-id-only trending endpoint (200 valid, 401/403 rejected). The Client Secret is not tested: the device flow only uses it during token exchange, which no admin-level call can exercise without a user approving a device code.
+│   ├── TraktTestRequest.cs              # Request DTO carrying the Trakt Client ID to validate (not a masked secret - the Client ID is returned to the admin as-is, so there is no sentinel to resolve)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
@@ -739,6 +742,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RecommendationControllerDiagnosticsTests.cs`
 - `ResponseDtoTests.cs`
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
+- `TraktControllerTests.cs` - Tests TraktController TestConnection: blank-input rejection, client-id trim, 200 on valid, 502 on rejected
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
 - `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, device poll request/response, JSON round-trips)
 - `TrashControllerTests.cs`
@@ -1030,6 +1034,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RequestResult.cs`
 - `SeerrController.cs`
 - `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection
+- `TraktController.cs` - Admin-only Trakt config API; POST Test validates the Client ID via the client-id-only trending endpoint
+- `TraktTestRequest.cs` - Request DTO carrying the Trakt Client ID to validate
 - `SeerrUrlResponse.cs`
 - `TranslationsController.cs`
 - `TrashAccessEntry.cs`

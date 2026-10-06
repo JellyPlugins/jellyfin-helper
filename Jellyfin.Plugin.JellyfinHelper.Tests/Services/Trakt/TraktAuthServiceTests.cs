@@ -176,4 +176,42 @@ public sealed class TraktAuthServiceTests : IDisposable
 
         Assert.Null(_store.GetToken(userId));
     }
+
+    [Fact]
+    public async Task TestClientId_ReturnsSuccess_OnHttp200()
+    {
+        Enqueue(HttpStatusCode.OK, "[]");
+        var (success, message) = await CreateService().TestClientIdAsync("client-id", CancellationToken.None);
+        Assert.True(success);
+        Assert.False(string.IsNullOrWhiteSpace(message));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task TestClientId_ReturnsRejected_OnAuthFailure(HttpStatusCode status)
+    {
+        Enqueue(status, "{}");
+        var (success, message) = await CreateService().TestClientIdAsync("client-id", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("rejected", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TestClientId_ReturnsGenericFailure_OnServerError()
+    {
+        Enqueue(HttpStatusCode.InternalServerError, "{}");
+        var (success, message) = await CreateService().TestClientIdAsync("client-id", CancellationToken.None);
+        Assert.False(success);
+        Assert.DoesNotContain("rejected", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task TestClientId_ReturnsFailure_WhenClientIdBlank(string clientId)
+    {
+        var (success, _) = await CreateService().TestClientIdAsync(clientId, CancellationToken.None);
+        Assert.False(success);
+    }
 }

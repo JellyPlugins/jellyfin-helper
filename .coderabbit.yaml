@@ -6,6 +6,12 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # Skip generated or metadata-only files: they add no review value and consume CodeRabbit's per-PR file budget.
+  path_filters:
+    - "!CHANGELOG.md"
+    - "!manifest.json"
+    - "!build.yaml"
+    - "!Directory.Build.props"
   auto_review:
     enabled: true
     drafts: false
