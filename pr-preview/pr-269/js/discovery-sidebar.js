@@ -191,7 +191,10 @@
         style.id = 'jfhelper-discovery-styles';
         style.textContent =
             '@keyframes dspin { to { transform: rotate(360deg); } }' +
-            '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); }' +
+            '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
+            // Tab content renders its own container inside the shell container: the inner one must not
+            // add padding again or the grid/headers indent against the tab bar.
+            '.jfh-discovery-container .jfh-discovery-container { max-width: none; margin: 0; padding: 0; }' +
             '.jfh-discovery-spinner { display:flex;justify-content:center;padding:2em; }' +
             '.jfh-discovery-spinner::after { content:"";width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#00a4dc;border-radius:50%;animation:dspin 0.8s linear infinite; }' +
             '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: clamp(0.5em, 1.2vw, 1.2em); }' +
@@ -201,6 +204,15 @@
             '@media (min-width: 1400px) { .jfh-discovery-grid { grid-template-columns: repeat(6, 1fr); } }' +
             '@media (min-width: 1920px) { .jfh-discovery-grid { grid-template-columns: repeat(7, 1fr); } }' +
             '@media (min-width: 2560px) { .jfh-discovery-grid { grid-template-columns: repeat(8, 1fr); } }' +
+            // Container queries mirror the breakpoints above but key off the panel width instead of the
+            // viewport, so a capped panel on an ultrawide screen gets columns it can actually fit. They come
+            // last so they win where supported; older clients without @container keep the media rules above.
+            '@container (min-width: 480px) { .jfh-discovery-grid { grid-template-columns: repeat(3, 1fr); } }' +
+            '@container (min-width: 768px) { .jfh-discovery-grid { grid-template-columns: repeat(4, 1fr); } }' +
+            '@container (min-width: 1024px) { .jfh-discovery-grid { grid-template-columns: repeat(5, 1fr); } }' +
+            '@container (min-width: 1400px) { .jfh-discovery-grid { grid-template-columns: repeat(6, 1fr); } }' +
+            '@container (min-width: 1920px) { .jfh-discovery-grid { grid-template-columns: repeat(7, 1fr); } }' +
+            '@container (min-width: 2560px) { .jfh-discovery-grid { grid-template-columns: repeat(8, 1fr); } }' +
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
             // Poster flip container
             '.jfh-discovery-card-poster { position: relative; perspective: 800px; cursor: pointer; overflow: hidden; }' +
@@ -229,7 +241,7 @@
             '.jfh-discovery-score-mid .jfh-discovery-score-bar { background: #f39c12; }' +
             '.jfh-discovery-score-low .jfh-discovery-score-bar { background: #e74c3c; }' +
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
-            '.jfh-discovery-btn-row { margin-top: auto; display: flex; gap: 0.4em; align-items: stretch; }' +
+            '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
             '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
@@ -243,15 +255,17 @@
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
             '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }' +
-            // Sub-tab bar: horizontally scrollable on narrow viewports (same pattern as the genres row),
-            // stable with no scrollbar on desktop where the tabs fit.
-            '.jfh-discovery-tabs { display: flex; flex-wrap: nowrap; gap: 0.4em; margin: 0 0 1em 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; }' +
+            // Sub-tab bar: one segmented tray instead of loose buttons, so the tabs align
+            // with each other and with the grid edge. Scrolls horizontally only when
+            // the tray itself overflows (narrow viewports).
+            '.jfh-discovery-tabs { display: inline-flex; align-items: stretch; gap: 4px; max-width: 100%; margin: 0 0 1em 0; padding: 4px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar { height: 4px; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar-track { background: transparent; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
-            '.jfh-discovery-tab { flex-shrink: 0; padding: 0.5em 1em; border: none; border-radius: 6px; background: rgba(255,255,255,0.06); color: #ddd; cursor: pointer; font-size: 0.9em; white-space: nowrap; transition: background 0.2s, color 0.2s; }' +
-            '.jfh-discovery-tab:hover { background: rgba(255,255,255,0.12); }' +
-            '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; }' +
+            '.jfh-discovery-tab { flex-shrink: 0; display: inline-flex; align-items: center; padding: 0.5em 1.1em; border: none; border-radius: 7px; background: transparent; color: #bbb; cursor: pointer; font-size: 0.9em; font-weight: 500; white-space: nowrap; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }' +
+            '.jfh-discovery-tab:hover { background: rgba(255,255,255,0.07); color: #fff; }' +
+            '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
+            '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Connect panel for the personal Trakt tab before a user links.
             '.jfh-discovery-connect { max-width: 520px; margin: 1em auto; text-align: center; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 1.6em; }' +
             '.jfh-discovery-connect h3 { margin: 0 0 0.6em 0; }' +
