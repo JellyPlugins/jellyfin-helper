@@ -96,10 +96,14 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,
             EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
-            new Mock<ILogger<EnsembleScoringStrategy>>().Object);
+            new Mock<ILogger<EnsembleScoringStrategy>>().Object,
+            ownsNeural: false);
         var pluginLog = new Mock<IPluginLogService>();
         var cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
         _owned.Add(ensemble);
+        // The ensemble does not own neural here (ownsNeural: false, like per-user ensembles in
+        // production), so it is disposed explicitly alongside it - never implicitly twice.
+        _owned.Add(neural);
         _owned.Add(cache);
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         feedbackStore.Setup(f => f.GetDismissedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
