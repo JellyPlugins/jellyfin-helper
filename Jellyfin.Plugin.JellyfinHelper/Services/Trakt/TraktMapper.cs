@@ -82,6 +82,7 @@ internal static class TraktMapper
             GenreIds = [],
             PosterPath = null,
             Adult = false,
+            TraktSlug = string.IsNullOrWhiteSpace(item.Ids?.Slug) ? null : item.Ids.Slug.Trim(),
         };
     }
 }

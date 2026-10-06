@@ -1975,6 +1975,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Adult = c.Adult,
             ReleaseDate = !isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
             FirstAirDate = isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            TraktSlug = c.TraktSlug,
         };
     }
 
@@ -2082,7 +2083,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             PosterPath = item.PosterPath,
             Overview = item.Overview,
             AlreadyRequested = false,
-            KnownPeople = item.KnownPeople
+            KnownPeople = item.KnownPeople,
+            TraktSlug = item.TraktSlug
         };
     }
 

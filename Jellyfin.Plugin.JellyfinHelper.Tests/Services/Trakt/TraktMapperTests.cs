@@ -42,6 +42,18 @@ public sealed class TraktMapperTests
         Assert.Equal("Title", c.Title);
         Assert.Equal(2021, c.Year);
         Assert.Equal(7.5, c.VoteAverage);
+        Assert.Equal("slug", c.TraktSlug);
+    }
+
+    [Fact]
+    public void MapMediaItems_NullsBlankSlug()
+    {
+        var item = Media(100);
+        item.Ids!.Slug = "  ";
+
+        var c = Assert.Single(TraktMapper.MapMediaItems([item], "movie", out _));
+
+        Assert.Null(c.TraktSlug);
     }
 
     [Fact]

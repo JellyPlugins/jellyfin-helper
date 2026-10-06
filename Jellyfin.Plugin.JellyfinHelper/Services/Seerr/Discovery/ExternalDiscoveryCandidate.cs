@@ -36,6 +36,9 @@ public sealed class ExternalDiscoveryCandidate
     /// <summary>Gets or sets the poster path (relative to the TMDb CDN).</summary>
     public string? PosterPath { get; set; }
 
+    /// <summary>Gets or sets the Trakt URL slug (preferred for building working trakt.tv links).</summary>
+    public string? TraktSlug { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the item is adult-flagged.</summary>
     public bool Adult { get; set; }
 }
