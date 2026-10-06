@@ -615,9 +615,10 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<TraktDiscoveryResponse>> GetMyTrakt(CancellationToken cancellationToken)
     {
-        if (!IsTraktEnabled())
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+            return accessError;
         }
 
         var userId = GetCurrentUserId();
@@ -642,9 +643,10 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<DiscoveryResult?>> GetMyTraktTrending(CancellationToken cancellationToken)
     {
-        if (!IsTraktEnabled())
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+            return accessError;
         }
 
         var userId = GetCurrentUserId();
@@ -670,9 +672,10 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult> StartTraktDevice(CancellationToken cancellationToken)
     {
-        if (!IsTraktEnabled())
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+            return accessError;
         }
 
         var userId = GetCurrentUserId();
@@ -710,9 +713,10 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult> PollTraktDevice([FromBody] TraktDevicePollRequest dto, CancellationToken cancellationToken)
     {
-        if (!IsTraktEnabled())
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+            return accessError;
         }
 
         ArgumentNullException.ThrowIfNull(dto);
@@ -749,9 +753,10 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<RequestResult>> DisconnectTrakt(CancellationToken cancellationToken)
     {
-        if (!IsTraktEnabled())
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+            return accessError;
         }
 
         var userId = GetCurrentUserId();
@@ -848,8 +853,29 @@ public sealed class UserDiscoveryController : ControllerBase
         return throttled;
     }
 
-    /// <summary>Checks whether the admin has enabled the Trakt discovery source.</summary>
+    /// <summary>Checks whether Trakt is configured (client id + secret stored, surfaced as the derived flag).</summary>
     private bool IsTraktEnabled() => _configurationService.GetConfiguration().TraktEnabled;
+
+    /// <summary>
+    ///     Combined gate for every user-facing Trakt endpoint. Trakt tabs are a feature of the Discovery sidebar,
+    ///     so they require BOTH that the admin granted user-level discovery access AND that Trakt is configured.
+    ///     Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access is allowed.
+    ///     The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs at all.
+    /// </summary>
+    private ObjectResult? CheckTraktAccess()
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
+        }
+
+        if (!IsTraktEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+        }
+
+        return null;
+    }
 
     /// <summary>
     ///     Reconstructs SeerrServiceInfo objects directly from the pre-evaluated AllowedQualityProfile list without requiring a second Seerr API call.

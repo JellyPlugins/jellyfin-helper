@@ -12,6 +12,8 @@ reviews:
     - "!manifest.json"
     - "!build.yaml"
     - "!Directory.Build.props"
+    - "!mock-data.js"
+    - "!.coderabbit.yaml"
   auto_review:
     enabled: true
     drafts: false

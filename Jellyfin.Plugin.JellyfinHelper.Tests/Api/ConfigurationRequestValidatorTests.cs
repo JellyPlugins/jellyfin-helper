@@ -697,13 +697,13 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsError_WhenTraktEnabledWithoutClientId()
+    public void Validate_ReturnsError_WhenTraktClientSecretSetWithoutClientId()
     {
+        // A real new secret without an id cannot authenticate — both credentials are required together.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
             TrashRetentionDays = 30,
-            TraktEnabled = true,
             TraktClientId = "",
             TraktClientSecret = "secret"
         };
@@ -713,13 +713,13 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsError_WhenTraktEnabledWithoutClientSecret()
+    public void Validate_ReturnsError_WhenTraktClientIdSetWithoutClientSecret()
     {
+        // An id without a secret cannot authenticate — both credentials are required together.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
             TrashRetentionDays = 30,
-            TraktEnabled = true,
             TraktClientId = "id",
             TraktClientSecret = ""
         };
@@ -743,27 +743,40 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsNull_WhenTraktDisabledAndCredentialsEmpty()
+    public void Validate_ReturnsNull_WhenTraktCredentialsBothEmpty()
     {
+        // Neither credential set: Trakt stays off, nothing to validate.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktEnabled = false
+            TrashRetentionDays = 30
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
-    public void Validate_ReturnsNull_WhenTraktEnabledWithBothCredentials()
+    public void Validate_ReturnsNull_WhenTraktBothCredentialsPresent()
     {
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
             TrashRetentionDays = 30,
-            TraktEnabled = true,
             TraktClientId = "id",
             TraktClientSecret = "secret"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_WhenTraktClientIdSetAndSecretIsMask()
+    {
+        // The mask sentinel means "keep the stored secret", so an id + mask is a valid both-present state.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktClientId = "id",
+            TraktClientSecret = "********"
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }

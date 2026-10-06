@@ -220,7 +220,6 @@
   "settingsTraktTitle": "Paramètres Trakt",
   "settingsTraktHelp": "Enregistrez une application Trakt pour ce serveur (trakt.tv/oauth/applications, URI de redirection urn:ietf:wg:oauth:2.0:oob). Chaque utilisateur lie ensuite son propre compte Trakt depuis la page Découverte avec un code à usage unique. Aucune configuration par utilisateur n'est nécessaire.",
   "traktInstance": "Application Trakt",
-  "traktEnabled": "Activer la découverte Trakt",
   "traktClientId": "ID client Trakt",
   "traktClientSecret": "Secret client Trakt",
   "traktClientHelp": "Créez une application sur trakt.tv/oauth/applications avec l'URI de redirection urn:ietf:wg:oauth:2.0:oob.",

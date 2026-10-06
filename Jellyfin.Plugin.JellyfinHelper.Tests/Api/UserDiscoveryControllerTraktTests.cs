@@ -32,7 +32,7 @@ public sealed class UserDiscoveryControllerTraktTests
     private readonly Mock<IPluginConfigurationService> _configServiceMock = new();
     private readonly DiscoveryCacheService _cache;
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
-    private readonly PluginConfiguration _config = new() { TraktEnabled = true };
+    private readonly PluginConfiguration _config = new() { TraktEnabled = true, DiscoveryUserAccessEnabled = true };
 
     public UserDiscoveryControllerTraktTests()
     {
@@ -69,6 +69,16 @@ public sealed class UserDiscoveryControllerTraktTests
     public async Task GetMyTrakt_WhenTraktDisabled_Returns403()
     {
         _config.TraktEnabled = false;
+        var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
+        Assert.Equal(403, Status(result.Result!));
+    }
+
+    [Fact]
+    public async Task GetMyTrakt_WhenDiscoveryAccessDisabled_Returns403()
+    {
+        // Trakt tabs are a feature of the Discovery sidebar, so the user-level discovery-access gate
+        // applies even when Trakt itself is configured.
+        _config.DiscoveryUserAccessEnabled = false;
         var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
         Assert.Equal(403, Status(result.Result!));
     }

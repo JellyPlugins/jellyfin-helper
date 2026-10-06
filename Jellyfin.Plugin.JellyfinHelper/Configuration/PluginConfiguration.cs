@@ -96,8 +96,10 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool DiscoveryUserAccessEnabled { get; set; }
 
     /// <summary>
-    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled. When off the Discovery
-    ///     sidebar shows only the local ensemble grid, exactly as before Trakt existed.
+    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled. This is a DERIVED flag,
+    ///     not a user-facing toggle: the config endpoint sets it true whenever both <see cref="TraktClientId"/>
+    ///     and <see cref="TraktClientSecret"/> are stored, and false otherwise. When off the Discovery sidebar
+    ///     shows only the local ensemble grid, exactly as before Trakt existed.
     /// </summary>
     public bool TraktEnabled { get; set; }
 

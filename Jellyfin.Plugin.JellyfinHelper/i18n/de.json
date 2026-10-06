@@ -220,7 +220,6 @@
   "settingsTraktTitle": "Trakt-Einstellungen",
   "settingsTraktHelp": "Registriere eine Trakt-Anwendung für diesen Server (trakt.tv/oauth/applications, Redirect-URI urn:ietf:wg:oauth:2.0:oob). Jeder Nutzer verknüpft danach sein eigenes Trakt-Konto über die Discovery-Seite per Einmal-Code. Kein Aufwand pro Nutzer.",
   "traktInstance": "Trakt-Anwendung",
-  "traktEnabled": "Trakt-Discovery aktivieren",
   "traktClientId": "Trakt Client-ID",
   "traktClientSecret": "Trakt Client-Secret",
   "traktClientHelp": "Erstelle eine Anwendung unter trakt.tv/oauth/applications mit der Redirect-URI urn:ietf:wg:oauth:2.0:oob.",

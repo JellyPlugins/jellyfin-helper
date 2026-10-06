@@ -220,7 +220,6 @@
   "settingsTraktTitle": "Trakt 设置",
   "settingsTraktHelp": "为本服务器注册一个 Trakt 应用（trakt.tv/oauth/applications，重定向 URI 为 urn:ietf:wg:oauth:2.0:oob）。之后每位用户在发现页面用一次性代码关联各自的 Trakt 账户，无需为每位用户单独设置。",
   "traktInstance": "Trakt 应用",
-  "traktEnabled": "启用 Trakt 发现",
   "traktClientId": "Trakt 客户端 ID",
   "traktClientSecret": "Trakt 客户端密钥",
   "traktClientHelp": "在 trakt.tv/oauth/applications 创建应用，重定向 URI 使用 urn:ietf:wg:oauth:2.0:oob。",

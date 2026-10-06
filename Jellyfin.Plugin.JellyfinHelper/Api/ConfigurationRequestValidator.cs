@@ -128,8 +128,9 @@ public static class ConfigurationRequestValidator
     }
 
     /// <summary>
-    ///     Validates the Trakt-related fields: when the source is enabled a client id and secret are required,
-    ///     and neither the id nor the secret may contain control characters or exceed sane length bounds.
+    ///     Validates the Trakt-related fields: the client id and secret must be provided together (one without
+    ///     the other is a misconfiguration), and neither may contain control characters or exceed sane length
+    ///     bounds. There is no separate enable flag — Trakt is enabled by storing both credentials.
     /// </summary>
     /// <param name="request">The configuration update request to validate.</param>
     /// <returns>An error message string, or <c>null</c> when the Trakt settings are valid.</returns>
@@ -150,19 +151,22 @@ public static class ConfigurationRequestValidator
             return "Trakt client secret must not contain CR, LF, tab, or NUL characters.";
         }
 
-        // When the admin turns Trakt on, both credentials must be present. The secret may be the mask sentinel
-        // (meaning "keep the stored one"), which still counts as present.
-        if (request.TraktEnabled == true)
+        // Both credentials must be supplied together. A null field means "preserve the stored value" (a client
+        // without the Trakt card), so only non-null fields constrain each other. The mask sentinel counts as
+        // "secret present" (keep the stored one). An id without a secret — or a real new secret without an id —
+        // cannot authenticate.
+        if (!string.IsNullOrWhiteSpace(request.TraktClientId)
+            && request.TraktClientSecret is not null
+            && string.IsNullOrWhiteSpace(request.TraktClientSecret))
         {
-            if (string.IsNullOrWhiteSpace(request.TraktClientId))
-            {
-                return "A Trakt client id is required when Trakt is enabled.";
-            }
+            return "A Trakt client secret is required when a Trakt client id is set.";
+        }
 
-            if (string.IsNullOrWhiteSpace(request.TraktClientSecret))
-            {
-                return "A Trakt client secret is required when Trakt is enabled.";
-            }
+        var secretIsRealNewValue = !string.IsNullOrWhiteSpace(request.TraktClientSecret)
+                                    && !ApiKeyMaskResolver.IsMask(request.TraktClientSecret);
+        if (secretIsRealNewValue && request.TraktClientId is not null && string.IsNullOrWhiteSpace(request.TraktClientId))
+        {
+            return "A Trakt client id is required when a Trakt client secret is set.";
         }
 
         return null;

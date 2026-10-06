@@ -1788,4 +1788,82 @@ public class ConfigurationControllerTests : IDisposable
         Assert.True(_config.UseTrash);
         Assert.Equal(".jellyfin-trash", _config.TrashFolderPath);
     }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktClientIdAndSecretBothSet_DerivesTraktEnabledTrue()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            TraktClientId = "client-id",
+            TraktClientSecret = "client-secret"
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.TraktEnabled);
+        Assert.Equal("client-id", _config.TraktClientId);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktCredentialsCleared_DerivesTraktEnabledFalse()
+    {
+        // Start from a configured state, then clear both credentials; the derived flag must follow.
+        _config.TraktClientId = "existing-id";
+        _config.TraktClientSecret = _secretProtector.Protect("existing-secret");
+        _config.TraktEnabled = true;
+
+        var request = new ConfigurationUpdateRequest
+        {
+            TraktClientId = "",
+            TraktClientSecret = ""
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.TraktEnabled);
+        Assert.Equal(string.Empty, _config.TraktClientId);
+        Assert.Equal(string.Empty, _config.TraktClientSecret);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktRequestEnabledFlagIgnored_DerivedFromCredentials()
+    {
+        // A client that still sends TraktEnabled=true must not force the flag on without credentials:
+        // the server derives it solely from stored client id + secret.
+        var request = new ConfigurationUpdateRequest
+        {
+            TraktEnabled = true,
+            TraktClientId = null,
+            TraktClientSecret = null
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.TraktEnabled);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktSecretMaskPreservesStoredSecretAndKeepsEnabled()
+    {
+        // The mask sentinel means "keep the stored secret", so an id + mask stays a configured (enabled) state.
+        _config.TraktClientId = "existing-id";
+        _config.TraktClientSecret = _secretProtector.Protect("existing-secret");
+        _config.TraktEnabled = true;
+        var storedSecret = _config.TraktClientSecret;
+
+        var request = new ConfigurationUpdateRequest
+        {
+            TraktClientId = "existing-id",
+            TraktClientSecret = "********"
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.TraktEnabled);
+        Assert.Equal(storedSecret, _config.TraktClientSecret);
+    }
 }

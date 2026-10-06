@@ -562,18 +562,15 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Applies the Trakt settings. All fields are nullable in the request so a client without the Trakt card
-    ///     (Discovery sidebar off) omits them and the stored values are preserved rather than cleared.
+    ///     (Discovery sidebar off) omits them and the stored values are preserved rather than cleared. There is no
+    ///     separate "enable" toggle: Trakt is considered enabled whenever both a client id and secret are stored,
+    ///     so <see cref="PluginConfiguration.TraktEnabled"/> is derived here rather than taken from the request.
     /// </summary>
     /// <param name="request">The incoming configuration update request.</param>
     /// <param name="config">The existing plugin configuration to update.</param>
     /// <param name="secretProtector">Encrypts the client secret before it is persisted.</param>
     private static void ApplyTraktSettings(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
     {
-        if (request.TraktEnabled.HasValue)
-        {
-            config.TraktEnabled = request.TraktEnabled.Value;
-        }
-
         if (request.TraktClientId is not null)
         {
             config.TraktClientId = request.TraktClientId.Trim();
@@ -588,6 +585,12 @@ public class ConfigurationController : ControllerBase
 
         config.TraktTimeoutSeconds = request.TraktTimeoutSeconds ?? config.TraktTimeoutSeconds;
         config.TraktLimit = request.TraktLimit ?? config.TraktLimit;
+
+        // Derive the enabled flag from configuredness (both credentials present) after the credential
+        // mutations above. request.TraktEnabled is intentionally ignored: the admin UI no longer has a
+        // standalone toggle, so entering a client id + secret is what turns Trakt on.
+        config.TraktEnabled = !string.IsNullOrWhiteSpace(config.TraktClientId)
+                              && !string.IsNullOrWhiteSpace(config.TraktClientSecret);
     }
 
     /// <summary>
