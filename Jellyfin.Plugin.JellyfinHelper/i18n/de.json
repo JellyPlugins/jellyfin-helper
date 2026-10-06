@@ -156,6 +156,8 @@
   "radarrInstances": "Radarr-Instanzen",
   "sonarrInstances": "Sonarr-Instanzen",
   "arrInstanceLibraries": "Zugewiesene Bibliotheken",
+  "arrSkipCertValidation": "Zertifikatsprüfung überspringen",
+  "arrSkipCertValidationHelp": "Deaktiviert die TLS-Zertifikatsprüfung für diese Instanz (private CA, selbstsignierte oder IP-Zertifikate). Nur in Netzwerken verwenden, denen du vertraust: Ohne Prüfung kann jeder, der die Verbindung mitliest, den API-Schlüssel lesen.",
   "arrLibrariesAuto": "Automatisch (über Stammordner zugeordnet)",
   "compareWith": "Vergleichen mit",
   "compare": "Vergleichen",

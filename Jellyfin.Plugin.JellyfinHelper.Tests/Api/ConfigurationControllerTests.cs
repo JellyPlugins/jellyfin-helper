@@ -39,7 +39,7 @@ public class ConfigurationControllerTests : IDisposable
         _pluginLogMock = new Mock<IPluginLogService>();
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
         _seerrServiceMock = new Mock<ISeerrIntegrationService>();
         _seerrServiceMock
@@ -267,13 +267,33 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateConfiguration_ArrSkipCertValidation_SurvivesRebuild()
+    {
+        // RebuildArrInstances must copy the flag onto the stored instance, or the
+        // setting silently drops on every save.
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "R1", Url = "https://r1:7878", ApiKey = "key1", SkipCertificateValidation = true }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Single(_config.RadarrInstances);
+        Assert.True(_config.RadarrInstances[0].SkipCertificateValidation);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_UnreachableArr_SavesButReturnsWarnings()
     {
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "key1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "key1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Radarr v5.0"));
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r2:7878", "key2", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r2:7878", "key2", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "Connection refused"));
 
         var request = new ConfigurationUpdateRequest
@@ -553,7 +573,7 @@ public class ConfigurationControllerTests : IDisposable
     public async Task UpdateConfiguration_UnreachableSonarr_ReturnsWarning()
     {
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://s1:8989", "sk1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://s1:8989", "sk1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "timeout"));
 
         var request = new ConfigurationUpdateRequest
@@ -573,7 +593,7 @@ public class ConfigurationControllerTests : IDisposable
         // BUG GUARD: instances added without a name must still surface a meaningful label
         // ("Radarr #1", "Radarr #2" etc), not a blank string in the warning.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "refused"));
 
         var request = new ConfigurationUpdateRequest
@@ -603,7 +623,7 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -612,7 +632,7 @@ public class ConfigurationControllerTests : IDisposable
     {
         // Contract: HttpRequestException / TimeoutException must be caught and reported as a warning - the config save must NOT fail because of unreachable Arr instances.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("network down"));
 
         var request = new ConfigurationUpdateRequest
@@ -1319,7 +1339,7 @@ public class ConfigurationControllerTests : IDisposable
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
@@ -1552,7 +1572,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<BadRequestObjectResult>(result);
         _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _seerrServiceMock.Verify(
             s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -1570,7 +1590,7 @@ public class ConfigurationControllerTests : IDisposable
 
         Assert.IsType<OkObjectResult>(result);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.AtLeastOnce);
     }
@@ -1641,7 +1661,7 @@ public class ConfigurationControllerTests : IDisposable
         // Token cancellation during an Arr test must return early without adding a warning,
         // contrasting the HttpRequestException path that surfaces a reachability warning.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
         var request = new ConfigurationUpdateRequest

@@ -2451,7 +2451,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveRadarrInstances(),
-            _arrIntegration.GetRadarrMoviesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetRadarrMoviesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static m => m.TmdbId,
             MediaTypeMovie,
             "Radarr",
@@ -2473,7 +2473,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveSonarrInstances(),
-            _arrIntegration.GetSonarrSeriesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetSonarrSeriesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static s => s.TmdbId,
             "tv",
             "Sonarr",
@@ -2486,7 +2486,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <typeparam name="T">The Arr item type (movie or series).</typeparam>
     /// <param name="instances">The effective Arr instances to query.</param>
-    /// <param name="fetch">Delegate fetching the items for an instance (URL, API key, token).</param>
+    /// <param name="fetch">Delegate fetching the items for an instance (instance, unprotected API key, token).</param>
     /// <param name="tmdbSelector">Selects the TMDb ID from an item.</param>
     /// <param name="mediaType">The media type recorded in the exclusion set.</param>
     /// <param name="arrName">The Arr display name used in log messages (Radarr/Sonarr).</param>
@@ -2495,7 +2495,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <returns>A task representing the asynchronous operation.</returns>
     private async Task AddArrExclusionsAsync<T>(
         IEnumerable<ArrInstanceConfig> instances,
-        Func<string, string, CancellationToken, Task<List<T>?>> fetch,
+        Func<ArrInstanceConfig, string, CancellationToken, Task<List<T>?>> fetch,
         Func<T, int> tmdbSelector,
         string mediaType,
         string arrName,
@@ -2508,7 +2508,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var items = await fetch(
-                    instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
+                    instance, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
                 if (items != null)
                 {
                     foreach (var item in items)

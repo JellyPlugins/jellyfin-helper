@@ -434,6 +434,7 @@ public class ConfigurationController : ControllerBase
             var (success, message) = await _arrService.TestConnectionAsync(
                 instance.Url,
                 instance.ApiKey,
+                instance.SkipCertificateValidation,
                 cancellationToken).ConfigureAwait(false);
 
             var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{index + 1}";
@@ -667,7 +668,8 @@ public class ConfigurationController : ControllerBase
                 Name = instance.Name,
                 Url = instance.Url,
                 ApiKey = ResolveApiKey(instance, previousInstances, secretProtector),
-                Libraries = instance.Libraries
+                Libraries = instance.Libraries,
+                SkipCertificateValidation = instance.SkipCertificateValidation
             });
         }
 

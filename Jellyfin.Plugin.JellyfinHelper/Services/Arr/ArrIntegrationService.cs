@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Authentication;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +18,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 public sealed class ArrIntegrationService : IArrIntegrationService
 {
     private const string LogSource = "ArrIntegration";
+
+    // Named client without TLS certificate validation, for Arr instances behind a reverse proxy
+    // with a private CA, self-signed, or IP certificate. Registered in PluginServiceRegistrator;
+    // selected per instance, never globally.
+    private const string InsecureClientName = "ArrIntegrationInsecure";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private static readonly char[] PathSeparators = ['/', '\\'];
@@ -46,11 +52,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     /// </summary>
     /// <param name="baseUrl">The base URL of the Arr instance.</param>
     /// <param name="apiKey">The API key.</param>
+    /// <param name="skipCertificateValidation">True to skip TLS certificate validation (private CA / self-signed).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A tuple indicating success and a status message.</returns>
     public async Task<(bool Success, string Message)> TestConnectionAsync(
         string baseUrl,
         string apiKey,
+        bool skipCertificateValidation = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -67,10 +75,15 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/system/status", cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/system/status", skipCertificateValidation, cancellationToken).ConfigureAwait(false);
             var status = JsonSerializer.Deserialize<ArrSystemStatusDto>(json, JsonOptions);
             var appName = status?.AppName ?? "Unknown";
             var version = status?.Version ?? "?";
+
+            if (skipCertificateValidation)
+            {
+                _pluginLog.LogWarning(LogSource, $"Arr connection test OK for {SsrfGuard.SafeEndpointLabel(baseUrl)}, but TLS certificate validation is disabled for this instance.", null, _logger);
+            }
 
             return (true, $"{appName} v{version}");
         }
@@ -91,6 +104,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
+            if (HasCertificateError(ex))
+            {
+                return (false, "TLS certificate validation failed. If the server uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' for this instance.");
+            }
+
             return (false, "Connection failed. Check the URL and network connectivity.");
         }
         catch (ResponseTooLargeException ex)
@@ -109,16 +127,34 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         }
     }
 
+    // Walks the exception chain for a TLS handshake failure (unknown issuer / PartialChain is the
+    // reverse-proxy-with-private-CA case) so the test can point at the new opt-out instead of the
+    // generic connectivity message.
+    private static bool HasCertificateError(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is AuthenticationException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     ///     Gets all movies from Radarr.
     /// </summary>
     /// <param name="baseUrl">The Radarr base URL.</param>
     /// <param name="apiKey">The Radarr API key.</param>
+    /// <param name="skipCertificateValidation">True to skip TLS certificate validation (private CA / self-signed).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of movies from Radarr.</returns>
     public async Task<List<ArrMovie>?> GetRadarrMoviesAsync(
         string baseUrl,
         string apiKey,
+        bool skipCertificateValidation = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
@@ -130,7 +166,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/movie", cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/movie", skipCertificateValidation, cancellationToken).ConfigureAwait(false);
             var movies = JsonSerializer.Deserialize<List<RadarrMovieDto>>(json, JsonOptions) ?? [];
 
             return movies.Select(m => new ArrMovie
@@ -170,11 +206,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     /// </summary>
     /// <param name="baseUrl">The Sonarr base URL.</param>
     /// <param name="apiKey">The Sonarr API key.</param>
+    /// <param name="skipCertificateValidation">True to skip TLS certificate validation (private CA / self-signed).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of series from Sonarr.</returns>
     public async Task<List<ArrSeries>?> GetSonarrSeriesAsync(
         string baseUrl,
         string apiKey,
+        bool skipCertificateValidation = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
@@ -186,7 +224,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/series", cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/series", skipCertificateValidation, cancellationToken).ConfigureAwait(false);
             var series = JsonSerializer.Deserialize<List<SonarrSeriesDto>>(json, JsonOptions) ?? [];
 
             return series.Select(s => new ArrSeries
@@ -228,11 +266,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     /// </summary>
     /// <param name="baseUrl">The Arr base URL.</param>
     /// <param name="apiKey">The Arr API key.</param>
+    /// <param name="skipCertificateValidation">True to skip TLS certificate validation (private CA / self-signed).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The root folder paths, or null if the fetch failed.</returns>
     public async Task<List<string>?> GetRootFoldersAsync(
         string baseUrl,
         string apiKey,
+        bool skipCertificateValidation = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey))
@@ -244,7 +284,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/rootfolder", cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/rootfolder", skipCertificateValidation, cancellationToken).ConfigureAwait(false);
             var folders = JsonSerializer.Deserialize<List<RootFolderDto>>(json, JsonOptions) ?? [];
 
             return folders
@@ -462,12 +502,14 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         string baseUrl,
         string apiKey,
         string relPath,
+        bool skipCertificateValidation,
         CancellationToken cancellationToken)
     {
         ValidateArrUrl(baseUrl);
         var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), relPath);
-        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
-        var httpClient = _httpClientFactory.CreateClient(LogSource);
+        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime. The insecure
+        // client is a separate named registration with identical hardening except validation.
+        var httpClient = _httpClientFactory.CreateClient(skipCertificateValidation ? InsecureClientName : LogSource);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 

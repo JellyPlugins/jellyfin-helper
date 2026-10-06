@@ -119,6 +119,7 @@ public class ArrIntegrationController : ControllerBase
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
             _secretProtector.Unprotect(apiKey),
+            request.SkipCertificateValidation,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)
@@ -185,7 +186,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
+            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
                 .ConfigureAwait(false);
             if (movies is null)
             {
@@ -263,7 +264,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
+            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
                 .ConfigureAwait(false);
             if (series is null)
             {
@@ -310,7 +311,7 @@ public class ArrIntegrationController : ControllerBase
             return null;
         }
 
-        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken)
+        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
             .ConfigureAwait(false);
         if (rootFolders is null || rootFolders.Count == 0)
         {

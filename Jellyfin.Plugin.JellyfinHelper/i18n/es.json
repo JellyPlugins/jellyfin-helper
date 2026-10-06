@@ -156,6 +156,8 @@
   "radarrInstances": "Instancias Radarr",
   "sonarrInstances": "Instancias Sonarr",
   "arrInstanceLibraries": "Bibliotecas asignadas",
+  "arrSkipCertValidation": "Omitir la validación del certificado",
+  "arrSkipCertValidationHelp": "Desactiva la comprobación del certificado TLS para esta instancia (CA privada, autofirmado o certificados IP). Úsalo solo en redes de confianza: sin validación, cualquiera que intercepte la conexión puede leer la clave API.",
   "arrLibrariesAuto": "Automático (coincidencia por carpeta raíz)",
   "compareWith": "Comparar con",
   "compare": "Comparar",

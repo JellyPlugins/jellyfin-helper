@@ -156,6 +156,8 @@
   "radarrInstances": "Radarr Instances",
   "sonarrInstances": "Sonarr Instances",
   "arrInstanceLibraries": "Assigned Libraries",
+  "arrSkipCertValidation": "Skip certificate validation",
+  "arrSkipCertValidationHelp": "Disables TLS certificate checks for this instance (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.",
   "arrLibrariesAuto": "Automatic (matched by root folder)",
   "compareWith": "Compare with",
   "compare": "Compare",

@@ -46,6 +46,15 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         static HttpMessageHandler NoRedirectHandler() =>
             new SocketsHttpHandler { AllowAutoRedirect = false };
 
+        // Same hardening as the strict client, except TLS certificate validation: opt-in per Arr
+        // instance for reverse proxies with a private CA, self-signed, or IP certificate.
+        static HttpMessageHandler NoRedirectInsecureHandler() =>
+            new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+            };
+
         void AddHardenedClient(string name, TimeSpan timeout) =>
             serviceCollection.AddHttpClient(name, client =>
             {
@@ -54,6 +63,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         AddHardenedClient("ArrIntegration", TimeSpan.FromSeconds(15));
+        serviceCollection.AddHttpClient("ArrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
 

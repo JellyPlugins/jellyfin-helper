@@ -156,6 +156,8 @@
   "radarrInstances": "Radarr-instanser",
   "sonarrInstances": "Sonarr-instanser",
   "arrInstanceLibraries": "Tilldelade bibliotek",
+  "arrSkipCertValidation": "Hoppa över certifikatvalidering",
+  "arrSkipCertValidationHelp": "Inaktiverar TLS-certifikatkontroller för denna instans (privat CA, självsignerade eller IP-certifikat). Använd endast på nätverk du litar på: utan validering kan alla som avlyssnar anslutningen läsa API-nyckeln.",
   "arrLibrariesAuto": "Automatiskt (matchat via rotmapp)",
   "compareWith": "Jämför med",
   "compare": "Jämför",
