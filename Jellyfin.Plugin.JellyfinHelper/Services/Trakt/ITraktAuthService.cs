@@ -36,6 +36,16 @@ public interface ITraktAuthService
     Task<string?> GetValidAccessTokenAsync(Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
+    ///     Forces a refresh from the stored refresh token, bypassing the expiry check. Used when Trakt
+    ///     rejects the current access token mid-flight: either the stored token was already rotated, or it
+    ///     is dead. Returns null without touching the store when there is nothing to refresh with.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>The new access token, or null when no refresh was possible.</returns>
+    Task<string?> RefreshAccessTokenAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
     ///     Removes a user's stored token (disconnect).
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>

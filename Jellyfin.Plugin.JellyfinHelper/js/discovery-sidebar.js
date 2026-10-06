@@ -325,8 +325,16 @@
                     || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
                 // Render into the panel that is live now, not the one captured at
                 // call time: Custom Tabs may have rebuilt it while we were away.
+                // With Trakt tabs on, the shell owns lastMountedContainer: only refresh
+                // the own-tab host, and only while it is still the active tab. Rendering
+                // into the outer marker would replace the whole shell (tab bar included).
                 var target = null;
-                if (lastMountedContainer && document.contains(lastMountedContainer)) {
+                if (_traktEnabled) {
+                    var liveHost = lastMountedContainer && lastMountedContainer.querySelector('.jfh-discovery-tab-host');
+                    if (_activeTab === TAB_OWN && liveHost && document.contains(liveHost)) {
+                        target = liveHost;
+                    }
+                } else if (lastMountedContainer && document.contains(lastMountedContainer)) {
                     target = lastMountedContainer;
                 } else if (document.contains(container)) {
                     target = container;

@@ -167,6 +167,39 @@ public sealed class TraktAuthServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RefreshAccessToken_ReturnsStoredToken_WhenFreshWithoutFetch()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref", ExpiresAtUtc = _now.AddHours(1) }, CancellationToken.None);
+
+        // No Enqueue: the Strict handler throws on any HTTP, proving no grant is attempted.
+        var token = await CreateService().RefreshAccessTokenAsync(userId, CancellationToken.None);
+
+        Assert.Equal("acc", token);
+    }
+
+    [Fact]
+    public async Task RefreshAccessToken_ForcesGrant_WhenExpired()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "ref", ExpiresAtUtc = _now.AddMinutes(-1) }, CancellationToken.None);
+        Enqueue(HttpStatusCode.OK, """{"access_token":"forced","refresh_token":"ref2","expires_in":7776000,"created_at":1893456000}""");
+
+        var token = await CreateService().RefreshAccessTokenAsync(userId, CancellationToken.None);
+
+        Assert.Equal("forced", token);
+        Assert.Equal("forced", _store.GetToken(userId)!.AccessToken);
+        Assert.Equal("ref2", _store.GetToken(userId)!.RefreshToken);
+    }
+
+    [Fact]
+    public async Task RefreshAccessToken_ReturnsNull_WhenUnlinked()
+    {
+        var token = await CreateService().RefreshAccessTokenAsync(Guid.NewGuid(), CancellationToken.None);
+        Assert.Null(token);
+    }
+
+    [Fact]
     public async Task Disconnect_RemovesStoredToken()
     {
         var userId = Guid.NewGuid();

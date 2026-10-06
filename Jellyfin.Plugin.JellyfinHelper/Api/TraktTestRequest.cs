@@ -6,7 +6,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class TraktTestRequest
 {
     /// <summary>
-    ///     Gets or sets the Trakt Client ID to validate. The masked sentinel is resolved to the stored value.
+    ///     Gets or sets the Trakt Client ID to validate. The client id is not a secret and is always
+    ///     sent and returned as-is; there is no masked sentinel for it.
     /// </summary>
     public string ClientId { get; set; } = string.Empty;
 }

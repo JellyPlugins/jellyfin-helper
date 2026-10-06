@@ -171,13 +171,47 @@ public sealed class TraktAuthService : ITraktAuthService
         try
         {
             var current = _store.GetToken(userId);
-            if (current is not null && current.IsLinked && current.ExpiresAtUtc - ExpirySkew > _utcNow())
+            if (current is null || !current.IsLinked)
+            {
+                return null;
+            }
+
+            if (current.ExpiresAtUtc - ExpirySkew > _utcNow())
             {
                 return current.AccessToken;
             }
 
             // Expired or about to: refresh exactly once, then surface a re-link on failure.
-            var refreshed = await RefreshAsync(userId, token.RefreshToken, cancellationToken).ConfigureAwait(false);
+            var refreshed = await RefreshAsync(userId, current.RefreshToken, cancellationToken).ConfigureAwait(false);
+            return refreshed?.AccessToken;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> RefreshAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // Same per-user gate as the lazy path: concurrent 401s share one forced grant.
+        var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = _store.GetToken(userId);
+            if (current is null || !current.IsLinked)
+            {
+                return null;
+            }
+
+            // A concurrent refresh may already have renewed the token while this call waited.
+            if (current.ExpiresAtUtc - ExpirySkew > _utcNow())
+            {
+                return current.AccessToken;
+            }
+
+            var refreshed = await RefreshAsync(userId, current.RefreshToken, cancellationToken).ConfigureAwait(false);
             return refreshed?.AccessToken;
         }
         finally

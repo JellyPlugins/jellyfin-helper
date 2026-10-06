@@ -74,6 +74,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private const int CreditsEnrichmentTimeoutMs = 8_000;
 
     /// <summary>
+    ///     Maximum degree of parallelism for metadata enrichment fetches.
+    ///     Same budget as credits enrichment: bounded Seerr detail calls per candidate.
+    /// </summary>
+    private const int MetadataEnrichmentParallelism = 3;
+
+    /// <summary>
+    ///     Per-request timeout for metadata enrichment calls, in milliseconds.
+    /// </summary>
+    private const int MetadataEnrichmentTimeoutMs = 8_000;
+
+    /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
@@ -115,6 +126,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static readonly TimeSpan SeerrUserCacheTtl = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    ///     TTL for the cached shared exclusion set (library + Arr titles). Scoring runs per user and per
+    ///     view, but the underlying library and Arr rosters barely move within minutes.
+    /// </summary>
+    private static readonly TimeSpan ExclusionCacheTtl = TimeSpan.FromMinutes(5);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
@@ -130,12 +147,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Cached Seerr user list to avoid re-fetching the full paginated roster on every ResolveSeerrUserIdAsync call (e.g., every frontend request).
     /// </summary>
     private readonly Lock _userCacheLock = new();
+    private readonly Lock _exclusionCacheLock = new();
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
     // Holds the in-flight roster fetch so concurrent callers coalesce onto a single Seerr request
     // instead of each launching their own. Cleared when the fetch completes so the next miss refreshes.
     private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)>? _inflightUserFetch;
+
+    private HashSet<(int TmdbId, string MediaType)>? _cachedExclusions;
+    private DateTime _exclusionsExpiry = DateTime.MinValue;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
@@ -255,7 +276,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
-        var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var excludedTmdbIds = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + Arr - per-user dismissed/requested merged later).",
@@ -1830,7 +1851,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
-        var sharedExclusions = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var client = GetSeerrClient();
+        var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
+        if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
+        {
+            // Fail closed for restricted profiles: without enriched genres the parental blacklist cannot
+            // judge, so drop items the enrichment could not reach rather than risk restricted titles.
+            mapped.RemoveAll(c => !enrichedKeys.Contains((c.Id, c.MediaType)));
+        }
+
+        var sharedExclusions = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         var userExcluded = BuildUserExclusionSet(profile, sharedExclusions);
         var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
         var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
@@ -1839,7 +1869,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        var client = GetSeerrClient();
         var recommendations = await ScoreCandidatesForUserAsync(
             new CandidateScoringContext
             {
@@ -2202,6 +2231,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             // intentionally empty: cancellation of the inter-query delay is expected and benign.
         }
+    }
+
+    /// <summary>
+    ///     Returns the shared exclusion set (library + Arr titles), serving the cached copy while fresh.
+    ///     A defensive copy is returned so callers can never mutate the cached set.
+    /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionSetAsync(
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        lock (_exclusionCacheLock)
+        {
+            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
+            {
+                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+            }
+        }
+
+        var fresh = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        lock (_exclusionCacheLock)
+        {
+            _cachedExclusions = fresh;
+            _exclusionsExpiry = DateTime.UtcNow.Add(ExclusionCacheTtl);
+        }
+
+        return new HashSet<(int TmdbId, string MediaType)>(fresh);
     }
 
     private async Task<HashSet<(int TmdbId, string MediaType)>> BuildExclusionSetAsync(
@@ -2635,6 +2690,137 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 LogCategory,
                 $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
                 _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Enriches mapped external candidates with Seerr metadata (genres, adult flag, poster, rating
+    ///     fallback, popularity, availability) BEFORE filtering, with bounded parallelism. External sources
+    ///     arrive without this data, and the parental blacklist cannot judge genre-less items. Returns the
+    ///     keys that were successfully enriched; failures leave the item untouched for the caller to fail
+    ///     closed on. Source-provided values are never overwritten, only missing ones are filled.
+    /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>> EnrichCandidatesWithMetadataAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<TmdbDiscoverItem> candidates,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new HashSet<(int TmdbId, string MediaType)>();
+        var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
+        try
+        {
+            var tasks = candidates.Select(async candidate =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (await EnrichCandidateWithMetadataAsync(
+                        client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false))
+                    {
+                        lock (enriched)
+                        {
+                            enriched.Add((candidate.Id, candidate.MediaType));
+                        }
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }).ToList();
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        finally
+        {
+            semaphore.Dispose();
+        }
+
+        return enriched;
+    }
+
+    /// <summary>
+    ///     Fetches Seerr metadata for a single candidate and fills missing fields, bounded by MetadataEnrichmentTimeoutMs.
+    /// </summary>
+    /// <returns>True when the detail fetch succeeded (even if it carried no new fields).</returns>
+    private async Task<bool> EnrichCandidateWithMetadataAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        TmdbDiscoverItem candidate,
+        CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+
+        var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+            ? $"api/v1/tv/{candidate.Id}"
+            : $"api/v1/movie/{candidate.Id}";
+
+        try
+        {
+            using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
+            using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+            if (detail is null)
+            {
+                return false;
+            }
+
+            if (detail.Genres is { Count: > 0 })
+            {
+                candidate.GenreIds = detail.Genres.Select(g => g.Id).ToList();
+            }
+
+            // Latch-only: a missing flag must never clear what is already known.
+            if (detail.Adult == true)
+            {
+                candidate.Adult = true;
+            }
+
+            if (string.IsNullOrEmpty(candidate.PosterPath) && !string.IsNullOrEmpty(detail.PosterPath))
+            {
+                candidate.PosterPath = detail.PosterPath;
+            }
+
+            if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
+            {
+                candidate.VoteAverage = detail.VoteAverage;
+            }
+
+            if (candidate.Popularity <= 0 && detail.Popularity > 0)
+            {
+                candidate.Popularity = detail.Popularity;
+            }
+
+            if (detail.MediaInfo is not null)
+            {
+                candidate.MediaInfo = detail.MediaInfo;
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Metadata enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                _logger);
+            return false;
         }
     }
 
