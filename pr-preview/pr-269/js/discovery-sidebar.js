@@ -330,7 +330,7 @@
                 // into the outer marker would replace the whole shell (tab bar included).
                 var target = null;
                 if (_traktEnabled) {
-                    var liveHost = lastMountedContainer && lastMountedContainer.querySelector('.jfh-discovery-tab-host');
+                    var liveHost = lastMountedContainer?.querySelector('.jfh-discovery-tab-host');
                     if (_activeTab === TAB_OWN && liveHost && document.contains(liveHost)) {
                         target = liveHost;
                     }
