@@ -8,13 +8,13 @@ reviews:
   collapse_walkthrough: false
   # Skip generated or metadata-only files: they add no review value and consume CodeRabbit's per-PR file budget.
   path_filters:
-    - "!CHANGELOG.md"
-    - "!README.md"
+    - "!**/*.md"
+    - "!**/*.yaml"
+    - "!**/*.yml"
+    - "!**/Dockerfile*"
+    - "!**/*.ps1"
     - "!manifest.json"
-    - "!build.yaml"
-    - "!Directory.Build.props"
     - "!mock-data.js"
-    - "!.coderabbit.yaml"
   auto_review:
     enabled: true
     drafts: false
