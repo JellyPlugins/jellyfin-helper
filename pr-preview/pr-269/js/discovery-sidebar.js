@@ -255,17 +255,19 @@
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
             '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }' +
-            // Sub-tab bar: one segmented tray instead of loose buttons, so the tabs align
-            // with each other and with the grid edge. Scrolls horizontally only when
-            // the tray itself overflows (narrow viewports).
-            '.jfh-discovery-tabs { display: inline-flex; align-items: stretch; gap: 4px; max-width: 100%; margin: 0 0 1em 0; padding: 4px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }' +
+            // Sub-tab bar: one full-width segmented tray with equal-width tabs, so the row is
+            // always symmetric (centered by construction) on desktop and mobile. Long labels
+            // ellipsize instead of breaking the layout on very narrow viewports.
+            '.jfh-discovery-tabs { display: flex; align-items: stretch; gap: 4px; max-width: 100%; margin: 0 0 1em 0; padding: 4px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar { height: 4px; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar-track { background: transparent; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
-            '.jfh-discovery-tab { flex-shrink: 0; display: inline-flex; align-items: center; padding: 0.5em 1.1em; border: none; border-radius: 7px; background: transparent; color: #bbb; cursor: pointer; font-size: 0.9em; font-weight: 500; white-space: nowrap; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }' +
+            '.jfh-discovery-tab { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: 0.5em 1.1em; border: none; border-radius: 7px; background: transparent; color: #bbb; cursor: pointer; font-size: 0.9em; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }' +
             '.jfh-discovery-tab:hover { background: rgba(255,255,255,0.07); color: #fff; }' +
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
+            // Narrow panels: slightly smaller tab labels so all three fit without truncation.
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
             // Connect panel for the personal Trakt tab before a user links.
             '.jfh-discovery-connect { max-width: 520px; margin: 1em auto; text-align: center; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 1.6em; }' +
             '.jfh-discovery-connect h3 { margin: 0 0 0.6em 0; }' +
@@ -499,7 +501,13 @@
                         _traktEnabled = true;
                     }
                 })
-                .finally(function () { renderShell(container, forceRefresh); });
+                .finally(function () {
+                    // The probe result belongs to probeUserId and to this mounted panel:
+                    // drop it if the account switched or the panel detached meanwhile.
+                    if (probeUserId !== currentDiscoveryUserId()) { _traktEnabled = null; return; }
+                    if (!document.contains(container)) { return; }
+                    renderShell(container, forceRefresh);
+                });
             return;
         }
 
@@ -628,6 +636,11 @@
                 renderCards(host, resp.Result);
             })
             .catch(function (err) {
+                // Same stale-response guard as the success path: a 403 from the
+                // previous account must not reset the new user's Trakt state.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 renderTraktError(host, err);
             });
     }
@@ -652,6 +665,10 @@
                 renderCards(host, data);
             })
             .catch(function (err) {
+                // Same stale-response guard as the success path (see personal tab).
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 renderTraktError(host, err);
             });
     }

@@ -411,16 +411,16 @@ var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-
 
 var MOCK_DISCOVERY=[
 {UserId:_uid1,UserName:"Alice",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
-{TmdbId:693134,MediaType:"movie",Title:"Dune: Part Two",Year:2024,Score:0.92,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Sci-Fi","Adventure"],TmdbRating:8.2,PosterPath:"/8b8R8l88Qje9dn9OE8PY05Nez7.jpg",Overview:"Follow the mythic journey of Paul Atreides as he unites with Chani and the Fremen while on a warpath of revenge against the conspirators who destroyed his family.",AlreadyRequested:false},
+{TmdbId:693134,MediaType:"movie",Title:"Dune: Part Two",Year:2024,Score:0.92,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Sci-Fi","Adventure"],TmdbRating:8.2,PosterPath:"/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",Overview:"Follow the mythic journey of Paul Atreides as he unites with Chani and the Fremen while on a warpath of revenge against the conspirators who destroyed his family.",AlreadyRequested:false},
 {TmdbId:746036,MediaType:"movie",Title:"The Fall Guy",Year:2024,Score:0.88,Reason:"Trending — new and highly rated",ReasonKey:"reasonTrending",Genres:["Action","Comedy"],TmdbRating:7.3,PosterPath:"/tSz1qsmSJon0rqjHBxXZmrotuse.jpg",Overview:"A down-and-out stuntman must track down a missing movie star, solve a conspiracy, and try to win back the love of his life while still doing his day job.",AlreadyRequested:false},
-{TmdbId:108545,MediaType:"tv",Title:"3 Body Problem",Year:2024,Score:0.86,Reason:"Because you like Sci-Fi",ReasonKey:"reasonGenre",RelatedInfo:"Sci-Fi",Genres:["Sci-Fi","Drama","Mystery"],TmdbRating:7.6,PosterPath:"/sg4xJGSJKjGZ3YKDDmzqY9cHCOB.jpg",Overview:"A fateful decision made in 1960s China reverberates across space and time to a group of brilliant scientists in the present day.",AlreadyRequested:false},
+{TmdbId:108545,MediaType:"tv",Title:"3 Body Problem",Year:2024,Score:0.86,Reason:"Because you like Sci-Fi",ReasonKey:"reasonGenre",RelatedInfo:"Sci-Fi",Genres:["Sci-Fi","Drama","Mystery"],TmdbRating:7.6,PosterPath:"/AgoHgFiSDHVUQLBiJjIv3YMeziP.jpg",Overview:"A fateful decision made in 1960s China reverberates across space and time to a group of brilliant scientists in the present day.",AlreadyRequested:false},
 {TmdbId:786892,MediaType:"movie",Title:"Furiosa: A Mad Max Saga",Year:2024,Score:0.84,Reason:"With actors you like",ReasonKey:"reasonPeople",Genres:["Action","Sci-Fi","Adventure"],TmdbRating:7.5,PosterPath:"/iADOJ8Zymht2JPMoy3R7xceZprc.jpg",Overview:"As the world fell, young Furiosa is snatched from the Green Place of Many Mothers and falls into the hands of a great Biker Horde led by the Warlord Dementus.",AlreadyRequested:false},
 {TmdbId:126308,MediaType:"tv",Title:"Sh\u014dgun",Year:2024,Score:0.81,Reason:"Highly rated",ReasonKey:"reasonHighlyRated",Genres:["Drama","War"],TmdbRating:8.7,PosterPath:"/7O4iVfOMQmdCSxhOg1WnzG1AgYT.jpg",Overview:"In Japan in the year 1600, at the dawn of a century-defining civil war, Lord Yoshii Toranaga is fighting for his life as his enemies on the Council of Regents unite against him.",AlreadyRequested:false},
 {TmdbId:1184918,MediaType:"movie",Title:"The Wild Robot",Year:2024,Score:0.78,Reason:"New and highly rated",ReasonKey:"reasonTrending",Genres:["Animation","Sci-Fi","Family"],TmdbRating:8.4,PosterPath:"/wTnV3PCVW5O92JMrFvvrRcV39RU.jpg",Overview:"After a shipwreck, an intelligent robot called Roz is stranded on an uninhabited island. To survive the harsh environment, Roz bonds with the island's animals.",AlreadyRequested:false}
 ]},
 {UserId:_uid2,UserName:"Bob",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
 {TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"From a director you like",ReasonKey:"reasonStudioNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
-{TmdbId:203737,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/bkZpMfsMwfqRVEwfUn8i3qi2NDE.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
+{TmdbId:94028,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/g5pk8cgo5XnEnNfJTNq1mdUlhib.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
 {TmdbId:792307,MediaType:"movie",Title:"Poor Things",Year:2023,Score:0.85,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Comedy","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg",Overview:"Brought back to life by an unorthodox scientist, a young woman runs off with a debauched lawyer on a whirlwind adventure across the continents.",AlreadyRequested:false},
 {TmdbId:208942,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.1,PosterPath:"/aBU2mlyZT5BzvCkXXUewH7wfhkK.jpg",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
 {TmdbId:467244,MediaType:"movie",Title:"The Zone of Interest",Year:2023,Score:0.79,Reason:"Highly rated drama",ReasonKey:"reasonHighlyRated",Genres:["Drama","History","War"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",Overview:"The commandant of Auschwitz, Rudolf H\u00f6ss, and his wife Hedwig, strive to build a dream life for their family in a house and garden next to the camp.",AlreadyRequested:false}
@@ -428,11 +428,18 @@ var MOCK_DISCOVERY=[
 ];
 
 // Demo fixtures for the Discover preview tab: the personal Trakt grid reuses
-// Bob's items and the trending grid Alice's, so every poster URL is a known-good
-// TMDB path and no new image fixtures are needed. Served per request (cloned),
-// never mutated in place.
+// Bob's items, while the trending grid has its own evergreen-trending set so no
+// title appears on two tabs. Every poster URL below is HEAD-verified against
+// image.tmdb.org. Served per request (cloned), never mutated in place.
 var MOCK_TRAKT_PERSONAL={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[1].Recommendations};
-var MOCK_TRAKT_TRENDING={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:MOCK_DISCOVERY[0].Recommendations};
+var MOCK_TRAKT_TRENDING={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:[
+{TmdbId:66732,MediaType:"tv",Title:"Stranger Things",Year:2016,Score:0.93,Reason:"Trending #1 this week",ReasonKey:"reasonTrending",Genres:["Sci-Fi","Drama","Mystery"],TmdbRating:8.6,PosterPath:"/49WJfeN0moxb9IPfGn8AIqMGskD.jpg",Overview:"When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces and one strange little girl.",AlreadyRequested:false},
+{TmdbId:100088,MediaType:"tv",Title:"The Last of Us",Year:2023,Score:0.90,Reason:"Trending — critically acclaimed",ReasonKey:"reasonTrending",Genres:["Drama","Action","Sci-Fi"],TmdbRating:8.8,PosterPath:"/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg",Overview:"Twenty years after a fungal outbreak destroys civilization, a hardened survivor takes charge of a 14-year-old girl who may be humanity's last hope.",AlreadyRequested:false},
+{TmdbId:496243,MediaType:"movie",Title:"Parasite",Year:2019,Score:0.87,Reason:"Trending — award winner",ReasonKey:"reasonTrending",Genres:["Thriller","Drama","Comedy"],TmdbRating:8.5,PosterPath:"/7pU95cO4KHli4w0L9N5hyoplEke.jpg",Overview:"All unemployed, Ki-taek's family takes peculiar interest in the wealthy Parks for their livelihood until they get entangled in an unexpected incident.",AlreadyRequested:false},
+{TmdbId:475557,MediaType:"movie",Title:"Joker",Year:2019,Score:0.84,Reason:"Trending now",ReasonKey:"reasonTrending",Genres:["Crime","Drama","Thriller"],TmdbRating:8.1,PosterPath:"/udDclJoHjfjb8Ekgsd4FDteOkCU.jpg",Overview:"During the 1980s, a failed stand-up comedian is driven insane and turns to a life of crime and chaos in Gotham City.",AlreadyRequested:false},
+{TmdbId:680,MediaType:"movie",Title:"Pulp Fiction",Year:1994,Score:0.81,Reason:"Trending — all-time classic",ReasonKey:"reasonTrending",Genres:["Crime","Thriller"],TmdbRating:8.5,PosterPath:"/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",Overview:"The lives of two mob hitmen, a boxer, a gangster's wife and a pair of diner bandits intertwine in four tales of violence and redemption.",AlreadyRequested:false},
+{TmdbId:603,MediaType:"movie",Title:"The Matrix",Year:1999,Score:0.78,Reason:"Trending — sci-fi classic",ReasonKey:"reasonTrending",Genres:["Sci-Fi","Action"],TmdbRating:8.2,PosterPath:"/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",Overview:"A computer hacker learns the shocking truth about his reality and his role in the war against its controllers.",AlreadyRequested:false}
+]};
 
 // Removes a consumed (requested/dismissed) item from every discovery pool, mirroring
 // the server where feedback excludes it from all future serves. In-place splice keeps
@@ -449,6 +456,7 @@ function mockConsumeDiscovery(tmdbId, mediaType){
     }
   }
   for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(MOCK_DISCOVERY[u]){ drop(MOCK_DISCOVERY[u].Recommendations); } }
+  if(typeof MOCK_TRAKT_TRENDING!=="undefined"&&MOCK_TRAKT_TRENDING){ drop(MOCK_TRAKT_TRENDING.Recommendations); }
 }
 
 var MOCK_SEERR_SERVICES_RADARR=[{
@@ -462,19 +470,19 @@ var MOCK_SEERR_SERVICES_SONARR=[];
 
 var MOCK_RECOMMENDATIONS=[
 {UserId:_uid1,UserName:"Alice",Recommendations:[
-{Name:"Blade Runner 2049",Score:0.94,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2017,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Blade Runner"},
-{Name:"Ex Machina",Score:0.91,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2014,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
-{Name:"The Martian",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Adventure"],Year:2015,Reason:"Directed by Ridley Scott",ReasonKey:"recsDirectorMatch"},
-{Name:"Arrival",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Drama"],Year:2016,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Interstellar"},
-{Name:"Edge of Tomorrow",Score:0.82,ItemType:"Movie",Genres:["Sci-Fi","Action"],Year:2014,Reason:"Popular in your favorite genres",ReasonKey:"recsPopularGenre"},
-{Name:"Westworld",Score:0.79,ItemType:"Series",Genres:["Sci-Fi","Drama"],Year:2016,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"}
+{Name:"Blade Runner 2049",Score:0.94,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2017,TmdbId:335984,PosterPath:"/5EuXvLuNVIVsYDa3d4VrPtnBy5.jpg",TmdbRating:8.0,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Blade Runner"},
+{Name:"Ex Machina",Score:0.91,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2014,TmdbId:264660,PosterPath:"/wyDMw8TGv2DuO46y1j4IRmryUSL.jpg",TmdbRating:7.7,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
+{Name:"The Martian",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Adventure"],Year:2015,TmdbId:286217,PosterPath:"/zfnSf4wuuNbML6Mj922zYKL1HWZ.jpg",TmdbRating:7.7,Reason:"Directed by Ridley Scott",ReasonKey:"recsDirectorMatch"},
+{Name:"Arrival",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Drama"],Year:2016,TmdbId:329865,PosterPath:"/itjMhMLR3mUmgL5QykPrPqU3fSS.jpg",TmdbRating:7.6,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Interstellar"},
+{Name:"Edge of Tomorrow",Score:0.82,ItemType:"Movie",Genres:["Sci-Fi","Action"],Year:2014,TmdbId:137113,PosterPath:"/9WCpjrsfP2FJiXmbe0DS7hFN4J.jpg",TmdbRating:7.6,Reason:"Popular in your favorite genres",ReasonKey:"recsPopularGenre"},
+{Name:"Westworld",Score:0.79,ItemType:"Series",Genres:["Sci-Fi","Drama"],Year:2016,TmdbId:63247,PosterPath:"/8MfgyFHf7XEboZJPZXCIDqqiz6e.jpg",TmdbRating:8.4,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"}
 ]},
 {UserId:_uid2,UserName:"Bob",Recommendations:[
-{Name:"The Grand Budapest Hotel",Score:0.92,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2014,Reason:"Directed by Wes Anderson",ReasonKey:"recsDirectorMatch"},
-{Name:"Lady Bird",Score:0.88,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2017,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
-{Name:"Parasite",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2019,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
-{Name:"Jojo Rabbit",Score:0.83,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2019,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"The Grand Budapest Hotel"},
-{Name:"The Office",Score:0.80,ItemType:"Series",Genres:["Comedy"],Year:2005,Reason:"Popular in Comedy",ReasonKey:"recsPopularGenre"}
+{Name:"The Grand Budapest Hotel",Score:0.92,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2014,TmdbId:120467,PosterPath:"/eWdyYQreja6JGCzqHWXpWHDrrPo.jpg",TmdbRating:8.0,Reason:"Directed by Wes Anderson",ReasonKey:"recsDirectorMatch"},
+{Name:"Lady Bird",Score:0.88,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2017,TmdbId:391713,PosterPath:"/4zdUG4WO9bw3x1GT9cHclbQLTzd.jpg",TmdbRating:7.5,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
+{Name:"Parasite",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2019,TmdbId:496243,PosterPath:"/7pU95cO4KHli4w0L9N5hyoplEke.jpg",TmdbRating:8.5,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
+{Name:"Jojo Rabbit",Score:0.83,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2019,TmdbId:515001,PosterPath:"/zIXJoYXc8ezMXc7DEaYii4XwIlS.jpg",TmdbRating:8.0,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"The Grand Budapest Hotel"},
+{Name:"The Office",Score:0.80,ItemType:"Series",Genres:["Comedy"],Year:2005,TmdbId:2316,PosterPath:"/lJdBwFhoQnfqLsneOLR7rJCEmj7.jpg",TmdbRating:8.5,Reason:"Popular in Comedy",ReasonKey:"recsPopularGenre"}
 ]}
 ];
 
