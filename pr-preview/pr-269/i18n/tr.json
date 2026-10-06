@@ -231,6 +231,7 @@
   "seerrCleanupAgeDays": "Maks. istek yaşı (gün)",
   "seerrCleanupAgeDaysHelp": "Bundan eski istekler silinecektir. Varsayılan: 365 gün.",
   "seerrFillFields": "Lütfen önce URL ve API Anahtarını doldurun.",
+  "traktFillFields": "Lütfen önce Client ID bilgisini doldurun.",
   "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
   "unsavedChangesMsg": "Kaydedilmemiş ayar değişiklikleriniz var. Ne yapmak istersiniz?",
   "discardChanges": "Değişiklikleri At",

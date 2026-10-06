@@ -231,6 +231,7 @@
   "seerrCleanupAgeDays": "Max Request Age (days)",
   "seerrCleanupAgeDaysHelp": "Requests older than this will be deleted. Default: 365 days.",
   "seerrFillFields": "Please fill in URL and API Key first.",
+  "traktFillFields": "Please fill in the Client ID first.",
   "unsavedChangesTitle": "Unsaved Changes",
   "unsavedChangesMsg": "You have unsaved settings changes. What would you like to do?",
   "discardChanges": "Discard Changes",
