@@ -15,6 +15,7 @@ reviews:
     - "!**/*.ps1"
     - "!**/*.csproj"
     - "!**/*.props"
+    - "!docs/**"
     - "!manifest.json"
     - "!mock-data.js"
   auto_review:
