@@ -215,6 +215,20 @@ public sealed class TraktAuthServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RefreshAccessToken_KeepsPreviousRefreshToken_WhenResponseOmitsIt()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "ref-keep", ExpiresAtUtc = _now.AddMinutes(-1) }, CancellationToken.None);
+        Enqueue(HttpStatusCode.OK, """{"access_token":"forced","expires_in":7776000,"created_at":1893456000}""");
+
+        var token = await CreateService().RefreshAccessTokenAsync(userId, "old", CancellationToken.None);
+
+        Assert.Equal("forced", token);
+        Assert.Equal("ref-keep", _store.GetToken(userId)!.RefreshToken);
+        Assert.True(_store.GetToken(userId)!.IsLinked);
+    }
+
+    [Fact]
     public async Task Disconnect_RemovesStoredToken()
     {
         var userId = Guid.NewGuid();

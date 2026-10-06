@@ -59,7 +59,7 @@ stage_one() {
   done
   [[ "$staged" -ge 1 ]] || { echo "[stage-external] ${name}: build produced no dlls" >&2; return 1; }
 
-  bash "$STAGE_SCRIPT_DIR/write-meta.sh" "$dest" "$JELLYFIN_BUILD_VERSION" "$name" "$guid"
+  bash "$STAGE_SCRIPT_DIR/write-meta.sh" "$dest" "$JELLYFIN_BUILD_VERSION" "$name" "$guid" || return 1
   echo "[stage-external] staged ${name} (${staged} dll(s)) -> ${dest}"
   return 0
 }
