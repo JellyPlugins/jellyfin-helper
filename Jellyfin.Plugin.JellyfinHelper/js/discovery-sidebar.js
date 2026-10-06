@@ -478,7 +478,7 @@
         if (_traktEnabled === null) {
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
                 .then(function () { _traktEnabled = true; })
-                .catch(function (err) { _traktEnabled = !(err?.status === 403); })
+                .catch(function (err) { _traktEnabled = err?.status !== 403; })
                 .finally(function () { renderShell(container, forceRefresh); });
             return;
         }

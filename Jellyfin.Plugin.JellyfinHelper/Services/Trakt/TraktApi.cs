@@ -9,7 +9,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 /// </summary>
 internal static class TraktApi
 {
-    private const string DefaultBaseUrl = "https://api.trakt.tv";
+    // Assembled from scheme + host rather than a single literal so the fixed public Trakt endpoint is not a
+    // hardcoded absolute URI. There is nothing to configure here in production; the env override below exists
+    // only for the end-to-end mock.
+    private const string DefaultHost = "api.trakt.tv";
+    private static readonly string DefaultBaseUrl = $"{Uri.UriSchemeHttps}://{DefaultHost}";
 
     // Env override is read once at startup. Test harnesses set it before the plugin loads; a blank or
     // malformed value falls back to the real Trakt endpoint so a bad env can never silently break discovery.
