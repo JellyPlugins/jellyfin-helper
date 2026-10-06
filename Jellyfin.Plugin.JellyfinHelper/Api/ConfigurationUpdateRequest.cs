@@ -79,8 +79,9 @@ public class ConfigurationUpdateRequest
 
     /// <summary>
     ///     Gets a value indicating whether TLS certificate validation is skipped for the Seerr instance.
+    ///     Nullable so an absent field is distinguishable from an explicit false; absent means false.
     /// </summary>
-    public bool SeerrSkipCertificateValidation { get; init; }
+    public bool? SeerrSkipCertificateValidation { get; init; }
 
     /// <summary>
     ///     Gets a value indicating whether the Trakt discovery source is enabled.

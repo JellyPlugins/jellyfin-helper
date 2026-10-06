@@ -930,7 +930,7 @@ public class ArrIntegrationServiceTests
     public async Task TestConnection_SkipValidation_UsesInsecureClient()
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{\"appName\":\"Radarr\",\"version\":\"5.0\"}");
-        var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(handler.Object);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
@@ -946,7 +946,7 @@ public class ArrIntegrationServiceTests
     public async Task TestConnection_DefaultValidation_UsesStrictClient()
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{\"appName\":\"Radarr\",\"version\":\"5.0\"}");
-        var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(handler.Object);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);

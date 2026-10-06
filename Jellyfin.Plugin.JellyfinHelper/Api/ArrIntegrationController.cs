@@ -119,7 +119,7 @@ public class ArrIntegrationController : ControllerBase
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
             _secretProtector.Unprotect(apiKey),
-            request.SkipCertificateValidation,
+            request.SkipCertificateValidation ?? false,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)

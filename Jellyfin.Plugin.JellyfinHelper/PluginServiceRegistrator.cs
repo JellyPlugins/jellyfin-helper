@@ -47,13 +47,17 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             new SocketsHttpHandler { AllowAutoRedirect = false };
 
         // Same hardening as the strict client, except TLS certificate validation: opt-in per Arr
-        // instance for reverse proxies with a private CA, self-signed, or IP certificate.
+        // instance (or single Seerr connection) for reverse proxies with a private CA, self-signed, or
+        // IP certificate. Only the insecure named clients use this handler; every default path keeps
+        // full validation.
+#pragma warning disable S4830 // Justification: intentional admin opt-in bypass, never the default; strict client unchanged.
         static HttpMessageHandler NoRedirectInsecureHandler() =>
             new HttpClientHandler
             {
                 AllowAutoRedirect = false,
                 ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
             };
+#pragma warning restore S4830
 
         void AddHardenedClient(string name, TimeSpan timeout) =>
             serviceCollection.AddHttpClient(name, client =>

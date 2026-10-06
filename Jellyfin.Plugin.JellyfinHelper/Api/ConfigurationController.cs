@@ -344,7 +344,7 @@ public class ConfigurationController : ControllerBase
             var (success, message) = await _seerrService.TestConnectionAsync(
                 seerrUrl,
                 seerrApiKey,
-                request.SeerrSkipCertificateValidation,
+                request.SeerrSkipCertificateValidation ?? false,
                 cancellationToken).ConfigureAwait(false);
 
             if (success)
@@ -524,7 +524,7 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        config.SeerrSkipCertificateValidation = request.SeerrSkipCertificateValidation;
+        config.SeerrSkipCertificateValidation = request.SeerrSkipCertificateValidation ?? false;
         ApplySeerrSecret(request, config, secretProtector);
 
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)

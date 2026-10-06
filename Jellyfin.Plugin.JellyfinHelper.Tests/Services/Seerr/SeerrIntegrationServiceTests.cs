@@ -162,7 +162,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     public async Task TestConnection_SkipValidation_UsesInsecureClient()
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{\"applicationTitle\":\"Seerr\"}");
-        var httpClient = new HttpClient(handler.Object, disposeHandler: false);
+        using var httpClient = new HttpClient(handler.Object, disposeHandler: false);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("SeerrIntegrationInsecure")).Returns(httpClient);
         var service = new SeerrIntegrationService(
@@ -181,7 +181,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     public async Task TestConnection_DefaultValidation_UsesStrictClient()
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{\"applicationTitle\":\"Seerr\"}");
-        var httpClient = new HttpClient(handler.Object, disposeHandler: false);
+        using var httpClient = new HttpClient(handler.Object, disposeHandler: false);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
         var service = new SeerrIntegrationService(

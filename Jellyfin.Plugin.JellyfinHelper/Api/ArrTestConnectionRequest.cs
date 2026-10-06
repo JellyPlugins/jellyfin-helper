@@ -22,6 +22,7 @@ public class ArrTestConnectionRequest
 
     /// <summary>
     ///     Gets a value indicating whether TLS certificate validation is skipped for this test (mirrors the per-instance setting).
+    ///     Nullable so an absent field is distinguishable from an explicit false; absent means false.
     /// </summary>
-    public bool SkipCertificateValidation { get; init; }
+    public bool? SkipCertificateValidation { get; init; }
 }
