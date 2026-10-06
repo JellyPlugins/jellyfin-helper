@@ -22,6 +22,11 @@ Copy-Item (Join-Path $repoRoot 'Jellyfin.Plugin.JellyfinHelper\i18n\*.json') $i1
 # Copy demo-only mock data (not part of plugin source, lives in docs/mock/)
 Copy-Item (Join-Path $docsRoot 'mock\mock-data.js') $jsTarget -Force
 
+# Copy the Discovery sidebar script served to the Custom Tab in production
+# (/JellyfinHelper/Discovery/My/script). The demo's discovery view loads this
+# real file so the preview always matches the shipped behavior.
+Copy-Item (Join-Path $repoRoot 'Jellyfin.Plugin.JellyfinHelper\js\discovery-sidebar.js') $jsTarget -Force
+
 $noJekyllPath = Join-Path $docsRoot '.nojekyll'
 Set-Content -Path $noJekyllPath -Value '' -NoNewline
 
