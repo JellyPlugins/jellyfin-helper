@@ -17,6 +17,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 - **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. The injected script fabricated its own `customTab_` panel, which fought the Custom Tabs plugin for the same DOM node during the switch-into-tab rebuild. The script is now purely reactive: it only fills the live marker the Custom Tabs plugin provides, never creates a panel, resets a detached reference, and re-checks on class-only tab activation. The tab renders every time, with no blank frame.
 - **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The click handler used the legacy positional tab index, unreliable on Jellyfin 12 where tabs are MUI anchors. It now matches the tab's `?tab=N` deep link in both the header and the narrow-screen drawer, falls back to hash navigation, and keeps the legacy path for 10.x.
+- **Trakt refresh keeps the link when Trakt omits the rotated secret.** If a token refresh response carries no new refresh token, the stored one is now preserved instead of being overwritten with an empty value, so a valid access token no longer orphans the link and forces a re-link.
 
 ### Improved
 
@@ -24,7 +25,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6371 total.**
+- **Unit: 6373 total.**
 - **End-to-end: 358 tests across 56 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26
