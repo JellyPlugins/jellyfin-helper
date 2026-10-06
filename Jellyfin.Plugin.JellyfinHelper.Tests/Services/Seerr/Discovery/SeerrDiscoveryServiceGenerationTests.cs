@@ -435,7 +435,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         [
             new ArrInstanceConfig { Name = "R", Url = "http://radarr", ApiKey = "k" }
         ];
-        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k",It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([new ArrMovie { TmdbId = 1101 }]);
 
         var profile = NewProfile();
@@ -461,7 +461,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         [
             new ArrInstanceConfig { Name = "S", Url = "http://sonarr", ApiKey = "k" }
         ];
-        _arr.Setup(a => a.GetSonarrSeriesAsync("http://sonarr", "k",It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _arr.Setup(a => a.GetSonarrSeriesAsync("http://sonarr", "k", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([new ArrSeries { TmdbId = 1201 }]);
 
         var profile = NewProfile();
@@ -488,7 +488,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         [
             new ArrInstanceConfig { Name = "R", Url = "http://radarr", ApiKey = "k" }
         ];
-        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k",It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("radarr down"));
 
         var profile = NewProfile();
@@ -515,7 +515,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         [
             new ArrInstanceConfig { Name = "R", Url = "http://radarr", ApiKey = "k" }
         ];
-        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k",It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _arr.Setup(a => a.GetRadarrMoviesAsync("http://radarr", "k", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([new ArrMovie { TmdbId = 1401 }]);
 
         var profile = NewProfile();
@@ -630,7 +630,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         [
             new ArrInstanceConfig { Name = "S", Url = "http://sonarr", ApiKey = "k" }
         ];
-        _arr.Setup(a => a.GetSonarrSeriesAsync("http://sonarr", "k",It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        _arr.Setup(a => a.GetSonarrSeriesAsync("http://sonarr", "k", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("sonarr down"));
 
         var profile = NewProfile();

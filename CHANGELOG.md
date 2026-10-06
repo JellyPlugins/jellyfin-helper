@@ -12,6 +12,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Trakt discovery source in the Discovery sidebar.** When the admin enables Trakt, the Discovery tab gains two extra sub-tabs beside the local "For you" grid: "Trakt for you" (your personal Trakt recommendations) and "Trakt trending" (global trending, no login). The tabs use the exact same card layout, request and dismiss mechanics, and per-user ML scoring as the local grid, with an added Trakt deep link on the card back. With Trakt disabled the panel is unchanged.
 - **Per-user Trakt linking via the OAuth device flow.** The admin registers one Trakt application for the whole server; each user then links their own Trakt account from a connect panel with a one-time code and verification URL, no per-user admin setup. Tokens are refreshed automatically and can be disconnected again.
 - **Secrets encrypted at rest with Data Protection.** All stored credentials (Trakt tokens, plus the existing Seerr and Arr API keys, migrated transparently) are now encrypted on disk via ASP.NET Core Data Protection with a data-path keyring, never written or logged in plain text. Backups keep secrets portable and re-encrypt them on restore; the on-the-wire mask behavior is unchanged.
+- **Optional TLS certificate bypass per Arr instance.** Radarr/Sonarr servers behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect: each instance has a "Skip certificate validation" checkbox in Settings. It applies to connection tests, library comparison, and discovery exclusions; validation stays enabled everywhere else, failed tests name the certificate cause in the server log, and a warning is logged whenever a test runs with validation disabled.
 
 ### Fixed
 
@@ -24,7 +25,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6371 total.**
+- **Unit: 6377 total.**
 - **End-to-end: 358 tests across 56 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26

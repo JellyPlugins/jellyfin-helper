@@ -107,6 +107,7 @@ public class I18NServiceTests : IDisposable
             "arrNotConfigured", "arrCompareError", "comparing",
             "addInstance", "remove", "instanceName", "radarrInstances", "sonarrInstances",
             "testConnection", "testConnectionFailed", "testing", "testMissingFields",
+            "arrSkipCertValidation", "arrSkipCertValidationHelp",
             "url", "apiKey", "andMore", "more",
             // Trash disable dialog keys
             "trashDisablePrompt", "trashDisableQuestion", "trashDisableTitle",
