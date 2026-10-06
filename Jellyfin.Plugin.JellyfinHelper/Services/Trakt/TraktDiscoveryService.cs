@@ -97,6 +97,13 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         var candidates = new List<ExternalDiscoveryCandidate>();
         candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, cancellationToken).ConfigureAwait(false));
+        if (_store.GetToken(userId)?.IsLinked != true)
+        {
+            // The movies fetch unlinked the user (dead grant): skip the shows fetch with the dead
+            // token instead of scoring a partial pool that is never served and must not be cached.
+            return null;
+        }
+
         candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, accessToken, cancellationToken).ConfigureAwait(false));
         if (candidates.Count == 0)
         {
@@ -179,7 +186,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // The stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
             // refresh and retry once with the new credential.
-            var renewed = await _authService.RefreshAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
+            var renewed = await _authService.RefreshAccessTokenAsync(userId, accessToken, cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrEmpty(renewed) || string.Equals(renewed, accessToken, StringComparison.Ordinal))
             {
                 // No new credential to retry with: fail this fetch without unlinking, so a transient

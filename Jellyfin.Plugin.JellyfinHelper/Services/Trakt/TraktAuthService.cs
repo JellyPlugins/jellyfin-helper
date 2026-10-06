@@ -192,7 +192,7 @@ public sealed class TraktAuthService : ITraktAuthService
     }
 
     /// <inheritdoc />
-    public async Task<string?> RefreshAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
+    public async Task<string?> RefreshAccessTokenAsync(Guid userId, string? rejectedAccessToken, CancellationToken cancellationToken)
     {
         // Same per-user gate as the lazy path: concurrent 401s share one forced grant.
         var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
@@ -205,8 +205,12 @@ public sealed class TraktAuthService : ITraktAuthService
                 return null;
             }
 
-            // A concurrent refresh may already have renewed the token while this call waited.
-            if (current.ExpiresAtUtc - ExpirySkew > _utcNow())
+            // A concurrent refresh rotated the token while this call waited: the stored credential
+            // is already newer than the rejected one, so use it without another grant. A revoked
+            // token is usually far from expiry, so the old expiry shortcut here would have returned
+            // the dead token and the caller could never re-link.
+            if (rejectedAccessToken is not null
+                && !string.Equals(current.AccessToken, rejectedAccessToken, StringComparison.Ordinal))
             {
                 return current.AccessToken;
             }

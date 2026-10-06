@@ -501,7 +501,13 @@
                         _traktEnabled = true;
                     }
                 })
-                .finally(function () { renderShell(container, forceRefresh); });
+                .finally(function () {
+                    // The probe result belongs to probeUserId and to this mounted panel:
+                    // drop it if the account switched or the panel detached meanwhile.
+                    if (probeUserId !== currentDiscoveryUserId()) { _traktEnabled = null; return; }
+                    if (!document.contains(container)) { return; }
+                    renderShell(container, forceRefresh);
+                });
             return;
         }
 
@@ -630,6 +636,11 @@
                 renderCards(host, resp.Result);
             })
             .catch(function (err) {
+                // Same stale-response guard as the success path: a 403 from the
+                // previous account must not reset the new user's Trakt state.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 renderTraktError(host, err);
             });
     }
@@ -654,6 +665,10 @@
                 renderCards(host, data);
             })
             .catch(function (err) {
+                // Same stale-response guard as the success path (see personal tab).
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 renderTraktError(host, err);
             });
     }

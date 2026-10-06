@@ -158,6 +158,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private HashSet<(int TmdbId, string MediaType)>? _cachedExclusions;
     private DateTime _exclusionsExpiry = DateTime.MinValue;
 
+    // Holds the in-flight exclusion build so concurrent cache misses coalesce onto a single library
+    // scan plus Arr roster download instead of each launching their own. Cleared when the build
+    // settles so the next miss refreshes.
+    private Task<HashSet<(int TmdbId, string MediaType)>>? _inflightExclusionBuild;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
     /// </summary>
@@ -2289,6 +2294,30 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         PluginConfiguration config,
         CancellationToken cancellationToken)
     {
+        Task<HashSet<(int TmdbId, string MediaType)>> build;
+        lock (_exclusionCacheLock)
+        {
+            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
+            {
+                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+            }
+
+            // Reuse an in-flight build, but never a settled one: same pattern as the Seerr user
+            // roster, so concurrent Trakt tab loads share one rebuild instead of N parallel ones.
+            if (_inflightExclusionBuild is not { IsCompleted: false })
+            {
+                _inflightExclusionBuild = StartExclusionBuildAsync(config);
+            }
+
+            build = _inflightExclusionBuild;
+        }
+
+        var fresh = await build.WaitAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The shared build already wrote a successful result to the cache before completing, so
+        // once it settles the cache is warm and the fast path above catches any later caller in
+        // this burst. Read the cached copy here so every caller returns the same data.
         lock (_exclusionCacheLock)
         {
             if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
@@ -2297,14 +2326,47 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        var fresh = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        return new HashSet<(int TmdbId, string MediaType)>(fresh);
+    }
+
+    // Starts a single shared exclusion build, publishes the result to the cache before the task
+    // completes, and clears the in-flight slot once it settles. Publishing inside the task closes
+    // the window where a caller arriving after the build settled but before the cache was written
+    // would start a second build. Runs on its own token so it is not cancelled by any one caller's
+    // token; a failed build writes nothing, so it stays on the retriable path.
+    private Task<HashSet<(int TmdbId, string MediaType)>> StartExclusionBuildAsync(PluginConfiguration config)
+    {
+        Task<HashSet<(int TmdbId, string MediaType)>> build = BuildAndCacheExclusionSetAsync(config);
+        _ = build.ContinueWith(
+            _ =>
+            {
+                lock (_exclusionCacheLock)
+                {
+                    // Clear only our own slot. A caller arriving after this build settles but before
+                    // this continuation runs may have already installed a replacement build; wiping it
+                    // would strand that fresh request and force yet another build.
+                    if (ReferenceEquals(_inflightExclusionBuild, build))
+                    {
+                        _inflightExclusionBuild = null;
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return build;
+    }
+
+    private async Task<HashSet<(int TmdbId, string MediaType)>> BuildAndCacheExclusionSetAsync(PluginConfiguration config)
+    {
+        var fresh = await BuildExclusionSetAsync(config, CancellationToken.None).ConfigureAwait(false);
         lock (_exclusionCacheLock)
         {
             _cachedExclusions = fresh;
             _exclusionsExpiry = DateTime.UtcNow.Add(ExclusionCacheTtl);
         }
 
-        return new HashSet<(int TmdbId, string MediaType)>(fresh);
+        return fresh;
     }
 
     private async Task<HashSet<(int TmdbId, string MediaType)>> BuildExclusionSetAsync(

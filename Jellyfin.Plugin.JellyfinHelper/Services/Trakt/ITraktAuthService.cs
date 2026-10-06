@@ -41,9 +41,12 @@ public interface ITraktAuthService
     ///     is dead. Returns null without touching the store when there is nothing to refresh with.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="rejectedAccessToken">The access token Trakt rejected, or null when unknown. When the
+    ///     stored token already differs from it, a concurrent refresh rotated the credential and the stored
+    ///     token is returned without another grant.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>The new access token, or null when no refresh was possible.</returns>
-    Task<string?> RefreshAccessTokenAsync(Guid userId, CancellationToken cancellationToken);
+    Task<string?> RefreshAccessTokenAsync(Guid userId, string? rejectedAccessToken, CancellationToken cancellationToken);
 
     /// <summary>
     ///     Removes a user's stored token (disconnect).

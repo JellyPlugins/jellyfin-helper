@@ -167,15 +167,30 @@ public sealed class TraktAuthServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RefreshAccessToken_ReturnsStoredToken_WhenFreshWithoutFetch()
+    public async Task RefreshAccessToken_ReturnsStoredToken_WhenAlreadyRotated()
     {
         var userId = Guid.NewGuid();
         await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref", ExpiresAtUtc = _now.AddHours(1) }, CancellationToken.None);
 
+        // The stored token already differs from the rejected one: a concurrent refresh rotated it.
         // No Enqueue: the Strict handler throws on any HTTP, proving no grant is attempted.
-        var token = await CreateService().RefreshAccessTokenAsync(userId, CancellationToken.None);
+        var token = await CreateService().RefreshAccessTokenAsync(userId, "rejected", CancellationToken.None);
 
         Assert.Equal("acc", token);
+    }
+
+    [Fact]
+    public async Task RefreshAccessToken_ForcesGrant_WhenStoredTokenRejected()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref", ExpiresAtUtc = _now.AddHours(1) }, CancellationToken.None);
+        Enqueue(HttpStatusCode.OK, """{"access_token":"forced","refresh_token":"ref2","expires_in":7776000,"created_at":1893456000}""");
+
+        // A revoked token is usually far from expiry: the rejected token must still force a grant.
+        var token = await CreateService().RefreshAccessTokenAsync(userId, "acc", CancellationToken.None);
+
+        Assert.Equal("forced", token);
+        Assert.Equal("forced", _store.GetToken(userId)!.AccessToken);
     }
 
     [Fact]
@@ -185,7 +200,7 @@ public sealed class TraktAuthServiceTests : IDisposable
         await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "ref", ExpiresAtUtc = _now.AddMinutes(-1) }, CancellationToken.None);
         Enqueue(HttpStatusCode.OK, """{"access_token":"forced","refresh_token":"ref2","expires_in":7776000,"created_at":1893456000}""");
 
-        var token = await CreateService().RefreshAccessTokenAsync(userId, CancellationToken.None);
+        var token = await CreateService().RefreshAccessTokenAsync(userId, "old", CancellationToken.None);
 
         Assert.Equal("forced", token);
         Assert.Equal("forced", _store.GetToken(userId)!.AccessToken);
@@ -195,7 +210,7 @@ public sealed class TraktAuthServiceTests : IDisposable
     [Fact]
     public async Task RefreshAccessToken_ReturnsNull_WhenUnlinked()
     {
-        var token = await CreateService().RefreshAccessTokenAsync(Guid.NewGuid(), CancellationToken.None);
+        var token = await CreateService().RefreshAccessTokenAsync(Guid.NewGuid(), null, CancellationToken.None);
         Assert.Null(token);
     }
 

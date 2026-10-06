@@ -288,7 +288,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
-        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
+        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
@@ -308,7 +308,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
-        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
@@ -325,23 +325,27 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_UnauthorizedRetryFails_Unlinks()
+    public async Task GetPersonal_UnauthorizedRetryFails_UnlinksWithoutPartialServe()
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
-        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
+        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
+        // Mirror the production store: once RemoveAsync runs, the token is gone and the link
+        // check between the movies and shows fetches stops the partial pool from being served.
+        _store.Setup(s => s.RemoveAsync(userId, It.IsAny<CancellationToken>()))
+            .Callback(() => _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null))
+            .Returns(Task.CompletedTask);
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
-        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
         var sut = CreateService();
 
         var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
 
-        // Fresh credentials rejected: the grant is dead, so the user is unlinked and the UI
-        // offers a re-link instead of an empty grid.
-        Assert.NotNull(result);
+        // Fresh credentials rejected: the grant is dead, so the user is unlinked and gets null
+        // (the UI offers a re-link) instead of a shows-only partial pool.
+        Assert.Null(result);
         _store.Verify(s => s.RemoveAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
     }
 

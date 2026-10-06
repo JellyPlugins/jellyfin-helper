@@ -470,19 +470,19 @@ var MOCK_SEERR_SERVICES_SONARR=[];
 
 var MOCK_RECOMMENDATIONS=[
 {UserId:_uid1,UserName:"Alice",Recommendations:[
-{Name:"Blade Runner 2049",Score:0.94,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2017,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Blade Runner"},
-{Name:"Ex Machina",Score:0.91,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2014,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
-{Name:"The Martian",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Adventure"],Year:2015,Reason:"Directed by Ridley Scott",ReasonKey:"recsDirectorMatch"},
-{Name:"Arrival",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Drama"],Year:2016,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Interstellar"},
-{Name:"Edge of Tomorrow",Score:0.82,ItemType:"Movie",Genres:["Sci-Fi","Action"],Year:2014,Reason:"Popular in your favorite genres",ReasonKey:"recsPopularGenre"},
-{Name:"Westworld",Score:0.79,ItemType:"Series",Genres:["Sci-Fi","Drama"],Year:2016,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"}
+{Name:"Blade Runner 2049",Score:0.94,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2017,TmdbId:335984,PosterPath:"/5EuXvLuNVIVsYDa3d4VrPtnBy5.jpg",TmdbRating:8.0,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Blade Runner"},
+{Name:"Ex Machina",Score:0.91,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2014,TmdbId:264660,PosterPath:"/wyDMw8TGv2DuO46y1j4IRmryUSL.jpg",TmdbRating:7.7,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
+{Name:"The Martian",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Adventure"],Year:2015,TmdbId:286217,PosterPath:"/zfnSf4wuuNbML6Mj922zYKL1HWZ.jpg",TmdbRating:7.7,Reason:"Directed by Ridley Scott",ReasonKey:"recsDirectorMatch"},
+{Name:"Arrival",Score:0.85,ItemType:"Movie",Genres:["Sci-Fi","Drama"],Year:2016,TmdbId:329865,PosterPath:"/itjMhMLR3mUmgL5QykPrPqU3fSS.jpg",TmdbRating:7.6,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Interstellar"},
+{Name:"Edge of Tomorrow",Score:0.82,ItemType:"Movie",Genres:["Sci-Fi","Action"],Year:2014,TmdbId:137113,PosterPath:"/9WCpjrsfP2FJiXmbe0DS7hFN4J.jpg",TmdbRating:7.6,Reason:"Popular in your favorite genres",ReasonKey:"recsPopularGenre"},
+{Name:"Westworld",Score:0.79,ItemType:"Series",Genres:["Sci-Fi","Drama"],Year:2016,TmdbId:63247,PosterPath:"/8MfgyFHf7XEboZJPZXCIDqqiz6e.jpg",TmdbRating:8.4,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"}
 ]},
 {UserId:_uid2,UserName:"Bob",Recommendations:[
-{Name:"The Grand Budapest Hotel",Score:0.92,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2014,Reason:"Directed by Wes Anderson",ReasonKey:"recsDirectorMatch"},
-{Name:"Lady Bird",Score:0.88,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2017,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
-{Name:"Parasite",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2019,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
-{Name:"Jojo Rabbit",Score:0.83,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2019,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"The Grand Budapest Hotel"},
-{Name:"The Office",Score:0.80,ItemType:"Series",Genres:["Comedy"],Year:2005,Reason:"Popular in Comedy",ReasonKey:"recsPopularGenre"}
+{Name:"The Grand Budapest Hotel",Score:0.92,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2014,TmdbId:120467,PosterPath:"/eWdyYQreja6JGCzqHWXpWHDrrPo.jpg",TmdbRating:8.0,Reason:"Directed by Wes Anderson",ReasonKey:"recsDirectorMatch"},
+{Name:"Lady Bird",Score:0.88,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2017,TmdbId:391713,PosterPath:"/4zdUG4WO9bw3x1GT9cHclbQLTzd.jpg",TmdbRating:7.5,Reason:"Matches your top genres",ReasonKey:"recsGenreMatch"},
+{Name:"Parasite",Score:0.86,ItemType:"Movie",Genres:["Drama","Thriller"],Year:2019,TmdbId:496243,PosterPath:"/7pU95cO4KHli4w0L9N5hyoplEke.jpg",TmdbRating:8.5,Reason:"Highly rated drama",ReasonKey:"recsHighlyRated"},
+{Name:"Jojo Rabbit",Score:0.83,ItemType:"Movie",Genres:["Comedy","Drama"],Year:2019,TmdbId:515001,PosterPath:"/zIXJoYXc8ezMXc7DEaYii4XwIlS.jpg",TmdbRating:8.0,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"The Grand Budapest Hotel"},
+{Name:"The Office",Score:0.80,ItemType:"Series",Genres:["Comedy"],Year:2005,TmdbId:2316,PosterPath:"/lJdBwFhoQnfqLsneOLR7rJCEmj7.jpg",TmdbRating:8.5,Reason:"Popular in Comedy",ReasonKey:"recsPopularGenre"}
 ]}
 ];
 
