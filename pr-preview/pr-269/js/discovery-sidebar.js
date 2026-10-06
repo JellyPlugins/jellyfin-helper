@@ -811,13 +811,10 @@
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
-            // Trakt deep link via the TMDb id search, so no per-item slug is needed. Resolves to the
-            // movie/show page on trakt.tv. Shown only on the Trakt tabs (link is harmless elsewhere but we
-            // keep the card-back order TMDB then Seerr then Trakt).
-            var traktIdType = mediaType === 'tv' ? 'show' : 'movie';
-            var traktExtUrl = 'https://trakt.tv/search/tmdb/' + (Number.parseInt(r.TmdbId, 10) || 0) + '?id_type=' + traktIdType;
-            extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
-                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
+            // No Trakt deep link: the old trakt.tv/search/tmdb/:id route 404s on the new app.trakt.tv
+            // ("Nothingness. The void."), and per-title pages need slugs we do not have (the DTO
+            // carries only the TMDb id). A link that dead-ends is worse than none, so the card back
+            // keeps TMDB (and Seerr, when configured).
             extLinksHtml += '</div>';
 
             if (posterUrl) {
