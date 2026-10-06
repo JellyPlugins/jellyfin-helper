@@ -58,7 +58,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private SeerrDiscoveryService CreateService()
+    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null)
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         // Strict handler routing Seerr detail calls by TMDb id. Unregistered ids answer 404, which the
@@ -104,6 +104,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         feedbackStore.Setup(f => f.GetDismissedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
         feedbackStore.Setup(f => f.GetRequestedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
+        configureFeedback?.Invoke(feedbackStore);
         var perUserRegistry = new PerUserEnsembleRegistry(
             ensemble, null, null,
             new EnsembleBlendBounds(
@@ -327,5 +328,75 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         // The library scan backing the shared exclusion set runs once; the second scoring reuses the cache.
         _libraryManager.Verify(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Once);
+    }
+
+    private static DiscoveryRecommendation Rec(int tmdbId, string mediaType = "movie", bool requested = false) => new()
+    {
+        TmdbId = tmdbId,
+        MediaType = mediaType,
+        Title = "Title " + tmdbId,
+        AlreadyRequested = requested,
+    };
+
+    [Fact]
+    public void FilterConsumedItems_RemovesDismissedAndRequested()
+    {
+        var userId = Guid.NewGuid();
+        var input = new DiscoveryResult
+        {
+            UserId = userId,
+            Recommendations = [Rec(1), Rec(2), Rec(3)],
+        };
+        var service = CreateService(f =>
+        {
+            f.Setup(s => s.GetDismissedItems(userId)).Returns(new HashSet<(int, string)> { (1, "movie") });
+            f.Setup(s => s.GetRequestedItems(userId)).Returns(new HashSet<(int, string)> { (2, "movie") });
+        });
+
+        var result = service.FilterConsumedItems(userId, input);
+
+        var remaining = Assert.Single(result.Recommendations);
+        Assert.Equal(3, remaining.TmdbId);
+        // The input is never mutated: caches holding it stay intact.
+        Assert.Equal(3, input.Recommendations.Count);
+    }
+
+    [Fact]
+    public void FilterConsumedItems_ExcludesAlreadyRequestedAndNormalizesType()
+    {
+        var userId = Guid.NewGuid();
+        var input = new DiscoveryResult
+        {
+            UserId = userId,
+            Recommendations = [Rec(1, requested: true), Rec(2, " Movie ")],
+        };
+        var service = CreateService(f =>
+        {
+            f.Setup(s => s.GetDismissedItems(userId)).Returns(new HashSet<(int, string)> { (2, "movie") });
+            f.Setup(s => s.GetRequestedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
+        });
+
+        var result = service.FilterConsumedItems(userId, input);
+
+        Assert.Empty(result.Recommendations);
+    }
+
+    [Fact]
+    public void FilterConsumedItems_ServesUnfiltered_WhenStoreFails()
+    {
+        var userId = Guid.NewGuid();
+        var input = new DiscoveryResult
+        {
+            UserId = userId,
+            Recommendations = [Rec(1), Rec(2)],
+        };
+        var service = CreateService(f =>
+        {
+            f.Setup(s => s.GetDismissedItems(It.IsAny<Guid>())).Throws(new InvalidOperationException("store down"));
+        });
+
+        var result = service.FilterConsumedItems(userId, input);
+
+        Assert.Equal(2, result.Recommendations.Count);
     }
 }

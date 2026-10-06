@@ -28,7 +28,6 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private readonly Mock<ITraktAuthService> _auth;
     private readonly Mock<ITraktUserStore> _store;
     private readonly Mock<ISeerrDiscoveryService> _discovery;
-    private readonly Mock<IDiscoveryFeedbackStore> _feedback;
     private readonly TraktCacheService _cache;
     private readonly IPluginLogService _pluginLog;
 
@@ -58,7 +57,10 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _store.Setup(s => s.GetToken(It.IsAny<Guid>()))
             .Returns((Guid u) => new TraktUserToken { AccessToken = "stored", RefreshToken = "stored-ref" });
         _discovery = new Mock<ISeerrDiscoveryService>();
-        _feedback = new Mock<IDiscoveryFeedbackStore>();
+        // Consumed-item filtering is the seam's job; pass through by default so these
+        // tests exercise the Trakt orchestration, not the filter (covered at the seam).
+        _discovery.Setup(d => d.FilterConsumedItems(It.IsAny<Guid>(), It.IsAny<DiscoveryResult>()))
+            .Returns((Guid u, DiscoveryResult r) => r);
         _cache = new TraktCacheService();
         _pluginLog = TestMockFactory.CreatePluginLogService();
     }
@@ -77,7 +79,6 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             _auth.Object,
             _store.Object,
             _discovery.Object,
-            _feedback.Object,
             _cache,
             _pluginLog,
             NullLogger<TraktDiscoveryService>.Instance);
@@ -114,28 +115,25 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     [InlineData(4)]
     [InlineData(5)]
     [InlineData(6)]
-    [InlineData(7)]
     public void Ctor_NullDependency_Throws(int index)
     {
         var factory = new Mock<IHttpClientFactory>().Object;
         var auth = new Mock<ITraktAuthService>().Object;
         var store = new Mock<ITraktUserStore>().Object;
         var discovery = new Mock<ISeerrDiscoveryService>().Object;
-        var feedback = new Mock<IDiscoveryFeedbackStore>().Object;
         var cache = new TraktCacheService();
         var pluginLog = TestMockFactory.CreatePluginLogService();
         var logger = NullLogger<TraktDiscoveryService>.Instance;
 
         Assert.Throws<ArgumentNullException>(() => index switch
         {
-            0 => new TraktDiscoveryService(null!, auth, store, discovery, feedback, cache, pluginLog, logger),
-            1 => new TraktDiscoveryService(factory, null!, store, discovery, feedback, cache, pluginLog, logger),
-            2 => new TraktDiscoveryService(factory, auth, null!, discovery, feedback, cache, pluginLog, logger),
-            3 => new TraktDiscoveryService(factory, auth, store, null!, feedback, cache, pluginLog, logger),
-            4 => new TraktDiscoveryService(factory, auth, store, discovery, null!, cache, pluginLog, logger),
-            5 => new TraktDiscoveryService(factory, auth, store, discovery, feedback, null!, pluginLog, logger),
-            6 => new TraktDiscoveryService(factory, auth, store, discovery, feedback, cache, null!, logger),
-            _ => new TraktDiscoveryService(factory, auth, store, discovery, feedback, cache, pluginLog, null!),
+            0 => new TraktDiscoveryService(null!, auth, store, discovery, cache, pluginLog, logger),
+            1 => new TraktDiscoveryService(factory, null!, store, discovery, cache, pluginLog, logger),
+            2 => new TraktDiscoveryService(factory, auth, null!, discovery, cache, pluginLog, logger),
+            3 => new TraktDiscoveryService(factory, auth, store, null!, cache, pluginLog, logger),
+            4 => new TraktDiscoveryService(factory, auth, store, discovery, null!, pluginLog, logger),
+            5 => new TraktDiscoveryService(factory, auth, store, discovery, cache, null!, logger),
+            _ => new TraktDiscoveryService(factory, auth, store, discovery, cache, pluginLog, null!),
         });
     }
 
@@ -176,40 +174,40 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_FiltersDismissedAndRequestedOnServe()
-    {
-        var userId = Guid.NewGuid();
-        _cache.SetPersonal(userId, Scored(userId, (11, "movie", "Alpha"), (22, "tv", "Beta"), (33, "movie", "Gamma")));
-        _feedback.Setup(f => f.GetDismissedItems(userId)).Returns(new HashSet<(int, string)> { (11, "movie") });
-        _feedback.Setup(f => f.GetRequestedItems(userId)).Returns(new HashSet<(int, string)> { (22, "tv") });
-        var sut = CreateService();
-
-        var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
-
-        // Only the unconsumed item survives; the served list is a copy, the cache keeps the full pool.
-        Assert.NotNull(result);
-        var remaining = Assert.Single(result!.Recommendations);
-        Assert.Equal(33, remaining.TmdbId);
-    }
-
-    [Fact]
-    public async Task GetTrending_FiltersDismissedOnServe()
+    public async Task GetPersonal_ServesSeamFilteredResult()
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
+        var filtered = Scored(userId, (22, "tv", "Beta"));
+        _discovery.Setup(d => d.FilterConsumedItems(userId, It.IsAny<DiscoveryResult>())).Returns(filtered);
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        // Consumed-item filtering belongs to the seam; the Trakt service serves whatever it returns.
+        var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Same(filtered, result);
+        _discovery.Verify(d => d.FilterConsumedItems(userId, It.IsAny<DiscoveryResult>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTrending_ServesSeamFilteredResult()
+    {
+        var userId = Guid.NewGuid();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
+        var filtered = Scored(userId, (44, "tv", "T2"));
+        _discovery.Setup(d => d.FilterConsumedItems(userId, It.IsAny<DiscoveryResult>())).Returns(filtered);
         _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
-        _feedback.Setup(f => f.GetDismissedItems(userId)).Returns(new HashSet<(int, string)> { (33, "movie") });
-        _feedback.Setup(f => f.GetRequestedItems(userId)).Returns(new HashSet<(int, string)>());
         var sut = CreateService();
 
         var result = await sut.GetTrendingAsync(userId, CancellationToken.None);
 
-        Assert.NotNull(result);
-        var remaining = Assert.Single(result!.Recommendations);
-        Assert.Equal(44, remaining.TmdbId);
+        Assert.Same(filtered, result);
     }
 
     [Fact]

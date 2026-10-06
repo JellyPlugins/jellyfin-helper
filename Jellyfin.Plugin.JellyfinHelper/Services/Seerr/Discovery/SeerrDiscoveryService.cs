@@ -1904,6 +1904,54 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         };
     }
 
+    /// <inheritdoc />
+    public DiscoveryResult FilterConsumedItems(Guid jellyfinUserId, DiscoveryResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        HashSet<(int TmdbId, string MediaType)>? excluded = null;
+        try
+        {
+            var dismissed = _feedbackStore.GetDismissedItems(jellyfinUserId);
+            var requested = _feedbackStore.GetRequestedItems(jellyfinUserId);
+            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0)
+            {
+                excluded = new HashSet<(int TmdbId, string MediaType)>();
+                if (dismissed is not null)
+                {
+                    excluded.UnionWith(dismissed);
+                }
+
+                if (requested is not null)
+                {
+                    excluded.UnionWith(requested);
+                }
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Consumed-item filter unavailable for user {jellyfinUserId}; serving unfiltered: {ex.Message}",
+                _logger);
+        }
+
+        return new DiscoveryResult
+        {
+            UserId = result.UserId,
+            Recommendations = excluded is null
+                ? [.. result.Recommendations]
+                : result.Recommendations
+                    .Where(r =>
+                    {
+                        var mediaType = string.IsNullOrWhiteSpace(r.MediaType) ? MediaTypeMovie : r.MediaType.Trim().ToLowerInvariant();
+                        return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, mediaType));
+                    })
+                    .ToList(),
+            GeneratedAt = result.GeneratedAt,
+        };
+    }
+
     // Projects a public external candidate onto the internal TMDb candidate shape the scorer consumes.
     private static TmdbDiscoverItem ToTmdbItem(ExternalDiscoveryCandidate c)
     {

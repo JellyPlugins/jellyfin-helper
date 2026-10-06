@@ -34,6 +34,16 @@ public interface ISeerrDiscoveryService
         CancellationToken cancellationToken);
 
     /// <summary>
+    ///     Removes dismissed/requested items from a discovery result for a user. Scoring-time exclusion
+    ///     cannot see dismissals or requests that land after the score was computed (and cached), so every
+    ///     serve filters again; this mirrors the local pool's view-load filtering. Never mutates the input.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user to filter for.</param>
+    /// <param name="result">The result to filter.</param>
+    /// <returns>A new result with only unconsumed recommendations.</returns>
+    DiscoveryResult FilterConsumedItems(Guid jellyfinUserId, DiscoveryResult result);
+
+    /// <summary>
     ///     Generates discovery recommendations for all users and persists results.
     ///     Called by the scheduled task.
     /// </summary>

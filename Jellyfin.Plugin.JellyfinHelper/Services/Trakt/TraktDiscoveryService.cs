@@ -23,6 +23,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 {
     private const string LogSource = "Trakt";
     private const string ReasonKey = "reasonTrakt";
+    private const string MediaTypeMovie = "movie";
+    private const string MediaTypeTv = "tv";
 
     // Caches are warmed by the scheduled task; request-time serves a fresh entry or does a lazy live fetch.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(12);
@@ -31,7 +33,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly ITraktAuthService _authService;
     private readonly ITraktUserStore _store;
     private readonly ISeerrDiscoveryService _discoveryService;
-    private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly TraktCacheService _cache;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TraktDiscoveryService> _logger;
@@ -43,7 +44,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// <param name="authService">The auth service, for per-user access tokens.</param>
     /// <param name="store">The token store, used to enumerate linked users on refresh.</param>
     /// <param name="discoveryService">The discovery service exposing the external-candidate scoring seam.</param>
-    /// <param name="feedbackStore">The dismissed/requested store, applied on every serve.</param>
     /// <param name="cache">The Trakt result cache.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
@@ -52,7 +52,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         ITraktAuthService authService,
         ITraktUserStore store,
         ISeerrDiscoveryService discoveryService,
-        IDiscoveryFeedbackStore feedbackStore,
         TraktCacheService cache,
         IPluginLogService pluginLog,
         ILogger<TraktDiscoveryService> logger)
@@ -61,7 +60,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _discoveryService = discoveryService ?? throw new ArgumentNullException(nameof(discoveryService));
-        _feedbackStore = feedbackStore ?? throw new ArgumentNullException(nameof(feedbackStore));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _pluginLog = pluginLog ?? throw new ArgumentNullException(nameof(pluginLog));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -87,7 +85,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var cached = _cache.GetPersonal(userId, CacheTtl);
         if (cached is not null)
         {
-            return WithVisibleItems(userId, cached);
+            return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
         var accessToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
@@ -98,8 +96,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", "movie", config, accessToken, cancellationToken).ConfigureAwait(false));
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", "tv", config, accessToken, cancellationToken).ConfigureAwait(false));
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, cancellationToken).ConfigureAwait(false));
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, accessToken, cancellationToken).ConfigureAwait(false));
         if (candidates.Count == 0)
         {
             return null;
@@ -109,7 +107,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (result is not null)
         {
             _cache.SetPersonal(userId, result);
-            return WithVisibleItems(userId, result);
+            return _discoveryService.FilterConsumedItems(userId, result);
         }
 
         return null;
@@ -139,7 +137,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Always score the raw pool per user; a stored ranking is never served to anyone.
         var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, ReasonKey, cancellationToken).ConfigureAwait(false);
-        return scored is null ? null : WithVisibleItems(userId, scored);
+        return scored is null ? null : _discoveryService.FilterConsumedItems(userId, scored);
     }
 
     /// <inheritdoc />
@@ -170,60 +168,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 _pluginLog.LogWarning(LogSource, "Personal refresh failed for a user.", ex, _logger);
             }
         }
-    }
-
-    // Removes dismissed/requested items on every serve, mirroring the local pool's view-load
-    // filtering. Scoring-time exclusion is not enough: a dismissal or request can land after the
-    // score was computed (and cached for hours). The cache keeps the full pool; filtering happens
-    // here so consumed items never reappear and can never be requested twice.
-    private DiscoveryResult WithVisibleItems(Guid userId, DiscoveryResult result)
-    {
-        HashSet<(int TmdbId, string MediaType)>? excluded = null;
-        try
-        {
-            var dismissed = _feedbackStore.GetDismissedItems(userId);
-            var requested = _feedbackStore.GetRequestedItems(userId);
-            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0)
-            {
-                excluded = new HashSet<(int TmdbId, string MediaType)>();
-                if (dismissed is not null)
-                {
-                    excluded.UnionWith(dismissed);
-                }
-
-                if (requested is not null)
-                {
-                    excluded.UnionWith(requested);
-                }
-            }
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _pluginLog.LogDebug(LogSource, $"Consumed-item filter unavailable ({ex.Message}); serving unfiltered.", _logger);
-        }
-
-        if (excluded is null)
-        {
-            return new DiscoveryResult
-            {
-                UserId = result.UserId,
-                Recommendations = [.. result.Recommendations],
-                GeneratedAt = result.GeneratedAt,
-            };
-        }
-
-        return new DiscoveryResult
-        {
-            UserId = result.UserId,
-            Recommendations = result.Recommendations
-                .Where(r =>
-                {
-                    var mediaType = string.IsNullOrWhiteSpace(r.MediaType) ? "movie" : r.MediaType.Trim().ToLowerInvariant();
-                    return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, mediaType));
-                })
-                .ToList(),
-            GeneratedAt = result.GeneratedAt,
-        };
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
@@ -267,15 +211,15 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         using (var movieReq = BuildRequest("/movies/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
         {
             var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, cancellationToken).ConfigureAwait(false);
-            all.AddRange(TraktMapper.MapTrendingItems(movies, "movie", out var droppedMovies));
-            LogDropped(droppedMovies, "movie", "trending");
+            all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
+            LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
         using (var showReq = BuildRequest("/shows/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
         {
             var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, cancellationToken).ConfigureAwait(false);
-            all.AddRange(TraktMapper.MapTrendingItems(shows, "tv", out var droppedShows));
-            LogDropped(droppedShows, "tv", "trending");
+            all.AddRange(TraktMapper.MapTrendingItems(shows, MediaTypeTv, out var droppedShows));
+            LogDropped(droppedShows, MediaTypeTv, "trending");
         }
 
         return all;
