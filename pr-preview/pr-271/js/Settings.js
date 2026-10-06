@@ -554,6 +554,8 @@ function loadSettings() {
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
         h += '<input type="password" id="cfgSeerrApiKey">';
+        h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + (cfg.SeerrSkipCertificateValidation ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
@@ -704,6 +706,7 @@ function buildSettingsPayload() {
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
         SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
         SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
+        SeerrSkipCertificateValidation: document.getElementById('cfgSeerrSkipCert') ? document.getElementById('cfgSeerrSkipCert').checked : false,
         // Trakt fields are null when the card is absent (Discovery sidebar off) so the server preserves the
         // stored Trakt config instead of clearing it on an unrelated save. There is no enable toggle: the
         // server derives TraktEnabled from whether a client id + secret are stored.
@@ -1218,6 +1221,8 @@ function attachSeerrHandlers() {
     btn.addEventListener('click', function () {
         var url = document.getElementById('cfgSeerrUrl')?.value || '';
         var key = document.getElementById('cfgSeerrApiKey')?.value || '';
+        var skipCertEl = document.getElementById('cfgSeerrSkipCert');
+        var skipCert = skipCertEl ? skipCertEl.checked : false;
         var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
         if (_seerrTimer) {
@@ -1231,7 +1236,7 @@ function attachSeerrHandlers() {
         }
         btn.disabled = true;
         btn.innerHTML = '<span class="btn-spinner"></span>' + escHtml(T('testing', 'Testing…'));
-        apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key}, function (res) {
+        apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key, SkipCertificateValidation: skipCert}, function (res) {
             btn.disabled = false;
             // Jellyfin 12 serializes controller DTOs in PascalCase (Success/Message);
             // Jellyfin 10.x used camelCase. Accept both.
