@@ -1499,4 +1499,69 @@ public class ArrIntegrationServiceTests
         Assert.Single(matchedForTv);
         Assert.Contains("Anime Series", matchedForTv);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestConnection_DefaultUsesStrictClient()
+    {
+        var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
+        var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.AtLeastOnce);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestConnection_ExplicitOptInUsesInsecureClient()
+    {
+        var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
+        var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://localhost:7878", "key", skipCertificateValidation: true);
+
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void CompareRadarr_10000Entries_CompletesWithin1Second()
+    {
+        var movies = new List<ArrMovie>();
+        var jellyfinNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < 10_000; i++)
+        {
+            var folder = $"Movie {i} (2020)";
+            movies.Add(new ArrMovie { Title = $"Movie {i}", Year = 2020, HasFile = true, Path = "/data/" + folder });
+            if (i % 2 == 0)
+            {
+                jellyfinNames.Add(folder);
+            }
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinNames);
+        sw.Stop();
+
+        Assert.Equal(5000, result.InBoth.Count);
+        AssertPerfLimit(sw, 1000);
+    }
+
+    private static void AssertPerfLimit(System.Diagnostics.Stopwatch sw, long maxMilliseconds)
+    {
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < maxMilliseconds, $"Took {sw.ElapsedMilliseconds}ms, expected < {maxMilliseconds}ms");
+        }
+    }
 }

@@ -1081,4 +1081,63 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         // Enabling without an id or secret would leave a broken feature behind.
         Assert.False(liveConfig.TraktEnabled);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void RestoreBackup_SeerrSkipCertTrue_AppliedWithWarning()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrSkipCertificateValidation = false;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrSkipCertificateValidation = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.SeerrSkipCertificateValidation);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void RestoreBackup_SeerrSkipCertAbsent_KeepsLiveValue()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrSkipCertificateValidation = true;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrSkipCertificateValidation = null;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.SeerrSkipCertificateValidation);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void RestoreBackup_ArrSkipCertAbsent_KeepsLiveValue()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "https://r:7878", ApiKey = "live-key", SkipCertificateValidation = true });
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance { Name = "R1", Url = "https://r:7878", ApiKey = string.Empty, SkipCertificateValidation = null });
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("trash\0evil")]
+    [InlineData("trash\nnewline")]
+    [InlineData("trash\twith-tab")]
+    [InlineData("../../escape")]
+    public void RestoreBackup_UnsafeTrashPath_DefangedToDefault(string trashPath)
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrashFolderPath = trashPath;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
 }

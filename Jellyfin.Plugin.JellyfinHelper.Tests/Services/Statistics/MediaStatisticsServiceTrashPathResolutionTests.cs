@@ -125,4 +125,38 @@ public sealed class MediaStatisticsServiceTrashPathResolutionTests
         Assert.Single(result.Libraries);
         Assert.Equal(1, result.Libraries[0].VideoFileCount);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void CalculateStatistics_TrashPathOutsideLibrary_DoesNotExcludeLibraryFiles()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoFile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.mkv"),
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var configHelper = new Mock<ICleanupConfigHelper>();
+        configHelper.Setup(c => c.GetConfig()).Returns(new PluginConfiguration());
+        configHelper.Setup(c => c.GetTrashPath(It.IsAny<string>()))
+            .Returns(TestPath("outside", "trash"));
+
+        var service = CreateService(configHelper.Object);
+
+        var result = service.CalculateStatistics();
+
+        Assert.Single(result.Libraries);
+        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+    }
 }

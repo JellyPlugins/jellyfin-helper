@@ -529,6 +529,14 @@ public sealed class BackupService : IBackupService
         // re-enable certificate validation on a working private-CA setup.
         if (backup.SeerrSkipCertificateValidation.HasValue)
         {
+            if (backup.SeerrSkipCertificateValidation.Value && !config.SeerrSkipCertificateValidation)
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    "Backup restore is enabling TLS certificate validation bypass for Seerr. Verify this is intended.",
+                    logger: _logger);
+            }
+
             config.SeerrSkipCertificateValidation = backup.SeerrSkipCertificateValidation.Value;
         }
     }
@@ -575,12 +583,13 @@ public sealed class BackupService : IBackupService
     private static void RestoreTrashSettings(PluginConfiguration config, BackupData backup)
     {
         config.UseTrash = backup.UseTrash;
-        // Defang unsafe trash path to default instead of failing restore.
+        // Defang unsafe trash path to default instead of failing restore. Reuses the
+        // settings-save guard so control characters and traversal are handled identically.
         var rawTrashPath = backup.TrashFolderPath;
-        var hasTraversal = PathValidator.HasTraversalSegment(rawTrashPath);
+        var strictError = Api.ConfigurationRequestValidator.ValidateTrashPathStrict(rawTrashPath, backup.UseTrash);
         var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
             PathValidator.IsSensitiveSystemPath(rawTrashPath);
-        config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive
+        config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || strictError != null || isSensitive
             ? ".jellyfin-trash"
             : rawTrashPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
@@ -655,6 +664,15 @@ public sealed class BackupService : IBackupService
 
         liveInstances.Clear();
         liveInstances.AddRange(newList);
+
+        var skipEnabled = newList.Count(i => i.SkipCertificateValidation);
+        if (skipEnabled > 0)
+        {
+            _pluginLog.LogWarning(
+                LogSource,
+                $"Backup restore is enabling TLS certificate validation bypass for {skipEnabled} {label} instance(s). Verify this is intended.",
+                logger: _logger);
+        }
 
         if (silentWipes > 0)
         {

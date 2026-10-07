@@ -100,6 +100,12 @@ public sealed class TraktAuthService : ITraktAuthService
             return TraktDevicePollStatus.Error;
         }
 
+        // Bound the outbound code before it reaches the serializer and the shared Trakt quota.
+        if (deviceCode.Length > 512 || ContainsControlCharacters(deviceCode))
+        {
+            return TraktDevicePollStatus.Error;
+        }
+
         var config = GetConfig();
         var clientSecret = _secretProtector.Unprotect(config?.TraktClientSecret);
         if (config is null || string.IsNullOrWhiteSpace(config.TraktClientId) || string.IsNullOrWhiteSpace(clientSecret))
@@ -236,6 +242,13 @@ public sealed class TraktAuthService : ITraktAuthService
             return (false, "A Trakt Client ID is required.");
         }
 
+        // Bound before building the outbound header so an oversized or control-char id cannot
+        // reach TryAddWithoutValidation or consume the shared Trakt quota.
+        if (clientId.Length > 512 || ContainsControlCharacters(clientId))
+        {
+            return (false, "Trakt Client ID is invalid.");
+        }
+
         // Trending is the only endpoint reachable with just a client id, so it is the honest admin-level check.
         var uri = new Uri($"{TraktApi.BaseUrl}/movies/trending?limit=1", UriKind.Absolute);
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -330,6 +343,12 @@ public sealed class TraktAuthService : ITraktAuthService
     }
 
     private static PluginConfiguration? GetConfig() => Plugin.Instance?.Configuration;
+
+    private static bool ContainsControlCharacters(string value)
+        => value.Contains('\r', StringComparison.Ordinal)
+            || value.Contains('\n', StringComparison.Ordinal)
+            || value.Contains('\t', StringComparison.Ordinal)
+            || value.Contains('\0', StringComparison.Ordinal);
 
     private HttpClient GetClient() => _httpClientFactory.CreateClient("Trakt");
 

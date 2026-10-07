@@ -66,4 +66,41 @@ public class ParentalRatingHelperTests
     {
         Assert.Equal(expected, Exclude(adult: false, genreIds, maxRating));
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(101)]
+    [InlineData(120)]
+    [InlineData(140)]
+    public void ShouldExclude_IntermediateBand101To140_BlocksAdultFlagOnly(int maxRating)
+    {
+        // Pinned contract: between the teen blacklist (<=100) and unrestricted (>=141) only the
+        // Adult flag filters. Genre blacklists do not apply here; unenriched candidates are
+        // dropped upstream by the discovery service, not here.
+        Assert.True(Exclude(adult: true, [35], maxRating));
+        Assert.False(Exclude(adult: false, [27], maxRating));
+        Assert.False(Exclude(adult: false, [53], maxRating));
+        Assert.False(Exclude(adult: false, [28], maxRating));
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(101)]
+    [InlineData(140)]
+    public void ShouldExclude_IntermediateBand_EmptyGenres_PassesFilter(int maxRating)
+    {
+        // Unenriched Trakt candidates carry GenreIds=[] and Adult=false. The parental helper
+        // itself passes them; the SeerrDiscoveryService must drop unenriched+restricted items.
+        Assert.False(Exclude(adult: false, [], maxRating));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ShouldExclude_UnrestrictedThreshold_Is141()
+    {
+        Assert.Equal(141, ParentalRatingHelper.UnrestrictedThreshold);
+        Assert.False(Exclude(adult: true, [27], 141));
+        Assert.False(Exclude(adult: true, [27], null));
+        Assert.True(Exclude(adult: true, [27], 140));
+    }
 }

@@ -219,4 +219,38 @@ public sealed class LimitedStreamTests
             base.Dispose(disposing);
         }
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Read_ExactlyAtLimit_Succeeds_EofProbeOnly()
+    {
+        using var inner = new MemoryStream(new byte[32]);
+        using var sut = new LimitedStream(inner, 32);
+
+        var buffer = new byte[64];
+        var total = 0;
+        int n;
+        while ((n = sut.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            total += n;
+        }
+
+        Assert.Equal(32, total);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Read_OneByteOverLimit_Throws()
+    {
+        using var inner = new MemoryStream(new byte[33]);
+        using var sut = new LimitedStream(inner, 32);
+
+        var buffer = new byte[64];
+        Assert.Throws<ResponseTooLargeException>(() =>
+        {
+            while (sut.Read(buffer, 0, buffer.Length) > 0)
+            {
+            }
+        });
+    }
 }

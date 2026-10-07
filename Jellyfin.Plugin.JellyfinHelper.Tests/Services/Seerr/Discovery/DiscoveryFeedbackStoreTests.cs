@@ -1203,4 +1203,51 @@ public class DiscoveryFeedbackStoreTests : IDisposable
                 It.IsAny<ILogger?>()),
             Times.AtLeastOnce);
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void RecordDismissed_NonPositiveTmdbId_Ignored(int tmdbId)
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        var ex = Record.Exception(() => store.RecordDismissed(userId, tmdbId, "movie"));
+
+        Assert.Null(ex);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("MOVIE")]
+    [InlineData("Movie")]
+    [InlineData("tv")]
+    [InlineData("TV")]
+    [InlineData("invalid-type")]
+    [InlineData("")]
+    public void RecordDismissed_MediaTypeInjection_CollapsesSafely(string mediaType)
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        var ex = Record.Exception(() => store.RecordDismissed(userId, 123, mediaType));
+
+        Assert.Null(ex);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void RecordRequested_NonPositiveTmdbId_Ignored(int tmdbId)
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        var ex = Record.Exception(() => store.RecordRequested(userId, tmdbId, "movie"));
+
+        Assert.Null(ex);
+    }
 }

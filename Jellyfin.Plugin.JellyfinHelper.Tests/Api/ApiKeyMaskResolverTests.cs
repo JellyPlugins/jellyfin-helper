@@ -225,4 +225,45 @@ public class ApiKeyMaskResolverTests
         // still can't dodge detection and get forwarded upstream as a "key".
         Assert.True(ApiKeyMaskResolver.IsMask("\t" + ApiKeyMask + "\n"));
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_MaskWithUrlMismatch_FailClosed_NeverForwardsMask()
+    {
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://other:7878", ApiKey = "stored-key", Name = "R" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", "R", stored);
+
+        Assert.Equal(string.Empty, result);
+        Assert.NotEqual(ApiKeyMask, result);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_MaskNameIsExactMatch_UrlIsCaseInsensitive()
+    {
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://localhost:7878", ApiKey = "key-A", Name = "A" },
+            new() { Url = "http://localhost:7878", ApiKey = "key-B", Name = "B" }
+        };
+
+        // Name match is case-sensitive ordinal (p.Name == name), so "b" misses both "A" and "B".
+        // Resolution then falls back to the URL-only match (rename tolerance), which returns the
+        // first same-URL instance's key rather than failing closed.
+        Assert.Equal("key-B", ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "B", stored));
+        Assert.Equal("key-A", ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "b", stored));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_RealKey_PassesThrough_EvenWhenUrlUnknown()
+    {
+        var result = ApiKeyMaskResolver.ResolveArrKey("new-real-key", "http://unknown:7878", "X", new List<ArrInstanceConfig>());
+
+        Assert.Equal("new-real-key", result);
+    }
 }

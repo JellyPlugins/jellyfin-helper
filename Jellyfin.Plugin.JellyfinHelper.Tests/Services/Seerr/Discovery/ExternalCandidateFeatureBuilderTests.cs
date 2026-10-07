@@ -397,4 +397,44 @@ public sealed class ExternalCandidateFeatureBuilderTests
 
         return profile;
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void Build_2000Candidates_CompletesWithin1Second()
+    {
+        var profile = BuildActionHeavyProfile();
+        var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
+        var avgYear = ContentScoring.ComputeAverageYear(profile);
+        var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var candidates = new List<TmdbDiscoverItem>(2000);
+        for (var i = 0; i < 2000; i++)
+        {
+            candidates.Add(new TmdbDiscoverItem
+            {
+                Id = 1000 + i,
+                Adult = false,
+                GenreIds = [28, 12],
+                Popularity = 50.0 + (i % 100),
+                VoteAverage = 7.0
+            });
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sum = 0.0;
+        foreach (var c in candidates)
+        {
+            var f = ExternalCandidateFeatureBuilder.Build(c, genrePrefs, preferredPeople, avgYear, genreExposure, profile);
+            sum += f.PopularityScore;
+        }
+
+        sw.Stop();
+
+        Assert.True(double.IsFinite(sum));
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 1000, "Build took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
 }

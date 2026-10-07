@@ -66,6 +66,13 @@ internal static class HttpResponseReader
         // Some servers wrap the charset value in quotes (e.g. charset="utf-16"); trim them.
         charSet = charSet.Trim().Trim('"');
 
+        // utf-7 can smuggle markup past downstream filters; treat it as unknown and decode as UTF-8.
+        if (string.Equals(charSet, "utf-7", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(charSet, "utf7", StringComparison.OrdinalIgnoreCase))
+        {
+            return Encoding.UTF8;
+        }
+
         try
         {
             return Encoding.GetEncoding(charSet);

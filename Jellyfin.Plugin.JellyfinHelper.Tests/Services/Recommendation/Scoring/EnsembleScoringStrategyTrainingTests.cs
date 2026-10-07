@@ -163,4 +163,56 @@ public sealed class EnsembleScoringStrategyTrainingTests
             $"Degrading trend must decay neural beta: before={betaBefore:F4}, after={betaAfter:F4}");
         Assert.InRange(betaAfter, 0.0, betaBefore);
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void EnsembleScore_5000Candidates_CompletesWithin2Seconds()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        var rng = new Random(42);
+        var features = new List<CandidateFeatures>(5000);
+        for (var i = 0; i < 5000; i++)
+        {
+            features.Add(new CandidateFeatures
+            {
+                GenreSimilarity = rng.NextDouble(),
+                CombinedCriticScore = rng.NextDouble(),
+                RecencyScore = rng.NextDouble(),
+                CollaborativeScore = rng.NextDouble(),
+                GenreCount = rng.Next(1, 6)
+            });
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sum = 0.0;
+        foreach (var f in features)
+        {
+            sum += ensemble.Score(f);
+        }
+
+        sw.Stop();
+
+        Assert.True(double.IsFinite(sum));
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 2000, $"Took {sw.ElapsedMilliseconds}ms");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void EnsembleTrain_2000Examples_CompletesWithin15Seconds()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        var examples = CleanExamples(2000);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ensemble.Train(examples);
+        sw.Stop();
+
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 15000, $"Took {sw.ElapsedMilliseconds}ms");
+        }
+    }
 }

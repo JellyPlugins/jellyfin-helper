@@ -1406,4 +1406,67 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Deleted);
         Assert.Equal(0, result.Failed);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestConnection_ExplicitOptInUsesInsecureClient()
+    {
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(CreateResponse(HttpStatusCode.OK, "{\"applicationTitle\":\"Seerr\"}"));
+
+        var service = CreateService(mock.Object, out _, out _, "SeerrIntegrationInsecure");
+        var (success, _) = await service.TestConnectionAsync(BaseUrl, ApiKey, skipCertificateValidation: true, cancellationToken: CancellationToken.None);
+
+        Assert.True(success);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public async Task Cleanup_5000YoungRequests_CompletesWithin2Seconds()
+    {
+        var requests = new List<(int Id, DateTimeOffset CreatedAt)>(5000);
+        for (var i = 1; i <= 5000; i++)
+        {
+            requests.Add((i, DateTimeOffset.UtcNow.AddDays(-1)));
+        }
+
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync<HttpRequestMessage, CancellationToken, HttpMessageHandler, HttpResponseMessage>((req, _) =>
+            {
+                // Honor the take/skip pagination the service drives so TotalChecked reflects the
+                // 5000 real requests once, not a fixed full page returned on every call.
+                var query = req.RequestUri?.Query ?? string.Empty;
+                var skip = 0;
+                var match = System.Text.RegularExpressions.Regex.Match(query, "skip=(\\d+)");
+                if (match.Success)
+                {
+                    skip = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                }
+
+                var slice = requests.Skip(skip).Take(SeerrIntegrationService.PageSize).ToList();
+                return CreateResponse(HttpStatusCode.OK, MakeRequestPage(slice, 5000));
+            });
+
+        var service = CreateService(handler.Object, out _, out _);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, dryRun: true, cancellationToken: CancellationToken.None);
+        sw.Stop();
+
+        Assert.Equal(5000, result.TotalChecked);
+        Assert.Equal(0, result.ExpiredFound);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 2000, "Cleanup took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
 }

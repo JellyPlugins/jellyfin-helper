@@ -184,6 +184,23 @@ public static class BackupValidator
         ValidateStringField(result, backup.SeerrUrl, "SeerrUrl", MaxUrlLength);
         ValidateStringField(result, backup.SeerrApiKey, "SeerrApiKey", MaxApiKeyLength);
         ValidateStringField(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", MaxStringLength);
+        ValidateStringField(result, backup.TraktClientId, "TraktClientId", MaxApiKeyLength);
+        ValidateStringField(result, backup.TraktClientSecret, "TraktClientSecret", MaxApiKeyLength);
+
+        if (!string.IsNullOrEmpty(backup.TraktClientId) && ContainsControlCharacters(backup.TraktClientId))
+        {
+            result.Errors.Add("TraktClientId contains invalid control characters.");
+        }
+
+        if (!string.IsNullOrEmpty(backup.TraktClientSecret) && ContainsControlCharacters(backup.TraktClientSecret))
+        {
+            result.Errors.Add("TraktClientSecret contains invalid control characters.");
+        }
+
+        if (backup.SeerrSkipCertificateValidation == true)
+        {
+            result.Warnings.Add("Backup enables TLS certificate validation bypass for Seerr. Verify this is intended before restoring.");
+        }
 
         if (!string.IsNullOrEmpty(backup.SeerrUrl) &&
             (!Uri.TryCreate(backup.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
@@ -394,6 +411,16 @@ public static class BackupValidator
                 result.Errors.Add($"{prefix}.Libraries contains invalid control characters.");
             }
 
+            if (instance.ApiKey != null && ContainsControlCharacters(instance.ApiKey))
+            {
+                result.Errors.Add($"{prefix}.ApiKey contains invalid control characters.");
+            }
+
+            if (instance.SkipCertificateValidation == true)
+            {
+                result.Warnings.Add($"{prefix} enables TLS certificate validation bypass. Verify this is intended before restoring.");
+            }
+
             // Validate URL format
             if (string.IsNullOrEmpty(instance.Url))
             {
@@ -514,6 +541,14 @@ public static class BackupValidator
     internal static bool ContainsNullBytes(string value)
     {
         return value.Contains('\0', StringComparison.Ordinal);
+    }
+
+    internal static bool ContainsControlCharacters(string value)
+    {
+        return value.Contains('\r', StringComparison.Ordinal)
+            || value.Contains('\n', StringComparison.Ordinal)
+            || value.Contains('\t', StringComparison.Ordinal)
+            || value.Contains('\0', StringComparison.Ordinal);
     }
 
     internal static bool ContainsScriptInjection(string value)

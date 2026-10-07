@@ -124,6 +124,33 @@ public class RecommendationPlaylistServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
+    public async Task UpdatePlaylists_100Users20Items_CompletesWithin5Seconds()
+    {
+        var results = new List<RecommendationResult>(100);
+        for (var i = 0; i < 100; i++)
+        {
+            results.Add(CreateResult(Guid.NewGuid(), $"User{i}", 20));
+        }
+
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(results, CancellationToken.None);
+        sw.Stop();
+
+        Assert.Equal(100, syncResult.PlaylistsCreated);
+        Assert.Equal(2000, syncResult.TotalItemsAdded);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 5000, "Sync took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
+    [Fact]
     public async Task UpdatePlaylists_HandlesCreationFailureGracefully()
     {
         var results = new List<RecommendationResult>

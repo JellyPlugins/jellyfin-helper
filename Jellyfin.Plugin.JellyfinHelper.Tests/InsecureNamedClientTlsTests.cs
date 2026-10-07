@@ -81,6 +81,7 @@ public sealed class InsecureNamedClientTlsTests : IAsyncDisposable
     }
 
     [Theory]
+    [Trait("Category", "Security")]
     [InlineData("ArrIntegration", "ArrIntegrationInsecure")]
     [InlineData("SeerrIntegration", "SeerrIntegrationInsecure")]
     [InlineData("SeerrDiscovery", "SeerrDiscoveryInsecure")]

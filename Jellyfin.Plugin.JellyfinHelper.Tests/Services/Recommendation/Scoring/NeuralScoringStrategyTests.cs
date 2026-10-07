@@ -1840,6 +1840,75 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
     ///     Verifies that removing the spurious * dropoutInvKeep from h3Err/h2Err/h1Err eliminates the (1/keep)^(L-1) compound gradient inflation.
     /// </summary>
     [Fact]
+    [Trait("Category", "Performance")]
+    public void NeuralScore_5000Candidates_CompletesWithin2Seconds()
+    {
+        var neural = new NeuralScoringStrategy();
+        var rng = new Random(42);
+        var features = new List<CandidateFeatures>(5000);
+        for (var i = 0; i < 5000; i++)
+        {
+            features.Add(new CandidateFeatures
+            {
+                GenreSimilarity = rng.NextDouble(),
+                CombinedCriticScore = rng.NextDouble(),
+                RecencyScore = rng.NextDouble(),
+                CollaborativeScore = rng.NextDouble(),
+                GenreCount = rng.Next(1, 6)
+            });
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sum = 0.0;
+        foreach (var f in features)
+        {
+            sum += neural.Score(f);
+        }
+
+        sw.Stop();
+
+        Assert.True(double.IsFinite(sum));
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 2000, "Score took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void NeuralTrain_2000Examples_CompletesWithin15Seconds()
+    {
+        var neural = new NeuralScoringStrategy();
+        var rng = new Random(7);
+        var examples = new List<TrainingExample>(2000);
+        for (var i = 0; i < 2000; i++)
+        {
+            var positive = i % 2 == 0;
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = positive ? 0.9 : 0.05,
+                    CombinedCriticScore = positive ? 0.85 : 0.1,
+                    RecencyScore = rng.NextDouble(),
+                    CollaborativeScore = rng.NextDouble(),
+                    GenreCount = positive ? 4 : 1
+                },
+                Label = positive ? 1.0 : 0.0
+            });
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        neural.Train(examples);
+        sw.Stop();
+
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 15000, "Train took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
+    [Fact]
     public void Backprop_DropoutInvKeep_NotCompoundedAcrossLayers()
     {
         var rngOff = new Random(42);

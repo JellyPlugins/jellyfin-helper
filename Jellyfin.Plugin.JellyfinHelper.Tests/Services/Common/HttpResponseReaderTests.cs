@@ -173,4 +173,55 @@ public sealed class HttpResponseReaderTests
 
         Assert.Equal(body, result);
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("utf-7")]
+    [InlineData("UTF-7")]
+    [InlineData("utf7")]
+    public async Task ReadLimitedAsync_Utf7Charset_DecodedAsUtf8(string charset)
+    {
+        // utf-7 can smuggle markup past downstream filters; it is treated as unknown.
+        const string body = "{\"ok\":true}";
+        var payload = Encoding.UTF8.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = charset,
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ReadLimitedAsync_LyingContentLength_StillBoundedByStream()
+    {
+        // A lying Content-Length smaller than the real body must not bypass the streaming cap.
+        var payload = Encoding.ASCII.GetBytes(new string('c', 64));
+        using var content = new UnknownLengthContent(payload);
+
+        var ex = await Assert.ThrowsAsync<ResponseTooLargeException>(
+            () => HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 32));
+        Assert.Equal("Response too large", ex.Message);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ReadLimitedAsync_QuotedCharset_TrimmedAndHonored()
+    {
+        const string body = "{\"ok\":true}";
+        var payload = Encoding.UTF8.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "\"utf-8\"",
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
 }
