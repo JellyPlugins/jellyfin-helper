@@ -75,7 +75,7 @@ resolve_asset() {
 }
 
 # Exit codes: 0 = both staged; non-zero = staging failed. The caller (run.sh)
-# aborts on any non-zero - the external plugins are a required prerequisite, so
+# aborts on any non-zero. The external plugins are a required prerequisite, so
 # an unresolvable latest asset is a real signal, not a reason to drop coverage.
 stage_one() {
   local name="$1" guid="$2" repo="$3" pin="$4" asset_override="${5:-}"
