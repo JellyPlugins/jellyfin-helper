@@ -19,13 +19,19 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. The injected script fabricated its own `customTab_` panel, which fought the Custom Tabs plugin for the same DOM node during the switch-into-tab rebuild. The script is now purely reactive: it only fills the live marker the Custom Tabs plugin provides, never creates a panel, resets a detached reference, and re-checks on class-only tab activation. The tab renders every time, with no blank frame.
 - **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The click handler used the legacy positional tab index, unreliable on Jellyfin 12 where tabs are MUI anchors. It now matches the tab's `?tab=N` deep link in both the header and the narrow-screen drawer, falls back to hash navigation, and keeps the legacy path for 10.x.
 
+### Security
+
+- **Control-character injection rejected at the edge.** API keys (Arr instances), the log-viewer source filter, and backup-file credentials (Trakt client ID/secret, Arr keys) are now rejected when they contain CR, LF, tab, or NUL. These characters carry no legitimate value and otherwise reach the outbound HTTP header layer (an uncaught 500) or enable log/response splitting in the admin UI — now a clean client-input error instead.
+- **UTF-7 responses neutralized.** Seerr/Arr HTTP responses declaring a `utf-7` charset are decoded as UTF-8 instead, closing a vector that can smuggle markup past downstream filters.
+- **Backup restore warns on TLS bypass.** Restoring a backup that enables "skip certificate validation" (Seerr or any Arr instance) now surfaces an explicit warning, so an inherited insecure setting is a deliberate choice, not a silent one.
+
 ### Improved
 
 - **Instant, flash-free remounts.** The last results render immediately from an in-memory copy, so returning to the tab never shows a spinner. A silent background refetch swaps in newer suggestions in place once a scheduled run (or an out-of-band Seerr request reconcile) produces them, keeping the view fresh without a loading state.
 
 ### Tests
 
-- **Unit: 6546 total.**
+- **Unit: 6546 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation.
 - **End-to-end: 360 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26
