@@ -1159,7 +1159,20 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Trait("Category", "Security")]
     public void RestoreBackup_SeerrSkipCertTrue_AppliedWithWarning()
     {
-        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
         liveConfig.SeerrSkipCertificateValidation = false;
         var backup = MakeMinimalValidBackup();
         backup.SeerrSkipCertificateValidation = true;
@@ -1167,6 +1180,14 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.True(liveConfig.SeerrSkipCertificateValidation);
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("enabling TLS certificate validation bypass", StringComparison.Ordinal)
+                                     && msg.Contains("Seerr", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.AtLeastOnce);
     }
 
     [Fact]

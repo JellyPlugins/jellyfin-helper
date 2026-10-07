@@ -207,7 +207,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
         var examples = CleanExamples(2000);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        ensemble.Train(examples);
+        Assert.True(ensemble.Train(examples));
         sw.Stop();
 
         if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")

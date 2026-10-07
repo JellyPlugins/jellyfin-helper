@@ -1899,7 +1899,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        neural.Train(examples);
+        Assert.True(neural.Train(examples));
         sw.Stop();
 
         if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")

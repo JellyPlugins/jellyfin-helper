@@ -166,6 +166,7 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
 
         output.WriteLine($"Serialize roundtrip: {json.Length / 1024}KB in {sw.ElapsedMilliseconds}ms, errors={validation.Errors.Count}");
         Assert.NotNull(roundTripped);
+        Assert.Empty(validation.Errors);
         Assert.Equal(BackupValidator.MaxTimelineDataPoints, roundTripped.GrowthTimeline?.DataPoints.Count);
         if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
         {
