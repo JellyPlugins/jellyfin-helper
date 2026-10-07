@@ -136,7 +136,14 @@ alongside the plugin. `global-setup` then registers a `Seerr Discovery` custom
 tab and enables the user-access toggle, and the `ui-setup` Playwright project
 (`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies that
 config before the ui specs, because the `api` project runs first and overwrites
-it. Latest is tracked on purpose (no pin to bump); override only for debugging:
+it. The one-shot `ui-setup` is still not enough on its own: ui specs that run
+before `discovery-customtab` (`arr*`, `interactions`, `recommendations`) save
+the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
+`discovery-customtab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
+(via the shared `ensureDiscoveryConfigured`) and polls `/Discovery/My` until it
+stops 403ing — turning a trampled-access setup race into a loud failure instead
+of a silent mount timeout. Latest is tracked on purpose (no pin to bump);
+override only for debugging:
 
 ```bash
 # Pin specific release tags, force a specific asset, or lift the API rate limit:

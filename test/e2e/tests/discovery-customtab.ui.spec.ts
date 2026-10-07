@@ -10,7 +10,8 @@
  * run.sh. When they are absent (JFH_E2E_EXTERNAL_PLUGINS!=1) the whole file skips.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { loadAuth } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, loadAuth, p } from '../setup/api-client.ts';
+import { ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 
 const EXTERNAL_PLUGINS = process.env.JFH_E2E_EXTERNAL_PLUGINS === '1';
 
@@ -109,6 +110,27 @@ async function expectDiscoveryHidden(page: Page): Promise<void> {
 
 test.describe('Discovery custom tab (home page)', () => {
   test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / File Transformation not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
+
+  //The ui-setup project enables discovery access once, but subsequent configuration saves (via API or Settings-tab) overwrite this with `DiscoveryUserAccessEnabled=false`,
+  // causing a 403 error during home page mount and resulting in render assertion timeouts. To prevent this, access is re-asserted here immediately before the spec runs.
+  // This replaces a silent mount timeout with a loud failure if a setup race occurs.
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    const probe = (await normalUserContext(auth)) ?? admin;
+    try {
+      await ensureDiscoveryConfigured(admin);
+      // The toggle write and the user-facing read go through different layers;
+      // under CI load the enablement can take a beat to surface. Poll up to ~15s
+      // and fail with the status so a persistent 403 points at the setup, not the UI.
+      await expect
+        .poll(async () => (await probe.get(p('Discovery/My'))).status(), { timeout: 15_000 })
+        .not.toBe(403);
+    } finally {
+      if (probe !== admin) await probe.dispose();
+      await admin.dispose();
+    }
+  });
 
   test('renders on first open and never goes blank across repeated navigation', async ({ page }) => {
     await openHome(page);
