@@ -118,6 +118,8 @@ public class LogsControllerTests : IDisposable
     [InlineData("../../etc")]
     public void GetLogs_SourceWithControlCharsOrMarkup_Returns400(string source)
     {
+        ArgumentNullException.ThrowIfNull(source);
+
         var result = _controller.GetLogs(source: source);
 
         // Control characters carry no legitimate filter value; markup/traversal must not

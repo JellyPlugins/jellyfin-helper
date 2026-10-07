@@ -397,41 +397,44 @@ public static class BackupValidator
                 continue;
             }
 
-            var prefix = $"{fieldName}[{i}]";
+            ValidateArrInstance(result, instance, $"{fieldName}[{i}]");
+        }
+    }
 
-            ValidateStringField(result, instance.Name, $"{prefix}.Name", MaxInstanceNameLength);
-            ValidateStringField(result, instance.Url, $"{prefix}.Url", MaxUrlLength);
-            ValidateStringField(result, instance.ApiKey, $"{prefix}.ApiKey", MaxApiKeyLength);
-            ValidateStringField(result, instance.Libraries, $"{prefix}.Libraries", MaxArrLibrariesLength);
+    private static void ValidateArrInstance(BackupValidationResult result, BackupArrInstance instance, string prefix)
+    {
+        ValidateStringField(result, instance.Name, $"{prefix}.Name", MaxInstanceNameLength);
+        ValidateStringField(result, instance.Url, $"{prefix}.Url", MaxUrlLength);
+        ValidateStringField(result, instance.ApiKey, $"{prefix}.ApiKey", MaxApiKeyLength);
+        ValidateStringField(result, instance.Libraries, $"{prefix}.Libraries", MaxArrLibrariesLength);
 
-            // The sanitizer only truncates Libraries; reject control characters here to match
-            // ConfigurationRequestValidator so a crafted backup cannot persist them on restore.
-            if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
-            {
-                result.Errors.Add($"{prefix}.Libraries contains invalid control characters.");
-            }
+        // The sanitizer only truncates Libraries; reject control characters here to match
+        // ConfigurationRequestValidator so a crafted backup cannot persist them on restore.
+        if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
+        {
+            result.Errors.Add($"{prefix}.Libraries contains invalid control characters.");
+        }
 
-            if (instance.ApiKey != null && ContainsControlCharacters(instance.ApiKey))
-            {
-                result.Errors.Add($"{prefix}.ApiKey contains invalid control characters.");
-            }
+        if (instance.ApiKey != null && ContainsControlCharacters(instance.ApiKey))
+        {
+            result.Errors.Add($"{prefix}.ApiKey contains invalid control characters.");
+        }
 
-            if (instance.SkipCertificateValidation == true)
-            {
-                result.Warnings.Add($"{prefix} enables TLS certificate validation bypass. Verify this is intended before restoring.");
-            }
+        if (instance.SkipCertificateValidation == true)
+        {
+            result.Warnings.Add($"{prefix} enables TLS certificate validation bypass. Verify this is intended before restoring.");
+        }
 
-            // Validate URL format
-            if (string.IsNullOrEmpty(instance.Url))
-            {
-                continue;
-            }
+        // Validate URL format
+        if (string.IsNullOrEmpty(instance.Url))
+        {
+            return;
+        }
 
-            if (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                result.Errors.Add($"{prefix}.Url is not a valid HTTP/HTTPS URL: '{instance.Url}'.");
-            }
+        if (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            result.Errors.Add($"{prefix}.Url is not a valid HTTP/HTTPS URL: '{instance.Url}'.");
         }
     }
 

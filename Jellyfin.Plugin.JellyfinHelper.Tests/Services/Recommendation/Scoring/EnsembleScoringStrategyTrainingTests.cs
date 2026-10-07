@@ -168,7 +168,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
     [Trait("Category", "Performance")]
     public void EnsembleScore_5000Candidates_CompletesWithin2Seconds()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var rng = new Random(42);
         var features = new List<CandidateFeatures>(5000);
         for (var i = 0; i < 5000; i++)
@@ -203,7 +203,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
     [Trait("Category", "Performance")]
     public void EnsembleTrain_2000Examples_CompletesWithin15Seconds()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var examples = CleanExamples(2000);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();

@@ -1505,7 +1505,7 @@ public class ArrIntegrationServiceTests
     public async Task TestConnection_DefaultUsesStrictClient()
     {
         var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
-        var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
@@ -1522,7 +1522,7 @@ public class ArrIntegrationServiceTests
     public async Task TestConnection_ExplicitOptInUsesInsecureClient()
     {
         var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
-        var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);

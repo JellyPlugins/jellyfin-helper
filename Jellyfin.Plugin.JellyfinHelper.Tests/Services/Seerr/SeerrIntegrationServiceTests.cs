@@ -15,10 +15,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 /// <summary>
 ///     Comprehensive tests for <see cref="SeerrIntegrationService" />.
 /// </summary>
-public class SeerrIntegrationServiceTests : IDisposable
+public partial class SeerrIntegrationServiceTests : IDisposable
 {
     private const string BaseUrl = "http://localhost:5055";
     private const string ApiKey = "test-api-key-123";
+
+    [System.Text.RegularExpressions.GeneratedRegex("skip=(\\d+)")]
+    private static partial System.Text.RegularExpressions.Regex SkipQueryRegex();
 
     private readonly List<HttpResponseMessage> _trackedResponses = [];
     private readonly List<HttpClient> _trackedClients = [];
@@ -1447,7 +1450,7 @@ public class SeerrIntegrationServiceTests : IDisposable
                 // 5000 real requests once, not a fixed full page returned on every call.
                 var query = req.RequestUri?.Query ?? string.Empty;
                 var skip = 0;
-                var match = System.Text.RegularExpressions.Regex.Match(query, "skip=(\\d+)");
+                var match = SkipQueryRegex().Match(query);
                 if (match.Success)
                 {
                     skip = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);

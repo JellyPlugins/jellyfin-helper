@@ -1843,7 +1843,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
     [Trait("Category", "Performance")]
     public void NeuralScore_5000Candidates_CompletesWithin2Seconds()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         var rng = new Random(42);
         var features = new List<CandidateFeatures>(5000);
         for (var i = 0; i < 5000; i++)
@@ -1878,7 +1878,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
     [Trait("Category", "Performance")]
     public void NeuralTrain_2000Examples_CompletesWithin15Seconds()
     {
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         var rng = new Random(7);
         var examples = new List<TrainingExample>(2000);
         for (var i = 0; i < 2000; i++)
