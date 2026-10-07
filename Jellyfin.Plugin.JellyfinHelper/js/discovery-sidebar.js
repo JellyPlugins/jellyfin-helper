@@ -450,7 +450,7 @@
     // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
     // and all .tabContent ancestors are .is‑active—preventing the destroy/rebuild flash during tab switches.
     function isActiveTabContainer(element) {
-        if (!element || !element.isConnected) {
+        if (!element?.isConnected) {
             return false;
         }
         var node = element.parentElement;
