@@ -25,11 +25,13 @@ FILETRANSFORMATION_RELEASE="${FILETRANSFORMATION_RELEASE:-}"
 
 # curl with an auth header when a token is present (CI rate-limit relief), plain
 # otherwise. GITHUB_TOKEN is read from the environment; never logged.
+# --proto/--proto-redir pin both the initial request and any -L redirects to
+# HTTPS so a compromised redirect cannot downgrade to plain HTTP (Sonar S5123).
 gh_curl() {
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+    curl -fsSL --proto '=https' --proto-redir '=https' -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
   else
-    curl -fsSL "$@"
+    curl -fsSL --proto '=https' --proto-redir '=https' "$@"
   fi
 }
 
@@ -89,7 +91,9 @@ stage_one() {
   echo "[stage-external] Downloading ${name} ${tag} (${asset})"
   # -f: fail on HTTP >=400 instead of saving the error page; a missing asset is a
   # skip (exit 2), consistent with the old "source absent" behaviour.
-  if ! curl -fsSL -o "$tmp_zip" "$url"; then
+  # --proto/--proto-redir pins -L redirects to HTTPS so a redirect cannot
+  # silently downgrade to plain HTTP.
+  if ! curl -fsSL --proto '=https' --proto-redir '=https' -o "$tmp_zip" "$url"; then
     rm -f "$tmp_zip"
     echo "[stage-external] SKIP ${name}: release asset not reachable at ${url}" >&2
     return 2
