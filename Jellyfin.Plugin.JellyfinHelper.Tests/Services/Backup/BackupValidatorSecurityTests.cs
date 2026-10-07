@@ -100,14 +100,40 @@ public sealed class BackupValidatorSecurityTests
 
     [Fact]
     [Trait("Category", "Security")]
+    public void Validate_TraktClientId_AtSettingsLimit_Accepted()
+    {
+        // 512 chars is the settings validator's limit, so an exported id of this length must restore.
+        var backup = CreateValidBackup();
+        backup.TraktClientId = new string('a', BackupValidator.MaxTraktClientIdLength);
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.DoesNotContain(result.Errors, e => e.Contains("TraktClientId exceeds maximum length", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
     public void Validate_TraktClientId_TooLong_Flagged()
     {
         var backup = CreateValidBackup();
-        backup.TraktClientId = new string('a', 201);
+        backup.TraktClientId = new string('a', BackupValidator.MaxTraktClientIdLength + 1);
 
         var result = BackupValidator.Validate(backup);
 
         Assert.Contains(result.Errors, e => e.Contains("TraktClientId exceeds maximum length", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_TraktClientSecret_LongerThanApiKeyLimit_Accepted()
+    {
+        // The settings validator imposes no length limit on the secret, so a long real secret must restore.
+        var backup = CreateValidBackup();
+        backup.TraktClientSecret = new string('s', BackupValidator.MaxApiKeyLength + 100);
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.DoesNotContain(result.Errors, e => e.Contains("TraktClientSecret exceeds maximum length", StringComparison.Ordinal));
     }
 
     [Fact]

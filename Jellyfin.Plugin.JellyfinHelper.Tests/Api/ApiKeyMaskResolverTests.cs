@@ -251,11 +251,13 @@ public class ApiKeyMaskResolverTests
             new() { Url = "http://localhost:7878", ApiKey = "key-B", Name = "B" }
         };
 
-        // Name match is case-sensitive ordinal (p.Name == name), so "b" misses both "A" and "B".
-        // Resolution then falls back to the URL-only match (rename tolerance), which returns the
-        // first same-URL instance's key rather than failing closed.
+        // An exact (case-sensitive, ordinal) Name+URL match resolves to that instance's key.
         Assert.Equal("key-B", ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "B", stored));
-        Assert.Equal("key-A", ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "b", stored));
+
+        // "b" matches neither stored name, so the only remaining candidate is the URL-only fallback.
+        // With two instances sharing the URL that fallback is ambiguous, so it fails closed with an empty
+        // result rather than forwarding another instance's key upstream.
+        Assert.Equal(string.Empty, ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "b", stored));
     }
 
     [Fact]

@@ -210,10 +210,11 @@ test.describe('discovery sidebar context gating', () => {
     // waitForApi polling) have run, so by then a broken gate would already have fired
     // a probe and the empty-probes assertion below is meaningful.
     await switchTab(page, 'trends');
-    await Promise.race([
-      page.locator('.trend-chart').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
-      page.locator('#trendChartContainer .trend-empty').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
-    ]);
+    // Wait for either readiness state with a real assertion: a swallowed Promise.race would let the
+    // empty-probes check below run before the trends tab actually settled, passing without proof.
+    await expect(
+      page.locator('.trend-chart').or(page.locator('#trendChartContainer .trend-empty')),
+    ).toBeVisible({ timeout: 15_000 });
 
     expect(probes, `unexpected Discovery/My probe on the config page:\n${probes.join('\n')}`).toHaveLength(0);
   });

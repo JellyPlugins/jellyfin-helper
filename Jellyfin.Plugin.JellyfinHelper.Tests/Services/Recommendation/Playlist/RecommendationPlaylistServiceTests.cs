@@ -128,10 +128,20 @@ public class RecommendationPlaylistServiceTests
     public async Task UpdatePlaylists_100Users20Items_CompletesWithin5Seconds()
     {
         var results = new List<RecommendationResult>(100);
+        var users = new List<Jellyfin.Database.Implementations.Entities.User>(100);
         for (var i = 0; i < 100; i++)
         {
-            results.Add(CreateResult(Guid.NewGuid(), $"User{i}", 20));
+            var userId = Guid.NewGuid();
+            results.Add(CreateResult(userId, $"User{i}", 20));
+
+            // The SUT verifies each user before building a playlist and skips any it cannot resolve,
+            // so the full roster must be configured or every user is skipped and nothing is created.
+            var user = new Jellyfin.Database.Implementations.Entities.User($"User{i}", "default", "default") { Id = userId };
+            users.Add(user);
+            _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
         }
+
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(users);
 
         SetupPlaylistQuery();
         _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))

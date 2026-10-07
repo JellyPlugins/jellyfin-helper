@@ -39,23 +39,23 @@ export default defineConfig({
       testMatch: /\.api\.spec\.ts/,
     },
     {
-      // Re-applies the Discovery config the api project overwrites, so the ui
-      // phase sees DiscoveryUserAccessEnabled=true + a configured Seerr. Scoped
-      // as a ui-only dependency: it does NOT reintroduce an api->ui dependency
-      // (see the note below), it only orders this setup before the ui specs.
+      // Re-applies the Discovery config the api project overwrites, so the ui phase sees
+      // DiscoveryUserAccessEnabled=true + a configured Seerr. Depends on 'api' so Playwright
+      // GUARANTEES this runs after every api config write - declaration order alone does not,
+      // and with workers > 1 an api PUT could otherwise land after this setup and restore the
+      // 403 this phase exists to prevent.
       name: 'ui-setup',
       testMatch: /_ui-setup\.ts/,
       use: { ...devices['Desktop Chrome'] },
+      dependencies: ['api'],
     },
     {
       name: 'ui',
       testMatch: /\.ui\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
+      // Ordered after api via the ui-setup dependency chain (api -> ui-setup -> ui), so the
+      // Discovery reset always lands after api's config writes regardless of worker count.
       dependencies: ['ui-setup'],
-      // No dependency on 'api' on purpose: with workers:1 the api project still runs
-      // first (declaration order), but a single api failure no longer marks the whole
-      // ui project "did not run" - cascading skips hid the real signal. UI specs only
-      // rely on global-setup state (libraries, seeded timeline) + the ui-setup above.
     },
   ],
 });

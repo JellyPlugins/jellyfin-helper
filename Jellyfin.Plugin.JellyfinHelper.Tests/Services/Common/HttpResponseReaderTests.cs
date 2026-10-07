@@ -35,6 +35,29 @@ public sealed class HttpResponseReaderTests
         }
     }
 
+    // HttpContent that reports a caller-supplied length while streaming a different (larger) payload,
+    // modelling an upstream whose Content-Length header understates the real body.
+    private sealed class LyingLengthContent : HttpContent
+    {
+        private readonly byte[] _payload;
+        private readonly long _declaredLength;
+
+        public LyingLengthContent(byte[] payload, long declaredLength)
+        {
+            _payload = payload;
+            _declaredLength = declaredLength;
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+            => stream.WriteAsync(_payload, 0, _payload.Length);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _declaredLength;
+            return true;
+        }
+    }
+
     private static HttpContent KnownLengthContent(byte[] payload) => new ByteArrayContent(payload);
 
     [Fact]
@@ -199,9 +222,10 @@ public sealed class HttpResponseReaderTests
     [Trait("Category", "Security")]
     public async Task ReadLimitedAsync_LyingContentLength_StillBoundedByStream()
     {
-        // A lying Content-Length smaller than the real body must not bypass the streaming cap.
+        // Content-Length (16) passes the header fast-reject at the 32-byte limit, but the real body is 64
+        // bytes. The streaming counter must still reject it rather than trusting the understated header.
         var payload = Encoding.ASCII.GetBytes(new string('c', 64));
-        using var content = new UnknownLengthContent(payload);
+        using var content = new LyingLengthContent(payload, declaredLength: 16);
 
         var ex = await Assert.ThrowsAsync<ResponseTooLargeException>(
             () => HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 32));

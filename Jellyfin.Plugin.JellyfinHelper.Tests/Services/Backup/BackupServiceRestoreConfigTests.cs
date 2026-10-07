@@ -523,6 +523,79 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.False(liveConfig.RadarrInstances[0].SkipCertificateValidation);
     }
 
+    [Fact]
+    public void RestoreArrInstances_UnchangedBypass_DoesNotLogEnablingWarning()
+    {
+        // Restoring an already-bypassed instance unchanged must not claim the restore is "enabling" the
+        // bypass - the audit warning only applies when the restore actually flips validation off.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+        { Name = "R1", Url = "https://r:7878", ApiKey = "live-key", SkipCertificateValidation = true });
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+        { Name = "R1", Url = "https://r:7878", ApiKey = "backup-key", Libraries = "Movies", SkipCertificateValidation = true });
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("enabling TLS certificate validation bypass", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void RestoreArrInstances_NewlyEnabledBypass_LogsEnablingWarning()
+    {
+        // Flipping an instance from validated to bypassed is exactly the case the audit warning exists for.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+        { Name = "R1", Url = "https://r:7878", ApiKey = "live-key", SkipCertificateValidation = false });
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+        { Name = "R1", Url = "https://r:7878", ApiKey = "backup-key", Libraries = "Movies", SkipCertificateValidation = true });
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("enabling TLS certificate validation bypass", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.AtLeastOnce);
+    }
+
     public static TheoryData<int, int> SeerrCleanupAgeDaysApplyClampCases() => new()
     {
         { 0, 0 },

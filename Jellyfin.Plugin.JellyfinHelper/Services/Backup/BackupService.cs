@@ -553,14 +553,14 @@ public sealed class BackupService : IBackupService
     {
         if (!string.IsNullOrEmpty(backup.TraktClientId))
         {
-            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxApiKeyLength);
+            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxTraktClientIdLength);
         }
 
         if (!string.IsNullOrEmpty(backup.TraktClientSecret))
         {
-            var truncatedSecret = BackupSanitizer.TruncateString(backup.TraktClientSecret, BackupValidator.MaxApiKeyLength);
+            var truncatedSecret = BackupSanitizer.TruncateString(backup.TraktClientSecret, BackupValidator.MaxStringLength);
             var storedPlain = _secretProtector.Unprotect(config.TraktClientSecret);
-            var truncatedStored = BackupSanitizer.TruncateString(storedPlain, BackupValidator.MaxApiKeyLength);
+            var truncatedStored = BackupSanitizer.TruncateString(storedPlain, BackupValidator.MaxStringLength);
             if (truncatedSecret != truncatedStored)
             {
                 _pluginLog.LogWarning(LogSource, "Backup restore is replacing credentials: Trakt client secret changed.", logger: _logger);
@@ -665,12 +665,16 @@ public sealed class BackupService : IBackupService
         liveInstances.Clear();
         liveInstances.AddRange(newList);
 
-        var skipEnabled = newList.Count(i => i.SkipCertificateValidation);
-        if (skipEnabled > 0)
+        // Only count instances the restore newly flips ON: live value was false or absent, now bypassed.
+        // An unchanged restore of an already-bypassed instance must not log a false "now enabling" warning.
+        var newlyEnabled = newList.Count(i =>
+            i.SkipCertificateValidation
+            && liveSkipCert[LiveInstanceKey(i.Name, i.Url)].FirstOrDefault() != true);
+        if (newlyEnabled > 0)
         {
             _pluginLog.LogWarning(
                 LogSource,
-                $"Backup restore is enabling TLS certificate validation bypass for {skipEnabled} {label} instance(s). Verify this is intended.",
+                $"Backup restore is enabling TLS certificate validation bypass for {newlyEnabled} {label} instance(s). Verify this is intended.",
                 logger: _logger);
         }
 
