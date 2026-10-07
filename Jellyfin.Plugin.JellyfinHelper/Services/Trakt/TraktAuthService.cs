@@ -90,6 +90,11 @@ public sealed class TraktAuthService : ITraktAuthService
             _pluginLog.LogWarning(LogSource, "Device code request errored.", ex, _logger);
             return null;
         }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pluginLog.LogWarning(LogSource, "Device code request timed out.", ex, _logger);
+            return null;
+        }
     }
 
     /// <inheritdoc />
@@ -145,6 +150,11 @@ public sealed class TraktAuthService : ITraktAuthService
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
         {
             _pluginLog.LogWarning(LogSource, "Device token poll errored.", ex, _logger);
+            return TraktDevicePollStatus.Error;
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pluginLog.LogWarning(LogSource, "Device token poll timed out.", ex, _logger);
             return TraktDevicePollStatus.Error;
         }
     }
@@ -311,6 +321,11 @@ public sealed class TraktAuthService : ITraktAuthService
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ResponseTooLargeException)
         {
             _pluginLog.LogWarning(LogSource, "Token refresh errored.", ex, _logger);
+            return null;
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pluginLog.LogWarning(LogSource, "Token refresh timed out.", ex, _logger);
             return null;
         }
     }

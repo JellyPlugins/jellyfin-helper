@@ -57,10 +57,14 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
 
-        // Trakt timeout is admin-configurable (already clamped by the config setter). Fall back to the
-        // default when the plugin instance is not yet available during early DI construction.
-        var traktTimeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
-        AddHardenedClient("Trakt", traktTimeout);
+        // Trakt timeout is admin-configurable (already clamped by the config setter). The delegate runs on
+        // every CreateClient, so a saved change applies to the next request without a restart; falls back to
+        // the default when the plugin instance is not yet available during early DI construction.
+        serviceCollection.AddHttpClient("Trakt", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         // The provider stays private to this plugin so keyrings can neither affect nor be affected by
         // Jellyfin's or other plugins' providers. Ring files are unencrypted at rest on Linux, locked

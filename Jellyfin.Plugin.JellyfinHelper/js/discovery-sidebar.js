@@ -583,11 +583,17 @@
                 renderCards(container, data);
             })
             .catch(function (err) {
+                // An account switch during the fetch makes this failure another user's problem;
+                // drop it so we never touch the new user's cache or render stale cards.
+                if (startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                var fallback = getCachedDiscoveryResult();
                 if (err?.status === 403) {
                     invalidateDiscoveryResult();
-                } else if (_discoveryResultCache?.data) {
+                } else if (fallback) {
                     // Transient failure: rather show the last known cards than a blank page.
-                    renderCards(container, _discoveryResultCache.data);
+                    renderCards(container, fallback);
                     return;
                 }
                 var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
