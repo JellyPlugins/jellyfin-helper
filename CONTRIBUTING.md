@@ -129,22 +129,26 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 #### Discovery custom-tab coverage (external plugins)
 
 The Discovery home-page tab needs the third-party **Custom Tabs** and **File
-Transformation** plugins. `scripts/stage-external-plugins.sh` builds both from
-local source checkouts (for Jellyfin 12.x) and stages their DLLs + `meta.json`
-into the config volume alongside the plugin, then `global-setup` registers a
-`Seerr Discovery` custom tab and enables the user-access toggle. The checkout
-paths default to siblings of this repo and are overridable:
+Transformation** plugins. `scripts/stage-external-plugins.sh` downloads each
+plugin's **latest release** (resolved via the GitHub API, newest `Release-12.*`
+asset) and stages its DLLs + a generated `meta.json` into the config volume
+alongside the plugin. `global-setup` then registers a `Seerr Discovery` custom
+tab and enables the user-access toggle, and the `ui-setup` Playwright project
+(`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies that
+config before the ui specs, because the `api` project runs first and overwrites
+it. Latest is tracked on purpose (no pin to bump); override only for debugging:
 
 ```bash
-CUSTOMTABS_SRC=/path/to/jellyfin-plugin-custom-tabs \
-FILETRANSFORMATION_SRC=/path/to/jellyfin-plugin-file-transformation \
+# Pin specific release tags, force a specific asset, or lift the API rate limit:
+CUSTOMTABS_RELEASE=0.3.1.0 FILETRANSFORMATION_RELEASE=3.0.1.0 \
+EXTERNAL_PLUGIN_JF_ASSET=Release-12.1.0.zip GITHUB_TOKEN=... \
   bash test/e2e/scripts/run.sh
 ```
 
-When the sources are absent the stack still runs the rest of the suite, and the
-`discovery-customtab.ui.spec.ts` regression (navigate in/out of the tab, assert
-it never goes blank and no competing panel is created) skips loudly via
-`JFH_E2E_EXTERNAL_PLUGINS`.
+When a release asset cannot be resolved the stack still runs the rest of the
+suite, and the `discovery-customtab.ui.spec.ts` regression (navigate in/out of
+the tab, assert it never goes blank and no competing panel is created) skips
+loudly via `JFH_E2E_EXTERNAL_PLUGINS`.
 
 
 ### Test Structure

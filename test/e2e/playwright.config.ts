@@ -39,13 +39,23 @@ export default defineConfig({
       testMatch: /\.api\.spec\.ts/,
     },
     {
+      // Re-applies the Discovery config the api project overwrites, so the ui
+      // phase sees DiscoveryUserAccessEnabled=true + a configured Seerr. Scoped
+      // as a ui-only dependency: it does NOT reintroduce an api->ui dependency
+      // (see the note below), it only orders this setup before the ui specs.
+      name: 'ui-setup',
+      testMatch: /_ui-setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'ui',
       testMatch: /\.ui\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
-      // No dependencies entry on purpose: with workers:1 the api project still runs
+      dependencies: ['ui-setup'],
+      // No dependency on 'api' on purpose: with workers:1 the api project still runs
       // first (declaration order), but a single api failure no longer marks the whole
       // ui project "did not run" - cascading skips hid the real signal. UI specs only
-      // rely on global-setup state (libraries, seeded timeline), not on api specs.
+      // rely on global-setup state (libraries, seeded timeline) + the ui-setup above.
     },
   ],
 });
