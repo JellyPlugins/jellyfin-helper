@@ -12,12 +12,18 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Trakt discovery source in the Discovery sidebar.** When the admin enables Trakt, the Discovery tab gains two extra sub-tabs beside the local "For you" grid: "Trakt for you" (your personal Trakt recommendations) and "Trakt trending" (global trending, no login). The tabs use the exact same card layout, request and dismiss mechanics, and per-user ML scoring as the local grid, with an added Trakt deep link on the card back. With Trakt disabled the panel is unchanged.
 - **Per-user Trakt linking via the OAuth device flow.** The admin registers one Trakt application for the whole server; each user then links their own Trakt account from a connect panel with a one-time code and verification URL, no per-user admin setup. Tokens are refreshed automatically and can be disconnected again.
 - **Secrets encrypted at rest with Data Protection.** All stored credentials (Trakt tokens, plus the existing Seerr and Arr API keys, migrated transparently) are now encrypted on disk via ASP.NET Core Data Protection with a data-path keyring, never written or logged in plain text. Backups keep secrets portable and re-encrypt them on restore; the on-the-wire mask behavior is unchanged.
+- **Optional TLS certificate bypass per Arr instance.** Radarr/Sonarr servers behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect: each instance has a "Skip certificate validation" checkbox in Settings. It applies to connection tests, library comparison, and discovery exclusions; validation stays enabled everywhere else, failed tests name the certificate cause in the server log, and a warning is logged whenever a test runs with validation disabled.
 
 ### Fixed
 
 - **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. The injected script fabricated its own `customTab_` panel, which fought the Custom Tabs plugin for the same DOM node during the switch-into-tab rebuild. The script is now purely reactive: it only fills the live marker the Custom Tabs plugin provides, never creates a panel, resets a detached reference, and re-checks on class-only tab activation. The tab renders every time, with no blank frame.
 - **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The click handler used the legacy positional tab index, unreliable on Jellyfin 12 where tabs are MUI anchors. It now matches the tab's `?tab=N` deep link in both the header and the narrow-screen drawer, falls back to hash navigation, and keeps the legacy path for 10.x.
-- **Trakt refresh keeps the link when Trakt omits the rotated secret.** If a token refresh response carries no new refresh token, the stored one is now preserved instead of being overwritten with an empty value, so a valid access token no longer orphans the link and forces a re-link.
+
+### Security
+
+- **Control-character injection rejected at the edge.** API keys (Arr instances), the log-viewer source filter, and backup-file credentials (Trakt client ID/secret, Arr keys) are now rejected when they contain CR, LF, tab, or NUL. These characters carry no legitimate value and otherwise reach the outbound HTTP header layer (an uncaught 500) or enable log/response splitting in the admin UI — now a clean client-input error instead.
+- **UTF-7 responses neutralized.** Seerr/Arr HTTP responses declaring a `utf-7` charset are decoded as UTF-8 instead, closing a vector that can smuggle markup past downstream filters.
+- **Backup restore warns on TLS bypass.** Restoring a backup that enables "skip certificate validation" (Seerr or any Arr instance) now surfaces an explicit warning, so an inherited insecure setting is a deliberate choice, not a silent one.
 
 ### Improved
 
@@ -25,8 +31,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6373 total.**
-- **End-to-end: 358 tests across 56 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
+- **Unit: 6553 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation.
+- **End-to-end: 360 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26
 

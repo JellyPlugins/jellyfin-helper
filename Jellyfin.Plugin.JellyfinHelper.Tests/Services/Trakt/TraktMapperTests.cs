@@ -112,4 +112,43 @@ public sealed class TraktMapperTests
         Assert.Empty(mapped);
         Assert.Equal(1, dropped);
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void MapMediaItems_Slug_Trimmed_NullWhenBlank()
+    {
+        var withSpaces = new TraktMediaItem { Title = "T", Ids = new TraktIds { Tmdb = 1, Slug = "  my-slug  " } };
+        var withBlank = new TraktMediaItem { Title = "T", Ids = new TraktIds { Tmdb = 2, Slug = "   " } };
+
+        var mapped = TraktMapper.MapMediaItems([withSpaces, withBlank], "movie", out _);
+
+        Assert.Equal("my-slug", mapped[0].TraktSlug);
+        Assert.Null(mapped[1].TraktSlug);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void MapMediaItems_GenreIds_Empty_FailClosedForUnenriched()
+    {
+        // Trakt candidates start unenriched (no genres). Downstream must enrich before the
+        // parental filter; an empty genre list here is the fail-closed signal, not an allow.
+        var mapped = TraktMapper.MapMediaItems([Media(100)], "movie", out _);
+
+        var c = Assert.Single(mapped);
+        Assert.NotNull(c.GenreIds);
+        Assert.Empty(c.GenreIds);
+        Assert.False(c.Adult);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void MapMediaItems_NullAndZeroTmdb_DroppedAndCounted()
+    {
+        var items = new List<TraktMediaItem> { Media(0), Media(null), null! };
+
+        var mapped = TraktMapper.MapMediaItems(items, "movie", out var dropped);
+
+        Assert.Empty(mapped);
+        Assert.Equal(3, dropped);
+    }
 }

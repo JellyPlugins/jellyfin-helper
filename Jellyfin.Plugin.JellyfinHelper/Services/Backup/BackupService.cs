@@ -172,6 +172,7 @@ public sealed class BackupService : IBackupService
             // across hosts without the keyring. Redaction below still applies when includeSecrets is false.
             SeerrUrl = config.SeerrUrl,
             SeerrApiKey = _secretProtector.Unprotect(config.SeerrApiKey),
+            SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
 
             // Trakt settings. Client id + enabled flag are plain config; the secret is decrypted here like the
@@ -203,7 +204,8 @@ public sealed class BackupService : IBackupService
                     Name = instance.Name,
                     Url = instance.Url,
                     ApiKey = _secretProtector.Unprotect(instance.ApiKey),
-                    Libraries = instance.Libraries
+                    Libraries = instance.Libraries,
+                    SkipCertificateValidation = instance.SkipCertificateValidation
                 });
         }
 
@@ -215,7 +217,8 @@ public sealed class BackupService : IBackupService
                     Name = instance.Name,
                     Url = instance.Url,
                     ApiKey = _secretProtector.Unprotect(instance.ApiKey),
-                    Libraries = instance.Libraries
+                    Libraries = instance.Libraries,
+                    SkipCertificateValidation = instance.SkipCertificateValidation
                 });
         }
 
@@ -521,6 +524,21 @@ public sealed class BackupService : IBackupService
                 0,
                 BackupValidator.MaxRetentionDays);
         }
+
+        // Same absent-guard as above: an old backup without the field must not silently
+        // re-enable certificate validation on a working private-CA setup.
+        if (backup.SeerrSkipCertificateValidation.HasValue)
+        {
+            if (backup.SeerrSkipCertificateValidation.Value && !config.SeerrSkipCertificateValidation)
+            {
+                _pluginLog.LogWarning(
+                    LogSource,
+                    "Backup restore is enabling TLS certificate validation bypass for Seerr. Verify this is intended.",
+                    logger: _logger);
+            }
+
+            config.SeerrSkipCertificateValidation = backup.SeerrSkipCertificateValidation.Value;
+        }
     }
 
     /// <summary>
@@ -535,14 +553,14 @@ public sealed class BackupService : IBackupService
     {
         if (!string.IsNullOrEmpty(backup.TraktClientId))
         {
-            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxApiKeyLength);
+            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxTraktClientIdLength);
         }
 
         if (!string.IsNullOrEmpty(backup.TraktClientSecret))
         {
-            var truncatedSecret = BackupSanitizer.TruncateString(backup.TraktClientSecret, BackupValidator.MaxApiKeyLength);
+            var truncatedSecret = BackupSanitizer.TruncateString(backup.TraktClientSecret, BackupValidator.MaxStringLength);
             var storedPlain = _secretProtector.Unprotect(config.TraktClientSecret);
-            var truncatedStored = BackupSanitizer.TruncateString(storedPlain, BackupValidator.MaxApiKeyLength);
+            var truncatedStored = BackupSanitizer.TruncateString(storedPlain, BackupValidator.MaxStringLength);
             if (truncatedSecret != truncatedStored)
             {
                 _pluginLog.LogWarning(LogSource, "Backup restore is replacing credentials: Trakt client secret changed.", logger: _logger);
@@ -570,12 +588,13 @@ public sealed class BackupService : IBackupService
     private static void RestoreTrashSettings(PluginConfiguration config, BackupData backup)
     {
         config.UseTrash = backup.UseTrash;
-        // Defang unsafe trash path to default instead of failing restore.
+        // Defang unsafe trash path to default instead of failing restore. Reuses the
+        // settings-save guard so control characters and traversal are handled identically.
         var rawTrashPath = backup.TrashFolderPath;
-        var hasTraversal = PathValidator.HasTraversalSegment(rawTrashPath);
+        var strictError = Api.ConfigurationRequestValidator.ValidateTrashPathStrict(rawTrashPath, backup.UseTrash);
         var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
             PathValidator.IsSensitiveSystemPath(rawTrashPath);
-        config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive
+        config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || strictError != null || isSensitive
             ? ".jellyfin-trash"
             : rawTrashPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
@@ -602,6 +621,14 @@ public sealed class BackupService : IBackupService
         var newList = new List<ArrInstanceConfig>();
         var keysChanged = 0;
         var silentWipes = 0;
+
+        // Name (case-insensitive, mirroring the key-preserve rule above) + Url (exact) -> live skip-cert
+        // value, so a backup that omits the field (older format) falls back to the live setting instead of
+        // forcing validation back on. The composite key is lower-cased on the name only.
+        var liveSkipCert = liveInstances.ToLookup(
+            i => LiveInstanceKey(i.Name, i.Url),
+            i => i.SkipCertificateValidation,
+            StringComparer.Ordinal);
 
         foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
         {
@@ -632,12 +659,29 @@ public sealed class BackupService : IBackupService
 
                     // Re-encrypt before persisting so the restored key matches the at-rest format. Empty stays empty.
                     ApiKey = _secretProtector.Protect(apiKey),
-                    Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength)
+                    Libraries = BackupSanitizer.TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength),
+
+                    // Absent in the backup -> keep the matching live instance's setting; an explicit value wins.
+                    SkipCertificateValidation = instance.SkipCertificateValidation
+                        ?? liveSkipCert[LiveInstanceKey(instance.Name, instance.Url)].FirstOrDefault()
                 });
         }
 
         liveInstances.Clear();
         liveInstances.AddRange(newList);
+
+        // Only count instances the restore newly flips ON: live value was false or absent, now bypassed.
+        // An unchanged restore of an already-bypassed instance must not log a false "now enabling" warning.
+        var newlyEnabled = newList.Count(i =>
+            i.SkipCertificateValidation
+            && !liveSkipCert[LiveInstanceKey(i.Name, i.Url)].FirstOrDefault());
+        if (newlyEnabled > 0)
+        {
+            _pluginLog.LogWarning(
+                LogSource,
+                $"Backup restore is enabling TLS certificate validation bypass for {newlyEnabled} {label} instance(s). Verify this is intended.",
+                logger: _logger);
+        }
 
         if (silentWipes > 0)
         {
@@ -657,6 +701,11 @@ public sealed class BackupService : IBackupService
             summary.CredentialsChanged = true;
         }
     }
+
+    // Composite lookup key matching an Arr instance by case-insensitive Name and exact Url. The name is
+    // lower-cased with the invariant culture and joined with a NUL so distinct name/url splits cannot collide.
+    private static string LiveInstanceKey(string name, string url) =>
+        (name ?? string.Empty).ToLowerInvariant() + "\0" + (url ?? string.Empty);
 
     private TaskMode ParseTaskMode(string? value, string fieldName, TaskMode fallback = TaskMode.DryRun)
     {

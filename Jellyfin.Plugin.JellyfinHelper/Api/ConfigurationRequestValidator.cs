@@ -371,6 +371,12 @@ public static class ConfigurationRequestValidator
             return urlError;
         }
 
+        var apiKeyError = ValidateArrInstanceApiKey(instance, typeName, index);
+        if (apiKeyError != null)
+        {
+            return apiKeyError;
+        }
+
         // If URL is set, API key must also be set
         if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
         {
@@ -425,6 +431,18 @@ public static class ConfigurationRequestValidator
         if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
         {
             return $"{typeName} instance '{DescribeInstance(instance, index)}' library assignment contains invalid characters.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateArrInstanceApiKey(ArrInstanceConfig instance, string typeName, int index)
+    {
+        // A key containing CR/LF/tab/NUL would reach the outbound HTTP header layer and throw an
+        // uncaught ArgumentException (HTTP 500). Reject it here as a client input error instead.
+        if (!string.IsNullOrEmpty(instance.ApiKey) && ContainsControlCharacters(instance.ApiKey))
+        {
+            return $"{typeName} instance '{DescribeInstance(instance, index)}' API key must not contain CR, LF, tab, or NUL characters.";
         }
 
         return null;

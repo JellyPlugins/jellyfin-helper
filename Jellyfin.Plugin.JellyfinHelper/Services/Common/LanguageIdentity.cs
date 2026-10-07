@@ -185,6 +185,13 @@ internal static class LanguageIdentity
             return null;
         }
 
+        // Bound attacker-controlled media tags before normalization (FormD + dictionary
+        // lookups per scan); overlong tags carry no language identity.
+        if (tag.Length > 256)
+        {
+            return null;
+        }
+
         var trimmed = tag.Trim();
         var qualifier = trimmed.IndexOfAny(['(', '[']);
         var basis = (qualifier >= 0 ? trimmed.Substring(0, qualifier) : trimmed).Trim();

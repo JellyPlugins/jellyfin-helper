@@ -98,4 +98,50 @@ public sealed class SecretProtectorTests
     {
         Assert.Throws<ArgumentNullException>(() => new SecretProtector(null!, NullLogger<SecretProtector>.Instance));
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Protect_Ciphertext_DoesNotContainPlaintext()
+    {
+        var protector = CreateProtector();
+        const string secret = "super-secret-api-key-123";
+
+        var stored = protector.Protect(secret);
+
+        Assert.NotEqual(secret, stored);
+        Assert.DoesNotContain(secret, stored, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Unprotect_TamperedCiphertext_FailsClosedToEmpty()
+    {
+        var protector = CreateProtector();
+        var stored = protector.Protect("real-secret");
+
+        var tampered = stored + "tamper";
+
+        Assert.Equal(string.Empty, protector.Unprotect(tampered));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Protect_IsStableAcrossRepeatedSaves()
+    {
+        var protector = CreateProtector();
+        var once = protector.Protect("my-api-key");
+
+        Assert.Equal(once, protector.Protect(once));
+        Assert.Equal("my-api-key", protector.Unprotect(protector.Protect(once)));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void IsProtected_RequiresExactPrefix()
+    {
+        var protector = CreateProtector();
+
+        Assert.False(protector.IsProtected("dp::lowercase"));
+        Assert.False(protector.IsProtected(" DP::padded"));
+    }
 }

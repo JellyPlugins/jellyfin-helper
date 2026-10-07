@@ -693,4 +693,32 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.False(loaded.TvShows[0].WatchedTiers.ContainsKey("2–3 users"));
         Assert.Equal(6, loaded.TvShows[0].WatchedTiers["Watched"]);
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void SaveLoad_LargeResult_500Libraries_CompletesWithin2Seconds()
+    {
+        var stats = new MediaStatisticsResult();
+        for (var i = 0; i < 500; i++)
+        {
+            var lib = new LibraryStatistics { LibraryName = $"Lib {i}", VideoSize = i * 1000L, VideoFileCount = i };
+            stats.Libraries.Add(lib);
+            stats.Movies.Add(lib);
+            stats.LibraryOrder.Add($"Lib {i}");
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _service.SaveLatestResult(stats);
+        var loaded = _service.LoadLatestResult();
+        sw.Stop();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(500, loaded.Libraries.Count);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            // Headroom over the ~250ms solo baseline: a full-disk JSON round-trip of 500 libraries
+            // contends with GC/JIT when the whole Performance category runs back-to-back.
+            Assert.True(sw.ElapsedMilliseconds < 2000, $"Took {sw.ElapsedMilliseconds}ms");
+        }
+    }
 }

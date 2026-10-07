@@ -124,6 +124,43 @@ public class RecommendationPlaylistServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
+    public async Task UpdatePlaylists_100Users20Items_CompletesWithin5Seconds()
+    {
+        var results = new List<RecommendationResult>(100);
+        var users = new List<Jellyfin.Database.Implementations.Entities.User>(100);
+        for (var i = 0; i < 100; i++)
+        {
+            var userId = Guid.NewGuid();
+            results.Add(CreateResult(userId, $"User{i}", 20));
+
+            // The SUT verifies each user before building a playlist and skips any it cannot resolve,
+            // so the full roster must be configured or every user is skipped and nothing is created.
+            var user = new Jellyfin.Database.Implementations.Entities.User($"User{i}", "default", "default") { Id = userId };
+            users.Add(user);
+            _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+        }
+
+        _userManagerMock.Setup(m => m.GetUsers()).Returns(users);
+
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(results, CancellationToken.None);
+        sw.Stop();
+
+        Assert.Equal(100, syncResult.PlaylistsCreated);
+        Assert.Equal(2000, syncResult.TotalItemsAdded);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 5000, "Sync took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
+    [Fact]
     public async Task UpdatePlaylists_HandlesCreationFailureGracefully()
     {
         var results = new List<RecommendationResult>

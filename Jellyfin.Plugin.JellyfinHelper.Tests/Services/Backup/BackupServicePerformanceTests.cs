@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
@@ -139,11 +140,38 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"Sanitize: {BackupValidator.MaxTimelineDataPoints} timeline points (at limit) \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"Sanitize: {BackupValidator.MaxTimelineDataPoints} timeline points (at limit) → {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         var growthTimeline = backup.GrowthTimeline;
         Assert.NotNull(growthTimeline);
         Assert.Equal(BackupValidator.MaxTimelineDataPoints, growthTimeline.DataPoints.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void Serialize_FullBackup_50kBaseline_20kTimeline_CompletesWithin2Seconds()
+    {
+        var backup = CreateLargeBackup(timelinePoints: BackupValidator.MaxTimelineDataPoints, baselineDirs: 50_000, arrInstances: 3);
+        backup.TraktClientId = "trakt-id";
+        backup.TraktClientSecret = "trakt-secret";
+        backup.SeerrSkipCertificateValidation = true;
+        backup.SyncRecommendationsToPlaylist = true;
+        backup.DiscoveryUserAccessEnabled = true;
+
+        var sw = Stopwatch.StartNew();
+        var json = BackupService.SerializeBackup(backup);
+        var roundTripped = BackupService.DeserializeBackup(json);
+        var validation = BackupValidator.Validate(roundTripped);
+        sw.Stop();
+
+        output.WriteLine($"Serialize roundtrip: {json.Length / 1024}KB in {sw.ElapsedMilliseconds}ms, errors={validation.Errors.Count}");
+        Assert.NotNull(roundTripped);
+        Assert.Empty(validation.Errors);
+        Assert.Equal(BackupValidator.MaxTimelineDataPoints, roundTripped.GrowthTimeline?.DataPoints.Count);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 2000, $"Took {sw.ElapsedMilliseconds}ms, expected < 2000ms");
+        }
     }
 
     private static BackupData CreateLargeBackup(int timelinePoints, int baselineDirs, int arrInstances)

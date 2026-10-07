@@ -603,4 +603,38 @@ public sealed class TrainingDataBuilderTests
         // studios were folded into the watched-studio set. Without that fallback it would be 0.0.
         Assert.Equal(0.20, candidate.Features.ContentNearestNeighborScore, 9);
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void BuildExamples_50Users20Items_CompletesWithin5Seconds()
+    {
+        var generatedAt = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var profiles = new Collection<UserWatchProfile>();
+        var results = new List<RecommendationResult>();
+        for (var u = 0; u < 50; u++)
+        {
+            var userId = Guid.NewGuid();
+            var profile = new UserWatchProfile { UserId = userId, UserName = $"U{u}" };
+            var result = new RecommendationResult { UserId = userId, UserName = $"U{u}", GeneratedAt = generatedAt };
+            for (var i = 0; i < 20; i++)
+            {
+                var itemId = Guid.NewGuid();
+                profile.WatchedItems.Add(new WatchedItemInfo { ItemId = itemId, Played = true, LastPlayedDate = generatedAt, Genres = ["Action"] });
+                result.Recommendations.Add(new RecommendedItem { ItemId = itemId, Name = $"Item {i}", ItemType = "Movie", Genres = ["Action"] });
+            }
+
+            profiles.Add(profile);
+            results.Add(result);
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var run = TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
+        sw.Stop();
+
+        Assert.NotEmpty(run.Examples);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 5000, "Build took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
 }

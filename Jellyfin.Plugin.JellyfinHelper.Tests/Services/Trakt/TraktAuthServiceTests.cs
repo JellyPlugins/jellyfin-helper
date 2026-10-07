@@ -318,4 +318,92 @@ public sealed class TraktAuthServiceTests : IDisposable
         var (success, _) = await CreateService().TestClientIdAsync(clientId, CancellationToken.None);
         Assert.False(success);
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task PollDeviceAuth_RejectsBlankCode_WithoutHttp(string? deviceCode)
+    {
+        var before = _responses.Count;
+
+        var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), deviceCode!, CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+        Assert.Equal(before, _responses.Count);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("code\r\nX: 1")]
+    [InlineData("code\nnewline")]
+    [InlineData("code\twith-tab")]
+    [InlineData("code\0nul")]
+    public async Task PollDeviceAuth_RejectsControlCharacters_WithoutHttp(string deviceCode)
+    {
+        var before = _responses.Count;
+
+        var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), deviceCode, CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+        Assert.Equal(before, _responses.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task PollDeviceAuth_RejectsOversizedCode_WithoutHttp()
+    {
+        var oversized = new string('a', 513);
+        var before = _responses.Count;
+
+        var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), oversized, CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+        Assert.Equal(before, _responses.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task PollDeviceAuth_StoresTokenOnlyForPollingUser()
+    {
+        var pollingUser = Guid.NewGuid();
+        var otherUser = Guid.NewGuid();
+        Enqueue(HttpStatusCode.OK, """{"access_token":"tok-poller","refresh_token":"ref-poller","expires_in":7776000,"created_at":1893456000}""");
+
+        var status = await CreateService().PollDeviceAuthAsync(pollingUser, "device-code-123", CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Linked, status);
+        Assert.NotNull(_store.GetToken(pollingUser));
+        Assert.Equal("tok-poller", _store.GetToken(pollingUser)!.AccessToken);
+        Assert.Null(_store.GetToken(otherUser));
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("id\r\ninjected")]
+    [InlineData("id\twith-tab")]
+    [InlineData("id\0nul")]
+    public async Task TestClientId_RejectsControlCharacters_WithoutHttp(string clientId)
+    {
+        var before = _responses.Count;
+
+        var (success, _) = await CreateService().TestClientIdAsync(clientId, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Equal(before, _responses.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestClientId_RejectsOversizedId_WithoutHttp()
+    {
+        var oversized = new string('a', 513);
+        var before = _responses.Count;
+
+        var (success, _) = await CreateService().TestClientIdAsync(oversized, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Equal(before, _responses.Count);
+    }
 }

@@ -425,12 +425,14 @@
             lastMountedContainer = null;
             return;
         }
-        // Custom Tabs recreates its panel on tab switch; forget detached nodes so we remount into the live one.
+        // Custom Tabs destroys + rebuilds its panel div on every tab (re)activation,
+        // so a cached host goes stale; drop it when detached and remount into the live one.
         if (lastMountedContainer && !document.contains(lastMountedContainer)) {
             lastMountedContainer = null;
         }
-        // The Custom Tabs plugin owns the panel and re-injects our marker on rebuild.
-        // Fill the live marker only, never create one.
+        // Custom Tabs owns the panel and re-injects our marker on each rebuild. Fill the
+        // live marker only, never create one. A node-identity change (rebuild) or a marker
+        // emptied by the rebuild both re-trigger a render below.
         var container = findActiveContainer();
         if (!container) {
             lastMountedContainer = null;
@@ -445,20 +447,43 @@
         lastMountedContainer = container;
     }
 
+    // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
+    // and all .tabContent ancestors are .is‑active—preventing the destroy/rebuild flash during tab switches.
+    function isActiveTabContainer(element) {
+        if (!element?.isConnected) {
+            return false;
+        }
+        var node = element.parentElement;
+        var sawTabWrapper = false;
+        while (node && node !== document.body) {
+            if (node.hidden || node.classList.contains('hide')) {
+                return false;
+            }
+            if (node.classList.contains('tabContent')) {
+                sawTabWrapper = true;
+                if (!node.classList.contains('is-active')) {
+                    return false;
+                }
+            }
+            if (node.classList.contains('page')) {
+                sawTabWrapper = true;
+            }
+            node = node.parentElement;
+        }
+        // With a tab wrapper present, the checks above already proved it active. Without
+        // one (JF12 wrapper-less panel), fall back to actual visibility.
+        return sawTabWrapper || element.offsetParent !== null;
+    }
+
     function findActiveContainer() {
+        // Custom Tabs re-injects our marker on each panel (re)build, so re-query the
+        // live DOM every pass and never fall back to a cached node. The deepest/last
+        // active marker wins (a reactivated tab appends after stale siblings).
         var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        // Newest first: an active .tabContent beats a visible .page, which beats a
-        // wrapper-less candidate. One combined scan could mount the wrong container.
         for (var i = all.length - 1; i >= 0; i--) {
-            var tabContent = all[i].closest('.tabContent');
-            if (tabContent && tabContent.classList.contains('is-active')) return all[i];
-        }
-        for (var j = all.length - 1; j >= 0; j--) {
-            var page = all[j].closest('.page');
-            if (page && !page.classList.contains('hide')) return all[j];
-        }
-        for (var k = all.length - 1; k >= 0; k--) {
-            if (!all[k].closest('.page')) return all[k];
+            if (isActiveTabContainer(all[i])) {
+                return all[i];
+            }
         }
         return null;
     }
@@ -1422,33 +1447,83 @@
         }
     }
 
-    waitForApi(function () {
-        loadStrings(function () {
-            // Check if Discovery is available before injecting UI elements.
-            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-                .then(function (data) {
-                    if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-                        // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
-                        initCustomTab();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        return;
-                    }
-                    // Discovery is active and has recommendations - full initialization.
-                    // Wait for external links config (Seerr URL) before rendering to ensure
-                    // the Seerr link is available on the first card render.
-                    loadExternalLinksConfig().finally(function () {
-                        initCustomTab();
-                        initSidebar();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        setTimeout(tryMountCustomTab, 3000);
-                        setTimeout(tryMountCustomTab, 5000);
-                    });
-                })
-                .catch(function () {
-                    // 403 (disabled) or network error - do not inject any Discovery UI
-                });
+    // The script is injected into the single index.html Jellyfin serves for every
+    // SPA route, so it also loads on admin/dashboard pages (e.g. #!/configurationpage)
+    // where no Discovery tab can ever appear. Probing /Discovery/My there is wasted
+    // traffic and, when the feature is disabled, a 403 the browser logs as a console
+    // error. Gate the whole bootstrap on the home context (the same isOnHomePage
+    // signal the mount logic already trusts).
+    //
+    // The full UI (sidebar + tab) inits only once. An empty probe is NOT terminal: a
+    // scheduled task may produce recommendations later in the same SPA session, so we
+    // leave the gate open and re-probe on later home visits until results appear. A 403
+    // (feature disabled by the admin) IS terminal - re-probing would only replay the 403.
+    var _bootstrapped = false;
+    var _discoveryDisabled = false;
+    var _probeInFlight = false;
+
+    function initDiscoveryUiEmpty() {
+        // No discovery data available (task deactivated/dry-run/no results yet). Still init
+        // Custom Tab so it can show a "no results" message if the container exists, but do NOT
+        // inject sidebar navigation - no point advertising a feature with no content.
+        initCustomTab();
+        setTimeout(tryMountCustomTab, 500);
+        setTimeout(tryMountCustomTab, 1500);
+    }
+
+    function initDiscoveryUiFull() {
+        // Discovery is active and has recommendations - full initialization. Wait for
+        // external links config (Seerr URL) before rendering to ensure the Seerr link
+        // is available on the first card render.
+        loadExternalLinksConfig().finally(function () {
+            initCustomTab();
+            initSidebar();
+            setTimeout(tryMountCustomTab, 500);
+            setTimeout(tryMountCustomTab, 1500);
+            setTimeout(tryMountCustomTab, 3000);
+            setTimeout(tryMountCustomTab, 5000);
         });
-    });
+    }
+
+    function handleDiscoveryProbe(data) {
+        // Check if Discovery is available before injecting UI elements.
+        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+            // Leave the gate open: results may appear after a later scheduled run, and a future
+            // home visit re-probes to upgrade to the full UI without a page reload.
+            initDiscoveryUiEmpty();
+            return;
+        }
+        _bootstrapped = true;
+        initDiscoveryUiFull();
+    }
+
+    function probeDiscoveryAvailability() {
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+            .then(handleDiscoveryProbe)
+            .catch(function (err) {
+                // 403 means the admin disabled the feature: terminal, do not re-probe. Any other
+                // error (network/transient) leaves the gate open for a later retry.
+                if (err?.status === 403) {
+                    _discoveryDisabled = true;
+                }
+            })
+            .finally(function () {
+                _probeInFlight = false;
+            });
+    }
+
+    function bootstrapDiscovery() {
+        if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
+            return;
+        }
+        _probeInFlight = true;
+        waitForApi(function () {
+            loadStrings(probeDiscoveryAvailability);
+        });
+    }
+
+    // Try at load, and on every SPA navigation until the first home context is seen.
+    bootstrapDiscovery();
+    window.addEventListener('hashchange', bootstrapDiscovery);
+    window.addEventListener('popstate', bootstrapDiscovery);
 })();

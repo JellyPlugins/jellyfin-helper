@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -98,7 +98,7 @@ public class SeerrControllerTests
 
         Assert.IsType<BadRequestObjectResult>(result);
         _seerrService.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -106,7 +106,7 @@ public class SeerrControllerTests
     public async Task TestConnection_ReturnsOk_WhenConnectionSucceeds()
     {
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Connected"));
 
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc123" };
@@ -123,7 +123,7 @@ public class SeerrControllerTests
     public async Task TestConnection_ReturnsOk_WhenConnectionFails()
     {
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "Auth failed"));
 
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "bad" };
@@ -142,7 +142,7 @@ public class SeerrControllerTests
     public async Task TestConnection_ReturnsOk_WhenHttpRequestExceptionThrown()
     {
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("Network error"));
 
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
@@ -159,7 +159,7 @@ public class SeerrControllerTests
     public async Task TestConnection_ReturnsOk_WhenTimeoutOccurs()
     {
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
@@ -182,8 +182,8 @@ public class SeerrControllerTests
 
         string? sentKey = null;
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, CancellationToken>((_, key, _) => sentKey = key)
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, bool, CancellationToken>((_, key, _, _) => sentKey = key)
             .ReturnsAsync((true, "Connected"));
 
         // Client echoes back the mask (unchanged stored key).
@@ -212,7 +212,7 @@ public class SeerrControllerTests
         Assert.False(Assert.IsType<ConnectionTestResponse>(objectResult.Value).Success);
         // The upstream must never be probed with the masked sentinel.
         _seerrService.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -229,7 +229,7 @@ public class SeerrControllerTests
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
         _seerrService.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -243,8 +243,8 @@ public class SeerrControllerTests
 
         string? sentKey = null;
         _seerrService
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, CancellationToken>((_, key, _) => sentKey = key)
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, bool, CancellationToken>((_, key, _, _) => sentKey = key)
             .ReturnsAsync((true, "Connected"));
 
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "brand-new-key" };

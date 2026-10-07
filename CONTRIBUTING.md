@@ -129,22 +129,38 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 #### Discovery custom-tab coverage (external plugins)
 
 The Discovery home-page tab needs the third-party **Custom Tabs** and **File
-Transformation** plugins. `scripts/stage-external-plugins.sh` builds both from
-local source checkouts (for Jellyfin 12.x) and stages their DLLs + `meta.json`
-into the config volume alongside the plugin, then `global-setup` registers a
-`Seerr Discovery` custom tab and enables the user-access toggle. The checkout
-paths default to siblings of this repo and are overridable:
+Transformation** plugins. `scripts/stage-external-plugins.sh` downloads each
+plugin's **latest release** (resolved via the GitHub API, newest `Release-12.*`
+asset) and stages its DLLs + a generated `meta.json` into the config volume
+alongside the plugin. `global-setup` then registers a `Seerr Discovery` custom
+tab and enables the user-access toggle, and the `ui-setup` Playwright project
+(`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies that
+config before the ui specs, because the `api` project runs first and overwrites
+it. The one-shot `ui-setup` is still not enough on its own: ui specs that run
+before `discovery-customtab` (`arr*`, `interactions`, `recommendations`) save
+the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
+`discovery-customtab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
+(via the shared `ensureDiscoveryConfigured`) and polls `/Discovery/My` until it
+stops 403ing. Turning a trampled-access setup race into a loud failure instead
+of a silent mount timeout.
+
+**No version pinning — always latest, by design.** CI and the nightly run resolve
+the newest published release of both Custom Tabs and File Transformation on every
+run. This is intentional: Jellyfin Helper must stay compatible with the latest of
+each, and the nightly is the tripwire — if an upstream update breaks the custom-tab
+integration, that surfaces as a red `discovery-customtab` spec so it can be fixed,
+rather than being masked by a frozen pin. Do not add `*_RELEASE` / `*_ASSET` pins to
+the workflows. The only non-pinning knob is a token to lift the GitHub API rate limit:
 
 ```bash
-CUSTOMTABS_SRC=/path/to/jellyfin-plugin-custom-tabs \
-FILETRANSFORMATION_SRC=/path/to/jellyfin-plugin-file-transformation \
-  bash test/e2e/scripts/run.sh
+# Latest is always used; GITHUB_TOKEN only raises the unauthenticated API rate limit.
+GITHUB_TOKEN=... bash test/e2e/scripts/run.sh
 ```
 
-When the sources are absent the stack still runs the rest of the suite, and the
-`discovery-customtab.ui.spec.ts` regression (navigate in/out of the tab, assert
-it never goes blank and no competing panel is created) skips loudly via
-`JFH_E2E_EXTERNAL_PLUGINS`.
+When a release asset cannot be resolved the stack still runs the rest of the
+suite, and the `discovery-customtab.ui.spec.ts` regression (navigate in/out of
+the tab, assert it never goes blank and no competing panel is created) skips
+loudly via `JFH_E2E_EXTERNAL_PLUGINS`.
 
 
 ### Test Structure
@@ -714,6 +730,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaExtensionsTests.cs` - Tests MediaExtensions video/subtitle/image/audio/nfo sets, codec map, and language codes
 - `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
+- `InsecureNamedClientTlsTests.cs` - Live TLS proof: insecure named clients complete a handshake with an untrusted loopback cert while strict clients reject it
 - `PluginTests.cs`
 - `PluginResolveRealPathTests.cs`
 

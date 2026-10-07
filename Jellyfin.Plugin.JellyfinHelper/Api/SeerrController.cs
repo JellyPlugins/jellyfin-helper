@@ -102,7 +102,7 @@ public class SeerrController : ControllerBase
             var timeout = TimeSpan.FromSeconds(10);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
             cts.CancelAfter(timeout);
-            var (success, message) = await _seerrService.TestConnectionAsync(request.Url, apiKey, cts.Token)
+            var (success, message) = await _seerrService.TestConnectionAsync(request.Url, apiKey, request.SkipCertificateValidation ?? false, cts.Token)
                 .ConfigureAwait(false);
 
             if (success)

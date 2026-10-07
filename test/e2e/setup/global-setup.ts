@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { authHeader, runLibraryScan } from './api-client.ts';
+import { ensureDiscoveryConfigured } from './discovery-config.ts';
 import { hasDocker, plantCanaries, plantedCanaries } from './fs-assert.ts';
 import { seedGrowthTimeline } from './seed-timeline.ts';
 
@@ -167,7 +168,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // and registers a Custom Tab whose HTML content is our marker div, exactly as
   // an admin would per the in-app setup hint. The custom-tab UI spec reads
   // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
-  await configureDiscoveryCustomTab(admin);
+  await ensureDiscoveryConfigured(admin, (m) => console.log(`[global-setup] ${m}`));
 
   // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
@@ -286,57 +287,6 @@ async function provisionNormalUser(
 /** From the host, the mock is reachable on localhost; inside compose it's mock-seerr. */
 function publicSeerrUrl(): string {
   return process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
-}
-
-const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
-
-// The plugin container reaches the mock over the compose network; the mock
-// serves plain HTTP only (no TLS on an internal test fixture), so https is not
-// applicable here. Same literal the API specs use for SeerrUrl.
-const INTERNAL_MOCK_SEERR_URL = 'http://mock-seerr:5055'; // NOSONAR - internal test mock, no TLS
-
-/**
- * Enable the Discovery user-access toggle and register a Custom Tab whose HTML
- * content is the discovery marker div, mirroring the admin setup documented in
- * the plugin's settings hint. This is what makes the home-page tab + sidebar
- * appear for the custom-tab UI spec.
- */
-async function configureDiscoveryCustomTab(admin: ProvisionCtx): Promise<void> {
-  // Only meaningful when the external Custom Tabs / File Transformation plugins
-  // are staged; otherwise there is no tab to configure.
-  if (process.env.JFH_E2E_EXTERNAL_PLUGINS !== '1') {
-    return;
-  }
-  // The toggle only sticks with Recommendations active + Seerr configured.
-  const cfg = await admin.put('/JellyfinHelper/Configuration', {
-    headers: { 'Content-Type': 'application/json' },
-    data: {
-      RecommendationsTaskMode: 'Activate',
-      SeerrUrl: INTERNAL_MOCK_SEERR_URL,
-      SeerrApiKey: 'seerr-key',
-      DiscoveryUserAccessEnabled: true,
-      TraktEnabled: true,
-      TraktClientId: 'mock-trakt-client-id',
-      TraktClientSecret: 'mock-trakt-client-secret',
-      ExcludedLibraries: '',
-    },
-  });
-  // eslint-disable-next-line no-console
-  console.log(`[global-setup] enable discovery access -> ${cfg.status()}`);
-  if (!cfg.ok()) {
-    throw new Error(`Discovery access setup failed: ${cfg.status()} ${(await cfg.text()).slice(0, 300)}`);
-  }
-
-  // Register the Custom Tab (Title + ContentHtml) exactly as the admin would.
-  const tab = await admin.post(`/Plugins/${CUSTOM_TABS_GUID}/Configuration`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: { Tabs: [{ Title: 'Seerr Discovery', ContentHtml: '<div class="jellyfinhelper discovery"></div>' }] },
-  });
-  // eslint-disable-next-line no-console
-  console.log(`[global-setup] configure Custom Tabs tab -> ${tab.status()}`);
-  if (!tab.ok()) {
-    throw new Error(`Custom Tabs tab setup failed: ${tab.status()} ${(await tab.text()).slice(0, 300)}`);
-  }
 }
 
 /** * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway * request context. */

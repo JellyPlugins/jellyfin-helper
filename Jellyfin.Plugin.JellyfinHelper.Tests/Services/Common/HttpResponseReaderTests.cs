@@ -35,6 +35,29 @@ public sealed class HttpResponseReaderTests
         }
     }
 
+    // HttpContent that reports a caller-supplied length while streaming a different (larger) payload,
+    // modelling an upstream whose Content-Length header understates the real body.
+    private sealed class LyingLengthContent : HttpContent
+    {
+        private readonly byte[] _payload;
+        private readonly long _declaredLength;
+
+        public LyingLengthContent(byte[] payload, long declaredLength)
+        {
+            _payload = payload;
+            _declaredLength = declaredLength;
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+            => stream.WriteAsync(_payload, 0, _payload.Length);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = _declaredLength;
+            return true;
+        }
+    }
+
     private static HttpContent KnownLengthContent(byte[] payload) => new ByteArrayContent(payload);
 
     [Fact]
@@ -167,6 +190,58 @@ public sealed class HttpResponseReaderTests
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
         {
             CharSet = "not-a-real-charset",
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("utf-7")]
+    [InlineData("UTF-7")]
+    [InlineData("utf7")]
+    public async Task ReadLimitedAsync_Utf7Charset_DecodedAsUtf8(string charset)
+    {
+        // utf-7 can smuggle markup past downstream filters; it is treated as unknown.
+        const string body = "{\"ok\":true}";
+        var payload = Encoding.UTF8.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = charset,
+        };
+
+        var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);
+
+        Assert.Equal(body, result);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ReadLimitedAsync_LyingContentLength_StillBoundedByStream()
+    {
+        // Content-Length (16) passes the header fast-reject at the 32-byte limit, but the real body is 64
+        // bytes. The streaming counter must still reject it rather than trusting the understated header.
+        var payload = Encoding.ASCII.GetBytes(new string('c', 64));
+        using var content = new LyingLengthContent(payload, declaredLength: 16);
+
+        var ex = await Assert.ThrowsAsync<ResponseTooLargeException>(
+            () => HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 32));
+        Assert.Equal("Response too large", ex.Message);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task ReadLimitedAsync_QuotedCharset_TrimmedAndHonored()
+    {
+        const string body = "{\"ok\":true}";
+        var payload = Encoding.UTF8.GetBytes(body);
+        using var content = new ByteArrayContent(payload);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "\"utf-8\"",
         };
 
         var result = await HttpResponseReader.ReadLimitedAsync(content, CancellationToken.None, maxBytes: 1024);

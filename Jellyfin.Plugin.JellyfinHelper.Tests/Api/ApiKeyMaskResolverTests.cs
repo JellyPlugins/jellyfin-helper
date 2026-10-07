@@ -225,4 +225,47 @@ public class ApiKeyMaskResolverTests
         // still can't dodge detection and get forwarded upstream as a "key".
         Assert.True(ApiKeyMaskResolver.IsMask("\t" + ApiKeyMask + "\n"));
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_MaskWithUrlMismatch_FailClosed_NeverForwardsMask()
+    {
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://other:7878", ApiKey = "stored-key", Name = "R" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "http://localhost:7878", "R", stored);
+
+        Assert.Equal(string.Empty, result);
+        Assert.NotEqual(ApiKeyMask, result);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_MaskNameIsExactMatch_UrlIsCaseInsensitive()
+    {
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = "http://localhost:7878", ApiKey = "key-A", Name = "A" },
+            new() { Url = "http://localhost:7878", ApiKey = "key-B", Name = "B" }
+        };
+
+        // An exact (case-sensitive, ordinal) Name+URL match resolves to that instance's key.
+        Assert.Equal("key-B", ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "B", stored));
+
+        // "b" matches neither stored name, so the only remaining candidate is the URL-only fallback.
+        // With two instances sharing the URL that fallback is ambiguous, so it fails closed with an empty
+        // result rather than forwarding another instance's key upstream.
+        Assert.Equal(string.Empty, ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, "HTTP://LOCALHOST:7878", "b", stored));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ResolveArrKey_RealKey_PassesThrough_EvenWhenUrlUnknown()
+    {
+        var result = ApiKeyMaskResolver.ResolveArrKey("new-real-key", "http://unknown:7878", "X", new List<ArrInstanceConfig>());
+
+        Assert.Equal("new-real-key", result);
+    }
 }

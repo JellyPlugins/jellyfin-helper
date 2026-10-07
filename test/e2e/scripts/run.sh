@@ -112,20 +112,16 @@ bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 # --- 3b. stage the external plugins the Discovery custom tab depends on ------
 # Custom Tabs provides the .jellyfinhelper.discovery panel on the home page and
 # File Transformation injects our script; the custom-tab e2e spec needs both.
-# Built from local source checkouts (override via CUSTOMTABS_SRC /
-# FILETRANSFORMATION_SRC). Exit 2 = a source checkout is absent -> run the rest
-# of the suite and let the custom-tab UI spec skip. Any other failure (e.g. a
-# source present but not building) is a hard run failure, never a silent skip.
-log "Staging external plugins (Custom Tabs + File Transformation)"
+# Latest release of both plugins, no pinning: this run is the tripwire if an
+# upstream update breaks the integration. Any staging failure aborts - the
+# external plugins are a required prerequisite, never a silent skip.
+log "Staging external plugins (latest Custom Tabs + File Transformation)"
 set +e
 bash "$SCRIPT_DIR/stage-external-plugins.sh" "$RUNTIME/config/plugins"
 stage_rc=$?
 set -e
 if [[ "$stage_rc" -eq 0 ]]; then
   export JFH_E2E_EXTERNAL_PLUGINS=1
-elif [[ "$stage_rc" -eq 2 ]]; then
-  echo "[run] External plugin source(s) absent - custom-tab UI spec will skip." >&2
-  export JFH_E2E_EXTERNAL_PLUGINS=0
 else
   echo "[run] External plugin staging FAILED (exit $stage_rc) - aborting." >&2
   exit "$stage_rc"

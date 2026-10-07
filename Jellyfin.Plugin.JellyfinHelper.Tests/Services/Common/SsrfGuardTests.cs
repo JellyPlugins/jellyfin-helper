@@ -83,4 +83,39 @@ public sealed class SsrfGuardTests
     [InlineData("ftp://host/file")]       // non-HTTP scheme
     public void SafeEndpointLabel_InvalidRelativeOrNonHttp_ReturnsPlaceholder(string? url)
         => Assert.Equal("(invalid URL)", SsrfGuard.SafeEndpointLabel(url));
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("169.254.169.254")]
+    [InlineData("[::ffff:169.254.169.254]")]
+    [InlineData("metadata.google.internal")]
+    [InlineData("100.100.100.200")]
+    public void IsCloudMetadataHost_SecurityBucket_PinsMetadataBlock(string host)
+        => Assert.True(SsrfGuard.IsCloudMetadataHost(host));
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("192.168.1.50")]
+    [InlineData("radarr.example.com")]
+    public void IsCloudMetadataHost_SecurityBucket_PinsLanAllowed(string host)
+        => Assert.False(SsrfGuard.IsCloudMetadataHost(host));
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void SafeEndpointLabel_SecurityBucket_StripsCredentials()
+    {
+        var label = SsrfGuard.SafeEndpointLabel("https://admin:s3cr3t@seerr.example.com:5055/api/v1");
+
+        Assert.Equal("https://seerr.example.com:5055", label);
+        Assert.DoesNotContain("s3cr3t", label, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ThrowIfCloudMetadataHost_SecurityBucket_BlockedThrows()
+    {
+        var ex = Assert.Throws<System.ArgumentException>(
+            () => SsrfGuard.ThrowIfCloudMetadataHost("169.254.169.254", "baseUrl"));
+        Assert.Equal("baseUrl", ex.ParamName);
+    }
 }

@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.JellyfinHelper.Configuration;
+﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -87,12 +87,7 @@ public class HelperCleanupTaskTests
         var linkRepairServiceMock = new Mock<ILinkRepairService>();
         _seerrServiceMock = new Mock<ISeerrIntegrationService>();
         _seerrServiceMock
-            .Setup(s => s.CleanupExpiredRequestsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<int>(),
-                It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()))
+            .Setup(s => s.CleanupExpiredRequestsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SeerrCleanupResult());
 
         var userActivityInsightsMock = new Mock<IUserActivityInsightsService>();
@@ -495,6 +490,29 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_SeerrSkipCertValidation_ForwardsFlag()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Activate,
+            SeerrUrl = "http://localhost:5055",
+            SeerrApiKey = "test-key",
+            SeerrCleanupAgeDays = 365,
+            SeerrSkipCertificateValidation = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        _seerrServiceMock.Verify(
+            s => s.CleanupExpiredRequestsAsync("http://localhost:5055", "test-key", 365, false, true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_TrashEnabledRetentionZero_SkipsTrashPurge()
     {
         _config = new PluginConfiguration
@@ -540,16 +558,14 @@ public class HelperCleanupTaskTests
     private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)
     {
         _seerrServiceMock.Verify(
-            s => s.CleanupExpiredRequestsAsync(url, apiKey, ageDays, dryRun, It.IsAny<CancellationToken>()),
+            s => s.CleanupExpiredRequestsAsync(url, apiKey, ageDays, dryRun, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     private void VerifySeerrNeverCalled()
     {
         _seerrServiceMock.Verify(
-            s => s.CleanupExpiredRequestsAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()),
+            s => s.CleanupExpiredRequestsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

@@ -46,6 +46,19 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         static HttpMessageHandler NoRedirectHandler() =>
             new SocketsHttpHandler { AllowAutoRedirect = false };
 
+        // Same hardening as the strict client, except TLS certificate validation: opt-in per Arr
+        // instance (or single Seerr connection) for reverse proxies with a private CA, self-signed, or
+        // IP certificate. Only the insecure named clients use this handler; every default path keeps
+        // full validation.
+#pragma warning disable S4830 // Justification: intentional admin opt-in bypass, never the default; strict client unchanged.
+        static HttpMessageHandler NoRedirectInsecureHandler() =>
+            new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+            };
+#pragma warning restore S4830
+
         void AddHardenedClient(string name, TimeSpan timeout) =>
             serviceCollection.AddHttpClient(name, client =>
             {
@@ -54,8 +67,23 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         AddHardenedClient("ArrIntegration", TimeSpan.FromSeconds(15));
+        serviceCollection.AddHttpClient("ArrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
+        serviceCollection.AddHttpClient("SeerrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
+        serviceCollection.AddHttpClient("SeerrDiscoveryInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
 
         // Trakt timeout is admin-configurable (already clamped by the config setter). The delegate runs on
         // every CreateClient, so a saved change applies to the next request without a restart; falls back to

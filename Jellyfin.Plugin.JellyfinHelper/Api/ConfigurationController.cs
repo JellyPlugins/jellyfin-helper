@@ -341,9 +341,16 @@ public class ConfigurationController : ControllerBase
 
         try
         {
+            // Fall back to the persisted value when the request omits the field, so a client that
+            // does not send it still tests against the effective (stored) TLS setting rather than
+            // forcing validation on. ApplyRequestToConfig already ran under the write lock above.
+            var skipCertValidation = request.SeerrSkipCertificateValidation
+                ?? (_configService.IsInitialized && _configService.GetConfiguration().SeerrSkipCertificateValidation);
+
             var (success, message) = await _seerrService.TestConnectionAsync(
                 seerrUrl,
                 seerrApiKey,
+                skipCertValidation,
                 cancellationToken).ConfigureAwait(false);
 
             if (success)
@@ -434,6 +441,7 @@ public class ConfigurationController : ControllerBase
             var (success, message) = await _arrService.TestConnectionAsync(
                 instance.Url,
                 instance.ApiKey,
+                instance.SkipCertificateValidation,
                 cancellationToken).ConfigureAwait(false);
 
             var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{index + 1}";
@@ -522,6 +530,14 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
+
+        // Absent means keep: an older UI or API client that omits the field must not silently
+        // re-enable certificate validation on a working private-CA Seerr setup. An explicit false disables.
+        if (request.SeerrSkipCertificateValidation.HasValue)
+        {
+            config.SeerrSkipCertificateValidation = request.SeerrSkipCertificateValidation.Value;
+        }
+
         ApplySeerrSecret(request, config, secretProtector);
 
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
@@ -667,7 +683,8 @@ public class ConfigurationController : ControllerBase
                 Name = instance.Name,
                 Url = instance.Url,
                 ApiKey = ResolveApiKey(instance, previousInstances, secretProtector),
-                Libraries = instance.Libraries
+                Libraries = instance.Libraries,
+                SkipCertificateValidation = instance.SkipCertificateValidation
             });
         }
 

@@ -420,6 +420,7 @@ public class HelperCleanupTask : IScheduledTask
             _secretProtector.Unprotect(config.SeerrApiKey),
             config.SeerrCleanupAgeDays,
             dryRun,
+            config.SeerrSkipCertificateValidation,
             cancellationToken).ConfigureAwait(false);
         _pluginLog.LogInfo(
             SeerrCleanupLogSource,

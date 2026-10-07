@@ -174,4 +174,41 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         Assert.Null(result.Error);
         Assert.Contains(result.Directories, d => d.Name == "ok");
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("/tmp/../etc")]
+    [InlineData("/tmp/a/../../etc")]
+    public void ValidatePath_TraversalSegments_Rejected(string path)
+    {
+        Assert.Equal("Path must not contain '..' sequences.", _service.ValidatePath(path));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void ValidatePath_NullByte_Rejected()
+    {
+        Assert.Equal("Path contains invalid characters.", _service.ValidatePath("/tmp/a\0b"));
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("relative/path")]
+    public void ValidatePath_EmptyOrRelative_Rejected(string path)
+    {
+        Assert.NotNull(_service.ValidatePath(path));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void GetChildren_NonExistentPath_ReturnsErrorWithoutThrow()
+    {
+        var missing = Path.Combine(_tempRoot, "does-not-exist-" + Guid.NewGuid().ToString("N"));
+
+        var result = _service.GetChildren(missing);
+
+        Assert.NotNull(result.Error);
+    }
 }

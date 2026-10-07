@@ -154,4 +154,36 @@ public class LanguageIdentityTests
     [InlineData("\"eng\"", "eng")]
     public void CleanLanguageTag_TrimsQualifiersAndRegions(string? tag, string? expected)
         => Assert.Equal(expected, LanguageIdentity.CleanLanguageTag(tag));
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void CleanLanguageTag_OverlongTag_ReturnsNullQuickly()
+    {
+        var overlong = new string('e', 10_000);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = LanguageIdentity.CleanLanguageTag(overlong);
+        sw.Stop();
+
+        Assert.Null(result);
+        if (System.Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void GetIso6391Code_OverlongTag_ReturnsNullQuickly()
+    {
+        var overlong = "English " + new string('x', 1_000_000);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = LanguageIdentity.GetIso6391Code(overlong);
+        sw.Stop();
+
+        Assert.Null(result);
+        if (System.Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 1000, $"Took {sw.ElapsedMilliseconds}ms");
+        }
+    }
 }

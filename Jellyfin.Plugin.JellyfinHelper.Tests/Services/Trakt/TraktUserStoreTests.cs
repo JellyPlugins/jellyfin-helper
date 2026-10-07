@@ -193,4 +193,48 @@ public sealed class TraktUserStoreTests : IDisposable
         using var store = CreateStore();
         Assert.Empty(store.GetLinkedUserIds());
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task Save_DifferentUsers_Isolated()
+    {
+        using var store = CreateStore();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await store.SaveAsync(a, new TraktUserToken { AccessToken = "token-a", RefreshToken = "ra" }, CancellationToken.None);
+
+        Assert.Equal("token-a", store.GetToken(a)!.AccessToken);
+        Assert.Null(store.GetToken(b));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task Save_Overwrite_OnlyAffectsOwnUser()
+    {
+        using var store = CreateStore();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await store.SaveAsync(a, new TraktUserToken { AccessToken = "a1", RefreshToken = "ra" }, CancellationToken.None);
+        await store.SaveAsync(b, new TraktUserToken { AccessToken = "b1", RefreshToken = "rb" }, CancellationToken.None);
+        await store.SaveAsync(a, new TraktUserToken { AccessToken = "a2", RefreshToken = "ra2" }, CancellationToken.None);
+
+        Assert.Equal("a2", store.GetToken(a)!.AccessToken);
+        Assert.Equal("b1", store.GetToken(b)!.AccessToken);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task Remove_OnlyRemovesOwnToken()
+    {
+        using var store = CreateStore();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await store.SaveAsync(a, new TraktUserToken { AccessToken = "a", RefreshToken = "ra" }, CancellationToken.None);
+        await store.SaveAsync(b, new TraktUserToken { AccessToken = "b", RefreshToken = "rb" }, CancellationToken.None);
+
+        await store.RemoveAsync(a, CancellationToken.None);
+
+        Assert.Null(store.GetToken(a));
+        Assert.NotNull(store.GetToken(b));
+    }
 }

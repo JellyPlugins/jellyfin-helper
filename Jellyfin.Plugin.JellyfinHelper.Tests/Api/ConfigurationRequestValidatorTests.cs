@@ -780,4 +780,109 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("key\r\nX-Injected: 1")]
+    [InlineData("key\nnewline")]
+    [InlineData("key\twith-tab")]
+    [InlineData("key\0nul")]
+    public void Validate_ReturnsError_WhenArrApiKeyContainsControlCharacters(string apiKey)
+    {
+        // A CRLF/tab/NUL key would throw at the outbound HTTP header layer (500). Rejected as input error.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://r:7878", ApiKey = apiKey },
+            },
+        };
+
+        var error = ConfigurationRequestValidator.Validate(req);
+
+        Assert.NotNull(error);
+        Assert.Contains("API key must not contain", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_ReturnsError_WhenSonarrApiKeyContainsCrlf()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SonarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "S1", Url = "http://s:8989", ApiKey = "abc\r\ndef" },
+            },
+        };
+
+        var error = ConfigurationRequestValidator.Validate(req);
+
+        Assert.NotNull(error);
+        Assert.Contains("API key must not contain", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_ReturnsNull_WhenArrApiKeyIsNormal()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://r:7878", ApiKey = "0123456789abcdef0123456789abcdef" },
+            },
+        };
+
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("id\r\nx")]
+    [InlineData("secret\twith-tab")]
+    public void Validate_ReturnsError_WhenTraktCredentialsContainControlCharacters(string _)
+    {
+        var withIdInjection = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktClientId = "id\r\nx",
+            TraktClientSecret = "secret",
+        };
+        Assert.Contains("must not contain", ConfigurationRequestValidator.Validate(withIdInjection)!, StringComparison.Ordinal);
+
+        var withSecretInjection = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktClientId = "id",
+            TraktClientSecret = "secret\twith-tab",
+        };
+        Assert.Contains("must not contain", ConfigurationRequestValidator.Validate(withSecretInjection)!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("trash\0evil")]
+    [InlineData("trash\nnewline")]
+    [InlineData("trash\ttab")]
+    public void Validate_ReturnsError_WhenTrashPathContainsControlCharacters(string trashPath)
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            UseTrash = true,
+            TrashFolderPath = trashPath,
+        };
+
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+    }
 }

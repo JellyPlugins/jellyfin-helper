@@ -493,7 +493,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
 
         try
         {
@@ -795,7 +795,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Invalid Seerr configuration.");
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
         return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
     }
@@ -991,7 +991,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             return await FetchAllUserPagesAsync(client, baseUri, apiKey, cancellationToken).ConfigureAwait(false);
@@ -1168,7 +1168,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             using var listRequest = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}", apiKey);
@@ -1730,7 +1730,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
         var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var allCandidates = new List<TmdbDiscoverItem>();
 
         // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
@@ -1856,7 +1856,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
         if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
         {
@@ -2452,7 +2452,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveRadarrInstances(),
-            _arrIntegration.GetRadarrMoviesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetRadarrMoviesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static m => m.TmdbId,
             MediaTypeMovie,
             "Radarr",
@@ -2474,7 +2474,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveSonarrInstances(),
-            _arrIntegration.GetSonarrSeriesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetSonarrSeriesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static s => s.TmdbId,
             "tv",
             "Sonarr",
@@ -2487,7 +2487,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <typeparam name="T">The Arr item type (movie or series).</typeparam>
     /// <param name="instances">The effective Arr instances to query.</param>
-    /// <param name="fetch">Delegate fetching the items for an instance (URL, API key, token).</param>
+    /// <param name="fetch">Delegate fetching the items for an instance (instance, unprotected API key, token).</param>
     /// <param name="tmdbSelector">Selects the TMDb ID from an item.</param>
     /// <param name="mediaType">The media type recorded in the exclusion set.</param>
     /// <param name="arrName">The Arr display name used in log messages (Radarr/Sonarr).</param>
@@ -2496,7 +2496,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <returns>A task representing the asynchronous operation.</returns>
     private async Task AddArrExclusionsAsync<T>(
         IEnumerable<ArrInstanceConfig> instances,
-        Func<string, string, CancellationToken, Task<List<T>?>> fetch,
+        Func<ArrInstanceConfig, string, CancellationToken, Task<List<T>?>> fetch,
         Func<T, int> tmdbSelector,
         string mediaType,
         string arrName,
@@ -2509,7 +2509,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var items = await fetch(
-                    instance.Url, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
+                    instance, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
                 if (items != null)
                 {
                     foreach (var item in items)
@@ -3040,8 +3040,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Returns a non-owning HttpClient from the factory. The client must NOT be disposed - its lifetime is managed by IHttpClientFactory.
     /// </summary>
-    private HttpClient GetSeerrClient() =>
-        _httpClientFactory.CreateClient("SeerrDiscovery");
+    private HttpClient GetSeerrClient(bool skipCertificateValidation) =>
+        _httpClientFactory.CreateClient(skipCertificateValidation ? "SeerrDiscoveryInsecure" : "SeerrDiscovery");
 
     /// <summary>
     ///     Builds an HttpRequestMessage with per-request authentication headers.

@@ -6,11 +6,14 @@
  * never fabricates a `customTab_` panel of its own (that self-heal fought Custom
  * Tabs and caused the intermittent blank).
  *
- * Requires the external Custom Tabs + File Transformation plugins, staged by
- * run.sh. When they are absent (JFH_E2E_EXTERNAL_PLUGINS!=1) the whole file skips.
+ * Requires the external Custom Tabs + File Transformation plugins, which run.sh
+ * stages from their LATEST release and treats as a hard prerequisite (a failed
+ * stage aborts the whole run, never a silent skip). The JFH_E2E_EXTERNAL_PLUGINS
+ * guard below only matters for a dev running Playwright directly without staging.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { loadAuth } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, loadAuth, p } from '../setup/api-client.ts';
+import { ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 
 const EXTERNAL_PLUGINS = process.env.JFH_E2E_EXTERNAL_PLUGINS === '1';
 
@@ -62,26 +65,36 @@ async function openHome(page: Page): Promise<string> {
   return base;
 }
 
-// Click the Custom Tab labelled "Seerr Discovery" across the Modern MUI header
-// and the legacy tab bar.
+// The "Seerr Discovery" tab in the header. Jellyfin 12.2 renders BOTH a legacy
+// `.emby-tab-button` (hidden) and a modern MUI `<a>` (visible) with the same
+// id/text in the DOM, so an unfiltered locator matches two elements and trips
+// Playwright strict mode. Scope to the visible one - that is the tab a user
+// actually sees and clicks regardless of which header layout is active.
+function discoveryTab(page: Page) {
+  return page
+    .locator('header.MuiAppBar-root a, .headerTabs button')
+    .filter({ hasText: 'Seerr Discovery' })
+    .filter({ visible: true });
+}
+
+// Click the Custom Tab labelled "Seerr Discovery" (visible header variant).
 async function clickDiscoveryTab(page: Page): Promise<void> {
-  const modern = page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' });
-  const legacy = page.locator('.headerTabs button', { hasText: 'Seerr Discovery' });
-  if (await modern.count()) {
-    await modern.first().click();
-  } else {
-    await legacy.first().click();
-  }
+  await discoveryTab(page).first().click();
 }
 
 async function clickHomeTab(page: Page): Promise<void> {
-  const modernHome = page.locator('header.MuiAppBar-root a[href$="?tab=0"], header.MuiAppBar-root a[href="#/home"]');
-  const legacyHome = page.locator('.headerTabs button').first();
+  // In the JF12 modern header the Home tab (index 0) is the FIRST anchor with a
+  // bare href="#/" (styled as a tab, labeled with the server name, no stable
+  // text) - NOT #/home or #/home?tab=0, which do not exist. The legacy
+  // .emby-tab-button[data-index="0"] also exists but is INVISIBLE in the modern
+  // layout (clicking it times out). a[href="#/"] excludes the legacy button
+  // (it has no href); the visible filter guards the legacy-layout case.
+  const modernHome = page.locator('header.MuiAppBar-root a[href="#/"]').filter({ visible: true });
   if (await modernHome.count()) {
     await modernHome.first().click();
-  } else {
-    await legacyHome.click();
+    return;
   }
+  await page.locator('.headerTabs button').filter({ visible: true }).first().click();
 }
 
 // The marker must end up populated by discovery-sidebar.js with a terminal
@@ -105,14 +118,32 @@ async function expectDiscoveryHidden(page: Page): Promise<void> {
 test.describe('Discovery custom tab (home page)', () => {
   test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / File Transformation not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
 
+  //The ui-setup project enables discovery access once, but subsequent configuration saves (via API or Settings-tab) overwrite this with `DiscoveryUserAccessEnabled=false`,
+  // causing a 403 error during home page mount and resulting in render assertion timeouts. To prevent this, access is re-asserted here immediately before the spec runs.
+  // This replaces a silent mount timeout with a loud failure if a setup race occurs.
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    const probe = (await normalUserContext(auth)) ?? admin;
+    try {
+      await ensureDiscoveryConfigured(admin);
+      // The toggle write and the user-facing read go through different layers;
+      // under CI load the enablement can take a beat to surface. Poll up to ~15s
+      // and fail with the status so a persistent 403 points at the setup, not the UI.
+      await expect
+        .poll(async () => (await probe.get(p('Discovery/My'))).status(), { timeout: 15_000 })
+        .not.toBe(403);
+    } finally {
+      if (probe !== admin) await probe.dispose();
+      await admin.dispose();
+    }
+  });
+
   test('renders on first open and never goes blank across repeated navigation', async ({ page }) => {
     await openHome(page);
 
     // The Custom Tabs plugin needs a moment to inject the tab into the header.
-    await expect(
-      page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' })
-        .or(page.locator('.headerTabs button', { hasText: 'Seerr Discovery' })),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
 
     await clickDiscoveryTab(page);
     await expectDiscoveryRendered(page);
@@ -136,10 +167,7 @@ test.describe('Discovery custom tab (home page)', () => {
 
   test('discovery-sidebar.js never fabricates its own customTab_ panel', async ({ page }) => {
     await openHome(page);
-    await expect(
-      page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' })
-        .or(page.locator('.headerTabs button', { hasText: 'Seerr Discovery' })),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
     await clickDiscoveryTab(page);
     await expectDiscoveryRendered(page);
 

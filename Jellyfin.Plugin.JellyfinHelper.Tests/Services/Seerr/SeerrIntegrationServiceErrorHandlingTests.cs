@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
@@ -135,7 +135,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
         var service = CreateService(mock.Object, out _, out _);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            service.TestConnectionAsync(BaseUrl, ApiKey, cts.Token));
+            service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
         var service = CreateService(mock.Object, out _, out _);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cts.Token));
+            service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -175,8 +175,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             .ThrowsAsync(new TaskCanceledException("The request timed out."));
 
         var service = CreateService(mock.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.Deleted);
@@ -198,8 +197,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
 
         var service = CreateService(handler.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.Deleted);
@@ -231,8 +229,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             (HttpStatusCode.NoContent, string.Empty));
 
         var service = CreateService(handler.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(2, result.ExpiredFound);
 
@@ -265,8 +262,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             .ThrowsAsync(new TaskCanceledException("delete timed out"));
 
         var service = CreateService(mock.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(0, result.Deleted);
         Assert.Equal(1, result.Failed);
@@ -302,8 +298,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             .ThrowsAsync(new HttpRequestException("connection reset"));
 
         var service = CreateService(mock.Object, out _, out var pluginLogMock);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(0, result.Deleted);
         Assert.Equal(1, result.Failed);
@@ -354,8 +349,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             });
 
         var service = CreateService(mock.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, ApiKey, 365, false, cts.Token);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cancellationToken: cts.Token);
 
         Assert.Equal(1, result.Deleted);
     }
@@ -405,8 +399,7 @@ public sealed class SeerrIntegrationServiceErrorHandlingTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("Should not be called"));
 
         var service = CreateService(mock.Object, out _, out _);
-        var result = await service.CleanupExpiredRequestsAsync(
-            BaseUrl, "key\r\nX-Injected: evil", 365, false, CancellationToken.None);
+        var result = await service.CleanupExpiredRequestsAsync(BaseUrl, "key\r\nX-Injected: evil", 365, false, cancellationToken: CancellationToken.None);
 
         Assert.Equal(1, result.Failed);
         Assert.Equal(0, result.TotalChecked);
