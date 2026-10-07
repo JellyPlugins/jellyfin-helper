@@ -129,6 +129,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
+        // Serve each user's scored trending result from the cache; scoring replays the full
+        // Seerr enrichment per candidate, so without this every tab load repeats it.
+        var cached = _cache.GetTrending(userId, CacheTtl);
+        if (cached is not null)
+        {
+            return _discoveryService.FilterConsumedItems(userId, cached);
+        }
+
         var pool = _cache.GetTrendingPool(CacheTtl);
         if (pool is null)
         {
@@ -142,9 +150,15 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             pool = candidates;
         }
 
-        // Always score the raw pool per user; a stored ranking is never served to anyone.
+        // The raw pool is shared; the scored ranking is cached per user and never served across users.
         var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, ReasonKey, cancellationToken).ConfigureAwait(false);
-        return scored is null ? null : _discoveryService.FilterConsumedItems(userId, scored);
+        if (scored is null)
+        {
+            return null;
+        }
+
+        _cache.SetTrending(userId, scored);
+        return _discoveryService.FilterConsumedItems(userId, scored);
     }
 
     /// <inheritdoc />
@@ -156,8 +170,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return;
         }
 
-        // Drop the shared trending pool so the next request re-fetches a fresh pool; per-user scoring
-        // happens at request time from the raw pool, so there is nothing user-specific to warm here. Then
+        // Drop the shared trending pool and every per-user trending result derived from it, so the
+        // next request re-fetches a fresh pool and rescores; trending is not warmed per user here. Then
         // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
         _cache.InvalidateTrendingPool();
 
@@ -234,16 +248,26 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
     private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        using var response = await _httpClientFactory.CreateClient("Trakt")
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            _pluginLog.LogWarning(LogSource, $"Trakt fetch failed: {(int)response.StatusCode}.", logger: _logger);
-            return (default, response.StatusCode);
-        }
+            using var response = await _httpClientFactory.CreateClient("Trakt")
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _pluginLog.LogWarning(LogSource, $"Trakt fetch failed: {(int)response.StatusCode}.", logger: _logger);
+                return (default, response.StatusCode);
+            }
 
-        var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
-        return (JsonSerializer.Deserialize<T>(json), response.StatusCode);
+            var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            return (JsonSerializer.Deserialize<T>(json), response.StatusCode);
+        }
+        catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
+        {
+            // Network, timeout, size-limit, and malformed-payload failures degrade to an empty
+            // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
+            _pluginLog.LogWarning(LogSource, "Trakt fetch failed.", ex, _logger);
+            return (default, HttpStatusCode.ServiceUnavailable);
+        }
     }
 
     private static HttpRequestMessage BuildRequest(string relPath, string clientId, int limit, string? accessToken)

@@ -116,6 +116,25 @@ public sealed class UserDiscoveryControllerTraktTests
     }
 
     [Fact]
+    public async Task GetMyTrakt_WhenFetchUnlinks_ReturnsLinkedFalse()
+    {
+        var userId = Guid.NewGuid();
+        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>()))
+            .Callback(() => _traktStore.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null))
+            .ReturnsAsync((DiscoveryResult?)null);
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        // The fetch unlinked a dead grant mid-flight: the endpoint reports the current
+        // state so the UI offers a re-link instead of an empty grid.
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
+        Assert.False(payload.Linked);
+        Assert.Null(payload.Result);
+    }
+
+    [Fact]
     public async Task GetMyTrakt_WhenLinked_ReturnsResult()
     {
         var userId = Guid.NewGuid();

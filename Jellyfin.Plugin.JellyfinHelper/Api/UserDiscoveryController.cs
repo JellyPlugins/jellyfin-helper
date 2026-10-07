@@ -637,6 +637,13 @@ public sealed class UserDiscoveryController : ControllerBase
         var result = linked
             ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
             : null;
+        if (linked && result is null)
+        {
+            // The fetch can unlink a dead grant mid-flight; report the current state
+            // so the UI offers a re-link instead of an empty grid.
+            linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+        }
+
         return Ok(new TraktDiscoveryResponse { Linked = linked, Result = result });
     }
 

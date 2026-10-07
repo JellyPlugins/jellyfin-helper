@@ -104,4 +104,54 @@ public sealed class TraktCacheServiceTests
         cache.InvalidateTrendingPool();
         Assert.Null(cache.GetTrendingPool(_ttl));
     }
+
+    [Fact]
+    public void TrendingScored_SetThenGet_ReturnsEntryWhenFresh()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        var result = Result(userId);
+
+        cache.SetTrending(userId, result);
+
+        Assert.Same(result, cache.GetTrending(userId, _ttl));
+    }
+
+    [Fact]
+    public void TrendingScored_ReturnsNull_WhenStale()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.SetTrending(userId, Result(userId));
+
+        _now = _now.Add(_ttl).AddSeconds(1);
+
+        Assert.Null(cache.GetTrending(userId, _ttl));
+    }
+
+    [Fact]
+    public void TrendingScored_IsIsolatedPerUser()
+    {
+        var cache = Create();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        cache.SetTrending(a, Result(a));
+
+        Assert.NotNull(cache.GetTrending(a, _ttl));
+        Assert.Null(cache.GetTrending(b, _ttl));
+    }
+
+    [Fact]
+    public void TrendingPool_Invalidate_DropsScoredEntries()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.SetTrendingPool(Pool());
+        cache.SetTrending(userId, Result(userId));
+
+        cache.InvalidateTrendingPool();
+
+        Assert.Null(cache.GetTrendingPool(_ttl));
+        Assert.Null(cache.GetTrending(userId, _ttl));
+    }
 }

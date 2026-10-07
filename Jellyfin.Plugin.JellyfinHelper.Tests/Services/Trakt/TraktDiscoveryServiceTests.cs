@@ -446,6 +446,107 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetTrending_SecondCall_ServedFromScoredCacheWithoutRescoring()
+    {
+        var userId = Guid.NewGuid();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
+        _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
+        var sut = CreateService();
+
+        var first = await sut.GetTrendingAsync(userId, CancellationToken.None);
+        Assert.NotNull(first);
+
+        // The queue is empty and the handler is Strict: any refetch would throw, and any
+        // rescoring would show up in the verify below. The second call serves the cache.
+        var second = await sut.GetTrendingAsync(userId, CancellationToken.None);
+        Assert.NotNull(second);
+        Assert.Equal(
+            first!.Recommendations.Select(r => r.TmdbId),
+            second!.Recommendations.Select(r => r.TmdbId));
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetPersonal_TransportFailure_ReturnsNullWithoutUnlinking()
+    {
+        var userId = Guid.NewGuid();
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
+        var throwingHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        throwingHandler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        throwingHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("trakt down"));
+        var throwingFactory = new Mock<IHttpClientFactory>();
+        throwingFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(throwingHandler.Object));
+        var sut = new TraktDiscoveryService(
+            throwingFactory.Object, _auth.Object, _store.Object, _discovery.Object,
+            _cache, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+
+        // A network failure degrades to null instead of an HTTP 500, and never destroys the link.
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        _store.Verify(s => s.RemoveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetTrending_TransportFailure_ReturnsNullWithoutThrowing()
+    {
+        var throwingHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        throwingHandler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        throwingHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("trakt down"));
+        var throwingFactory = new Mock<IHttpClientFactory>();
+        throwingFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(throwingHandler.Object));
+        var sut = new TraktDiscoveryService(
+            throwingFactory.Object, _auth.Object, _store.Object, _discovery.Object,
+            _cache, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+
+        Assert.Null(await sut.GetTrendingAsync(Guid.NewGuid(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetTrending_MoviesFailure_StillServesShows()
+    {
+        var userId = Guid.NewGuid();
+        var calls = 0;
+        var flakyHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        flakyHandler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        flakyHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                calls++;
+                if (calls == 1)
+                {
+                    throw new HttpRequestException("movies down");
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(TrendingShowsJson) };
+            });
+        var flakyFactory = new Mock<IHttpClientFactory>();
+        flakyFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(flakyHandler.Object));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) =>
+                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
+        var sut = new TraktDiscoveryService(
+            flakyFactory.Object, _auth.Object, _store.Object, _discovery.Object,
+            _cache, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+
+        // A failed movies fetch no longer aborts the shows fetch: the partial pool is served.
+        var result = await sut.GetTrendingAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.TmdbId == 44);
+    }
+
+    [Fact]
     public async Task RefreshAll_InvalidatesTrendingPool()
     {
         var userId = Guid.NewGuid();

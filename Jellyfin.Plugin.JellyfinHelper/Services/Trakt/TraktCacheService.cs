@@ -6,14 +6,15 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 
 /// <summary>
-///     Personal results per user plus one global trending candidate pool. The pool stays raw
-///     (unscored, unfiltered) so every user scores the full set with their own filters; a stored
-///     ranking would shrink it to the first user's top-N for everyone else. Best-effort and
-///     process-local; the task warms it, requests refresh it lazily.
+///     Personal results per user, per-user trending results, plus one global trending candidate pool.
+///     The pool stays raw (unscored, unfiltered) so every user scores the full set with their own
+///     filters; a single shared ranking would shrink it to the first user's top-N for everyone else.
+///     Best-effort and process-local; the task warms it, requests refresh it lazily.
 /// </summary>
 public sealed class TraktCacheService
 {
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _personal = new();
+    private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _trendingScored = new();
     private readonly Func<DateTime> _utcNow;
     private CacheEntry<IReadOnlyList<ExternalDiscoveryCandidate>>? _trending;
 
@@ -76,15 +77,47 @@ public sealed class TraktCacheService
     }
 
     /// <summary>
+    ///     Returns a user's cached trending result when present and not past <paramref name="ttl"/>, else null.
+    ///     Callers filter the served copy for consumed items; the stored entry stays unfiltered.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="ttl">The maximum age a cached entry may have to be served.</param>
+    /// <returns>The cached result, or null on miss or stale.</returns>
+    public DiscoveryResult? GetTrending(Guid userId, TimeSpan ttl)
+    {
+        if (_trendingScored.TryGetValue(userId, out var entry) && !IsStale(entry, ttl))
+        {
+            return entry.Result;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Stores (or replaces) a user's trending result with the current timestamp.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="result">The result to cache.</param>
+    public void SetTrending(Guid userId, DiscoveryResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        _trendingScored[userId] = new CacheEntry<DiscoveryResult>(result, _utcNow());
+    }
+
+    /// <summary>
     ///     Drops a user's cached personal entry (e.g. on disconnect or a mutation that invalidates it).
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     public void InvalidatePersonal(Guid userId) => _personal.TryRemove(userId, out _);
 
     /// <summary>
-    ///     Drops the cached global trending pool.
+    ///     Drops the cached global trending pool along with every per-user trending result derived from it.
     /// </summary>
-    public void InvalidateTrendingPool() => _trending = null;
+    public void InvalidateTrendingPool()
+    {
+        _trending = null;
+        _trendingScored.Clear();
+    }
 
     private bool IsStale<T>(CacheEntry<T> entry, TimeSpan ttl) => _utcNow() - entry.StoredAtUtc > ttl;
 
