@@ -889,7 +889,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         var backup = service.CreateBackup(includeSecrets: true);
 
-        Assert.True(backup.TraktEnabled);
+        Assert.Equal(true, backup.TraktEnabled);
         Assert.Equal("trakt-id", backup.TraktClientId);
         // Backup holds plaintext so it stays portable; it must not be the ciphertext.
         Assert.Equal("trakt-secret", backup.TraktClientSecret);
@@ -959,11 +959,31 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         var summary = service.RestoreBackup(backup);
 
-        // Older backups predate Trakt: nothing may be wiped, and the backup's explicit disable is honored.
+        // Nothing may be wiped, and the backup's explicit disable is honored even though live credentials exist.
         Assert.Equal("live-id", liveConfig.TraktClientId);
         Assert.Equal("live-trakt-secret", _secretProtector.Unprotect(liveConfig.TraktClientSecret));
         Assert.False(liveConfig.TraktEnabled);
         Assert.False(summary.CredentialsChanged);
+    }
+
+    [Fact]
+    public void RestoreBackup_AbsentTraktFlag_DerivesEnabledFromStoredCredentials()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktClientId = "live-id";
+        liveConfig.TraktClientSecret = _secretProtector.Protect("live-trakt-secret");
+        var backup = MakeMinimalValidBackup();
+        liveConfig.SeerrApiKey = backup.SeerrApiKey;
+        // A backup predating the traktEnabled field leaves it null: restore must not read that as a disable.
+        backup.TraktEnabled = null;
+        backup.TraktClientId = string.Empty;
+        backup.TraktClientSecret = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        // Credentials survive and the flag is derived from them, matching ApplyTraktSettings.
+        Assert.Equal("live-id", liveConfig.TraktClientId);
+        Assert.True(liveConfig.TraktEnabled);
     }
 
     [Fact]

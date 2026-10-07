@@ -791,6 +791,12 @@
                         return;
                     }
                     clearDevicePoll();
+                    // 403 means Trakt was disabled mid-flow: reset the tab shell instead of
+                    // offering a reconnect, matching the other Trakt load paths.
+                    if (err?.status === 403) {
+                        renderTraktError(host, err);
+                        return;
+                    }
                     renderConnectPanel(host);
                 });
         }, intervalSeconds * 1000);

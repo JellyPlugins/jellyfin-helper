@@ -69,25 +69,28 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // The provider stays private to this plugin so keyrings can neither affect nor be affected by
         // Jellyfin's or other plugins' providers. Ring files are unencrypted at rest on Linux, locked
         // down to the service account (0700) - same trust boundary as Jellyfin's own config and database.
-        var keyRingDirectory = ResolveKeyRingDirectory(Plugin.Instance?.DataFolderPath);
-        if (keyRingDirectory is null)
-        {
-            // No persisted ring means secrets die with the restart. Startup itself must still succeed.
-            Plugin.Instance?.Logger.LogWarning(
-                "[DataProtection] No usable keyring directory under the plugin data path - encrypted secrets will not survive restarts until this is fixed.");
-        }
-
         serviceCollection.AddSingleton<ISecretProtector>(sp =>
         {
+            // Resolved lazily: Jellyfin 12.2 runs RegisterServices before plugin instances exist, so
+            // Plugin.Instance is null during eager DI construction and would force the ephemeral provider
+            // (secrets unreadable after restart). The factory runs on first resolution, by which point the
+            // data path is available.
+            var keyRingDirectory = ResolveKeyRingDirectory(Plugin.Instance?.DataFolderPath);
+            var logger = sp.GetRequiredService<ILogger<SecretProtector>>();
+            if (keyRingDirectory is null)
+            {
+                // No persisted ring means secrets die with the restart. Startup itself must still succeed.
+                logger.LogWarning(
+                    "[DataProtection] No usable keyring directory under the plugin data path - encrypted secrets will not survive restarts until this is fixed.");
+            }
+
             IDataProtectionProvider provider = keyRingDirectory is null
                 ? new EphemeralDataProtectionProvider()
                 : DataProtectionProvider.Create(
                     keyRingDirectory,
                     builder => builder.SetApplicationName("Jellyfin.Plugin.JellyfinHelper"));
 
-            return new SecretProtector(
-                provider,
-                sp.GetRequiredService<ILogger<SecretProtector>>());
+            return new SecretProtector(provider, logger);
         });
 
         // Trakt per-user OAuth token store. Reads the data path at construction so tokens persist across

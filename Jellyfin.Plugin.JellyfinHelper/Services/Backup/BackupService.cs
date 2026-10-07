@@ -552,9 +552,14 @@ public sealed class BackupService : IBackupService
             config.TraktClientSecret = _secretProtector.Protect(truncatedSecret);
         }
 
-        config.TraktEnabled = backup.TraktEnabled
-            && !string.IsNullOrWhiteSpace(config.TraktClientId)
+        var hasCredentials = !string.IsNullOrWhiteSpace(config.TraktClientId)
             && !string.IsNullOrWhiteSpace(config.TraktClientSecret);
+
+        // An explicit flag is honored (never re-enabling without credentials); a backup predating the field
+        // leaves it null, so derive from the credentials - matching ConfigurationController.ApplyTraktSettings.
+        config.TraktEnabled = backup.TraktEnabled.HasValue
+            ? backup.TraktEnabled.Value && hasCredentials
+            : hasCredentials;
     }
 
     /// <summary>
