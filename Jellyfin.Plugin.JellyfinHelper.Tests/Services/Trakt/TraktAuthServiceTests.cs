@@ -60,6 +60,48 @@ public sealed class TraktAuthServiceTests : IDisposable
 
     private void Enqueue(HttpStatusCode status, string body) => _responses.Enqueue((status, body));
 
+    // Builds a service whose "Trakt" client throws TaskCanceledException with no outer cancellation,
+    // reproducing an HttpClient.Timeout fire. The service must swallow it, not let it reach the caller.
+    private TraktAuthService CreateTimingOutService()
+    {
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new TaskCanceledException("timeout"));
+
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        return new(factory.Object, _store, TestMockFactory.CreateSecretProtector(), TestMockFactory.CreatePluginLogService(), NullLogger<TraktAuthService>.Instance, () => _now);
+    }
+
+    [Fact]
+    public async Task StartDeviceAuth_ReturnsNull_OnTimeout()
+    {
+        var result = await CreateTimingOutService().StartDeviceAuthAsync(CancellationToken.None);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PollDeviceAuth_ReturnsError_OnTimeout()
+    {
+        var status = await CreateTimingOutService().PollDeviceAuthAsync(Guid.NewGuid(), "dev", CancellationToken.None);
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+    }
+
+    [Fact]
+    public async Task GetValidAccessToken_ReturnsNull_WhenRefreshTimesOut()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "old", RefreshToken = "ref", ExpiresAtUtc = _now.AddMinutes(-1) }, CancellationToken.None);
+
+        var token = await CreateTimingOutService().GetValidAccessTokenAsync(userId, CancellationToken.None);
+
+        Assert.Null(token);
+        // A timed-out refresh must leave the link intact so the user can retry.
+        Assert.NotNull(_store.GetToken(userId));
+    }
+
     [Fact]
     public async Task StartDeviceAuth_ReturnsCodes()
     {
