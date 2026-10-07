@@ -49,7 +49,7 @@ public class ArrIntegrationServiceTests
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((request, _) => seenUris.Add(request.RequestUri))
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             });
