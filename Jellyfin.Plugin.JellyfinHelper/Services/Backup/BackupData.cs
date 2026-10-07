@@ -129,10 +129,12 @@ public class BackupData
     public bool? SeerrSkipCertificateValidation { get; set; }
 
     /// <summary>
-    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled.
+    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled. Nullable so a backup
+    ///     taken before this field existed deserializes to null, letting restore derive the flag from the stored
+    ///     credentials instead of mistaking a missing value for an explicit disable.
     /// </summary>
     [JsonPropertyName("traktEnabled")]
-    public bool TraktEnabled { get; set; }
+    public bool? TraktEnabled { get; set; }
 
     /// <summary>
     ///     Gets or sets the Trakt OAuth client id (not a secret).
