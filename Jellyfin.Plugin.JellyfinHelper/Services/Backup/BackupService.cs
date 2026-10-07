@@ -669,7 +669,7 @@ public sealed class BackupService : IBackupService
         // An unchanged restore of an already-bypassed instance must not log a false "now enabling" warning.
         var newlyEnabled = newList.Count(i =>
             i.SkipCertificateValidation
-            && !liveSkipCert[LiveInstanceKey(i.Name, i.Url)].FirstOrDefault().GetValueOrDefault());
+            && !liveSkipCert[LiveInstanceKey(i.Name, i.Url)].FirstOrDefault());
         if (newlyEnabled > 0)
         {
             _pluginLog.LogWarning(
