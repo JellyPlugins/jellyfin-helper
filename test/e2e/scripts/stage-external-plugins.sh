@@ -7,7 +7,9 @@
 # picks that release's highest Jellyfin-12 asset, so CI exercises the current
 # plugins without any pin to bump. Overridable for offline/debug runs:
 #   CUSTOMTABS_RELEASE, FILETRANSFORMATION_RELEASE  (force a specific tag)
-#   EXTERNAL_PLUGIN_JF_ASSET                        (force a specific asset name)
+#   CUSTOMTABS_ASSET, FILETRANSFORMATION_ASSET      (force a specific asset name
+#     for one plugin; EXTERNAL_PLUGIN_JF_ASSET remains as a blanket fallback
+#     for both)
 #   GITHUB_TOKEN                                    (lifts the API rate limit)
 set -euo pipefail
 
@@ -52,10 +54,15 @@ resolve_tag() {
     | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/'
 }
 
-# Pick the asset to download for a given tag: an explicit EXTERNAL_PLUGIN_JF_ASSET
-# wins, else the highest-sorted "Release-<major>.*.zip" asset on that release.
+# Pick the asset to download for a given tag: a per-plugin override wins, then the
+# blanket EXTERNAL_PLUGIN_JF_ASSET fallback, else the highest-sorted
+# "Release-<major>.*.zip" asset on that release.
 resolve_asset() {
-  local repo="$1" tag="$2"
+  local repo="$1" tag="$2" asset_override="${3:-}"
+  if [[ -n "$asset_override" ]]; then
+    echo "$asset_override"
+    return 0
+  fi
   if [[ -n "${EXTERNAL_PLUGIN_JF_ASSET:-}" ]]; then
     echo "$EXTERNAL_PLUGIN_JF_ASSET"
     return 0
@@ -71,7 +78,7 @@ resolve_asset() {
 # skip the custom-tab spec); any other non-zero = a genuine download/staging
 # failure (set -e aborts), which the caller must treat as a hard run failure.
 stage_one() {
-  local name="$1" guid="$2" repo="$3" pin="$4"
+  local name="$1" guid="$2" repo="$3" pin="$4" asset_override="${5:-}"
 
   local tag
   tag="$(resolve_tag "$repo" "$pin" || true)"
@@ -81,7 +88,7 @@ stage_one() {
   fi
 
   local asset
-  asset="$(resolve_asset "$repo" "$tag" || true)"
+  asset="$(resolve_asset "$repo" "$tag" "$asset_override" || true)"
   if [[ -z "$asset" ]]; then
     echo "[stage-external] SKIP ${name}: no Release-${EXTERNAL_PLUGIN_JF_MAJOR}.* asset on ${repo}@${tag}" >&2
     return 2
@@ -127,11 +134,13 @@ any_absent=0
 stage_one "File Transformation" "5e87cc92-571a-4d8d-8d98-d2d4147f9f90" \
   "IAmParadox27/jellyfin-plugin-file-transformation" \
   "$FILETRANSFORMATION_RELEASE" \
+  "${FILETRANSFORMATION_ASSET:-}" \
   || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
 
 stage_one "Custom Tabs" "fbacd0b6-fd46-4a05-b0a4-2045d6a135b0" \
   "IAmParadox27/jellyfin-plugin-custom-tabs" \
   "$CUSTOMTABS_RELEASE" \
+  "${CUSTOMTABS_ASSET:-}" \
   || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
 
 if [[ "$any_absent" -eq 1 ]]; then

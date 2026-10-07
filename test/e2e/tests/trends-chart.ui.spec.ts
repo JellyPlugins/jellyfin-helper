@@ -202,10 +202,15 @@ test.describe('discovery sidebar context gating', () => {
     });
 
     await openDashboard(page);
+    // Synchronize on the trends tab settling instead of a fixed wait: its content
+    // renders only after the page scripts (including the injected bootstrap and its
+    // waitForApi polling) have run, so by then a broken gate would already have fired
+    // a probe and the empty-probes assertion below is meaningful.
     await switchTab(page, 'trends');
-    // Give the injected script's bootstrap + any waitForApi polling time to fire
-    // a probe if the gate were broken, so the assertion is meaningful.
-    await page.waitForTimeout(2_000);
+    await Promise.race([
+      page.locator('.trend-chart').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+      page.locator('#trendChartContainer .trend-empty').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+    ]);
 
     expect(probes, `unexpected Discovery/My probe on the config page:\n${probes.join('\n')}`).toHaveLength(0);
   });

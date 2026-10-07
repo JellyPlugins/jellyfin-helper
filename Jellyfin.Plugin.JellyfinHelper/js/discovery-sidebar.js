@@ -1419,39 +1419,53 @@
     // on SPA navigation into home so a dashboard->home switch (no reload) still inits.
     var _bootstrapped = false;
 
+    function initDiscoveryUiEmpty() {
+        // No discovery data available (task deactivated/dry-run/no results yet). Still init
+        // Custom Tab so it can show a "no results" message if the container exists, but do NOT
+        // inject sidebar navigation - no point advertising a feature with no content.
+        initCustomTab();
+        setTimeout(tryMountCustomTab, 500);
+        setTimeout(tryMountCustomTab, 1500);
+    }
+
+    function initDiscoveryUiFull() {
+        // Discovery is active and has recommendations - full initialization. Wait for
+        // external links config (Seerr URL) before rendering to ensure the Seerr link
+        // is available on the first card render.
+        loadExternalLinksConfig().finally(function () {
+            initCustomTab();
+            initSidebar();
+            setTimeout(tryMountCustomTab, 500);
+            setTimeout(tryMountCustomTab, 1500);
+            setTimeout(tryMountCustomTab, 3000);
+            setTimeout(tryMountCustomTab, 5000);
+        });
+    }
+
+    function handleDiscoveryProbe(data) {
+        // Check if Discovery is available before injecting UI elements.
+        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+            initDiscoveryUiEmpty();
+            return;
+        }
+        initDiscoveryUiFull();
+    }
+
+    function probeDiscoveryAvailability() {
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+            .then(handleDiscoveryProbe)
+            .catch(function () {
+                // 403 (disabled) or network error - do not inject any Discovery UI
+            });
+    }
+
     function bootstrapDiscovery() {
         if (_bootstrapped || !isOnHomePage()) {
             return;
         }
         _bootstrapped = true;
         waitForApi(function () {
-            loadStrings(function () {
-                // Check if Discovery is available before injecting UI elements.
-                ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-                    .then(function (data) {
-                        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-                            // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
-                            initCustomTab();
-                            setTimeout(tryMountCustomTab, 500);
-                            setTimeout(tryMountCustomTab, 1500);
-                            return;
-                        }
-                        // Discovery is active and has recommendations - full initialization.
-                        // Wait for external links config (Seerr URL) before rendering to ensure
-                        // the Seerr link is available on the first card render.
-                        loadExternalLinksConfig().finally(function () {
-                            initCustomTab();
-                            initSidebar();
-                            setTimeout(tryMountCustomTab, 500);
-                            setTimeout(tryMountCustomTab, 1500);
-                            setTimeout(tryMountCustomTab, 3000);
-                            setTimeout(tryMountCustomTab, 5000);
-                        });
-                    })
-                    .catch(function () {
-                        // 403 (disabled) or network error - do not inject any Discovery UI
-                    });
-            });
+            loadStrings(probeDiscoveryAvailability);
         });
     }
 
