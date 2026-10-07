@@ -196,8 +196,11 @@ test.describe('discovery sidebar context gating', () => {
   test('does not probe /Discovery/My on the plugin config page', async ({ page }) => {
     const probes: string[] = [];
     page.on('request', (req) => {
-      if (req.url().includes('/JellyfinHelper/Discovery/My')) {
-        probes.push(req.url());
+      const url = req.url();
+      // Match the DATA probe (/Discovery/My[?...]) but NOT the injected script
+      // asset (/Discovery/My/script?v=...), which loads on every page by design.
+      if (/\/JellyfinHelper\/Discovery\/My(\?|$)/.test(url)) {
+        probes.push(url);
       }
     });
 

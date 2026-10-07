@@ -425,12 +425,14 @@
             lastMountedContainer = null;
             return;
         }
-        // Custom Tabs recreates its panel on tab switch; forget detached nodes so we remount into the live one.
+        // Custom Tabs destroys + rebuilds its panel div on every tab (re)activation,
+        // so a cached host goes stale; drop it when detached and remount into the live one.
         if (lastMountedContainer && !document.contains(lastMountedContainer)) {
             lastMountedContainer = null;
         }
-        // The Custom Tabs plugin owns the panel and re-injects our marker on rebuild.
-        // Fill the live marker only, never create one.
+        // Custom Tabs owns the panel and re-injects our marker on each rebuild. Fill the
+        // live marker only, never create one. A node-identity change (rebuild) or a marker
+        // emptied by the rebuild both re-trigger a render below.
         var container = findActiveContainer();
         if (!container) {
             lastMountedContainer = null;
@@ -446,9 +448,22 @@
     }
 
     function findActiveContainer() {
+        // Modern layout (Jellyfin 12 / Custom Tabs >= 0.3.0): the plugin injects our
+        // ContentHtml as `main.customTabActive > div#customTab_N[data-index]`, with NO
+        // .tabContent / .page wrapper. That live node is the authoritative host - match
+        // the marker inside it first. Custom Tabs destroys + rebuilds this div on every
+        // tab (re)activation, so we must always target the current one, not a cached ref.
+        var modernMain = document.querySelector('main.customTabActive');
+        if (modernMain) {
+            var modernMarker = modernMain.querySelector('[id^="customTab_"] ' + CUSTOM_TAB_SELECTOR);
+            if (modernMarker) {
+                return modernMarker;
+            }
+        }
+
         var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        // Newest first: an active .tabContent beats a visible .page, which beats a
-        // wrapper-less candidate. One combined scan could mount the wrong container.
+        // Legacy layout (10.11): an active .tabContent beats a visible .page, which beats
+        // a wrapper-less candidate. One combined scan could mount the wrong container.
         for (var i = all.length - 1; i >= 0; i--) {
             var tabContent = all[i].closest('.tabContent');
             if (tabContent && tabContent.classList.contains('is-active')) return all[i];
