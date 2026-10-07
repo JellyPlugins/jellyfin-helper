@@ -250,6 +250,7 @@ public sealed class LimitedStreamTests
         {
             while (sut.Read(buffer, 0, buffer.Length) > 0)
             {
+                // Drain until the limit is exceeded and the read throws.
             }
         });
     }

@@ -205,7 +205,8 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void GetChildren_NonExistentPath_ReturnsErrorWithoutThrow()
     {
-        var missing = Path.Combine(_tempRoot, "does-not-exist-" + Guid.NewGuid().ToString("N"));
+        var leaf = "does-not-exist-" + Guid.NewGuid().ToString("N");
+        var missing = Path.Combine(_tempRoot, leaf);
 
         var result = _service.GetChildren(missing);
 
