@@ -447,33 +447,43 @@
         lastMountedContainer = container;
     }
 
-    function findActiveContainer() {
-        // Modern layout (Jellyfin 12 / Custom Tabs >= 0.3.0): the plugin injects our
-        // ContentHtml as `main.customTabActive > div#customTab_N[data-index]`, with NO
-        // .tabContent / .page wrapper. That live node is the authoritative host - match
-        // the marker inside it first. Custom Tabs destroys + rebuilds this div on every
-        // tab (re)activation, so we must always target the current one, not a cached ref.
-        var modernMain = document.querySelector('main.customTabActive');
-        if (modernMain) {
-            var modernMarker = modernMain.querySelector('[id^="customTab_"] ' + CUSTOM_TAB_SELECTOR);
-            if (modernMarker) {
-                return modernMarker;
+    // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
+    // and all .tabContent ancestors are .is‑active—preventing the destroy/rebuild flash during tab switches.
+    function isActiveTabContainer(element) {
+        if (!element || !element.isConnected) {
+            return false;
+        }
+        var node = element.parentElement;
+        var sawTabWrapper = false;
+        while (node && node !== document.body) {
+            if (node.hidden || node.classList.contains('hide')) {
+                return false;
             }
+            if (node.classList.contains('tabContent')) {
+                sawTabWrapper = true;
+                if (!node.classList.contains('is-active')) {
+                    return false;
+                }
+            }
+            if (node.classList.contains('page')) {
+                sawTabWrapper = true;
+            }
+            node = node.parentElement;
         }
+        // With a tab wrapper present, the checks above already proved it active. Without
+        // one (JF12 wrapper-less panel), fall back to actual visibility.
+        return sawTabWrapper || element.offsetParent !== null;
+    }
 
+    function findActiveContainer() {
+        // Custom Tabs re-injects our marker on each panel (re)build, so re-query the
+        // live DOM every pass and never fall back to a cached node. The deepest/last
+        // active marker wins (a reactivated tab appends after stale siblings).
         var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        // Legacy layout (10.11): an active .tabContent beats a visible .page, which beats
-        // a wrapper-less candidate. One combined scan could mount the wrong container.
         for (var i = all.length - 1; i >= 0; i--) {
-            var tabContent = all[i].closest('.tabContent');
-            if (tabContent && tabContent.classList.contains('is-active')) return all[i];
-        }
-        for (var j = all.length - 1; j >= 0; j--) {
-            var page = all[j].closest('.page');
-            if (page && !page.classList.contains('hide')) return all[j];
-        }
-        for (var k = all.length - 1; k >= 0; k--) {
-            if (!all[k].closest('.page')) return all[k];
+            if (isActiveTabContainer(all[i])) {
+                return all[i];
+            }
         }
         return null;
     }
