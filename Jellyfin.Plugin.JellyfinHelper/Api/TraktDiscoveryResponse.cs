@@ -14,7 +14,7 @@ public sealed class TraktDiscoveryResponse
     public bool Linked { get; set; }
 
     /// <summary>
-    ///     Gets or sets the scored discovery result. Null when the user has not linked Trakt.
+    ///     Gets or sets the scored discovery result. Null when the user has not linked Trakt or no candidates survive.
     /// </summary>
     public DiscoveryResult? Result { get; set; }
 }

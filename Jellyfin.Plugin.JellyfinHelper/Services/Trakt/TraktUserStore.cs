@@ -215,8 +215,10 @@ public sealed class TraktUserStore : ITraktUserStore, IDisposable
         try
         {
             var json = File.ReadAllText(_filePath);
-            _entries = JsonSerializer.Deserialize<Dictionary<string, StoredEntry>>(json)
-                ?? new Dictionary<string, StoredEntry>(StringComparer.Ordinal);
+            var loaded = JsonSerializer.Deserialize<Dictionary<string, StoredEntry>>(json);
+            _entries = loaded is null
+                ? new Dictionary<string, StoredEntry>(StringComparer.Ordinal)
+                : new Dictionary<string, StoredEntry>(loaded, StringComparer.Ordinal);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {

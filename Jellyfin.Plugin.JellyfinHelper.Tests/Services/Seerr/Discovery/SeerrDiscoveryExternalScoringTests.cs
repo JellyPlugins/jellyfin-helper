@@ -386,6 +386,31 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public void FilterConsumedItems_PreservesIdentity()
+    {
+        var userId = Guid.NewGuid();
+        var generatedAt = new DateTime(2030, 5, 1, 12, 0, 0, DateTimeKind.Utc);
+        var input = new DiscoveryResult
+        {
+            UserId = userId,
+            UserName = "alice",
+            Recommendations = [Rec(1)],
+            GeneratedAt = generatedAt,
+        };
+        var service = CreateService(f =>
+        {
+            f.Setup(s => s.GetDismissedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
+            f.Setup(s => s.GetRequestedItems(It.IsAny<Guid>())).Returns(new HashSet<(int, string)>());
+        });
+
+        var result = service.FilterConsumedItems(userId, input);
+
+        Assert.Equal(userId, result.UserId);
+        Assert.Equal("alice", result.UserName);
+        Assert.Equal(generatedAt, result.GeneratedAt);
+    }
+
+    [Fact]
     public void FilterConsumedItems_ServesUnfiltered_WhenStoreFails()
     {
         var userId = Guid.NewGuid();
