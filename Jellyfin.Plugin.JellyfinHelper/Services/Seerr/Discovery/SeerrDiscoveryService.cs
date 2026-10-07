@@ -1944,6 +1944,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return new DiscoveryResult
         {
             UserId = result.UserId,
+            UserName = result.UserName,
             Recommendations = excluded is null
                 ? [.. result.Recommendations]
                 : result.Recommendations
