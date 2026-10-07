@@ -1446,9 +1446,15 @@
     // where no Discovery tab can ever appear. Probing /Discovery/My there is wasted
     // traffic and, when the feature is disabled, a 403 the browser logs as a console
     // error. Gate the whole bootstrap on the home context (the same isOnHomePage
-    // signal the mount logic already trusts), and run it at most once - re-entering
-    // on SPA navigation into home so a dashboard->home switch (no reload) still inits.
+    // signal the mount logic already trusts).
+    //
+    // The full UI (sidebar + tab) inits only once. An empty probe is NOT terminal: a
+    // scheduled task may produce recommendations later in the same SPA session, so we
+    // leave the gate open and re-probe on later home visits until results appear. A 403
+    // (feature disabled by the admin) IS terminal - re-probing would only replay the 403.
     var _bootstrapped = false;
+    var _discoveryDisabled = false;
+    var _probeInFlight = false;
 
     function initDiscoveryUiEmpty() {
         // No discovery data available (task deactivated/dry-run/no results yet). Still init
@@ -1476,25 +1482,35 @@
     function handleDiscoveryProbe(data) {
         // Check if Discovery is available before injecting UI elements.
         if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+            // Leave the gate open: results may appear after a later scheduled run, and a future
+            // home visit re-probes to upgrade to the full UI without a page reload.
             initDiscoveryUiEmpty();
             return;
         }
+        _bootstrapped = true;
         initDiscoveryUiFull();
     }
 
     function probeDiscoveryAvailability() {
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(handleDiscoveryProbe)
-            .catch(function () {
-                // 403 (disabled) or network error - do not inject any Discovery UI
+            .catch(function (err) {
+                // 403 means the admin disabled the feature: terminal, do not re-probe. Any other
+                // error (network/transient) leaves the gate open for a later retry.
+                if (err?.status === 403) {
+                    _discoveryDisabled = true;
+                }
+            })
+            .finally(function () {
+                _probeInFlight = false;
             });
     }
 
     function bootstrapDiscovery() {
-        if (_bootstrapped || !isOnHomePage()) {
+        if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
-        _bootstrapped = true;
+        _probeInFlight = true;
         waitForApi(function () {
             loadStrings(probeDiscoveryAvailability);
         });
