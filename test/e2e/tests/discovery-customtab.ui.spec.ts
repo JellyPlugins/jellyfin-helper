@@ -83,13 +83,18 @@ async function clickDiscoveryTab(page: Page): Promise<void> {
 }
 
 async function clickHomeTab(page: Page): Promise<void> {
-  const modernHome = page.locator('header.MuiAppBar-root a[href$="?tab=0"], header.MuiAppBar-root a[href="#/home"]');
-  const legacyHome = page.locator('.headerTabs button').first();
+  // In the JF12 modern header the Home tab (index 0) is the FIRST anchor with a
+  // bare href="#/" (styled as a tab, labeled with the server name, no stable
+  // text) - NOT #/home or #/home?tab=0, which do not exist. The legacy
+  // .emby-tab-button[data-index="0"] also exists but is INVISIBLE in the modern
+  // layout (clicking it times out). a[href="#/"] excludes the legacy button
+  // (it has no href); the visible filter guards the legacy-layout case.
+  const modernHome = page.locator('header.MuiAppBar-root a[href="#/"]').filter({ visible: true });
   if (await modernHome.count()) {
     await modernHome.first().click();
-  } else {
-    await legacyHome.click();
+    return;
   }
+  await page.locator('.headerTabs button').filter({ visible: true }).first().click();
 }
 
 // The marker must end up populated by discovery-sidebar.js with a terminal
