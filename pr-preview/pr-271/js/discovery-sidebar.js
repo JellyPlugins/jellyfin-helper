@@ -778,12 +778,12 @@
                     }
                 })
                 .catch(function (err) {
+                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                     // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
                     if (err?.status === 429) {
                         scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId);
                         return;
                     }
-                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                     clearDevicePoll();
                     renderConnectPanel(host);
                 });
