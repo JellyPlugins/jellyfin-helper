@@ -26,14 +26,15 @@ public class SeerrIntegrationServiceTests : IDisposable
     private SeerrIntegrationService CreateService(
         HttpMessageHandler handler,
         out Mock<ILogger<SeerrIntegrationService>> loggerMock,
-        out Mock<IPluginLogService> pluginLogMock)
+        out Mock<IPluginLogService> pluginLogMock,
+        string clientName = "SeerrIntegration")
     {
         loggerMock = new Mock<ILogger<SeerrIntegrationService>>();
         pluginLogMock = new Mock<IPluginLogService>();
         var httpClient = new HttpClient(handler, disposeHandler: false);
         _trackedClients.Add(httpClient);
         var factoryMock = new Mock<IHttpClientFactory>();
-        factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient(clientName)).Returns(httpClient);
         return new SeerrIntegrationService(factoryMock.Object, pluginLogMock.Object, loggerMock.Object);
     }
 
@@ -214,6 +215,26 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         Assert.False(success);
         Assert.Contains("Skip certificate validation", message);
+    }
+
+    [Fact]
+    public async Task TestConnection_CertificateError_WhenSkipped_DoesNotSuggestEnabling()
+    {
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "The SSL connection could not be established.",
+                new AuthenticationException("PartialChain")));
+
+        var service = CreateService(mock.Object, out _, out _, "SeerrIntegrationInsecure");
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, true, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.DoesNotContain("enable 'Skip certificate validation'", message, StringComparison.Ordinal);
     }
 
     [Fact]

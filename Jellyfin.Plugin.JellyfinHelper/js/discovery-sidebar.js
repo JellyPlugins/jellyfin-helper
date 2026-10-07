@@ -1410,33 +1410,53 @@
         }
     }
 
-    waitForApi(function () {
-        loadStrings(function () {
-            // Check if Discovery is available before injecting UI elements.
-            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-                .then(function (data) {
-                    if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-                        // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
-                        initCustomTab();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        return;
-                    }
-                    // Discovery is active and has recommendations - full initialization.
-                    // Wait for external links config (Seerr URL) before rendering to ensure
-                    // the Seerr link is available on the first card render.
-                    loadExternalLinksConfig().finally(function () {
-                        initCustomTab();
-                        initSidebar();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        setTimeout(tryMountCustomTab, 3000);
-                        setTimeout(tryMountCustomTab, 5000);
+    // The script is injected into the single index.html Jellyfin serves for every
+    // SPA route, so it also loads on admin/dashboard pages (e.g. #!/configurationpage)
+    // where no Discovery tab can ever appear. Probing /Discovery/My there is wasted
+    // traffic and, when the feature is disabled, a 403 the browser logs as a console
+    // error. Gate the whole bootstrap on the home context (the same isOnHomePage
+    // signal the mount logic already trusts), and run it at most once - re-entering
+    // on SPA navigation into home so a dashboard->home switch (no reload) still inits.
+    var _bootstrapped = false;
+
+    function bootstrapDiscovery() {
+        if (_bootstrapped || !isOnHomePage()) {
+            return;
+        }
+        _bootstrapped = true;
+        waitForApi(function () {
+            loadStrings(function () {
+                // Check if Discovery is available before injecting UI elements.
+                ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+                    .then(function (data) {
+                        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+                            // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
+                            initCustomTab();
+                            setTimeout(tryMountCustomTab, 500);
+                            setTimeout(tryMountCustomTab, 1500);
+                            return;
+                        }
+                        // Discovery is active and has recommendations - full initialization.
+                        // Wait for external links config (Seerr URL) before rendering to ensure
+                        // the Seerr link is available on the first card render.
+                        loadExternalLinksConfig().finally(function () {
+                            initCustomTab();
+                            initSidebar();
+                            setTimeout(tryMountCustomTab, 500);
+                            setTimeout(tryMountCustomTab, 1500);
+                            setTimeout(tryMountCustomTab, 3000);
+                            setTimeout(tryMountCustomTab, 5000);
+                        });
+                    })
+                    .catch(function () {
+                        // 403 (disabled) or network error - do not inject any Discovery UI
                     });
-                })
-                .catch(function () {
-                    // 403 (disabled) or network error - do not inject any Discovery UI
-                });
+            });
         });
-    });
+    }
+
+    // Try at load, and on every SPA navigation until the first home context is seen.
+    bootstrapDiscovery();
+    window.addEventListener('hashchange', bootstrapDiscovery);
+    window.addEventListener('popstate', bootstrapDiscovery);
 })();

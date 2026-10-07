@@ -104,7 +104,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 $"Arr connection test failed for {SsrfGuard.SafeEndpointLabel(baseUrl)}: {ex.Message}",
                 ex,
                 _logger);
-            if (HasCertificateError(ex))
+            if (!skipCertificateValidation && HasCertificateError(ex))
             {
                 return (false, "TLS certificate validation failed. If the server uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' for this instance.");
             }

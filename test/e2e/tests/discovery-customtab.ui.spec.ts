@@ -62,16 +62,21 @@ async function openHome(page: Page): Promise<string> {
   return base;
 }
 
-// Click the Custom Tab labelled "Seerr Discovery" across the Modern MUI header
-// and the legacy tab bar.
+// The "Seerr Discovery" tab in the header. Jellyfin 12.2 renders BOTH a legacy
+// `.emby-tab-button` (hidden) and a modern MUI `<a>` (visible) with the same
+// id/text in the DOM, so an unfiltered locator matches two elements and trips
+// Playwright strict mode. Scope to the visible one - that is the tab a user
+// actually sees and clicks regardless of which header layout is active.
+function discoveryTab(page: Page) {
+  return page
+    .locator('header.MuiAppBar-root a, .headerTabs button')
+    .filter({ hasText: 'Seerr Discovery' })
+    .filter({ visible: true });
+}
+
+// Click the Custom Tab labelled "Seerr Discovery" (visible header variant).
 async function clickDiscoveryTab(page: Page): Promise<void> {
-  const modern = page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' });
-  const legacy = page.locator('.headerTabs button', { hasText: 'Seerr Discovery' });
-  if (await modern.count()) {
-    await modern.first().click();
-  } else {
-    await legacy.first().click();
-  }
+  await discoveryTab(page).first().click();
 }
 
 async function clickHomeTab(page: Page): Promise<void> {
@@ -109,10 +114,7 @@ test.describe('Discovery custom tab (home page)', () => {
     await openHome(page);
 
     // The Custom Tabs plugin needs a moment to inject the tab into the header.
-    await expect(
-      page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' })
-        .or(page.locator('.headerTabs button', { hasText: 'Seerr Discovery' })),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
 
     await clickDiscoveryTab(page);
     await expectDiscoveryRendered(page);
@@ -136,10 +138,7 @@ test.describe('Discovery custom tab (home page)', () => {
 
   test('discovery-sidebar.js never fabricates its own customTab_ panel', async ({ page }) => {
     await openHome(page);
-    await expect(
-      page.locator('header.MuiAppBar-root a', { hasText: 'Seerr Discovery' })
-        .or(page.locator('.headerTabs button', { hasText: 'Seerr Discovery' })),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
     await clickDiscoveryTab(page);
     await expectDiscoveryRendered(page);
 

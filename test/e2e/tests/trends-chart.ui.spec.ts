@@ -185,3 +185,28 @@ test.describe('trend chart touch gestures', () => {
     await assertNoLabelOverlap(page);
   });
 });
+
+// Regression guard for the discovery-sidebar.js context gate: the script is
+// injected into index.html on every SPA route, but it must only probe
+// /Discovery/My on the user-facing home context - never on the admin dashboard /
+// plugin-config page, where no Discovery tab can appear. A stray probe there is
+// wasted traffic and, when the feature is disabled, a 403 the browser logs as a
+// console error (which previously tripped the zero-error assertions above).
+test.describe('discovery sidebar context gating', () => {
+  test('does not probe /Discovery/My on the plugin config page', async ({ page }) => {
+    const probes: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/JellyfinHelper/Discovery/My')) {
+        probes.push(req.url());
+      }
+    });
+
+    await openDashboard(page);
+    await switchTab(page, 'trends');
+    // Give the injected script's bootstrap + any waitForApi polling time to fire
+    // a probe if the gate were broken, so the assertion is meaningful.
+    await page.waitForTimeout(2_000);
+
+    expect(probes, `unexpected Discovery/My probe on the config page:\n${probes.join('\n')}`).toHaveLength(0);
+  });
+});

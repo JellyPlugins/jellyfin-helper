@@ -25,8 +25,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6391 total.**
-- **End-to-end: 359 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
+- **Unit: 6403 total.**
+- **End-to-end: 360 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26
 

@@ -490,6 +490,29 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_SeerrSkipCertValidation_ForwardsFlag()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Activate,
+            SeerrUrl = "http://localhost:5055",
+            SeerrApiKey = "test-key",
+            SeerrCleanupAgeDays = 365,
+            SeerrSkipCertificateValidation = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        _seerrServiceMock.Verify(
+            s => s.CleanupExpiredRequestsAsync("http://localhost:5055", "test-key", 365, false, true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_TrashEnabledRetentionZero_SkipsTrashPurge()
     {
         _config = new PluginConfiguration

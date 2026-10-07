@@ -104,7 +104,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException or FormatException)
         {
-            if (HasCertificateError(ex))
+            if (!skipCertificateValidation && HasCertificateError(ex))
             {
                 return (false, "Connection failed: TLS certificate validation failed. If Seerr uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' in Settings.");
             }

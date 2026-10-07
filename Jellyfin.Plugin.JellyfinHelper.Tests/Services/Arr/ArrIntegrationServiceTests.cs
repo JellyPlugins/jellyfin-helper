@@ -12,11 +12,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Arr;
 
 public class ArrIntegrationServiceTests
 {
-    private static ArrIntegrationService CreateService(HttpMessageHandler handler)
+    private static ArrIntegrationService CreateService(HttpMessageHandler handler, string clientName = "ArrIntegration")
     {
         var httpClient = new HttpClient(handler);
         var factoryMock = new Mock<IHttpClientFactory>();
-        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient(clientName)).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
         return new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
     }
@@ -976,6 +976,26 @@ public class ArrIntegrationServiceTests
 
         Assert.False(success);
         Assert.Contains("Skip certificate validation", message);
+    }
+
+    [Fact]
+    public async Task TestConnection_CertificateError_WhenSkipped_DoesNotSuggestEnabling()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "The SSL connection could not be established.",
+                new AuthenticationException("PartialChain")));
+
+        var service = CreateService(handler.Object, "ArrIntegrationInsecure");
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key", true, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.DoesNotContain("enable 'Skip certificate validation'", message, StringComparison.Ordinal);
     }
 
     [Fact]
