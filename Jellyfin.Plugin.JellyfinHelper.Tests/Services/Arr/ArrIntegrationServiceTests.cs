@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Security.Authentication;
+using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -37,6 +38,22 @@ public class ArrIntegrationServiceTests
     private static Mock<HttpMessageHandler> CreateMockHandler(HttpStatusCode statusCode, string content)
     {
         return TestMockFactory.CreateHttpMessageHandler(statusCode, content);
+    }
+
+    private static Mock<HttpMessageHandler> CreateCapturingHandler(string json, List<Uri?> seenUris)
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => seenUris.Add(request.RequestUri))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+        return handler;
     }
 
     [Fact]
@@ -996,6 +1013,38 @@ public class ArrIntegrationServiceTests
 
         Assert.False(success);
         Assert.DoesNotContain("enable 'Skip certificate validation'", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetRadarrMovies_MixedSkipFlags_RoutesEachInstanceToItsOwnClient()
+    {
+        // Two instances behind one service: a validated one and a self-signed one.
+        // Each request must travel on its own named client with no cross-talk.
+        var strictUris = new List<Uri?>();
+        var insecureUris = new List<Uri?>();
+        using var strictClient = new HttpClient(CreateCapturingHandler(
+            """[{"title":"Strict Movie","year":2001,"tmdbId":1,"hasFile":true,"path":"/movies/Strict"}]""",
+            strictUris).Object);
+        using var insecureClient = new HttpClient(CreateCapturingHandler(
+            """[{"title":"Insecure Movie","year":2002,"tmdbId":2,"hasFile":false,"path":"/movies/Insecure"}]""",
+            insecureUris).Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(strictClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(insecureClient);
+        var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
+
+        var strictMovies = await service.GetRadarrMoviesAsync("https://strict.local:7878", "key1", false, CancellationToken.None);
+        var insecureMovies = await service.GetRadarrMoviesAsync("https://selfsigned.local:7878", "key2", true, CancellationToken.None);
+
+        Assert.NotNull(strictMovies);
+        Assert.NotNull(insecureMovies);
+        Assert.Equal("Strict Movie", strictMovies[0].Title);
+        Assert.Equal("Insecure Movie", insecureMovies[0].Title);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Once);
+        Assert.Equal("strict.local", Assert.Single(strictUris)?.Host);
+        Assert.Equal("selfsigned.local", Assert.Single(insecureUris)?.Host);
     }
 
     [Fact]

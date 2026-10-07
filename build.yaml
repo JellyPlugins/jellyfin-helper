@@ -20,5 +20,5 @@ changelog: |-
   - The sidebar "Seerr Discovery" link now opens the tab correctly on the modern Jellyfin 12 layout (both the top header and the narrow-screen menu), as well as on the classic layout
   - End-to-end tests now run the real Custom Tabs and File Transformation plugins and repeatedly navigate in and out of the Discovery tab to prove it never goes blank
   - Radarr/Sonarr instances behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect via a per-instance "Skip certificate validation" checkbox in Settings (connection tests, comparison, and discovery exclusions honor it; validation stays on everywhere else)
-  - Tested by 6403 unit tests and 360 end-to-end tests
+  - Tested by 6404 unit tests and 360 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
