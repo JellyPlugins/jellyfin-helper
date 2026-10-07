@@ -141,15 +141,20 @@ before `discovery-customtab` (`arr*`, `interactions`, `recommendations`) save
 the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
 `discovery-customtab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
 (via the shared `ensureDiscoveryConfigured`) and polls `/Discovery/My` until it
-stops 403ing — turning a trampled-access setup race into a loud failure instead
-of a silent mount timeout. Latest is tracked on purpose (no pin to bump);
-override only for debugging:
+stops 403ing. Turning a trampled-access setup race into a loud failure instead
+of a silent mount timeout.
+
+**No version pinning — always latest, by design.** CI and the nightly run resolve
+the newest published release of both Custom Tabs and File Transformation on every
+run. This is intentional: Jellyfin Helper must stay compatible with the latest of
+each, and the nightly is the tripwire — if an upstream update breaks the custom-tab
+integration, that surfaces as a red `discovery-customtab` spec so it can be fixed,
+rather than being masked by a frozen pin. Do not add `*_RELEASE` / `*_ASSET` pins to
+the workflows. The only non-pinning knob is a token to lift the GitHub API rate limit:
 
 ```bash
-# Pin specific release tags, force a specific asset, or lift the API rate limit:
-CUSTOMTABS_RELEASE=0.3.1.0 FILETRANSFORMATION_RELEASE=3.0.1.0 \
-EXTERNAL_PLUGIN_JF_ASSET=Release-12.1.0.zip GITHUB_TOKEN=... \
-  bash test/e2e/scripts/run.sh
+# Latest is always used; GITHUB_TOKEN only raises the unauthenticated API rate limit.
+GITHUB_TOKEN=... bash test/e2e/scripts/run.sh
 ```
 
 When a release asset cannot be resolved the stack still runs the rest of the

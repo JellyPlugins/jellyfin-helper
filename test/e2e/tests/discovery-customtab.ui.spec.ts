@@ -6,8 +6,10 @@
  * never fabricates a `customTab_` panel of its own (that self-heal fought Custom
  * Tabs and caused the intermittent blank).
  *
- * Requires the external Custom Tabs + File Transformation plugins, staged by
- * run.sh. When they are absent (JFH_E2E_EXTERNAL_PLUGINS!=1) the whole file skips.
+ * Requires the external Custom Tabs + File Transformation plugins, which run.sh
+ * stages from their LATEST release and treats as a hard prerequisite (a failed
+ * stage aborts the whole run, never a silent skip). The JFH_E2E_EXTERNAL_PLUGINS
+ * guard below only matters for a dev running Playwright directly without staging.
  */
 import { test, expect, type Page } from '@playwright/test';
 import { apiContext, normalUserContext, loadAuth, p } from '../setup/api-client.ts';

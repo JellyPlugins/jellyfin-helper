@@ -74,9 +74,9 @@ resolve_asset() {
     | tail -n1
 }
 
-# Exit codes: 0 = both staged; 2 = a tag/asset could not be resolved (caller may
-# skip the custom-tab spec); any other non-zero = a genuine download/staging
-# failure (set -e aborts), which the caller must treat as a hard run failure.
+# Exit codes: 0 = both staged; non-zero = staging failed. The caller (run.sh)
+# aborts on any non-zero - the external plugins are a required prerequisite, so
+# an unresolvable latest asset is a real signal, not a reason to drop coverage.
 stage_one() {
   local name="$1" guid="$2" repo="$3" pin="$4" asset_override="${5:-}"
 
@@ -144,7 +144,7 @@ stage_one "Custom Tabs" "fbacd0b6-fd46-4a05-b0a4-2045d6a135b0" \
   || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
 
 if [[ "$any_absent" -eq 1 ]]; then
-  echo "[stage-external] one or more external plugin assets absent - custom-tab coverage will be skipped" >&2
+  echo "[stage-external] could not resolve one or more plugins from their latest release - the caller aborts (external plugins are required)" >&2
   exit 2
 fi
 exit 0
