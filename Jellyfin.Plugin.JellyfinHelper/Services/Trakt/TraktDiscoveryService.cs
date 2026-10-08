@@ -205,7 +205,16 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     public async Task RefreshAllAsync(CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+        if (config is null)
+        {
+            return;
+        }
+
+        // Run when Trakt is sourceable at all: either own creds are stored (TraktEnabled) OR the official plugin
+        // is present. An official-plugin-only server has no own creds, so gating purely on TraktEnabled would
+        // skip warming its users entirely.
+        var officialPresent = _officialPlugin.IsPresent();
+        if (!config.TraktEnabled && !officialPresent)
         {
             return;
         }
@@ -215,7 +224,19 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
         _cache.InvalidateTrendingPool();
 
-        foreach (var userId in _store.GetLinkedUserIds())
+        // Warm both source populations: users linked via our own device flow, plus users the official plugin
+        // holds a usable token for (sourced only through it, so absent from our own store). Dedupe so a user
+        // linked both ways is warmed once; own-flow precedence is still resolved per user inside GetPersonalAsync.
+        var userIds = new HashSet<Guid>(_store.GetLinkedUserIds());
+        if (officialPresent)
+        {
+            foreach (var officialUserId in _officialPlugin.GetLinkedUserIds(_now()))
+            {
+                userIds.Add(officialUserId);
+            }
+        }
+
+        foreach (var userId in userIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try

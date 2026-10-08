@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
 
@@ -26,4 +27,14 @@ public interface IOfficialTraktPluginReader
     ///     otherwise <see langword="null"/> (caller falls back to the Helper's own-client-id flow).
     /// </returns>
     OfficialTraktToken? TryGetToken(Guid jellyfinUserId, DateTimeOffset now);
+
+    /// <summary>
+    ///     Enumerates the Jellyfin user ids the official Trakt plugin currently holds a usable, non-expired token
+    ///     for. Used to pre-warm the Helper's per-user recommendation cache for users who are sourced only through
+    ///     the official plugin (and so are absent from the Helper's own token store). Strictly read-only; never
+    ///     throws (returns an empty list on any read/parse failure).
+    /// </summary>
+    /// <param name="now">The current instant (absolute <see cref="DateTimeOffset"/>), used to skip expired tokens.</param>
+    /// <returns>The linked, non-expired user ids; empty when the plugin is absent or nothing is usable.</returns>
+    IReadOnlyList<Guid> GetLinkedUserIds(DateTimeOffset now);
 }

@@ -66,6 +66,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         // Official Trakt plugin absent by default: the own device-flow path is what the existing tests exercise.
         _officialPlugin = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>();
         _officialPlugin.Setup(p => p.IsPresent()).Returns(false);
+        _officialPlugin.Setup(p => p.GetLinkedUserIds(It.IsAny<DateTimeOffset>())).Returns(System.Array.Empty<Guid>());
         _pluginLog = TestMockFactory.CreatePluginLogService();
     }
 
@@ -581,7 +582,6 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     // --- Official-Trakt-plugin source mode -------------------------------------------------------------
-
     private static readonly DateTimeOffset FarFuture = new(2099, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     private sealed record CapturedRequest(string? ApiKey, string? Authorization);
@@ -700,5 +700,39 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         _auth.Verify(a => a.RefreshAccessTokenAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         _store.Verify(s => s.RemoveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RefreshAll_WarmsOfficialOnlyUsers_NotInOwnStore()
+    {
+        // Official-only server: no own creds, so TraktEnabled is false, but the official plugin is present and
+        // holds a token for a user who is NOT in our own link store. RefreshAll must still warm that user.
+        Plugin.Instance!.Configuration.TraktEnabled = false;
+        var officialUser = Guid.NewGuid();
+        _store.Setup(s => s.GetLinkedUserIds()).Returns(new List<Guid>()); // nobody linked via our own flow
+        _store.Setup(s => s.GetToken(officialUser)).Returns((TraktUserToken?)null); // not own-linked
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.GetLinkedUserIds(It.IsAny<DateTimeOffset>())).Returns(new[] { officialUser });
+        _officialPlugin.Setup(p => p.TryGetToken(officialUser, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+
+        var (sut, captured) = CreateCapturingService();
+        await sut.RefreshAllAsync(CancellationToken.None);
+
+        // The official-only user was warmed: a fetch ran under the official plugin's app + seeded token.
+        AssertOfficialCaptured(captured);
+    }
+
+    private static void AssertOfficialCaptured(List<CapturedRequest> captured)
+    {
+        Assert.NotEmpty(captured);
+        Assert.All(captured, c =>
+        {
+            Assert.Equal(Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktPluginReader.OfficialTraktClientId, c.ApiKey);
+            Assert.Equal("Bearer official-tok", c.Authorization);
+        });
     }
 }

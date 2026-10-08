@@ -691,7 +691,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
 │   │   └── External/                # Coupling to the OFFICIAL Jellyfin Trakt plugin, confined to one place
 │   │       ├── IOfficialTraktPluginReader.cs # Presence probe + read-only per-user token lookup contract
-│   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic); matches on LinkedMbUserId; honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed to null
+│   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic, whitespace-packing-safe); TryGetToken matches on LinkedMbUserId, GetLinkedUserIds enumerates all usable users (for pre-warming); honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed
 │   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access/refresh/expiry); never references the foreign assembly
 │   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
 ├── ScheduledTasks/

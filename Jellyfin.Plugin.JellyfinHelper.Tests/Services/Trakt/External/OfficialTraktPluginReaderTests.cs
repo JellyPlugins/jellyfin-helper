@@ -295,4 +295,49 @@ public sealed class OfficialTraktPluginReaderTests : IDisposable
         Assert.NotNull(token);
         Assert.Equal("ns-acc", token!.AccessToken);
     }
+
+    [Fact]
+    public void GetLinkedUserIds_ReturnsOnlyUsersWithUsableUnexpiredTokens()
+    {
+        var live1 = Guid.NewGuid();
+        var live2 = Guid.NewGuid();
+        var expired = Guid.NewGuid();
+        var noToken = Guid.NewGuid();
+        WriteConfig(
+            $"""
+             <?xml version="1.0"?>
+             <PluginConfiguration>
+               <TraktUsers>
+                 <TraktUser><AccessToken>a1</AccessToken><LinkedMbUserId>{live1}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(1))}</AccessTokenExpiration></TraktUser>
+                 <TraktUser><AccessToken>a2</AccessToken><LinkedMbUserId>{live2}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddDays(1))}</AccessTokenExpiration></TraktUser>
+                 <TraktUser><AccessToken>a3</AccessToken><LinkedMbUserId>{expired}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddMinutes(-1))}</AccessTokenExpiration></TraktUser>
+                 <TraktUser><AccessToken></AccessToken><LinkedMbUserId>{noToken}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(1))}</AccessTokenExpiration></TraktUser>
+               </TraktUsers>
+             </PluginConfiguration>
+             """);
+
+        var reader = Create(() => true, _configPath);
+        var ids = reader.GetLinkedUserIds(Now);
+
+        Assert.Equal(2, ids.Count);
+        Assert.Contains(live1, ids);
+        Assert.Contains(live2, ids);
+        Assert.DoesNotContain(expired, ids);
+        Assert.DoesNotContain(noToken, ids);
+    }
+
+    [Fact]
+    public void GetLinkedUserIds_MissingFile_ReturnsEmpty()
+    {
+        var reader = Create(() => true, _configPath); // nothing written
+        Assert.Empty(reader.GetLinkedUserIds(Now));
+    }
+
+    [Fact]
+    public void GetLinkedUserIds_MalformedXml_FailsClosedReturnsEmpty()
+    {
+        WriteConfig("<PluginConfiguration><TraktUsers><TraktUser></broken>");
+        var reader = Create(() => true, _configPath);
+        Assert.Empty(reader.GetLinkedUserIds(Now));
+    }
 }

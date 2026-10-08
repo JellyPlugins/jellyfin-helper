@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Xml;
@@ -91,10 +92,10 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             return null;
         }
 
-        OfficialTraktToken? parsed;
+        List<(Guid UserId, OfficialTraktToken Token)> users;
         try
         {
-            parsed = ParseTokenForUser(_configPath, jellyfinUserId);
+            users = ParseUsers(_configPath);
         }
         catch (Exception ex) when (ex is IOException
                                         or UnauthorizedAccessException
@@ -108,25 +109,62 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             return null;
         }
 
-        if (parsed is null)
+        foreach (var (userId, token) in users)
         {
-            return null;
+            // Expired tokens are intentionally skipped, not refreshed: the official plugin is the sole owner of
+            // the single-use refresh token and rotates it on its own cycle. Refreshing here would invalidate its
+            // token. The comparison is between absolute instants, correct no matter which clock the foreign
+            // expiry was written against.
+            if (userId == jellyfinUserId && token.AccessTokenExpiration > now)
+            {
+                return token;
+            }
         }
 
-        // Expired tokens are intentionally skipped, not refreshed: the official plugin is the sole owner of the
-        // single-use refresh token and rotates it on its own cycle. Refreshing here would invalidate its token.
-        // The comparison is between absolute instants (DateTimeOffset), so it is correct no matter which clock
-        // the foreign expiry was written against.
-        if (parsed.AccessTokenExpiration <= now)
-        {
-            return null;
-        }
-
-        return parsed;
+        return null;
     }
 
-    private static OfficialTraktToken? ParseTokenForUser(string configPath, Guid jellyfinUserId)
+    /// <inheritdoc />
+    public IReadOnlyList<Guid> GetLinkedUserIds(DateTimeOffset now)
     {
+        if (string.IsNullOrEmpty(_configPath) || !File.Exists(_configPath))
+        {
+            return [];
+        }
+
+        List<(Guid UserId, OfficialTraktToken Token)> users;
+        try
+        {
+            users = ParseUsers(_configPath);
+        }
+        catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or XmlException
+                                        or FormatException
+                                        or OverflowException)
+        {
+            _pluginLog.LogWarning(LogSource, "Could not enumerate linked users from the official Trakt plugin configuration.", ex, _logger);
+            return [];
+        }
+
+        var ids = new List<Guid>();
+        foreach (var (userId, token) in users)
+        {
+            // Only users whose token is still usable: a user we would skip in TryGetToken is not worth warming.
+            if (token.AccessTokenExpiration > now && !ids.Contains(userId))
+            {
+                ids.Add(userId);
+            }
+        }
+
+        return ids;
+    }
+
+    // Single hardened parse of the foreign config into our own (userId, token) pairs. Both TryGetToken and
+    // GetLinkedUserIds build on this so there is exactly one place that knows the on-disk shape.
+    private static List<(Guid UserId, OfficialTraktToken Token)> ParseUsers(string configPath)
+    {
+        var result = new List<(Guid, OfficialTraktToken)>();
         using var fileStream = new FileStream(configPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 
         // Hardened reader: no DTD, no external entity/DOCTYPE resolution, bounded characters. The config lives on
@@ -151,62 +189,83 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         string? expiration = null;
         var insideUser = false;
 
-        while (reader.Read())
+        // Flush the fields collected for the current <TraktUser> into the result, then clear them for the next.
+        void Flush()
         {
-            if (reader.NodeType == XmlNodeType.Element)
+            if (insideUser)
             {
-                switch (reader.LocalName)
+                var built = TryBuildEntry(accessToken, refreshToken, linkedUserId, expiration);
+                if (built is not null)
                 {
-                    case "TraktUser":
-                        insideUser = true;
-                        accessToken = null;
-                        refreshToken = null;
-                        linkedUserId = null;
-                        expiration = null;
-                        break;
-                    case "AccessToken" when insideUser:
-                        accessToken = reader.ReadElementContentAsString();
-                        break;
-                    case "RefreshToken" when insideUser:
-                        refreshToken = reader.ReadElementContentAsString();
-                        break;
-                    case "LinkedMbUserId" when insideUser:
-                        linkedUserId = reader.ReadElementContentAsString();
-                        break;
-                    case "AccessTokenExpiration" when insideUser:
-                        expiration = reader.ReadElementContentAsString();
-                        break;
-                    default:
-                        break;
+                    result.Add(built.Value);
                 }
             }
-            else if (reader.NodeType == XmlNodeType.EndElement && reader.LocalName == "TraktUser")
+
+            accessToken = null;
+            refreshToken = null;
+            linkedUserId = null;
+            expiration = null;
+        }
+
+        // NOTE: ReadElementContentAsString() advances the reader PAST the element's end tag, so we must not call
+        // Read() again for that iteration (doing so skips the following sibling). We therefore drive the cursor
+        // manually: read a child's content when we recognize it, otherwise advance by one node. A new <TraktUser>
+        // start flushes the previous user; a final flush after the loop captures the last one. This is robust to
+        // whitespace packing (a brittle end-tag-only scan silently dropped users in minified XML).
+        if (!reader.Read())
+        {
+            return result;
+        }
+
+        while (!reader.EOF)
+        {
+            if (reader.NodeType != XmlNodeType.Element)
             {
-                insideUser = false;
-                var match = TryBuildToken(accessToken, refreshToken, linkedUserId, expiration, jellyfinUserId);
-                if (match is not null)
-                {
-                    return match;
-                }
+                reader.Read();
+                continue;
+            }
+
+            switch (reader.LocalName)
+            {
+                case "TraktUser":
+                    Flush();          // close out any previous user
+                    insideUser = true;
+                    reader.Read();
+                    break;
+                case "AccessToken" when insideUser:
+                    accessToken = reader.ReadElementContentAsString(); // advances past end tag
+                    break;
+                case "RefreshToken" when insideUser:
+                    refreshToken = reader.ReadElementContentAsString();
+                    break;
+                case "LinkedMbUserId" when insideUser:
+                    linkedUserId = reader.ReadElementContentAsString();
+                    break;
+                case "AccessTokenExpiration" when insideUser:
+                    expiration = reader.ReadElementContentAsString();
+                    break;
+                default:
+                    reader.Read();
+                    break;
             }
         }
 
-        return null;
+        Flush(); // capture the final <TraktUser>
+        return result;
     }
 
-    private static OfficialTraktToken? TryBuildToken(
+    private static (Guid UserId, OfficialTraktToken Token)? TryBuildEntry(
         string? accessToken,
         string? refreshToken,
         string? linkedUserId,
-        string? expiration,
-        Guid jellyfinUserId)
+        string? expiration)
     {
-        if (!Guid.TryParse(linkedUserId, out var parsedUserId) || parsedUserId != jellyfinUserId)
+        if (!Guid.TryParse(linkedUserId, out var parsedUserId) || parsedUserId == Guid.Empty)
         {
             return null;
         }
 
-        // A linked user with no access token is not usable; let the caller fall back to the own-client-id flow.
+        // A linked user with no access token is not usable; drop it so callers fall back to the own-client-id flow.
         if (string.IsNullOrEmpty(accessToken))
         {
             return null;
@@ -218,6 +277,7 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         //   - a value with no offset (Kind=Unspecified) must be read as the server's LOCAL time, which is the
         //     clock the official plugin used. Treating it as UTC here would skew validity by the UTC offset and
         //     wrongly accept or reject tokens depending on the server timezone.
+        DateTimeOffset expiry;
         if (!string.IsNullOrEmpty(expiration)
             && DateTime.TryParse(
                 expiration,
@@ -228,10 +288,14 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             var localized = parsedDateTime.Kind == DateTimeKind.Unspecified
                 ? DateTime.SpecifyKind(parsedDateTime, DateTimeKind.Local)
                 : parsedDateTime;
-            return new OfficialTraktToken(accessToken, refreshToken ?? string.Empty, new DateTimeOffset(localized));
+            expiry = new DateTimeOffset(localized);
+        }
+        else
+        {
+            // No parseable expiry: treat as already expired so callers skip rather than use a token of unknown validity.
+            expiry = DateTimeOffset.MinValue;
         }
 
-        // No parseable expiry: treat as already expired so we skip rather than use a token of unknown validity.
-        return new OfficialTraktToken(accessToken, refreshToken ?? string.Empty, DateTimeOffset.MinValue);
+        return (parsedUserId, new OfficialTraktToken(accessToken, refreshToken ?? string.Empty, expiry));
     }
 }
