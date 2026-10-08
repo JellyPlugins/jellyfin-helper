@@ -1426,8 +1426,9 @@ function attachAutoSaveHandlers() {
     }
 
     // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
-    // sourcing row (rendered only when discovery access is on) appears/disappears live instead of waiting for
-    // the next tab load. loadSettings re-fetches config, so the row reflects the just-saved state.
+    // sourcing row (revealed only when the official Trakt plugin is present) appears/disappears live
+    // instead of waiting for the next tab load. loadSettings re-fetches config, so the row reflects
+    // the just-saved state.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {

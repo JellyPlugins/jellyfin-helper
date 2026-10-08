@@ -1886,12 +1886,14 @@ public class ConfigurationControllerTests : IDisposable
     public async Task UpdateConfiguration_TraktSourcingEnabledOmitted_PreservesStoredValue()
     {
         // A partial PUT (client without the Trakt card) omits the field; the stored value must survive.
-        _config.TraktSourcingEnabled = false;
+        // Seed true: it is the non-default, so the test actually proves preservation (seeding false would
+        // pass even if the field were overwritten with the default).
+        _config.TraktSourcingEnabled = true;
 
         var result = await _controller.UpdateConfigurationAsync(
             new ConfigurationUpdateRequest { }, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.False(_config.TraktSourcingEnabled);
+        Assert.True(_config.TraktSourcingEnabled);
     }
 }
