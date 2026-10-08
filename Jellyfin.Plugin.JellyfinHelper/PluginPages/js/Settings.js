@@ -383,7 +383,7 @@ function rebuildUI() {
 }
 
 
-function loadSettings() {
+function loadSettings(onDone) {
     var form = document.getElementById('settingsForm');
     if (!form) return;
     // Reset save-band state on every (re)load so the band stays hidden until the
@@ -554,7 +554,7 @@ function loadSettings() {
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
         h += '<input type="password" id="cfgSeerrApiKey">';
-        h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + (cfg.SeerrSkipCertificateValidation ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
+        h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + ((cfg.SeerrSkipCertificateValidation ?? cfg.seerrSkipCertificateValidation) ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
@@ -682,6 +682,10 @@ function loadSettings() {
 
         // Take snapshot after settings are fully rendered (synchronous - all values are set above)
         takeSettingsSnapshot();
+
+        // Signal completion so callers that must run AFTER the form re-renders (scroll restore,
+        // post-render indicators) chain off this instead of racing a fixed timeout against the async load.
+        if (typeof onDone === 'function') { onDone(); }
     }, function () {
         form.innerHTML = '<div class="error-msg">' + escHtml(T('settingsLoadError', 'Failed to load settings.')) + '</div>';
     });
@@ -1489,12 +1493,13 @@ function attachAutoSaveHandlers() {
                 quiet: true,
                 element: null, // suppress default overlay
                 onSuccess: function () {
-                    loadSettings();
-                    setTimeout(function () {
+                    // Restore scroll + show the indicator only AFTER loadSettings has re-rendered the
+                    // form, so neither acts on the stale/destroyed DOM the async reload replaces.
+                    loadSettings(function () {
                         scrollContainer.scrollTop = savedScroll;
                         var newEl = document.getElementById('cfgDiscoveryUserAccess');
                         if (newEl) showInlineCheckboxIndicator(newEl, true);
-                    }, 50);
+                    });
                 },
                 onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
             });

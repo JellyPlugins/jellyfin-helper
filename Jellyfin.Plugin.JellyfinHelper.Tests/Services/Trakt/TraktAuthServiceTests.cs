@@ -156,6 +156,54 @@ public sealed class TraktAuthServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PollDeviceAuth_MalformedCreatedAt_DoesNotThrow_AndStoresSaneExpiry()
+    {
+        var userId = Guid.NewGuid();
+
+        // A created_at past the representable Unix range overflows the created_at arithmetic. The service
+        // must fall back to the local-clock anchor rather than surfacing a 500 from the poll path.
+        Enqueue(HttpStatusCode.OK, $$"""{"access_token":"acc","refresh_token":"ref","expires_in":7776000,"created_at":{{long.MaxValue}}}""");
+
+        var status = await CreateService().PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Linked, status);
+        Assert.Equal(_now.AddSeconds(7776000), _store.GetToken(userId)!.ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task PollDeviceAuth_MissingRefreshToken_ReturnsError_AndStoresNothing()
+    {
+        var userId = Guid.NewGuid();
+
+        // The device grant always returns both tokens. An OK response missing refresh_token cannot produce a
+        // linked account (IsLinked needs both), so it must be rejected rather than persisting a half-link.
+        Enqueue(HttpStatusCode.OK, """{"access_token":"acc","refresh_token":"","expires_in":7776000,"created_at":1893456000}""");
+
+        var status = await CreateService().PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+        Assert.Null(_store.GetToken(userId));
+    }
+
+    [Fact]
+    public async Task Disconnect_DropsRefreshGate_WithoutBreakingLaterOperations()
+    {
+        var userId = Guid.NewGuid();
+        await _store.SaveAsync(userId, new TraktUserToken { AccessToken = "acc", RefreshToken = "ref", ExpiresAtUtc = _now.AddHours(1) }, CancellationToken.None);
+        var service = CreateService();
+
+        await service.DisconnectAsync(userId, CancellationToken.None);
+
+        // Disconnect removes the token and drops the per-user refresh gate; a later re-link for the same user
+        // must still work, proving the gate did not leak into a stuck state.
+        Assert.Null(_store.GetToken(userId));
+        Enqueue(HttpStatusCode.OK, """{"access_token":"acc2","refresh_token":"ref2","expires_in":7776000,"created_at":1893456000}""");
+        var relink = await service.PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+        Assert.Equal(TraktDevicePollStatus.Linked, relink);
+        Assert.Equal("acc2", _store.GetToken(userId)!.AccessToken);
+    }
+
+    [Fact]
     public async Task PollDeviceAuth_EmptyDeviceCode_ReturnsError()
     {
         var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), "   ", CancellationToken.None);

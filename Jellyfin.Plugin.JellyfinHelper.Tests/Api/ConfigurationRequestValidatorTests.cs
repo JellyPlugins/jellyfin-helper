@@ -885,4 +885,66 @@ public class ConfigurationRequestValidatorTests
 
         Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrApiKeyTooLong()
+    {
+        // An over-length key would be unrestorable through backup, so the length guard rejects it.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = new string('a', 513),
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("512", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTraktClientSecretTooLong()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TraktClientId = "id",
+            TraktClientSecret = new string('a', 513),
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("512", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenExcludedLibrariesTooLong()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            ExcludedLibraries = new string('L', 1001),
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("ExcludedLibraries", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenArrInstanceApiKeyTooLong()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://radarr.local", ApiKey = new string('a', 513) },
+            },
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("API key must be 512 characters or fewer", error, StringComparison.Ordinal);
+    }
 }

@@ -46,14 +46,17 @@ public static class BackupValidator
     internal const int MaxStringLength = 1000;
 
     /// <summary>
-    ///     Maximum string length for URL fields.
+    ///     Maximum string length for URL fields. Matches the settings validator's 2048-character URL limit so
+    ///     a configuration that passed settings validation can always be exported and restored without being
+    ///     rejected here.
     /// </summary>
-    internal const int MaxUrlLength = 500;
+    internal const int MaxUrlLength = 2048;
 
     /// <summary>
-    ///     Maximum string length for API key fields.
+    ///     Maximum string length for API key fields. Matches the settings validator's API-key limit so a saved
+    ///     key always round-trips through backup intact (no rejection, no silent truncation).
     /// </summary>
-    internal const int MaxApiKeyLength = 200;
+    internal const int MaxApiKeyLength = 512;
 
     /// <summary>
     ///     Maximum length for the Trakt client id, matching the settings validator's 512-character limit so an

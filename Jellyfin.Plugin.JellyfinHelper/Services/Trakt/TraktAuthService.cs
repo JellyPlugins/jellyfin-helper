@@ -136,7 +136,11 @@ public sealed class TraktAuthService : ITraktAuthService
                 case HttpStatusCode.OK:
                     var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
                     var token = JsonSerializer.Deserialize<TraktTokenResponse>(json);
-                    if (token is null || string.IsNullOrEmpty(token.AccessToken))
+
+                    // The device grant always returns both tokens. A response missing either one cannot
+                    // produce a linked account (IsLinked requires both), so reject it instead of persisting
+                    // a half-linked token that would report "linked" yet fail every refresh.
+                    if (token is null || string.IsNullOrEmpty(token.AccessToken) || string.IsNullOrEmpty(token.RefreshToken))
                     {
                         return TraktDevicePollStatus.Error;
                     }
@@ -243,8 +247,16 @@ public sealed class TraktAuthService : ITraktAuthService
     }
 
     /// <inheritdoc />
-    public Task DisconnectAsync(Guid userId, CancellationToken cancellationToken)
-        => _store.RemoveAsync(userId, cancellationToken);
+    public async Task DisconnectAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        await _store.RemoveAsync(userId, cancellationToken).ConfigureAwait(false);
+
+        // Drop the per-user refresh gate so the dictionary cannot grow without bound across link/unlink
+        // cycles. Removed-but-undisposed is deliberate: a concurrent refresh may still hold the semaphore,
+        // and SemaphoreSlim allocates no unmanaged handle unless AvailableWaitHandle is read (we never do),
+        // so an orphaned instance is reclaimed by the GC without leaking a handle.
+        _refreshGates.TryRemove(userId, out _);
+    }
 
     /// <inheritdoc />
     public async Task<(bool Success, string Message)> TestClientIdAsync(string clientId, CancellationToken cancellationToken)
@@ -362,23 +374,54 @@ public sealed class TraktAuthService : ITraktAuthService
     private static PluginConfiguration? GetConfig() => Plugin.Instance?.Configuration;
 
     // Anchor expiry on Trakt's own created_at (the authoritative issue time) so the lifetime does not
-    // drift with the gap between this server's clock and Trakt's. Fall back to the local clock only when
-    // created_at is absent (0), which a well-formed Trakt token response never is.
+    // drift with the gap between this server's clock and Trakt's. Fall back to the local clock when
+    // created_at is absent (0) - which a well-formed Trakt token response never is - or when the response
+    // carries values that would overflow the date arithmetic, so a malformed payload degrades to a
+    // local-clock expiry instead of surfacing a 500 from the poll/refresh path.
     private DateTime ComputeExpiry(TraktTokenResponse token)
     {
+        var lifetime = token.ExpiresIn > 0 ? token.ExpiresIn : 0;
+
         if (token.CreatedAt > 0)
         {
-            return DateTimeOffset.FromUnixTimeSeconds(token.CreatedAt).UtcDateTime.AddSeconds(token.ExpiresIn);
+            try
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(token.CreatedAt).UtcDateTime.AddSeconds(lifetime);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // created_at outside the representable Unix range, or created_at + lifetime past
+                // DateTime.MaxValue: fall through to the local-clock anchor below.
+            }
         }
 
-        return _utcNow().AddSeconds(token.ExpiresIn);
+        try
+        {
+            return _utcNow().AddSeconds(lifetime);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            // An absurd lifetime would overflow even from "now": treat the token as immediately expired
+            // so the next request forces a refresh rather than throwing.
+            return _utcNow();
+        }
     }
 
+    // Reject any control character (not just CR/LF/TAB/NUL) before a value reaches an outbound header or
+    // the shared Trakt quota: C0/C1 and DEL have no place in a device code or client id, and this keeps
+    // header-injection vectors closed regardless of which control byte an attacker tries.
     private static bool ContainsControlCharacters(string value)
-        => value.Contains('\r', StringComparison.Ordinal)
-            || value.Contains('\n', StringComparison.Ordinal)
-            || value.Contains('\t', StringComparison.Ordinal)
-            || value.Contains('\0', StringComparison.Ordinal);
+    {
+        foreach (var c in value)
+        {
+            if (char.IsControl(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private HttpClient GetClient() => _httpClientFactory.CreateClient("Trakt");
 

@@ -186,4 +186,18 @@ public class LanguageIdentityTests
             Assert.True(sw.ElapsedMilliseconds < 1000, $"Took {sw.ElapsedMilliseconds}ms");
         }
     }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void GetIso6391Code_FloodOfUniqueShortTags_DoesNotBreakLaterLookups()
+    {
+        // The fold cache is bounded, so a flood of distinct short tags fills it then stops caching. A known
+        // tag must still resolve afterward, proving the ceiling never corrupts the alias lookup it feeds.
+        for (var i = 0; i < 2000; i++)
+        {
+            LanguageIdentity.GetIso6391Code("zq" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        Assert.Equal("de", LanguageIdentity.GetIso6391Code("ger"));
+    }
 }

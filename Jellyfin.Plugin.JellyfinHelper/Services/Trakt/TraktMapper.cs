@@ -82,14 +82,38 @@ internal static class TraktMapper
             Year = item.Year,
             Overview = item.Overview,
 
-            // Trakt rating is 0-10 like TMDb's voteAverage, so it carries straight through as the rating signal.
-            VoteAverage = item.Rating ?? 0,
+            // Trakt rating is 0-10 like TMDb's voteAverage, so it carries straight through as the rating
+            // signal - clamped so a malformed payload cannot push a negative or >10 value into the scorer.
+            VoteAverage = Math.Clamp(item.Rating ?? 0, 0d, 10d),
             Popularity = 0,
             GenreIds = [],
             PosterPath = null,
             Adult = false,
-            TraktSlug = string.IsNullOrWhiteSpace(item.Ids?.Slug) ? null : item.Ids.Slug.Trim(),
+            TraktSlug = SanitizeSlug(item.Ids?.Slug),
             SourceRank = rank,
         };
+    }
+
+    // Trakt slugs are lowercase alphanumerics joined by hyphens. Whitelist that shape so a crafted slug
+    // (the field is attacker-controllable in test/mocked environments) can never carry path-traversal or
+    // scheme-injection bytes into the frontend deep-link that concatenates it.
+    private static string? SanitizeSlug(string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        var trimmed = slug.Trim();
+        foreach (var c in trimmed)
+        {
+            var isAllowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+            if (!isAllowed)
+            {
+                return null;
+            }
+        }
+
+        return trimmed;
     }
 }

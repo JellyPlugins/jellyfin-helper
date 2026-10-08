@@ -5,7 +5,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$manifest = Get-Content 'manifest.json' | ConvertFrom-Json
+# Resolve manifest.json relative to this script (repo root is two levels up from .github/scripts), not the
+# caller's working directory, so the deploy .bat and the CI step both read the same file regardless of CWD.
+$manifestPath = Join-Path $PSScriptRoot '..' '..' 'manifest.json'
+$manifest = Get-Content $manifestPath | ConvertFrom-Json
 $version = $manifest[0].versions[0].version
 $changelog = $manifest[0].versions[0].changelog
 $targetAbi = $manifest[0].versions[0].targetAbi

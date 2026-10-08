@@ -276,7 +276,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             return null;
         }
 
-        // Best effort: lock the ring down to the service account. A failure here must not fail startup.
+        // Best effort: lock the ring down to the service account. A failure here must not fail startup
+        // AND must not discard the ring: the directory is already created and writable, so returning null
+        // would needlessly drop to ephemeral keys and lose every secret on restart over a cosmetic
+        // permission-tightening failure. Owner-only mode is defense-in-depth on top of the data path's
+        // existing trust boundary (same as Jellyfin's own config/database), so proceeding without it is safe.
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
             try
@@ -291,7 +295,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                                             or NotSupportedException
                                             or PlatformNotSupportedException)
             {
-                return null;
+                // Swallowed by design: keep the usable ring (see comment above). The failure is a
+                // permission-tightening miss, not a loss of the directory itself.
             }
         }
 

@@ -196,4 +196,44 @@ public sealed class TraktMapperTests
 
         Assert.Equal([3, 4], mapped.Select(m => m.SourceRank).ToList());
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("../evil")]
+    [InlineData("java script:")]
+    [InlineData("Upper-Case")]
+    [InlineData("has_underscore")]
+    public void MapMediaItems_IllegalSlugChars_MapToNull(string slug)
+    {
+        // The whitelist is ^[a-z0-9-]+$, so a slug carrying traversal, scheme, uppercase or any other
+        // byte must drop to null rather than reach the frontend deep-link that concatenates it.
+        var item = Media(100);
+        item.Ids!.Slug = slug;
+
+        var c = Assert.Single(TraktMapper.MapMediaItems([item], "movie", out _));
+
+        Assert.Null(c.TraktSlug);
+    }
+
+    [Fact]
+    public void MapMediaItems_CleanSlug_IsPreserved()
+    {
+        var item = Media(100);
+        item.Ids!.Slug = "the-matrix-1999";
+
+        var c = Assert.Single(TraktMapper.MapMediaItems([item], "movie", out _));
+
+        Assert.Equal("the-matrix-1999", c.TraktSlug);
+    }
+
+    [Theory]
+    [InlineData(-5d, 0d)]
+    [InlineData(50d, 10d)]
+    public void MapMediaItems_RatingOutOfRange_ClampsToZeroTen(double rating, double expected)
+    {
+        // A malformed Trakt rating must clamp into the 0-10 band before it reaches the scorer.
+        var c = Assert.Single(TraktMapper.MapMediaItems([Media(100, rating: rating)], "movie", out _));
+
+        Assert.Equal(expected, c.VoteAverage);
+    }
 }

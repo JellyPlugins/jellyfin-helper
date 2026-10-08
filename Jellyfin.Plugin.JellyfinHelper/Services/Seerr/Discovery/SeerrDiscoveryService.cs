@@ -3106,6 +3106,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             throw new UriFormatException("Invalid Seerr base URL.");
         }
 
+        // Same central SSRF guard the integration and Arr paths enforce: the discovery path reaches the
+        // network with an admin-supplied base URL too, so a cloud-metadata host must be blocked here as well.
+        SsrfGuard.ThrowIfCloudMetadataHost(parsedBaseUrl.Host, nameof(baseUrl));
+
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("API key is required.", nameof(apiKey));
