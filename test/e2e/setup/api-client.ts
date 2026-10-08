@@ -51,8 +51,10 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
 }
 
 /** Create a Playwright request context authenticated as the own-device-flow user (never officially linked). */
-export async function deviceFlowUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
-  if (!auth.deviceFlowUser) return null;
+export function deviceFlowUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
+  if (!auth.deviceFlowUser) {
+    return Promise.resolve(null);
+  }
   return pwRequest.newContext({
     baseURL: auth.baseUrl,
     extraHTTPHeaders: {
