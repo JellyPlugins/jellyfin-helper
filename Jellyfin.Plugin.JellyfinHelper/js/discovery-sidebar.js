@@ -498,6 +498,14 @@
         var container = findActiveContainer();
         if (!container) {
             lastMountedContainer = null;
+            // F5 recovery: on a hard reload Custom Tabs builds the panel via its legacy
+            // path into the Modern layout's display:none .skinBody subtree and never moves
+            // it into <main>, so no VISIBLE container exists even though a marker does. A
+            // hashchange makes Custom Tabs re-render the active tab into <main> (verified:
+            // the panel then lands visible under <main>, same as a real nav). Only nudge
+            // when a stranded marker is actually present and we are on its deep link, and
+            // rate-limit so a tab that legitimately has no visible panel never loops.
+            maybeNudgeStrandedPanel();
             return;
         }
         var needsRender = container !== lastMountedContainer
@@ -507,34 +515,85 @@
         }
         renderDiscovery(container);
         lastMountedContainer = container;
+        // A visible container was found and rendered: the stranded-panel recovery (if any)
+        // succeeded, so refresh the nudge budget for a possible later reload in this session.
+        _nudgeCount = 0;
     }
 
-    // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
-    // and all .tabContent ancestors are .is‑active-preventing the destroy/rebuild flash during tab switches.
+    // F5-recovery nudge (see call site). A hard reload can leave the Custom Tabs panel
+    // stranded in the Modern layout's display:none .skinBody subtree; dispatching a
+    // hashchange makes Custom Tabs re-render the active tab into the visible <main>.
+    // Guards: only fire when a marker exists but none is visible, only on a tab deep
+    // link, and at most a few times with a cooldown so a tab that genuinely has no
+    // visible panel (e.g. feature off) can never spin.
+    var _lastNudgeAt = 0;
+    var _nudgeCount = 0;
+    var NUDGE_COOLDOWN_MS = 1500;
+    var MAX_NUDGES = 4;
+
+    function maybeNudgeStrandedPanel() {
+        if (_nudgeCount >= MAX_NUDGES) {
+            return;
+        }
+        // Only relevant while a Discovery tab deep link is active - a bare #/home has no
+        // custom tab to restore, so a nudge would be pointless churn.
+        if (!/[?&]tab=\d+/.test(window.location.hash)) {
+            return;
+        }
+        // A marker must exist (Custom Tabs built the panel) yet be invisible (parked in a
+        // display:none subtree). If there is no marker at all, Custom Tabs has not built
+        // anything to recover and the normal observer path will handle a later build.
+        var markers = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
+        if (markers.length === 0) {
+            return;
+        }
+        var anyVisible = false;
+        for (var i = 0; i < markers.length; i++) {
+            if (markers[i].offsetParent !== null) {
+                anyVisible = true;
+                break;
+            }
+        }
+        if (anyVisible) {
+            return;
+        }
+        var now = Date.now();
+        if (now - _lastNudgeAt < NUDGE_COOLDOWN_MS) {
+            return;
+        }
+        _lastNudgeAt = now;
+        _nudgeCount++;
+        // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    // Determines if the marker resides in the currently active, VISIBLE tab panel.
+    // Walks ancestors to reject a hidden/inactive legacy tab wrapper, then requires
+    // the element to actually be laid out. The visibility check is authoritative: on a
+    // hard reload Custom Tabs builds the panel via its legacy ensureContentDiv() path,
+    // which inserts it after #favoritesTab inside the Modern layout's .skinBody subtree
+    // (display:none). That subtree carries a .page ancestor (#indexPage) but is invisible,
+    // so a .page-sawTabWrapper shortcut would wrongly accept it and we would render into a
+    // panel the user never sees ("content gone after F5"). offsetParent === null reliably
+    // means the element or an ancestor is display:none (our marker is never position:fixed),
+    // so it catches exactly that case while still accepting the wrapper-less visible panel.
     function isActiveTabContainer(element) {
         if (!element?.isConnected) {
             return false;
         }
         var node = element.parentElement;
-        var sawTabWrapper = false;
         while (node && node !== document.body) {
             if (node.hidden || node.classList.contains('hide')) {
                 return false;
             }
-            if (node.classList.contains('tabContent')) {
-                sawTabWrapper = true;
-                if (!node.classList.contains('is-active')) {
-                    return false;
-                }
-            }
-            if (node.classList.contains('page')) {
-                sawTabWrapper = true;
+            if (node.classList.contains('tabContent') && !node.classList.contains('is-active')) {
+                return false;
             }
             node = node.parentElement;
         }
-        // With a tab wrapper present, the checks above already proved it active. Without
-        // one (JF12 wrapper-less panel), fall back to actual visibility.
-        return sawTabWrapper || element.offsetParent !== null;
+        // Actual layout is the final gate: a panel parked in a display:none subtree
+        // (the F5 legacy-insert case) has a null offsetParent and is correctly rejected.
+        return element.offsetParent !== null;
     }
 
     function findActiveContainer() {
