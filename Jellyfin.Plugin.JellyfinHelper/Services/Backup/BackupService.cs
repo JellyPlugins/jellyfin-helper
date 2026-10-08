@@ -175,12 +175,6 @@ public sealed class BackupService : IBackupService
             SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
 
-            // Trakt settings. Client id + enabled flag are plain config; the secret is decrypted here like the
-            // Seerr key so the backup holds plaintext, and is stripped below when secrets are excluded.
-            TraktEnabled = config.TraktEnabled,
-            TraktClientId = config.TraktClientId,
-            TraktClientSecret = _secretProtector.Unprotect(config.TraktClientSecret),
-
             // Trash settings
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
@@ -240,7 +234,6 @@ public sealed class BackupService : IBackupService
         if (!includeSecrets)
         {
             backup.SeerrApiKey = string.Empty;
-            backup.TraktClientSecret = string.Empty;
             foreach (var instance in backup.RadarrInstances)
             {
                 instance.ApiKey = string.Empty;
@@ -256,7 +249,6 @@ public sealed class BackupService : IBackupService
         // warn the user to store the exported file securely.
         backup.ContainsSecrets =
             !string.IsNullOrEmpty(backup.SeerrApiKey)
-            || !string.IsNullOrEmpty(backup.TraktClientSecret)
             || backup.RadarrInstances.Any(i => !string.IsNullOrEmpty(i.ApiKey))
             || backup.SonarrInstances.Any(i => !string.IsNullOrEmpty(i.ApiKey));
 
@@ -439,9 +431,6 @@ public sealed class BackupService : IBackupService
             // Seerr settings
             RestoreSeerrSettings(config, backup, summary);
 
-            // Trakt settings
-            RestoreTraktSettings(config, backup, summary);
-
             // Trash settings
             RestoreTrashSettings(config, backup);
 
@@ -539,45 +528,6 @@ public sealed class BackupService : IBackupService
 
             config.SeerrSkipCertificateValidation = backup.SeerrSkipCertificateValidation.Value;
         }
-    }
-
-    /// <summary>
-    ///     Restores Trakt flag, client id, and client secret. Empty backup values preserve the live ones so older
-    ///     backups cannot wipe a working setup; a changed secret is re-encrypted and flagged. The flag also
-    ///     requires stored credentials, and an explicit disable is honored - it never re-enables by itself.
-    /// </summary>
-    /// <param name="config">The live configuration being mutated.</param>
-    /// <param name="backup">The backup data being restored.</param>
-    /// <param name="summary">The restore summary, flagged when the secret changes.</param>
-    private void RestoreTraktSettings(PluginConfiguration config, BackupData backup, BackupRestoreSummary summary)
-    {
-        if (!string.IsNullOrEmpty(backup.TraktClientId))
-        {
-            config.TraktClientId = BackupSanitizer.TruncateString(backup.TraktClientId, BackupValidator.MaxTraktClientIdLength);
-        }
-
-        if (!string.IsNullOrEmpty(backup.TraktClientSecret))
-        {
-            var truncatedSecret = BackupSanitizer.TruncateString(backup.TraktClientSecret, BackupValidator.MaxStringLength);
-            var storedPlain = _secretProtector.Unprotect(config.TraktClientSecret);
-            var truncatedStored = BackupSanitizer.TruncateString(storedPlain, BackupValidator.MaxStringLength);
-            if (truncatedSecret != truncatedStored)
-            {
-                _pluginLog.LogWarning(LogSource, "Backup restore is replacing credentials: Trakt client secret changed.", logger: _logger);
-                summary.CredentialsChanged = true;
-            }
-
-            config.TraktClientSecret = _secretProtector.Protect(truncatedSecret);
-        }
-
-        var hasCredentials = !string.IsNullOrWhiteSpace(config.TraktClientId)
-            && !string.IsNullOrWhiteSpace(config.TraktClientSecret);
-
-        // An explicit flag is honored (never re-enabling without credentials); a backup predating the field
-        // leaves it null, so derive from the credentials - matching ConfigurationController.ApplyTraktSettings.
-        config.TraktEnabled = backup.TraktEnabled.HasValue
-            ? backup.TraktEnabled.Value && hasCredentials
-            : hasCredentials;
     }
 
     /// <summary>

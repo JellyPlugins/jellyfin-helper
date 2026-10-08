@@ -331,8 +331,6 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   ├── Trakt/                     # Trakt discovery source tests
-│   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation, GetLinkedUserIds
-│   │   ├── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
 │   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
@@ -478,8 +476,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
-│   ├── TraktDevicePollRequest.cs        # Trakt device poll DTO (DeviceCode, nullable; controller coalesces to empty)
-│   ├── TraktDevicePollResponse.cs       # Trakt device poll status envelope (Status)
 │   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
 │   ├── OfficialTraktPluginStatusResponse.cs # Admin-only GET /Trakt/OfficialPluginStatus payload: Present flag so the config page can relax the own-client-id requirement
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
@@ -505,8 +501,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
 │   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
 │   ├── TraktDiscoveryResponse.cs        # GET /Discovery/My/Trakt envelope: Linked flag + optional scored Result
-│   ├── TraktDevicePollRequest.cs        # POST /Discovery/My/Trakt/Device/Poll body: device code
-│   ├── TraktDevicePollResponse.cs       # Device-poll response: status name (Pending/Linked/Expired/Denied/Error)
 │   ├── TrashAccessEntry.cs              # Per-path access result entry (used in TrashAccessResponse)
 │   ├── TrashAccessResponse.cs           # POST /Trash/CheckAccess response: allAccessible flag + results
 │   ├── TrashConfigResponse.cs           # GET /Trash/Contents response: useTrash, retentionDays, libraries
@@ -674,9 +668,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
 │   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
-│   │   ├── ITraktAuthService.cs     # Device-flow + token lifecycle contract (start/poll/get-valid-token/disconnect)
 │   │   ├── TraktApi.cs              # Shared Trakt API base URL (env-overridable for e2e, defaults to api.trakt.tv)
-│   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
 │   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
 │   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
 │   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (resolve with strict own-precedence, cheap link check, merged warm ids, own refresh/unlink)
@@ -684,12 +676,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── TraktPersonalSource.cs         # Resolved source value (client id + bearer + own/official flag)
 │   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
 │   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
-│   │   ├── ITraktUserStore.cs       # Per-user token storage contract (GetToken/GetLinkedUserIds/SaveAsync/RemoveAsync)
-│   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence
-│   │   ├── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
-│   │   ├── TraktDeviceCodeResponse.cs # POST /oauth/device/code response (device/user code, verification URL, expiry, interval)
-│   │   ├── TraktTokenResponse.cs    # Token payload from device/token + refresh (access/refresh/expires_in/created_at)
-│   │   ├── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
 │   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
 │   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)
 │   │   ├── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)

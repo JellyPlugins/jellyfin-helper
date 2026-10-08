@@ -696,91 +696,6 @@ public class ConfigurationRequestValidatorTests
         Assert.Contains("CR, LF, tab, or NUL", error);
     }
 
-    [Fact]
-    public void Validate_ReturnsError_WhenTraktClientSecretSetWithoutClientId()
-    {
-        // A real new secret without an id cannot authenticate. Both credentials are required together.
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "",
-            TraktClientSecret = "secret"
-        };
-        var error = ConfigurationRequestValidator.Validate(req);
-        Assert.NotNull(error);
-        Assert.Contains("client id", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Validate_ReturnsError_WhenTraktClientIdSetWithoutClientSecret()
-    {
-        // An id without a secret cannot authenticate. Both credentials are required together.
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id",
-            TraktClientSecret = ""
-        };
-        var error = ConfigurationRequestValidator.Validate(req);
-        Assert.NotNull(error);
-        Assert.Contains("client secret", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Validate_ReturnsError_WhenTraktClientSecretContainsControlChar()
-    {
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientSecret = "sec\nret"
-        };
-        var error = ConfigurationRequestValidator.Validate(req);
-        Assert.NotNull(error);
-        Assert.Contains("CR, LF, tab, or NUL", error);
-    }
-
-    [Fact]
-    public void Validate_ReturnsNull_WhenTraktCredentialsBothEmpty()
-    {
-        // Neither credential set: Trakt stays off, nothing to validate.
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30
-        };
-        Assert.Null(ConfigurationRequestValidator.Validate(req));
-    }
-
-    [Fact]
-    public void Validate_ReturnsNull_WhenTraktBothCredentialsPresent()
-    {
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id",
-            TraktClientSecret = "secret"
-        };
-        Assert.Null(ConfigurationRequestValidator.Validate(req));
-    }
-
-    [Fact]
-    public void Validate_ReturnsNull_WhenTraktClientIdSetAndSecretIsMask()
-    {
-        // The mask sentinel means "keep the stored secret", so an id + mask is a valid both-present state.
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id",
-            TraktClientSecret = "********"
-        };
-        Assert.Null(ConfigurationRequestValidator.Validate(req));
-    }
-
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("key\r\nX-Injected: 1")]
@@ -845,31 +760,6 @@ public class ConfigurationRequestValidatorTests
 
     [Theory]
     [Trait("Category", "Security")]
-    [InlineData("id\r\nx")]
-    [InlineData("secret\twith-tab")]
-    public void Validate_ReturnsError_WhenTraktCredentialsContainControlCharacters(string _)
-    {
-        var withIdInjection = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id\r\nx",
-            TraktClientSecret = "secret",
-        };
-        Assert.Contains("must not contain", ConfigurationRequestValidator.Validate(withIdInjection)!, StringComparison.Ordinal);
-
-        var withSecretInjection = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id",
-            TraktClientSecret = "secret\twith-tab",
-        };
-        Assert.Contains("must not contain", ConfigurationRequestValidator.Validate(withSecretInjection)!, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [Trait("Category", "Security")]
     [InlineData("trash\0evil")]
     [InlineData("trash\nnewline")]
     [InlineData("trash\ttab")]
@@ -896,21 +786,6 @@ public class ConfigurationRequestValidatorTests
             TrashRetentionDays = 30,
             SeerrUrl = "http://seerr.local",
             SeerrApiKey = new string('a', 513),
-        };
-        var error = ConfigurationRequestValidator.Validate(req);
-        Assert.NotNull(error);
-        Assert.Contains("512", error, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Validate_ReturnsError_WhenTraktClientSecretTooLong()
-    {
-        var req = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 7,
-            TrashRetentionDays = 30,
-            TraktClientId = "id",
-            TraktClientSecret = new string('a', 513),
         };
         var error = ConfigurationRequestValidator.Validate(req);
         Assert.NotNull(error);

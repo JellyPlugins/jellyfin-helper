@@ -7,8 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests the Trakt discovery DTOs: unlinked/linked envelopes, poll request/response shapes, and JSON
-///     round-trips of the payloads the device-flow endpoints exchange with the client.
+///     Tests the Trakt discovery DTO: unlinked/linked envelopes and JSON round-trips of the response payload.
 /// </summary>
 public sealed class TraktDiscoveryDtoTests
 {
@@ -29,20 +28,6 @@ public sealed class TraktDiscoveryDtoTests
 
         Assert.True(dto.Linked);
         Assert.Same(result, dto.Result);
-    }
-
-    [Fact]
-    public void DevicePollRequest_DeviceCodeDefaultsToNull()
-    {
-        Assert.Null(new TraktDevicePollRequest().DeviceCode);
-        Assert.Equal("dev", new TraktDevicePollRequest { DeviceCode = "dev" }.DeviceCode);
-    }
-
-    [Fact]
-    public void DevicePollResponse_StatusDefaultsToEmpty()
-    {
-        Assert.Equal(string.Empty, new TraktDevicePollResponse().Status);
-        Assert.Equal("Pending", new TraktDevicePollResponse { Status = "Pending" }.Status);
     }
 
     [Fact]
@@ -70,17 +55,5 @@ public sealed class TraktDiscoveryDtoTests
         var rec = Assert.Single(parsed.Result.Recommendations);
         Assert.Equal(11, rec.TmdbId);
         Assert.Equal("Alpha", rec.Title);
-    }
-
-    [Fact]
-    public void DevicePollDtos_RoundTripThroughJson()
-    {
-        var request = JsonSerializer.Deserialize<TraktDevicePollRequest>(
-            JsonSerializer.Serialize(new TraktDevicePollRequest { DeviceCode = "dev" }));
-        var response = JsonSerializer.Deserialize<TraktDevicePollResponse>(
-            JsonSerializer.Serialize(new TraktDevicePollResponse { Status = "Expired" }));
-
-        Assert.Equal("dev", request!.DeviceCode);
-        Assert.Equal("Expired", response!.Status);
     }
 }
