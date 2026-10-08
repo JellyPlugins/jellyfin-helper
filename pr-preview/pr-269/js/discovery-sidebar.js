@@ -46,16 +46,17 @@
     var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
     var SLOW_POLL_INTERVAL = 3000;
 
-    function waitForApi(callback) {
+    function waitForApi(callback, onTimeout) {
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
             _waitForApiRetries++;
             if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
                 // ApiClient did not become available within ~150 seconds - bail out to
                 // prevent an indefinite timer leak on unauthenticated/guest sessions.
+                if (typeof onTimeout === 'function') onTimeout();
                 return;
             }
             var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
-            setTimeout(function () { waitForApi(callback); }, delay);
+            setTimeout(function () { waitForApi(callback, onTimeout); }, delay);
             return;
         }
         callback();
@@ -1461,6 +1462,9 @@
     var _bootstrapped = false;
     var _discoveryDisabled = false;
     var _probeInFlight = false;
+    // The user the gates above were last decided for. An in-tab account switch must not inherit
+    // the previous user's terminal 403 or in-flight probe, so a change resets the bootstrap gate.
+    var _probedUserId = null;
 
     function initDiscoveryUiEmpty() {
         // No discovery data available (task deactivated/dry-run/no results yet). Still init
@@ -1513,12 +1517,27 @@
     }
 
     function bootstrapDiscovery() {
+        // Reset the gates on an in-tab account switch: a prior user's 403 or in-flight probe must
+        // not block a different user who may well have access.
+        var userId = currentDiscoveryUserId();
+        if (userId && userId !== _probedUserId) {
+            _probedUserId = userId;
+            _bootstrapped = false;
+            _discoveryDisabled = false;
+            _probeInFlight = false;
+            // A new signed-in user also gets a fresh API-wait budget: a timeout accrued while
+            // unauthenticated must not instantly expire this user's probe.
+            _waitForApiRetries = 0;
+        }
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
         _probeInFlight = true;
         waitForApi(function () {
             loadStrings(probeDiscoveryAvailability);
+        }, function () {
+            // API never became available (timeout): release the gate so a later sign-in can re-probe.
+            _probeInFlight = false;
         });
     }
 
