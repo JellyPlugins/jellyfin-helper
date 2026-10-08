@@ -381,10 +381,18 @@
     var lastMountedContainer = null;
     var customTabWatcherStarted = false;
     var mountPending = false;
+    // Mounting is gated until strings are loaded so the first render never flashes the
+    // English fallbacks before the configured language arrives. The observer/listeners,
+    // however, start as early as possible (see startCustomTabWatcher) so a hard reload
+    // that restores an already-built Discovery panel is still caught: without an early
+    // watcher no mutation fires after our script loads, and the tab stays blank until a
+    // manual nav. The watcher queues mounts; this gate releases them once strings land.
+    var _mountEnabled = false;
 
-    function initCustomTab() {
-        injectStyles();
-        tryMountCustomTab();
+    // Starts the DOM watcher and navigation listeners that drive mounts. Idempotent and
+    // independent of the async availability probe, so it can run the instant the script
+    // loads on a home context - the fix for the F5 blank-tab race.
+    function startCustomTabWatcher() {
         if (customTabWatcherStarted) {
             return;
         }
@@ -412,6 +420,14 @@
         });
     }
 
+    function initCustomTab() {
+        injectStyles();
+        // Strings are loaded by the time this runs; release the mount gate and watcher.
+        _mountEnabled = true;
+        startCustomTabWatcher();
+        tryMountCustomTab();
+    }
+
     function scheduleTryMount() {
         if (mountPending) {
             return;
@@ -423,6 +439,37 @@
         });
     }
 
+    // On a hard reload (F5) Custom Tabs restores the active Discovery panel from the
+    // ?tab=N deep link and finishes building it before our MutationObserver exists, so
+    // no further mutation ever fires to trigger a mount - the four fixed timeouts this
+    // replaces could all miss while the async probe/strings were still in flight, leaving
+    // a blank tab until a manual nav produced a fresh mutation. Poll a short bounded
+    // schedule instead, stopping as soon as the active container is filled (or we leave
+    // the home context), so a slow server self-heals instead of racing a fixed deadline.
+    var INITIAL_MOUNT_DELAYS_MS = [250, 500, 1000, 2000, 3500, 5000, 8000];
+
+    function scheduleInitialMountRetries() {
+        var step = 0;
+        function tick() {
+            tryMountCustomTab();
+            if (step >= INITIAL_MOUNT_DELAYS_MS.length) {
+                return;
+            }
+            // A filled active marker means the mount succeeded; stop early. Off the home
+            // context there is nothing to mount, so stop too and let the observer/nav
+            // listeners pick up the next home visit.
+            if (!isOnHomePage()) {
+                return;
+            }
+            var active = findActiveContainer();
+            if (active && active.querySelector('.jfh-discovery-container')) {
+                return;
+            }
+            setTimeout(tick, INITIAL_MOUNT_DELAYS_MS[step++]);
+        }
+        tick();
+    }
+
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
@@ -430,6 +477,12 @@
     }
 
     function tryMountCustomTab() {
+        // The watcher may fire before strings have loaded (early start for the F5 race).
+        // Rendering now would flash English fallbacks, so defer until initCustomTab opens
+        // the gate; the retry schedule and queued mutations re-drive the mount right after.
+        if (!_mountEnabled) {
+            return;
+        }
         if (!isOnHomePage()) {
             lastMountedContainer = null;
             return;
@@ -1383,8 +1436,7 @@
         // Custom Tab so it can show a "no results" message if the container exists, but do NOT
         // inject sidebar navigation - no point advertising a feature with no content.
         initCustomTab();
-        setTimeout(tryMountCustomTab, 500);
-        setTimeout(tryMountCustomTab, 1500);
+        scheduleInitialMountRetries();
     }
 
     function initDiscoveryUiFull() {
@@ -1394,10 +1446,7 @@
         loadExternalLinksConfig().finally(function () {
             initCustomTab();
             initSidebar();
-            setTimeout(tryMountCustomTab, 500);
-            setTimeout(tryMountCustomTab, 1500);
-            setTimeout(tryMountCustomTab, 3000);
-            setTimeout(tryMountCustomTab, 5000);
+            scheduleInitialMountRetries();
         });
     }
 
@@ -1457,6 +1506,12 @@
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
+        // Start the DOM watcher the moment we know we are on a home context, before the
+        // async probe. On a hard reload Custom Tabs restores the active Discovery panel
+        // immediately; the watcher must already be listening or the restore mutation is
+        // missed and the tab stays blank. Mounts stay gated (_mountEnabled) until strings
+        // load, so this cannot render untranslated content early.
+        startCustomTabWatcher();
         _probeInFlight = true;
         waitForApi(function () {
             // Pin the generation only once a user is actually present (waitForApi may have polled

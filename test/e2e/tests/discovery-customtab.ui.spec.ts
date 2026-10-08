@@ -165,6 +165,33 @@ test.describe('Discovery custom tab (home page)', () => {
     await expectDiscoveryRendered(page);
   });
 
+  // Regression guard for the F5 blank-tab bug: with the Discovery tab active, a hard
+  // reload restores the ?tab=N deep link and Custom Tabs rebuilds the panel BEFORE
+  // discovery-sidebar.js finishes its async availability probe. If the DOM watcher only
+  // started after that probe, the restore mutation was already missed and the panel
+  // stayed blank until a manual nav away-and-back. The fix starts the watcher the moment
+  // the home context is known (pre-probe), so the restored panel is caught and filled
+  // without any further navigation. This test reloads on the deep link and asserts the
+  // panel renders on its own.
+  test('renders after a hard reload with the Discovery tab active (no manual nav)', async ({ page }) => {
+    await openHome(page);
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+
+    await clickDiscoveryTab(page);
+    await expectDiscoveryRendered(page);
+
+    // Clicking the tab deep-links the URL to ?tab=N; a reload here is a true F5 of the
+    // active-Discovery state, not a fresh home load. (addInitScript re-seeds credentials
+    // on every navigation, so the SPA auto-logs-in again after the reload.)
+    const urlWithTab = page.url();
+    expect(urlWithTab, 'clicking Discovery should deep-link the tab into the URL').toContain('tab=');
+
+    await page.reload();
+
+    // No clickDiscoveryTab here: the panel must fill itself from the restored deep link.
+    await expectDiscoveryRendered(page);
+  });
+
   test('discovery-sidebar.js never fabricates its own customTab_ panel', async ({ page }) => {
     await openHome(page);
     await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
