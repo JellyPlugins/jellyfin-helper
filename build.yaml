@@ -23,3 +23,4 @@ changelog: |-
   - Hardening: API keys, the log filter, and backup credentials now reject hidden control characters that could cause errors or log tampering; odd-charset responses are read safely; and restoring a backup that disables TLS validation now warns you first
   - Tested by 6593 unit tests (expanded security, hardening, and performance coverage) and 360 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - Special thanks to @TheColin21 (https://github.com/TheColin21) for testing and donation ❤️
