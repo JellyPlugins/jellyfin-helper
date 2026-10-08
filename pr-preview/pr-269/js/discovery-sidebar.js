@@ -41,25 +41,30 @@
         return /^https?:\/\//i.test(trimmed) ? trimmed : '';
     }
 
-    var _waitForApiRetries = 0;
     var MAX_FAST_RETRIES = 60;  // 30 seconds at 500ms intervals (fast polling)
     var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
     var SLOW_POLL_INTERVAL = 3000;
 
+    // Retry budget is local to each call so concurrent/sequential waits never share a counter:
+    // a previous attempt's accrued retries must not shorten a later one's wait.
     function waitForApi(callback, onTimeout) {
-        if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
-            _waitForApiRetries++;
-            if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
-                // ApiClient did not become available within ~150 seconds - bail out to
-                // prevent an indefinite timer leak on unauthenticated/guest sessions.
-                if (typeof onTimeout === 'function') onTimeout();
+        var retries = 0;
+        function attempt() {
+            if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
+                retries++;
+                if (retries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
+                    // ApiClient did not become available within ~150 seconds - bail out to
+                    // prevent an indefinite timer leak on unauthenticated/guest sessions.
+                    if (typeof onTimeout === 'function') onTimeout();
+                    return;
+                }
+                var delay = retries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
+                setTimeout(attempt, delay);
                 return;
             }
-            var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
-            setTimeout(function () { waitForApi(callback, onTimeout); }, delay);
-            return;
+            callback();
         }
-        callback();
+        attempt();
     }
 
     var _strings = null;
@@ -242,6 +247,7 @@
             '.jfh-discovery-score-mid .jfh-discovery-score-bar { background: #f39c12; }' +
             '.jfh-discovery-score-low .jfh-discovery-score-bar { background: #e74c3c; }' +
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
+            '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
             '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
@@ -856,12 +862,12 @@
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
-            // Trakt deep link to the canonical app.trakt.tv page via the slug the API returns
+            // Trakt deep link to the canonical trakt.tv page via the slug the API returns
             // (ids.slug). The old trakt.tv/search/tmdb/:id route 404s, and slugs must never be
             // guessed from titles, so the link renders only with a sane slug while Trakt is on.
             if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
                 var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
-                var traktExtUrl = 'https://app.trakt.tv/' + traktPath + '/' + r.TraktSlug;
+                var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
             }
@@ -884,7 +890,12 @@
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
             var scoreClass = getDiscoveryScoreClass(scorePercent);
-            var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + '</div>';
+            // On the Trakt tabs the cards keep Trakt's own ranking, so the percentage is our local signal, not
+            // the sort order. Flag it with a small "Local score" tag so a lower % sitting above a higher % reads
+            // as intentional. The normal Seerr tab, which IS sorted by this score, shows no tag.
+            var isTraktTab = _activeTab === TAB_TRAKT || _activeTab === TAB_TRENDING;
+            var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
+            var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
             var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
@@ -1489,7 +1500,12 @@
         });
     }
 
-    function handleDiscoveryProbe(data) {
+    function handleDiscoveryProbe(data, startedUserId) {
+        // A later account switch started a fresh bootstrap; this result predates it and must not
+        // flip gates or inject UI for the previous user.
+        if (startedUserId !== currentDiscoveryUserId()) {
+            return;
+        }
         // Check if Discovery is available before injecting UI elements.
         if (!data || !data.Recommendations || data.Recommendations.length === 0) {
             // Leave the gate open: results may appear after a later scheduled run, and a future
@@ -1501,10 +1517,17 @@
         initDiscoveryUiFull();
     }
 
-    function probeDiscoveryAvailability() {
+    function probeDiscoveryAvailability(startedUserId) {
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-            .then(handleDiscoveryProbe)
+            .then(function (data) {
+                handleDiscoveryProbe(data, startedUserId);
+            })
             .catch(function (err) {
+                // Ignore a stale response once the account has switched - a prior user's 403 must
+                // not disable Discovery for whoever is signed in now.
+                if (startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
                 // 403 means the admin disabled the feature: terminal, do not re-probe. Any other
                 // error (network/transient) leaves the gate open for a later retry.
                 if (err?.status === 403) {
@@ -1512,7 +1535,11 @@
                 }
             })
             .finally(function () {
-                _probeInFlight = false;
+                // Only the current generation owns the gate; a stale finally must not clear a gate
+                // a newer bootstrap set.
+                if (startedUserId === currentDiscoveryUserId()) {
+                    _probeInFlight = false;
+                }
             });
     }
 
@@ -1525,16 +1552,20 @@
             _bootstrapped = false;
             _discoveryDisabled = false;
             _probeInFlight = false;
-            // A new signed-in user also gets a fresh API-wait budget: a timeout accrued while
-            // unauthenticated must not instantly expire this user's probe.
-            _waitForApiRetries = 0;
         }
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
         _probeInFlight = true;
         waitForApi(function () {
-            loadStrings(probeDiscoveryAvailability);
+            // Pin the generation only once a user is actually present (waitForApi may have polled
+            // through the signed-out gap). Every async step below re-checks it against the live user
+            // so an account switch mid-flight cannot let a stale callback touch shared state or the UI.
+            var startedUserId = currentDiscoveryUserId();
+            loadStrings(function () {
+                if (startedUserId !== currentDiscoveryUserId()) { return; }
+                probeDiscoveryAvailability(startedUserId);
+            });
         }, function () {
             // API never became available (timeout): release the gate so a later sign-in can re-probe.
             _probeInFlight = false;

@@ -572,7 +572,7 @@ function loadSettings() {
         if (cfg.DiscoveryUserAccessEnabled) {
             var traktHasCfg = !!(cfg.TraktClientId && cfg.TraktClientSecret);
             h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
-            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server at trakt.tv/oauth/applications. The application form requires a Redirect URI field: set it to urn:ietf:wg:oauth:2.0:oob (the device-flow placeholder — no redirect actually happens). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
             h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
             h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
             h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
@@ -580,7 +580,7 @@ function loadSettings() {
             h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
             h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
             h += '<input type="password" id="cfgTraktClientSecret">';
-            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications with redirect URI urn:ietf:wg:oauth:2.0:oob.')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications. Set its required Redirect URI field to urn:ietf:wg:oauth:2.0:oob; the device flow performs no redirect, so the value is only a form placeholder.')) + '</div>';
             h += '<div style="margin-top:0.5em;">';
             h += '<button type="button" class="action-btn btn-arr-test" id="btnTestTrakt" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + escHtml(T('testConnection', 'Test Connection')) + '</button>';
             h += '</div>';
@@ -1264,7 +1264,8 @@ function attachSeerrHandlers() {
 /**
  * Trakt admin test. Validates the shared OAuth application's Client ID against Trakt's client-id-only trending
  * endpoint, then auto-saves on success (quiet) exactly like the Seerr test. The Client Secret is not tested:
- * in the device flow it is only used during token exchange, which no admin-level call can exercise.
+ * in the device flow it is only used during token exchange, which no admin-level call can exercise. So a green
+ * result is labelled as a Client ID check, and a missing secret is called out rather than reported as a full OK.
  */
 function attachTraktHandlers() {
     var btn = document.getElementById('btnTestTrakt');
@@ -1291,7 +1292,14 @@ function attachTraktHandlers() {
             var testOk = res && (res.Success || res.success);
             var testMsg = res && (res.Message || res.message);
             if (testOk) {
-                _traktTimer = showButtonFeedback(btn, true, testMsg || 'OK', originalHtml);
+                // The test only validates the Client ID against Trakt's client-id-only endpoint; the Client
+                // Secret is exercised only during per-user token exchange and cannot be checked here. Make the
+                // button say so, and flag a missing secret, so a green result is not read as a full-config OK.
+                var hasSecret = !!(document.getElementById('cfgTraktClientSecret')?.value || '').trim();
+                var okMsg = hasSecret
+                    ? (testMsg || T('traktClientIdValid', 'Trakt Client ID is valid.'))
+                    : T('traktClientIdValidNoSecret', 'Client ID is valid. Add the Client Secret so users can link their accounts.');
+                _traktTimer = showButtonFeedback(btn, true, okMsg, originalHtml, hasSecret ? 3000 : 5000);
                 // Auto-save after a successful test (quiet to avoid double feedback), same as Seerr.
                 var payload = buildSettingsPayload();
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderTrakt')});
