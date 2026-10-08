@@ -235,6 +235,8 @@
   "seerrCleanupAgeDaysHelp": "Pedidos mais antigos serão eliminados. Padrão: 365 dias.",
   "seerrFillFields": "Por favor, preencha primeiro a URL e a chave API.",
   "traktFillFields": "Por favor, preencha primeiro o Client ID.",
+  "traktClientIdValid": "O Client ID do Trakt é válido.",
+  "traktClientIdValidNoSecret": "O Client ID é válido. Adicione o Client Secret para que os utilizadores possam associar as suas contas.",
   "unsavedChangesTitle": "Alterações não salvas",
   "unsavedChangesMsg": "Você tem alterações não salvas. O que deseja fazer?",
   "discardChanges": "Descartar alterações",

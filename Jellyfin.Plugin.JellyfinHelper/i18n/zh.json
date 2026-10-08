@@ -235,6 +235,8 @@
   "seerrCleanupAgeDaysHelp": "超过此天数的请求将被删除。默认：365 天。",
   "seerrFillFields": "请先填写 URL 和 API 密钥。",
   "traktFillFields": "请先填写 Client ID。",
+  "traktClientIdValid": "Trakt Client ID 有效。",
+  "traktClientIdValidNoSecret": "Client ID 有效。请添加 Client Secret，以便用户关联各自的账户。",
   "unsavedChangesTitle": "未保存的更改",
   "unsavedChangesMsg": "您有未保存的设置更改。您想怎么做？",
   "discardChanges": "放弃更改",

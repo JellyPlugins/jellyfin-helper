@@ -235,6 +235,8 @@
   "seerrCleanupAgeDaysHelp": "Les demandes plus anciennes seront supprimées. Par défaut : 365 jours.",
   "seerrFillFields": "Veuillez d'abord remplir l'URL et la clé API.",
   "traktFillFields": "Veuillez d'abord remplir le Client ID.",
+  "traktClientIdValid": "Le Client ID Trakt est valide.",
+  "traktClientIdValidNoSecret": "Le Client ID est valide. Ajoutez le Client Secret pour que les utilisateurs puissent lier leurs comptes.",
   "unsavedChangesTitle": "Modifications non enregistrées",
   "unsavedChangesMsg": "Vous avez des modifications non enregistrées. Que souhaitez-vous faire ?",
   "discardChanges": "Annuler les modifications",

@@ -1264,7 +1264,8 @@ function attachSeerrHandlers() {
 /**
  * Trakt admin test. Validates the shared OAuth application's Client ID against Trakt's client-id-only trending
  * endpoint, then auto-saves on success (quiet) exactly like the Seerr test. The Client Secret is not tested:
- * in the device flow it is only used during token exchange, which no admin-level call can exercise.
+ * in the device flow it is only used during token exchange, which no admin-level call can exercise - so a green
+ * result is labelled as a Client ID check, and a missing secret is called out rather than reported as a full OK.
  */
 function attachTraktHandlers() {
     var btn = document.getElementById('btnTestTrakt');
@@ -1291,7 +1292,14 @@ function attachTraktHandlers() {
             var testOk = res && (res.Success || res.success);
             var testMsg = res && (res.Message || res.message);
             if (testOk) {
-                _traktTimer = showButtonFeedback(btn, true, testMsg || 'OK', originalHtml);
+                // The test only validates the Client ID against Trakt's client-id-only endpoint; the Client
+                // Secret is exercised only during per-user token exchange and cannot be checked here. Make the
+                // button say so, and flag a missing secret, so a green result is not read as a full-config OK.
+                var hasSecret = !!(document.getElementById('cfgTraktClientSecret')?.value || '').trim();
+                var okMsg = hasSecret
+                    ? (testMsg || T('traktClientIdValid', 'Trakt Client ID is valid.'))
+                    : T('traktClientIdValidNoSecret', 'Client ID is valid. Add the Client Secret so users can link their accounts.');
+                _traktTimer = showButtonFeedback(btn, true, okMsg, originalHtml, hasSecret ? 3000 : 5000);
                 // Auto-save after a successful test (quiet to avoid double feedback), same as Seerr.
                 var payload = buildSettingsPayload();
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderTrakt')});
