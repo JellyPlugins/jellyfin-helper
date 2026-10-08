@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.Authentication;
 using System.Text.Json;
@@ -107,6 +108,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             if (!skipCertificateValidation && HasCertificateError(ex))
             {
                 return (false, "TLS certificate validation failed. If the server uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' for this instance.");
+            }
+
+            // The redirect message is already client-safe (built from SafeEndpointLabel, no secrets) and
+            // actionable, so surface it directly instead of the generic fallback.
+            if (ex.StatusCode is >= (HttpStatusCode)300 and <= (HttpStatusCode)399)
+            {
+                return (false, ex.Message);
             }
 
             return (false, "Connection failed. Check the URL and network connectivity.");
@@ -518,6 +526,20 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             request,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
+
+        // We never auto-follow redirects (SSRF/MITM hardening), so a 3xx here means the configured URL is
+        // not the one the server serves the API from (commonly http->https or a canonical host). Turn it
+        // into an actionable error carrying the resolved target instead of a cryptic generic failure.
+        if ((int)response.StatusCode is >= 300 and <= 399)
+        {
+            var location = response.Headers.Location;
+            var target = location is null
+                ? null
+                : SsrfGuard.SafeEndpointLabel(location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(url, location).AbsoluteUri);
+            var hint = target is null ? string.Empty : $" Suggested URL: {target}.";
+            throw new HttpRequestException($"The server redirected the request (HTTP {(int)response.StatusCode}). Check the URL, e.g. use https:// or the exact host the server expects.{hint}", null, response.StatusCode);
+        }
+
         response.EnsureSuccessStatusCode();
 
         return await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);

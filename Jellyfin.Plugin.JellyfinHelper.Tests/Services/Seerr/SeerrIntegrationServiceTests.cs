@@ -1472,4 +1472,26 @@ public partial class SeerrIntegrationServiceTests : IDisposable
             Assert.True(sw.ElapsedMilliseconds < 2000, "Cleanup took too long: " + sw.ElapsedMilliseconds + "ms");
         }
     }
+
+    [Fact]
+    public async Task TestConnection_ServerRedirects_ReturnsActionableMessage()
+    {
+        // A 3xx is never auto-followed (SSRF/MITM hardening); the test must explain the redirect and point
+        // at the URL rather than returning a cryptic "HTTP 301".
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var resp = CreateResponse(HttpStatusCode.MovedPermanently, string.Empty);
+                resp.Headers.Location = new Uri("https://seerr.example.com/api/v1/settings/main");
+                return resp;
+            });
+
+        var service = CreateService(mock.Object, out _, out _);
+        var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, cancellationToken: CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("redirect", message, StringComparison.OrdinalIgnoreCase);
+    }
 }

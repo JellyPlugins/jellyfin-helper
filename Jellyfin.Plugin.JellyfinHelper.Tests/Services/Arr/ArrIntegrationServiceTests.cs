@@ -1564,4 +1564,28 @@ public class ArrIntegrationServiceTests
             Assert.True(sw.ElapsedMilliseconds < maxMilliseconds, $"Took {sw.ElapsedMilliseconds}ms, expected < {maxMilliseconds}ms");
         }
     }
+
+    [Fact]
+    public async Task TestConnection_ServerRedirects_ReturnsActionableMessageWithTarget()
+    {
+        // A 3xx is never auto-followed (SSRF/MITM hardening); the test must explain the redirect and point
+        // at the resolved target instead of surfacing a generic "connection failed".
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var resp = new HttpResponseMessage(HttpStatusCode.MovedPermanently);
+                resp.Headers.Location = new Uri("https://radarr.truenas1.local/api/v3/system/status");
+                return resp;
+            });
+        var service = CreateService(handler.Object);
+
+        var (success, message) = await service.TestConnectionAsync("https://radarr.truenas1.local", "apikey", cancellationToken: CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("redirect", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("radarr.truenas1.local", message, StringComparison.OrdinalIgnoreCase);
+    }
 }

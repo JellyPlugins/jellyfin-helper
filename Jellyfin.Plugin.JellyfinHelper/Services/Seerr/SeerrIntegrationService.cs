@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Authentication;
@@ -73,6 +74,16 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey, skipCertificateValidation);
             using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
             using var response = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+            // A 3xx means the server wants a different URL (commonly a missing trailing slash, http->https,
+            // or a canonical host). We intentionally do not follow redirects (SSRF/MITM hardening), so turn
+            // the otherwise cryptic "HTTP 301" into actionable guidance instead of a generic failure.
+            if (IsRedirect(response.StatusCode))
+            {
+                var location = response.Headers.Location;
+                var suffix = location is not null ? $" Suggested URL: {SsrfGuard.SafeEndpointLabel(location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(baseUri, location).AbsoluteUri)}" : string.Empty;
+                return (false, $"The server redirected the request (HTTP {(int)response.StatusCode}). Check the Seerr URL, e.g. add a trailing slash or use https://.{suffix}");
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -608,6 +619,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         return false;
     }
+
+    // True for the 3xx redirect range. We never auto-follow (SSRF/MITM hardening), so the connection test
+    // treats a redirect as a URL-configuration hint rather than a success or an opaque failure.
+    private static bool IsRedirect(HttpStatusCode status)
+        => (int)status is >= 300 and <= 399;
 
     /// <summary>
     ///     Builds an HttpRequestMessage for the given method and relative path, attaching the API key per-request so the shared factory-managed client is not mutated.
