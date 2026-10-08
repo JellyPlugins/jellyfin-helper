@@ -128,6 +128,7 @@ public sealed class TraktAuthServiceTests : IDisposable
 
     [Theory]
     [InlineData(HttpStatusCode.BadRequest, TraktDevicePollStatus.Pending)]
+    [InlineData(HttpStatusCode.TooManyRequests, TraktDevicePollStatus.SlowDown)]
     [InlineData(HttpStatusCode.Gone, TraktDevicePollStatus.Expired)]
     [InlineData((HttpStatusCode)418, TraktDevicePollStatus.Denied)]
     [InlineData(HttpStatusCode.InternalServerError, TraktDevicePollStatus.Error)]
@@ -159,6 +160,36 @@ public sealed class TraktAuthServiceTests : IDisposable
     {
         var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), "   ", CancellationToken.None);
         Assert.Equal(TraktDevicePollStatus.Error, status);
+    }
+
+    [Fact]
+    public async Task PollDeviceAuth_AnchorsExpiryOnCreatedAt_NotLocalClock()
+    {
+        var userId = Guid.NewGuid();
+
+        // created_at is one hour before this server's clock (clock drift): expiry must anchor on
+        // Trakt's issue time (created_at + expires_in), not _utcNow() + expires_in.
+        var createdAt = new DateTimeOffset(_now.AddHours(-1), TimeSpan.Zero).ToUnixTimeSeconds();
+        Enqueue(HttpStatusCode.OK, $$"""{"access_token":"acc","refresh_token":"ref","expires_in":7776000,"created_at":{{createdAt}}}""");
+
+        var status = await CreateService().PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Linked, status);
+        Assert.Equal(_now.AddHours(-1).AddSeconds(7776000), _store.GetToken(userId)!.ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task PollDeviceAuth_FallsBackToLocalClock_WhenCreatedAtAbsent()
+    {
+        var userId = Guid.NewGuid();
+
+        // A response without created_at (0) falls back to the local clock so expiry stays well-defined.
+        Enqueue(HttpStatusCode.OK, """{"access_token":"acc","refresh_token":"ref","expires_in":7776000}""");
+
+        var status = await CreateService().PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+
+        Assert.Equal(TraktDevicePollStatus.Linked, status);
+        Assert.Equal(_now.AddSeconds(7776000), _store.GetToken(userId)!.ExpiresAtUtc);
     }
 
     [Fact]

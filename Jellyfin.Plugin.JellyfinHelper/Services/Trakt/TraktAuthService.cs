@@ -145,6 +145,8 @@ public sealed class TraktAuthService : ITraktAuthService
                     return TraktDevicePollStatus.Linked;
                 case HttpStatusCode.BadRequest:
                     return TraktDevicePollStatus.Pending;
+                case HttpStatusCode.TooManyRequests:
+                    return TraktDevicePollStatus.SlowDown;
                 case HttpStatusCode.Gone:
                     return TraktDevicePollStatus.Expired;
                 case (HttpStatusCode)418:
@@ -351,13 +353,26 @@ public sealed class TraktAuthService : ITraktAuthService
         {
             AccessToken = token.AccessToken,
             RefreshToken = string.IsNullOrEmpty(token.RefreshToken) ? previousRefreshToken ?? string.Empty : token.RefreshToken,
-            ExpiresAtUtc = _utcNow().AddSeconds(token.ExpiresIn),
+            ExpiresAtUtc = ComputeExpiry(token),
         };
         await _store.SaveAsync(userId, stored, cancellationToken).ConfigureAwait(false);
         return stored;
     }
 
     private static PluginConfiguration? GetConfig() => Plugin.Instance?.Configuration;
+
+    // Anchor expiry on Trakt's own created_at (the authoritative issue time) so the lifetime does not
+    // drift with the gap between this server's clock and Trakt's. Fall back to the local clock only when
+    // created_at is absent (0), which a well-formed Trakt token response never is.
+    private DateTime ComputeExpiry(TraktTokenResponse token)
+    {
+        if (token.CreatedAt > 0)
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(token.CreatedAt).UtcDateTime.AddSeconds(token.ExpiresIn);
+        }
+
+        return _utcNow().AddSeconds(token.ExpiresIn);
+    }
 
     private static bool ContainsControlCharacters(string value)
         => value.Contains('\r', StringComparison.Ordinal)

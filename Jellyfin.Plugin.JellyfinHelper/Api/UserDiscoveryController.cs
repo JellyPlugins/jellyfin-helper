@@ -754,6 +754,13 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(StatusCodes.Status410Gone, new TraktDevicePollResponse { Status = status.ToString() });
         }
 
+        // Trakt asked us to slow down: surface a 429 with a Retry-After so the client backs off one
+        // interval instead of restarting the whole device flow.
+        if (status == TraktDevicePollStatus.SlowDown)
+        {
+            return TooMany((int)Math.Ceiling(TraktDevicePollRateLimit.TotalSeconds));
+        }
+
         return Ok(new TraktDevicePollResponse { Status = status.ToString() });
     }
 

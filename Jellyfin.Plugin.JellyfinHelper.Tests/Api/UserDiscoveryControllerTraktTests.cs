@@ -211,6 +211,17 @@ public sealed class UserDiscoveryControllerTraktTests
     }
 
     [Fact]
+    public async Task PollTraktDevice_SlowDown_Returns429()
+    {
+        var userId = Guid.NewGuid();
+        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.SlowDown);
+
+        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
+
+        Assert.Equal(429, Status(result));
+    }
+
+    [Fact]
     public async Task PollTraktDevice_SecondCallWithinWindow_Returns429()
     {
         var userId = Guid.NewGuid();
