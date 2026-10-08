@@ -572,8 +572,6 @@ function loadSettings(onDone) {
         if (cfg.DiscoveryUserAccessEnabled) {
             h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
             h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server at trakt.tv/oauth/applications. The application form requires a Redirect URI field: set it to urn:ietf:wg:oauth:2.0:oob (the device-flow placeholder — no redirect actually happens). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
-            // Filled in by the official-plugin status probe (loadTraktOfficialStatus) after render; hidden until known.
-            h += '<div id="traktOfficialBadge" class="trakt-official-callout" style="display:none;"></div>';
             // Master sourcing switch (user-facing, default on). Off suppresses Trakt entirely - own app AND the
             // official plugin - so the admin keeps a global off-switch even when the official plugin is installed.
             h += '<div class="checkbox-row">';
@@ -582,9 +580,17 @@ function loadSettings(onDone) {
             h += '</div>';
             // Card is always collapsed by default: the official plugin may already cover Trakt, and an admin who
             // wants their own app (e.g. VIP) can still expand and fill the fields - own creds take precedence.
-            h += '<div class="arr-collapsible" id="arrCollapsibleTrakt">';
+            // The whole collapsible is hidden while Trakt discovery is switched off: configuring an own app is
+            // pointless when nothing sources from Trakt. Initial state follows the saved value; the checkbox
+            // change handler (wired after render) toggles it live without a save/reload.
+            var traktSourcingOn = cfg.TraktSourcingEnabled !== false;
+            h += '<div class="arr-collapsible" id="arrCollapsibleTrakt"' + (traktSourcingOn ? '' : ' style="display:none;"') + '>';
             h += renderArrCollapseButton(false, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), '', 'Trakt');
             h += '<div class="arr-collapsible-body" aria-hidden="true">';
+            // Official-plugin "detected" callout lives INSIDE the collapsible: it explains that the Client ID
+            // fields right below are optional because the official plugin already supplies a connection. Filled
+            // in by the status probe (loadTraktOfficialStatus) after render; hidden until the probe resolves.
+            h += '<div id="traktOfficialBadge" class="trakt-official-callout" style="display:none;"></div>';
             h += '<label for="cfgTraktClientId">' + escHtml(T('traktClientId', 'Trakt Client ID')) + '</label>';
             h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
             h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
@@ -1284,6 +1290,17 @@ function attachSeerrHandlers() {
  */
 function attachTraktHandlers() {
     loadTraktOfficialStatus();
+
+    // Live-toggle the "Trakt Application" collapsible with the "Enable Trakt discovery" switch: configuring an
+    // own app is pointless while nothing sources from Trakt, so hide the whole collapsible when the switch is off.
+    var sourcingChk = document.getElementById('cfgTraktSourcingEnabled');
+    var traktCollapsible = document.getElementById('arrCollapsibleTrakt');
+    if (sourcingChk && traktCollapsible) {
+        sourcingChk.addEventListener('change', function () {
+            traktCollapsible.style.display = sourcingChk.checked ? '' : 'none';
+        });
+    }
+
     var btn = document.getElementById('btnTestTrakt');
     if (!btn) return;
     var _traktTimer = null;
