@@ -861,12 +861,12 @@
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
-            // Trakt deep link to the canonical app.trakt.tv page via the slug the API returns
+            // Trakt deep link to the canonical trakt.tv page via the slug the API returns
             // (ids.slug). The old trakt.tv/search/tmdb/:id route 404s, and slugs must never be
             // guessed from titles, so the link renders only with a sane slug while Trakt is on.
             if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
                 var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
-                var traktExtUrl = 'https://app.trakt.tv/' + traktPath + '/' + r.TraktSlug;
+                var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
             }

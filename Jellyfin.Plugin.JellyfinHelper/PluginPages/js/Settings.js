@@ -572,7 +572,7 @@ function loadSettings() {
         if (cfg.DiscoveryUserAccessEnabled) {
             var traktHasCfg = !!(cfg.TraktClientId && cfg.TraktClientSecret);
             h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
-            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server (trakt.tv/oauth/applications, redirect URI urn:ietf:wg:oauth:2.0:oob). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server at trakt.tv/oauth/applications. The application form requires a Redirect URI field: set it to urn:ietf:wg:oauth:2.0:oob (the device-flow placeholder — no redirect actually happens). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
             h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
             h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
             h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
@@ -580,7 +580,7 @@ function loadSettings() {
             h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
             h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
             h += '<input type="password" id="cfgTraktClientSecret">';
-            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications with redirect URI urn:ietf:wg:oauth:2.0:oob.')) + '</div>';
+            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications. Set its required Redirect URI field to urn:ietf:wg:oauth:2.0:oob; the device flow performs no redirect, so the value is only a form placeholder.')) + '</div>';
             h += '<div style="margin-top:0.5em;">';
             h += '<button type="button" class="action-btn btn-arr-test" id="btnTestTrakt" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + escHtml(T('testConnection', 'Test Connection')) + '</button>';
             h += '</div>';
