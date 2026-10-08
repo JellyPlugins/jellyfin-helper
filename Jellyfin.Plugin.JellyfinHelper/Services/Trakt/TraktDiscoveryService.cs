@@ -76,8 +76,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null)
+        if (config is null || !config.TraktSourcingEnabled)
         {
+            // Master switch off: source nothing from either own creds or the official plugin, and drop any warm
+            // pool so flipping the switch takes effect immediately rather than on the 12h TTL.
+            _cache.InvalidatePersonal(userId);
             return null;
         }
 
@@ -103,10 +106,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var candidates = new List<ExternalDiscoveryCandidate>();
         candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false));
 
-        // The movies fetch on the own flow can unlink the user mid-flight (dead grant) and roll the token on a
-        // mid-flight refresh. The 401-retry inside FetchPersonalAsync already recovers the rolled token for the
-        // call it happens on, but the shows fetch runs with a separate request; re-resolve so it never fetches
-        // with a dead/stale own token. The official source has no 401-unlink path, so this returns the same token.
+        // The movies fetch on the own flow can unlink the user mid-flight (dead grant). Re-resolve before the
+        // shows fetch so it never runs with a dead own token. Because own-precedence is strict (an own-linked
+        // user whose token is gone resolves to null, never to the official token), a re-resolve that now returns
+        // null means the own link died mid-flight: stop rather than silently finishing on a different source.
         var showsSource = await ResolvePersonalSourceAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (showsSource is null)
         {
@@ -132,36 +135,52 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task<bool> IsLinkedForAsync(Guid userId, CancellationToken cancellationToken)
+    public Task<bool> IsLinkedForAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null)
+        if (config is null || !config.TraktSourcingEnabled)
         {
-            return false;
+            return Task.FromResult(false);
         }
 
-        return await ResolvePersonalSourceAsync(userId, config, cancellationToken).ConfigureAwait(false) is not null;
+        // Answer "is this user linked?" WITHOUT forcing a token refresh. A link-status check runs on every tab
+        // load / status poll; calling GetValidAccessTokenAsync here would hit the network and rotate the
+        // single-use refresh token just to answer a boolean. Read link state cheaply instead:
+        //   - own: the store says the user is linked and own creds exist (the actual token is validated/refreshed
+        //     later on the fetch path);
+        //   - official: the plugin is present and holds a usable, unexpired token (a pure file read).
+        var ownLinked = _store.GetToken(userId)?.IsLinked == true && !string.IsNullOrWhiteSpace(config.TraktClientId);
+        if (ownLinked)
+        {
+            return Task.FromResult(true);
+        }
+
+        var officialLinked = _officialPlugin.IsPresent() && _officialPlugin.TryGetToken(userId, _now()) is not null;
+        return Task.FromResult(officialLinked);
     }
 
-    // Picks the per-user personal source, own-link first then the official plugin. Returns null when neither is
-    // usable for this user. For the own path the token is read via the async auth service (so a mid-flight rotation
-    // is picked up on the next call); for the official path the token is read-only from the foreign config and
-    // never refreshed.
+    // Picks the per-user personal source for the FETCH path, own-link first then the official plugin. Returns null
+    // when neither is usable. Own-precedence is strict: if the user is own-linked but the own token is currently
+    // unavailable (transient refresh failure, revoked grant), this returns null rather than falling back to the
+    // official token - the user explicitly linked their own account, so a transient own-token outage must not
+    // silently switch their source (and mix two sources' results in the cache). The official branch is reached
+    // only for a user with no own link at all. The official token is read-only and never refreshed by the Helper.
     private async Task<PersonalSource?> ResolvePersonalSourceAsync(Guid userId, PluginConfiguration config, CancellationToken cancellationToken)
     {
-        // Own device-flow link wins, so installing the official plugin never silently switches the source for a
-        // user who already linked here. GetValidAccessTokenAsync may issue a refresh grant, which we want on the
-        // own path; it is awaited (never sync-over-async) and honors the request cancellation token.
+        // Own device-flow link wins. GetValidAccessTokenAsync may issue a refresh grant, which we want on the own
+        // path; it is awaited (never sync-over-async) and honors the request cancellation token.
         if (_store.GetToken(userId)?.IsLinked == true && !string.IsNullOrWhiteSpace(config.TraktClientId))
         {
             var ownToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(ownToken))
-            {
-                return new PersonalSource(config.TraktClientId!, ownToken, IsOwnFlow: true);
-            }
+
+            // Strict precedence: an own-linked user with no currently-usable own token gets no source this
+            // request (empty grid), NOT the official token. Do not fall through to the official branch.
+            return string.IsNullOrEmpty(ownToken)
+                ? null
+                : new PersonalSource(config.TraktClientId, ownToken, IsOwnFlow: true);
         }
 
-        // Fallback: the official plugin holds a usable, unexpired token for this Jellyfin user.
+        // No own link at all: the official plugin may hold a usable, unexpired token for this Jellyfin user.
         if (_officialPlugin.IsPresent())
         {
             var officialToken = _officialPlugin.TryGetToken(userId, _now());
@@ -182,10 +201,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         var config = GetConfig();
 
-        // Trending is sourceable whenever Trakt is at all: own creds (TraktEnabled) OR the official plugin present.
-        // Gating purely on TraktEnabled would blank the trending grid on an official-plugin-only server, which has
-        // no own creds. Unlike personal, trending needs only a client id (no bearer), so the official app id is fine.
-        if (config is null || (!config.TraktEnabled && !_officialPlugin.IsPresent()))
+        // Trending is sourceable when the master switch is on AND Trakt is available at all: own creds
+        // (TraktEnabled) OR the official plugin present. Gating purely on TraktEnabled would blank the trending
+        // grid on an official-plugin-only server, which has no own creds. Unlike personal, trending needs only a
+        // client id (no bearer), so the official app id is fine.
+        if (config is null || !config.TraktSourcingEnabled || (!config.TraktEnabled && !_officialPlugin.IsPresent()))
         {
             return null;
         }
@@ -226,8 +246,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     public async Task RefreshAllAsync(CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null)
+        if (config is null || !config.TraktSourcingEnabled)
         {
+            // Master switch off: warm nothing. (The next live request also short-circuits, so no stale pool.)
             return;
         }
 

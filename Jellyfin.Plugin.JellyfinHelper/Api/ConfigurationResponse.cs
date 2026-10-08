@@ -54,6 +54,9 @@ public sealed class ConfigurationResponse
     /// <summary>Gets a value indicating whether the Trakt discovery source is enabled.</summary>
     public bool TraktEnabled { get; init; }
 
+    /// <summary>Gets a value indicating whether Trakt sourcing is enabled (user-facing master switch).</summary>
+    public bool TraktSourcingEnabled { get; init; }
+
     /// <summary>Gets the Trakt OAuth client id (not secret, returned as-is).</summary>
     public string TraktClientId { get; init; } = string.Empty;
 
@@ -143,6 +146,7 @@ public sealed class ConfigurationResponse
             SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
             TraktEnabled = config.TraktEnabled,
+            TraktSourcingEnabled = config.TraktSourcingEnabled,
             TraktClientId = config.TraktClientId,
             TraktClientSecret = string.IsNullOrWhiteSpace(config.TraktClientSecret) ? string.Empty : ApiKeyMask,
             TraktTimeoutSeconds = config.TraktTimeoutSeconds,

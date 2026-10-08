@@ -9,6 +9,13 @@ import { apiContext, normalUserContext, loadAuth, p, API_KEY_MASK } from '../set
 // The mock is published to the host on loopback; the plugin container reaches it as mock-trakt.
 const MOCK_TRAKT_PUBLIC = process.env.MOCK_TRAKT_PUBLIC_URL ?? 'http://localhost:9100';
 
+// When the external plugins are staged, global-setup seeds the OFFICIAL Trakt plugin with a token for THIS same
+// normal user. The Helper then legitimately reports that user as linked (sourced through the official plugin),
+// so the two tests below that assert an UNLINKED starting state no longer hold for this user. They still run in
+// the common no-external-plugins CI leg (own device flow only); the official-plugin path is covered end to end
+// by trakt-official-plugin.api.spec.ts.
+const OFFICIAL_PLUGIN_STAGED = process.env.JFH_E2E_EXTERNAL_PLUGINS === '1';
+
 const auth = loadAuth();
 let admin: APIRequestContext;
 let user: APIRequestContext | null;
@@ -200,6 +207,7 @@ test.beforeEach(async () => {
 });
 
 test('personal Trakt starts unlinked, then links through the device flow', async () => {
+  test.skip(OFFICIAL_PLUGIN_STAGED, 'official plugin seeds this user a token -> not unlinked; covered by trakt-official-plugin.api.spec.ts');
   expect(user, 'normal user required').toBeTruthy();
 
   // Before linking the personal endpoint reports Linked=false (the UI shows the connect panel).
@@ -244,6 +252,7 @@ test('trending is available without linking', async () => {
 });
 
 test('disconnect clears the link', async () => {
+  test.skip(OFFICIAL_PLUGIN_STAGED, 'official plugin keeps this user linked after an own-flow disconnect; covered by trakt-official-plugin.api.spec.ts');
   expect(user, 'normal user required').toBeTruthy();
   await ensureLinkedForDisconnect();
   const res = await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), { headers: { 'Content-Type': 'application/json' }, data: {} });

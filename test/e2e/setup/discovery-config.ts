@@ -13,9 +13,10 @@ import type { APIRequestContext } from '@playwright/test';
 export const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
 export const OFFICIAL_TRAKT_GUID = '4fe3201e-d6ae-4f2e-8917-e12bda571281';
 
-// The token the official-plugin spec expects the Helper to read from Trakt.xml and forward to mock-trakt. Must
-// match mock-trakt's TRAKT_EXPECTED_BEARER (default 'seeded-official-token').
-export const SEEDED_OFFICIAL_TRAKT_TOKEN = 'seeded-official-token';
+// The token the official-plugin spec expects the Helper to read from Trakt.xml and forward to mock-trakt. Resolves
+// from the SAME env var + default as mock-trakt's TRAKT_EXPECTED_BEARER (test/e2e/mocks/trakt-server.js), so an
+// override stays in sync on both sides instead of the mock 401ing a seed it never agreed on.
+export const SEEDED_OFFICIAL_TRAKT_TOKEN = process.env.TRAKT_EXPECTED_BEARER ?? 'seeded-official-token';
 
 // Internal compose address of the mock Seerr; the toggle only sticks with
 // Recommendations active + Seerr configured.
@@ -80,8 +81,9 @@ export async function seedOfficialTraktPlugin(
     return;
   }
 
-  // Far-future expiry so the reader never treats it as expired regardless of the server's clock/timezone. The
-  // official plugin stores DateTime; an ISO-8601 string round-trips through its XmlSerializer config.
+  // Far-future expiry so the reader never treats it as expired regardless of the server's clock/timezone. Written
+  // WITHOUT an offset on purpose: the real official plugin stores DateTime.Now (local, Unspecified kind), and the
+  // reader interprets an offset-less value as local time to match - adding a 'Z' would misrepresent the format.
   const res = await admin.post(`/Plugins/${OFFICIAL_TRAKT_GUID}/Configuration`, {
     headers: { 'Content-Type': 'application/json' },
     data: {

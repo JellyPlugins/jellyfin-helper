@@ -573,7 +573,13 @@ function loadSettings(onDone) {
             h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
             h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server at trakt.tv/oauth/applications. The application form requires a Redirect URI field: set it to urn:ietf:wg:oauth:2.0:oob (the device-flow placeholder — no redirect actually happens). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
             // Filled in by the official-plugin status probe (loadTraktOfficialStatus) after render; hidden until known.
-            h += '<div id="traktOfficialBadge" class="help-text" style="display:none;"></div>';
+            h += '<div id="traktOfficialBadge" class="trakt-official-callout" style="display:none;"></div>';
+            // Master sourcing switch (user-facing, default on). Off suppresses Trakt entirely - own app AND the
+            // official plugin - so the admin keeps a global off-switch even when the official plugin is installed.
+            h += '<div class="checkbox-row">';
+            h += '<input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === false ? '' : ' checked') + '>';
+            h += '<label for="cfgTraktSourcingEnabled" style="margin:0;">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label>';
+            h += '</div>';
             // Card is always collapsed by default: the official plugin may already cover Trakt, and an admin who
             // wants their own app (e.g. VIP) can still expand and fill the fields - own creds take precedence.
             h += '<div class="arr-collapsible" id="arrCollapsibleTrakt">';
@@ -719,6 +725,8 @@ function buildSettingsPayload() {
         // server derives TraktEnabled from whether a client id + secret are stored.
         TraktClientId: document.getElementById('cfgTraktClientId') ? document.getElementById('cfgTraktClientId').value : null,
         TraktClientSecret: document.getElementById('cfgTraktClientSecret') ? document.getElementById('cfgTraktClientSecret').value : null,
+        // Master sourcing switch; null when the card is not rendered (partial PUT) so the stored value survives.
+        TraktSourcingEnabled: document.getElementById('cfgTraktSourcingEnabled') ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = document.getElementById('cfgSeerrUrl')?.value || '';
@@ -1333,8 +1341,17 @@ function loadTraktOfficialStatus() {
             badge.style.display = 'none';
             return;
         }
-        badge.innerHTML = mi('check_circle') + ' ' + escHtml(T('traktOfficialDetected',
-            'Official Trakt plugin detected — the Helper uses its connection, so a Client ID below is optional. Leave it empty, or enter your own (e.g. Trakt VIP) to override.'));
+        badge.innerHTML =
+            '<span class="trakt-official-callout__icon">' + mi('check_circle') + '</span>' +
+            '<span class="trakt-official-callout__text">' +
+                '<strong class="trakt-official-callout__title">' +
+                    escHtml(T('traktOfficialDetectedTitle', 'Official Trakt plugin detected')) +
+                '</strong>' +
+                '<span class="trakt-official-callout__hint">' +
+                    escHtml(T('traktOfficialDetected',
+                        'The Helper uses its connection, so a Client ID below is optional. Leave it empty, or enter your own (e.g. Trakt VIP) to override.')) +
+                '</span>' +
+            '</span>';
         badge.style.display = '';
     }, function () {
         // Status is advisory only; on error leave the badge hidden and fall back to the own-app flow.

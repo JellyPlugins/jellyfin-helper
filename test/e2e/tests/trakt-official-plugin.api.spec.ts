@@ -11,7 +11,7 @@
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p } from '../setup/api-client.ts';
-import { SEEDED_OFFICIAL_TRAKT_TOKEN } from '../setup/discovery-config.ts';
+import { SEEDED_OFFICIAL_TRAKT_TOKEN, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 
 const MOCK_TRAKT_PUBLIC = process.env.MOCK_TRAKT_PUBLIC_URL ?? 'http://localhost:9100';
 
@@ -25,14 +25,31 @@ test.describe('Trakt via official plugin', () => {
   test.beforeAll(async () => {
     admin = await apiContext(auth);
     user = await normalUserContext(auth);
+
+    // Earlier api specs PUT /Configuration and can leave DiscoveryUserAccessEnabled=false by the time this spec
+    // runs (shared backend, workers:1). Re-assert discovery config so the user-facing Trakt endpoints are not
+    // 403'd by the access gate, then poll until the probing user actually sees non-403 before any test body.
+    await ensureDiscoveryConfigured(admin, (m) => console.log(`[trakt-official] ${m}`));
+    await waitForTraktAccessible();
   });
 
   test.afterAll(async () => {
-    await admin.dispose();
-    if (user) {
-      await user.dispose();
-    }
+    await admin?.dispose();
+    await user?.dispose();
   });
+
+  /** Poll Discovery/My/Trakt as the normal user until it stops returning 403 (access-gate trample settled). */
+  async function waitForTraktAccessible(): Promise<void> {
+    requireNormalUser(user);
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      const res = await user!.get(p('Discovery/My/Trakt'));
+      if (res.status() !== 403) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error('Discovery/My/Trakt stayed 403 after re-asserting discovery config (access-gate trample did not settle)');
+  }
 
   /** Read a mock-trakt test hook from the host. */
   async function traktHookJson<T>(path: string): Promise<T> {
@@ -61,10 +78,12 @@ test.describe('Trakt via official plugin', () => {
     // The normal user is NOT linked via our own device flow, so source resolution falls through to the official
     // plugin's seeded token. Disconnect clears any residual own-link AND drops the Helper's personal cache, so
     // the GET below cannot be served from a warm own-flow pool (which would falsify the bearer-provenance check).
-    await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), {
+    const disconnect = await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), {
       headers: { 'Content-Type': 'application/json' },
       data: {},
     });
+    expect(disconnect.ok(), `disconnect: ${disconnect.status()}`).toBeTruthy();
+    expect((await disconnect.json()).Success).toBe(true);
 
     const res = await user!.get(p('Discovery/My/Trakt'));
     expect(res.ok(), `GET Discovery/My/Trakt: ${res.status()}`).toBeTruthy();

@@ -93,6 +93,12 @@ public class ConfigurationUpdateRequest
     public bool? TraktEnabled { get; init; }
 
     /// <summary>
+    ///     Gets a value indicating whether Trakt sourcing is enabled (user-facing master switch). Null when the
+    ///     client omits it (partial PUT) so the stored value is preserved; a non-null value is persisted verbatim.
+    /// </summary>
+    public bool? TraktSourcingEnabled { get; init; }
+
+    /// <summary>
     ///     Gets the Trakt OAuth application client id. Nullable: a client without the Trakt card (Discovery
     ///     sidebar off) sends null so the stored value is preserved rather than cleared.
     /// </summary>

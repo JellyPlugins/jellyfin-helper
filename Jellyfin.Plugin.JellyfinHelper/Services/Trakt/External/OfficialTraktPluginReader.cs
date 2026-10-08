@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Xml;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -77,8 +78,16 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         }
         catch (Exception ex)
         {
-            // A presence probe must never throw into discovery or the UI. Treat any failure as "absent" so the
-            // Helper falls back to its own-client-id flow rather than crashing.
+            // A presence probe must never throw into discovery or the UI. The broad catch is intentional (the
+            // injected delegate calls the host IPluginManager, whose failure modes we do not control), so treat
+            // ANY non-fatal failure as "absent" and fall back to the own-client-id flow. SonarCloud S2221 flags
+            // this generic catch - it is accepted by design here, not suppressed. Fatal process-ending exceptions
+            // still propagate.
+            if (ex.IsFatal())
+            {
+                throw;
+            }
+
             _pluginLog.LogWarning(LogSource, "Official Trakt plugin presence probe failed; treating as absent.", ex, _logger);
             return false;
         }
@@ -97,14 +106,12 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         {
             users = ParseUsers(_configPath);
         }
-        catch (Exception ex) when (ex is IOException
-                                        or UnauthorizedAccessException
-                                        or XmlException
-                                        or FormatException
-                                        or OverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Malformed/locked/foreign-schema-changed config must degrade to "no token" (own-flow fallback),
-            // never throw. The message carries no token material.
+            // never throw. FileStream/XmlReader.Create can throw beyond IO/Xml (ArgumentException,
+            // NotSupportedException, SecurityException, ...), so catch all non-fatal failures. No token material
+            // is logged.
             _pluginLog.LogWarning(LogSource, "Could not read a token from the official Trakt plugin configuration.", ex, _logger);
             return null;
         }
@@ -137,21 +144,19 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         {
             users = ParseUsers(_configPath);
         }
-        catch (Exception ex) when (ex is IOException
-                                        or UnauthorizedAccessException
-                                        or XmlException
-                                        or FormatException
-                                        or OverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(LogSource, "Could not enumerate linked users from the official Trakt plugin configuration.", ex, _logger);
             return [];
         }
 
         var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
         foreach (var (userId, token) in users)
         {
             // Only users whose token is still usable: a user we would skip in TryGetToken is not worth warming.
-            if (token.AccessTokenExpiration > now && !ids.Contains(userId))
+            // Dedupe via a set so a duplicate LinkedMbUserId in the foreign config yields one entry.
+            if (token.AccessTokenExpiration > now && seen.Add(userId))
             {
                 ids.Add(userId);
             }
@@ -182,9 +187,9 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
 
         using var reader = XmlReader.Create(fileStream, settings);
 
-        // Element names mirror the foreign plugin's TraktUser properties (standard XmlSerializer output).
+        // Element names mirror the foreign plugin's TraktUser properties (standard XmlSerializer output). We read
+        // only the fields we need - the refresh token is intentionally not captured (the Helper never refreshes).
         string? accessToken = null;
-        string? refreshToken = null;
         string? linkedUserId = null;
         string? expiration = null;
         var insideUser = false;
@@ -194,7 +199,7 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         {
             if (insideUser)
             {
-                var built = TryBuildEntry(accessToken, refreshToken, linkedUserId, expiration);
+                var built = TryBuildEntry(accessToken, linkedUserId, expiration);
                 if (built is not null)
                 {
                     result.Add(built.Value);
@@ -202,7 +207,6 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             }
 
             accessToken = null;
-            refreshToken = null;
             linkedUserId = null;
             expiration = null;
         }
@@ -235,9 +239,6 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
                 case "AccessToken" when insideUser:
                     accessToken = reader.ReadElementContentAsString(); // advances past end tag
                     break;
-                case "RefreshToken" when insideUser:
-                    refreshToken = reader.ReadElementContentAsString();
-                    break;
                 case "LinkedMbUserId" when insideUser:
                     linkedUserId = reader.ReadElementContentAsString();
                     break;
@@ -256,7 +257,6 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
 
     private static (Guid UserId, OfficialTraktToken Token)? TryBuildEntry(
         string? accessToken,
-        string? refreshToken,
         string? linkedUserId,
         string? expiration)
     {
@@ -265,8 +265,9 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             return null;
         }
 
-        // A linked user with no access token is not usable; drop it so callers fall back to the own-client-id flow.
-        if (string.IsNullOrEmpty(accessToken))
+        // A linked user with no usable access token is dropped so callers fall back to the own-client-id flow.
+        // Whitespace-only is treated as absent: it would produce a malformed Authorization header, not a token.
+        if (string.IsNullOrWhiteSpace(accessToken))
         {
             return null;
         }
@@ -296,6 +297,6 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             expiry = DateTimeOffset.MinValue;
         }
 
-        return (parsedUserId, new OfficialTraktToken(accessToken, refreshToken ?? string.Empty, expiry));
+        return (parsedUserId, new OfficialTraktToken(accessToken, expiry));
     }
 }

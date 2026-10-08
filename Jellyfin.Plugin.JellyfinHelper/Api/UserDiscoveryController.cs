@@ -687,7 +687,9 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult> StartTraktDevice(CancellationToken cancellationToken)
     {
-        var accessError = CheckTraktAccess();
+        // Device flow is the OWN-creds flow: an official-plugin-only server has no app to authorize against,
+        // so gate on own creds (not the official-plugin OR) to avoid issuing device codes that cannot complete.
+        var accessError = CheckOwnTraktAccess();
         if (accessError is not null)
         {
             return accessError;
@@ -728,7 +730,8 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult> PollTraktDevice([FromBody] TraktDevicePollRequest dto, CancellationToken cancellationToken)
     {
-        var accessError = CheckTraktAccess();
+        // Own-creds gate, matching StartTraktDevice: polling a device code only makes sense for the own flow.
+        var accessError = CheckOwnTraktAccess();
         if (accessError is not null)
         {
             return accessError;
@@ -880,28 +883,52 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Checks whether Trakt can be sourced at all: either the admin stored own client-id credentials (the
-    ///     derived TraktEnabled flag), or the official Trakt plugin is present and can supply per-user tokens.
-    ///     The latter lets free-account users who only run the official plugin still get Trakt discovery without
-    ///     a colliding second app.
+    ///     Checks whether Trakt can be sourced at all for read endpoints (personal/trending/disconnect): the
+    ///     master <see cref="Configuration.PluginConfiguration.TraktSourcingEnabled"/> switch is on AND either the
+    ///     admin stored own client-id credentials (the derived TraktEnabled flag) or the official Trakt plugin is
+    ///     present and can supply per-user tokens. The latter lets free-account users who only run the official
+    ///     plugin still get Trakt discovery without a colliding second app.
     /// </summary>
-    private bool IsTraktEnabled() =>
-        _configurationService.GetConfiguration().TraktEnabled || _officialTraktPlugin.IsPresent();
+    private bool IsTraktEnabled()
+    {
+        var config = _configurationService.GetConfiguration();
+        return config.TraktSourcingEnabled && (config.TraktEnabled || _officialTraktPlugin.IsPresent());
+    }
 
     /// <summary>
-    ///     Combined gate for every user-facing Trakt endpoint. Trakt tabs are a feature of the Discovery sidebar,
-    ///     so they require BOTH that the admin granted user-level discovery access AND that Trakt is configured.
-    ///     Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access is allowed.
-    ///     The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs at all.
+    ///     Checks whether the OWN device-flow endpoints (Start/Poll) may run. These require the admin's own OAuth
+    ///     app (client id + secret => TraktEnabled) plus the master switch; the official plugin's presence does
+    ///     NOT enable them, because there is no own client id to run a device flow against and nothing to link to.
     /// </summary>
-    private ObjectResult? CheckTraktAccess()
+    private bool IsOwnTraktEnabled()
+    {
+        var config = _configurationService.GetConfiguration();
+        return config.TraktSourcingEnabled && config.TraktEnabled;
+    }
+
+    /// <summary>
+    ///     Combined gate for the user-facing Trakt READ endpoints. Trakt tabs are a feature of the Discovery
+    ///     sidebar, so they require BOTH that the admin granted user-level discovery access AND that Trakt is
+    ///     sourceable. Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access
+    ///     is allowed. The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs.
+    /// </summary>
+    private ObjectResult? CheckTraktAccess() => CheckTraktAccessCore(IsTraktEnabled());
+
+    /// <summary>
+    ///     Gate for the OWN device-flow endpoints (Start/Poll): discovery access plus own OAuth creds. An
+    ///     official-plugin-only server (no own client id) 403s here, so device codes are never issued without an
+    ///     app to authorize against.
+    /// </summary>
+    private ObjectResult? CheckOwnTraktAccess() => CheckTraktAccessCore(IsOwnTraktEnabled());
+
+    private ObjectResult? CheckTraktAccessCore(bool traktAvailable)
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
             return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
-        if (!IsTraktEnabled())
+        if (!traktAvailable)
         {
             return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
         }

@@ -338,7 +338,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
 │   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
 │   │   └── External/                      # Official-Trakt-plugin reader tests
-│   │       └── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE config; leaves file unchanged
+│   │       ├── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE/oversize config; dedupes linked users; leaves file unchanged
+│   │       └── OfficialTraktPluginGuidsTests.cs # Pins the foreign plugin id (4fe3201e-…) + config file name (Trakt.xml) so a silent change to either is caught
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -692,7 +693,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── External/                # Coupling to the OFFICIAL Jellyfin Trakt plugin, confined to one place
 │   │       ├── IOfficialTraktPluginReader.cs # Presence probe + read-only per-user token lookup contract
 │   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic, whitespace-packing-safe); TryGetToken matches on LinkedMbUserId, GetLinkedUserIds enumerates all usable users (for pre-warming); honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed
-│   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access/refresh/expiry); never references the foreign assembly
+│   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access token + expiry; no refresh token held); never references the foreign assembly
 │   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task

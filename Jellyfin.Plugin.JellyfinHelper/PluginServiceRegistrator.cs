@@ -139,9 +139,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             var pluginManager = sp.GetService<MediaBrowser.Common.Plugins.IPluginManager>();
             var appPaths = sp.GetService<MediaBrowser.Common.Configuration.IApplicationPaths>();
             var configurationsPath = appPaths?.PluginConfigurationsPath;
-            var configPath = string.IsNullOrEmpty(configurationsPath)
-                ? null
-                : Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName);
+
+            // Only hand the reader a fully-qualified path. A relative/empty value would make File.Exists resolve
+            // against the process CWD (not the config dir), so treat it as "no config" and let the reader report
+            // the plugin absent rather than probing an unexpected location.
+            var configPath = !string.IsNullOrEmpty(configurationsPath) && Path.IsPathFullyQualified(configurationsPath)
+                ? Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName)
+                : null;
 
             bool IsPresent() =>
                 pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is not null;

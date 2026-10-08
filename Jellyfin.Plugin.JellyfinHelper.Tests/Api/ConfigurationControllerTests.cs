@@ -1870,6 +1870,32 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateConfiguration_TraktSourcingEnabled_PersistedVerbatim()
+    {
+        // The master switch is user-facing (unlike the derived TraktEnabled): a non-null value is stored as-is.
+        _config.TraktSourcingEnabled = true;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { TraktSourcingEnabled = false }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktSourcingEnabledOmitted_PreservesStoredValue()
+    {
+        // A partial PUT (client without the Trakt card) omits the field; the stored value must survive.
+        _config.TraktSourcingEnabled = false;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { TraktClientId = "x", TraktClientSecret = "y" }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.TraktSourcingEnabled);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_TraktClientIdAndSecretBothSet_DerivesTraktEnabledTrue()
     {
         var request = new ConfigurationUpdateRequest

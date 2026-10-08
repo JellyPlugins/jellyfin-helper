@@ -112,6 +112,15 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool TraktEnabled { get; set; }
 
     /// <summary>
+    ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled. Unlike the derived
+    ///     <see cref="TraktEnabled"/> (which only reflects whether own OAuth creds are stored), this is a
+    ///     user-facing master switch in the Trakt card: when off, the Helper sources no Trakt recommendations
+    ///     from EITHER the admin's own app or the official Trakt plugin. Default true so existing installs are
+    ///     unchanged; the admin turns it off to suppress Trakt entirely even while the official plugin is present.
+    /// </summary>
+    public bool TraktSourcingEnabled { get; set; } = true;
+
+    /// <summary>
     ///     Gets or sets the Trakt OAuth application client id. Registered once by the admin; shared by all users.
     /// </summary>
     public string TraktClientId { get; set; } = string.Empty;

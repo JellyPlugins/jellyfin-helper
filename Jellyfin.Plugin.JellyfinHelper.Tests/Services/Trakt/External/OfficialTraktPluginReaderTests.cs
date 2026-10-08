@@ -43,7 +43,7 @@ public sealed class OfficialTraktPluginReaderTests : IDisposable
 
     private static readonly DateTimeOffset Now = new(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
 
-    private OfficialTraktPluginReader Create(Func<bool> isPresent, string? configPath)
+    private static OfficialTraktPluginReader Create(Func<bool> isPresent, string? configPath)
         => new(
             isPresent,
             configPath,
@@ -95,7 +95,6 @@ public sealed class OfficialTraktPluginReaderTests : IDisposable
 
         Assert.NotNull(token);
         Assert.Equal("acc-123", token!.AccessToken);
-        Assert.Equal("ref-123", token.RefreshToken);
         Assert.True(token.AccessTokenExpiration > Now);
     }
 
@@ -339,5 +338,104 @@ public sealed class OfficialTraktPluginReaderTests : IDisposable
         WriteConfig("<PluginConfiguration><TraktUsers><TraktUser></broken>");
         var reader = Create(() => true, _configPath);
         Assert.Empty(reader.GetLinkedUserIds(Now));
+    }
+
+    [Fact]
+    public void GetLinkedUserIds_NullConfigPath_ReturnsEmpty()
+    {
+        var reader = Create(() => true, configPath: null);
+        Assert.Empty(reader.GetLinkedUserIds(Now));
+    }
+
+    [Fact]
+    public void GetLinkedUserIds_DuplicateLinkedUserId_DedupedToOne()
+    {
+        var user = Guid.NewGuid();
+        WriteConfig(
+            $"""
+             <?xml version="1.0"?>
+             <PluginConfiguration>
+               <TraktUsers>
+                 <TraktUser><AccessToken>a1</AccessToken><LinkedMbUserId>{user}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(1))}</AccessTokenExpiration></TraktUser>
+                 <TraktUser><AccessToken>a2</AccessToken><LinkedMbUserId>{user}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(2))}</AccessTokenExpiration></TraktUser>
+               </TraktUsers>
+             </PluginConfiguration>
+             """);
+
+        var reader = Create(() => true, _configPath);
+        var ids = reader.GetLinkedUserIds(Now);
+
+        Assert.Single(ids);
+        Assert.Equal(user, ids[0]);
+    }
+
+    [Fact]
+    public void TryGetToken_WhitespaceAccessToken_ReturnsNull()
+    {
+        // A whitespace-only token would produce a malformed Authorization header, so it is treated as absent.
+        var userId = Guid.NewGuid();
+        WriteConfig(OneUser(userId, "   ", "ref", Iso(Now.AddHours(1))));
+
+        var reader = Create(() => true, _configPath);
+        Assert.Null(reader.TryGetToken(userId, Now));
+    }
+
+    [Fact]
+    public void TryGetToken_InvalidLinkedUserId_EntrySkipped()
+    {
+        // A non-GUID LinkedMbUserId is dropped; a valid sibling entry is still returned.
+        var good = Guid.NewGuid();
+        WriteConfig(
+            $"""
+             <?xml version="1.0"?>
+             <PluginConfiguration>
+               <TraktUsers>
+                 <TraktUser><AccessToken>bad</AccessToken><LinkedMbUserId>not-a-guid</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(1))}</AccessTokenExpiration></TraktUser>
+                 <TraktUser><AccessToken>good-tok</AccessToken><LinkedMbUserId>{good}</LinkedMbUserId><AccessTokenExpiration>{Iso(Now.AddHours(1))}</AccessTokenExpiration></TraktUser>
+               </TraktUsers>
+             </PluginConfiguration>
+             """);
+
+        var reader = Create(() => true, _configPath);
+        var token = reader.TryGetToken(good, Now);
+
+        Assert.NotNull(token);
+        Assert.Equal("good-tok", token!.AccessToken);
+    }
+
+    [Fact]
+    public void IsPresent_DelegateFalse_ReturnsFalse()
+    {
+        Assert.False(Create(() => false, _configPath).IsPresent());
+    }
+
+    [Fact]
+    public void TryGetToken_OversizeConfig_FailsClosedReturnsNull()
+    {
+        // The hardened reader bounds the document; a pathologically large config must fail closed, not OOM.
+        var userId = Guid.NewGuid();
+        var filler = new string('x', 5 * 1024 * 1024); // > the 4MB MaxConfigBytes cap
+        WriteConfig(OneUser(userId, "acc", "ref", Iso(Now.AddHours(1))) + $"<!-- {filler} -->");
+
+        var reader = Create(() => true, _configPath);
+        Assert.Null(reader.TryGetToken(userId, Now));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Ctor_NullDependency_Throws(int index)
+    {
+        Func<bool> isPresent = () => true;
+        var pluginLog = TestMockFactory.CreatePluginLogService();
+        var logger = TestMockFactory.CreateLogger<OfficialTraktPluginReader>().Object;
+
+        Assert.Throws<ArgumentNullException>(() => index switch
+        {
+            0 => new OfficialTraktPluginReader(null!, _configPath, pluginLog, logger),
+            1 => new OfficialTraktPluginReader(isPresent, _configPath, null!, logger),
+            _ => new OfficialTraktPluginReader(isPresent, _configPath, pluginLog, null!),
+        });
     }
 }

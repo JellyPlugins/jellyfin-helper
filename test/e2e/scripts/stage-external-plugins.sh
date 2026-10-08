@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Download and stage the two external plugins the Discovery custom tab depends on
-# (Custom Tabs + File Transformation) into the e2e config volume, using the same
-# "<Name>_<Version>" folder layout Jellyfin's loader requires.
+# Download and stage the external plugins the e2e suite depends on into the config
+# volume, using the same "<Name>_<Version>" folder layout Jellyfin's loader requires:
+#   - Custom Tabs + File Transformation  (the Discovery custom tab),
+#   - the official Trakt plugin           (the "source Trakt through the official plugin" tests).
 #
 # Always tracks the LATEST release of each repo (resolved via the GitHub API) and
 # picks that release's highest Jellyfin-12 asset, so CI exercises the current
 # plugins without any pin to bump. Overridable for offline/debug runs:
-#   CUSTOMTABS_RELEASE, FILETRANSFORMATION_RELEASE  (force a specific tag)
-#   CUSTOMTABS_ASSET, FILETRANSFORMATION_ASSET      (force a specific asset name
-#     for one plugin; EXTERNAL_PLUGIN_JF_ASSET remains as a blanket fallback
-#     for both)
-#   GITHUB_TOKEN                                    (lifts the API rate limit)
+#   CUSTOMTABS_RELEASE, FILETRANSFORMATION_RELEASE, TRAKT_RELEASE  (force a tag)
+#   CUSTOMTABS_ASSET, FILETRANSFORMATION_ASSET, TRAKT_ASSET        (force an asset
+#     name for one plugin; EXTERNAL_PLUGIN_JF_ASSET remains a blanket fallback)
+#   GITHUB_TOKEN                                                   (lifts the API rate limit)
 set -euo pipefail
 
 STAGE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

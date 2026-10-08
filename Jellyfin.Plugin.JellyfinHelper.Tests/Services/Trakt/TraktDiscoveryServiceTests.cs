@@ -646,7 +646,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
 
@@ -672,7 +672,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("own-tok");
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(It.IsAny<Guid>(), It.IsAny<DateTimeOffset>()))
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
 
@@ -713,7 +713,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
         // Both fetches 401: the official token went stale. We must NOT refresh or unlink the foreign token.
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
@@ -737,7 +737,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.GetLinkedUserIds(It.IsAny<DateTimeOffset>())).Returns(new[] { officialUser });
         _officialPlugin.Setup(p => p.TryGetToken(officialUser, It.IsAny<DateTimeOffset>()))
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
 
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
@@ -769,7 +769,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
-            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
 
         var (sut, _) = CreateCapturingService();
         Assert.True(await sut.IsLinkedForAsync(userId, CancellationToken.None));
@@ -809,6 +809,87 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             Assert.Equal(Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktPluginReader.OfficialTraktClientId, c.ApiKey);
             Assert.Null(c.Authorization);
         });
+    }
+
+    [Fact]
+    public async Task GetPersonal_OwnLinkedButOwnTokenUnavailable_ReturnsNull_DoesNotFallBackToOfficial()
+    {
+        // Strict own-precedence: an own-linked user whose own token is transiently unavailable gets NO source
+        // this request - never the official token. A transient own-token outage must not silently switch sources.
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "b" });
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.TryGetToken(It.IsAny<Guid>(), It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+
+        var (sut, _) = CreateCapturingService();
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        // The official plugin must NOT be consulted for a user who is own-linked, even with a dead own token.
+        _officialPlugin.Verify(p => p.TryGetToken(It.IsAny<Guid>(), It.IsAny<DateTimeOffset>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IsLinkedFor_DoesNotForceOwnTokenRefresh()
+    {
+        // A link-status check must be idempotent: it reads the store, never calling GetValidAccessTokenAsync
+        // (which could hit the network and rotate the single-use refresh token).
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "b" });
+
+        var (sut, _) = CreateCapturingService();
+        Assert.True(await sut.IsLinkedForAsync(userId, CancellationToken.None));
+
+        _auth.Verify(a => a.GetValidAccessTokenAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task MasterSwitchOff_DisablesAllSourcing()
+    {
+        // The user-facing master switch kills personal, trending, link-status and refresh regardless of own
+        // creds or official-plugin presence - the admin's global off-switch for Trakt.
+        Plugin.Instance!.Configuration.TraktSourcingEnabled = false;
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "b" });
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("own-tok");
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.GetLinkedUserIds(It.IsAny<DateTimeOffset>())).Returns(new[] { userId });
+        _store.Setup(s => s.GetLinkedUserIds()).Returns(new List<Guid> { userId });
+
+        var (sut, _) = CreateCapturingService();
+
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        Assert.Null(await sut.GetTrendingAsync(userId, CancellationToken.None));
+        Assert.False(await sut.IsLinkedForAsync(userId, CancellationToken.None));
+        await sut.RefreshAllAsync(CancellationToken.None); // must not throw and must warm nothing
+
+        // No HTTP fetch happened on any path (a Strict handler would have thrown on an un-queued dequeue).
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetConfigNull_AllPathsReturnEmptyWithoutThrowing()
+    {
+        // With no plugin configuration available, every entry point degrades to empty rather than throwing.
+        ControllerTestFactory.TeardownPluginInstance();
+        try
+        {
+            var (sut, _) = CreateCapturingService();
+            Assert.Null(await sut.GetPersonalAsync(Guid.NewGuid(), CancellationToken.None));
+            Assert.Null(await sut.GetTrendingAsync(Guid.NewGuid(), CancellationToken.None));
+            Assert.False(await sut.IsLinkedForAsync(Guid.NewGuid(), CancellationToken.None));
+            await sut.RefreshAllAsync(CancellationToken.None);
+        }
+        finally
+        {
+            // Restore the singleton for the Dispose teardown + any later test in this collection.
+            ControllerTestFactory.InitializePluginInstance();
+            Plugin.Instance!.Configuration.TraktEnabled = true;
+            Plugin.Instance!.Configuration.TraktClientId = "client-id";
+        }
     }
 
     private static void AssertOfficialCaptured(List<CapturedRequest> captured)

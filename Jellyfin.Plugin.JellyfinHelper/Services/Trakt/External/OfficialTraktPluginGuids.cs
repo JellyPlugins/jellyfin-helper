@@ -10,7 +10,7 @@ public static class OfficialTraktPluginGuids
 {
     /// <summary>
     ///     The file name the official plugin's configuration is persisted to under Jellyfin's plugin
-    ///     configurations directory. Jellyfin names it after the config class namespace (<c>Trakt</c>).
+    ///     configurations directory. Jellyfin derives it from the plugin's configuration type name (<c>Trakt</c>).
     /// </summary>
     public const string ConfigFileName = "Trakt.xml";
 

@@ -607,6 +607,10 @@ public class ConfigurationController : ControllerBase
         // standalone toggle, so entering a client id + secret is what turns Trakt on.
         config.TraktEnabled = !string.IsNullOrWhiteSpace(config.TraktClientId)
                               && !string.IsNullOrWhiteSpace(config.TraktClientSecret);
+
+        // Master sourcing switch (user-facing, unlike the derived TraktEnabled). Absent in the request => keep
+        // the stored value, so a partial PUT from a client without the Trakt card never silently disables Trakt.
+        config.TraktSourcingEnabled = request.TraktSourcingEnabled ?? config.TraktSourcingEnabled;
     }
 
     /// <summary>

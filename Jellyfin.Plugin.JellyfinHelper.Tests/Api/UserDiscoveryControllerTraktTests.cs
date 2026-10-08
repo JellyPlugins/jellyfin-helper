@@ -23,7 +23,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     per-user start/poll throttles that return 429.
 /// </summary>
 [Collection("ConfigOverride")]
-public sealed class UserDiscoveryControllerTraktTests
+public sealed class UserDiscoveryControllerTraktTests : IDisposable
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock = new();
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock = new();
@@ -34,15 +34,33 @@ public sealed class UserDiscoveryControllerTraktTests
     private readonly DiscoveryCacheService _cache;
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
     private readonly PluginConfiguration _config = new() { TraktEnabled = true, DiscoveryUserAccessEnabled = true };
+    private readonly string _cacheFile;
 
     public UserDiscoveryControllerTraktTests()
     {
         var pluginLog = new Mock<JellyfinHelper.Services.PluginLog.IPluginLogService>();
-        _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
+        _cacheFile = Path.GetTempFileName();
+        _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: _cacheFile);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
 
         // Fresh generation per test so throttle keys from a prior test cannot leak across the shared cache.
         UserDiscoveryController.ClearRateLimitState();
+    }
+
+    public void Dispose()
+    {
+        _memoryCache.Dispose();
+        try
+        {
+            if (File.Exists(_cacheFile))
+            {
+                File.Delete(_cacheFile);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup of the throwaway cache file.
+        }
     }
 
     private UserDiscoveryController CreateController(Guid? userId = null)
@@ -270,6 +288,44 @@ public sealed class UserDiscoveryControllerTraktTests
         var second = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
 
         Assert.Equal(429, Status(second));
+    }
+
+    [Fact]
+    public async Task StartTraktDevice_OfficialOnlyServerNoOwnCreds_Returns403()
+    {
+        // Device flow needs an own OAuth app. On an official-plugin-only server (no own creds) the device
+        // endpoints must 403 - the OR gate that unlocks the read endpoints does NOT unlock Start/Poll.
+        _config.TraktEnabled = false;
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+
+        var result = await CreateController(Guid.NewGuid()).StartTraktDevice(CancellationToken.None);
+
+        Assert.Equal(403, Status(result));
+    }
+
+    [Fact]
+    public async Task PollTraktDevice_OfficialOnlyServerNoOwnCreds_Returns403()
+    {
+        _config.TraktEnabled = false;
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+
+        var result = await CreateController(Guid.NewGuid())
+            .PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
+
+        Assert.Equal(403, Status(result));
+    }
+
+    [Fact]
+    public async Task GetMyTrakt_MasterSwitchOff_Returns403()
+    {
+        // The master switch suppresses Trakt entirely, even with own creds AND the official plugin present.
+        _config.TraktSourcingEnabled = false;
+        _config.TraktEnabled = true;
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+
+        var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
+
+        Assert.Equal(403, Status(result.Result!));
     }
 
     [Fact]
