@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **362 tests** (API + UI) across 57 spec files
+every UI interaction. **363 tests** (API + UI) across 58 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -263,9 +263,13 @@ plugin stays Active after every call).
   linking; `POST Device/Start` returns a user code; `POST Device/Poll` returns `Pending`
   while the mock is unarmed, then `Linked` after `/arm-linked` (respecting the 5s per-user
   poll throttle); after linking the personal endpoint returns `Linked:true` with a result.
+  These own-flow link/disconnect tests run against a dedicated second user (`e2edeviceuser`,
+  provisioned without an official Trakt token), so the "starts unlinked" premise holds even
+  when the official plugin is staged and seeds the primary user a token.
 - **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds for an
   unlinked user (client-id only, no OAuth).
-- **Disconnect:** `POST Device/Disconnect` clears the link and returns success.
+- **Disconnect:** `POST Device/Disconnect` clears the link and returns success (the device
+  user has no official token, so disconnect returns it to a truly unlinked state).
 - Snapshots and restores `TraktEnabled`/`TraktClientId` in afterAll so it does not leak
   state into later specs.
 
@@ -275,8 +279,11 @@ plugin stays Active after every call).
   latest release, and global-setup seeds its `Trakt.xml` with a known token for the normal
   user via `POST /Plugins/<GUID>/Configuration`.
 - **Official-source path:** the normal user is NOT linked via our own device flow, so source
-  resolution falls through to the official plugin's token. `GET Discovery/My/Trakt` returns
-  `Linked:true` with recommendations even though the user never ran our device flow.
+  resolution falls through to the official plugin's token. The spec seeds the normal user a
+  genre watch profile first (Trakt personal scoring reuses the Seerr-backed external scorer,
+  which returns an empty result without one — independent of link state), then
+  `GET Discovery/My/Trakt` returns `Linked:true` with recommendations even though the user
+  never ran our device flow.
 - **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`;
   its `/last-recommendation-bearer` hook confirms the token the Helper forwarded is exactly
   the seeded official token, proving the official plugin's token (not an own-flow token) was
@@ -326,6 +333,10 @@ script. Both staged by `run.sh` and configured in `global-setup` (toggle on + a
 - Navigating Home ↔ Discovery 20× plus browser back/forward keeps the panel populated every time.
 - `discovery-sidebar.js` **never fabricates its own `customTab_` panel** (no stray marker outside a
   Custom-Tabs panel; exactly one panel), proving it no longer fights Custom Tabs for the DOM.
+- **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false`, the panel renders the
+  explicit "not enabled" message and **never a result grid** — the user-access gate hides the
+  feature's content even though the external Custom Tabs plugin still shows the tab button. The
+  describe brackets the toggle and restores access in `afterAll`.
 - Skips loudly when the external plugins are not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
 
 

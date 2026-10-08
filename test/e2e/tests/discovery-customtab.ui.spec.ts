@@ -204,3 +204,64 @@ test.describe('Discovery custom tab (home page)', () => {
     expect(ownership.unowned, 'the panel is not structurally owned by Custom Tabs').toBe(0);
   });
 });
+
+/**
+ * Negative counterpart: with the user-access toggle OFF, the Discovery panel must NOT render a result grid.
+ * The tab button itself is owned by the external Custom Tabs plugin (its ContentHtml), so it can still appear
+ * in the header - what OUR code controls is population: discovery-sidebar.js gets a 403 from /Discovery/My and
+ * renders the explicit "not enabled" message instead of cards. Asserting the grid never appears (and the
+ * disabled message does) is the behavioral proof that access-off hides the feature's content. Runs in its own
+ * describe so its config toggling is bracketed and restored, never leaking into the positive tests above.
+ */
+test.describe('Discovery custom tab - access disabled', () => {
+  test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / File Transformation not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
+
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    const probe = (await normalUserContext(auth)) ?? admin;
+    try {
+      // Turn the user-access toggle OFF (leave the rest of the discovery config intact). Poll until the
+      // user-facing read actually 403s, so the UI assertion below is not racing an un-propagated toggle.
+      const put = await admin.put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: { DiscoveryUserAccessEnabled: false },
+      });
+      expect(put.ok(), `disable discovery access: ${put.status()}`).toBeTruthy();
+      await expect
+        .poll(async () => (await probe.get(p('Discovery/My'))).status(), { timeout: 15_000 })
+        .toBe(403);
+    } finally {
+      if (probe !== admin) await probe.dispose();
+      await admin.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    // Restore access for every later spec (workers: 1 shares one backend).
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    try {
+      await ensureDiscoveryConfigured(admin);
+    } finally {
+      await admin.dispose();
+    }
+  });
+
+  test('access-disabled panel shows the not-enabled message and never a result grid', async ({ page }) => {
+    await openHome(page);
+
+    // The Custom Tabs plugin still injects its tab (it owns that), so a user can click it - but the content
+    // our script renders must be the disabled message, not cards.
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+    await clickDiscoveryTab(page);
+
+    const grid = page.locator('.jellyfinhelper.discovery .jfh-discovery-grid');
+    const msg = page.locator('.jellyfinhelper.discovery .jfh-discovery-msg');
+
+    // The disabled message must appear; the result grid must never render.
+    await expect(msg.first()).toBeVisible({ timeout: 15_000 });
+    await expect(msg.first()).toContainText(/not enabled|administrator/i);
+    await expect(grid).toHaveCount(0);
+  });
+});

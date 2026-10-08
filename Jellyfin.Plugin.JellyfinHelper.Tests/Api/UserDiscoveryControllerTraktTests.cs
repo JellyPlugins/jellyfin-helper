@@ -279,6 +279,48 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     }
 
     [Fact]
+    public async Task PollTraktDevice_Linked_Returns200WithLinkedStatus()
+    {
+        // Terminal success: the user approved the code and a token was stored. The controller passes the
+        // Linked status through as a 200, which is what the own-device-flow e2e asserts on its final poll.
+        var userId = Guid.NewGuid();
+        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Linked);
+
+        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("Linked", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
+    }
+
+    [Fact]
+    public async Task PollTraktDevice_Denied_Returns200WithDeniedStatus()
+    {
+        // The user explicitly denied the request: not an error on our side, so the status passes through as a
+        // 200 and the client decides how to present it (distinct from the 410/429 stop/backoff cases).
+        var userId = Guid.NewGuid();
+        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Denied);
+
+        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("Denied", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
+    }
+
+    [Fact]
+    public async Task PollTraktDevice_Error_Returns200WithErrorStatus()
+    {
+        // A transient/unexpected poll failure passes through as a 200 with the Error status so the client can
+        // retry or restart; only Expired (410) and SlowDown (429) get a non-200 contract.
+        var userId = Guid.NewGuid();
+        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Error);
+
+        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("Error", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
+    }
+
+    [Fact]
     public async Task PollTraktDevice_SecondCallWithinWindow_Returns429()
     {
         var userId = Guid.NewGuid();

@@ -4,7 +4,7 @@
  * trending surfaces, and the TraktEnabled gate. Requires an authenticated non-admin user and TraktEnabled.
  */
 import { test, expect, request as pwRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
-import { apiContext, normalUserContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, deviceFlowUserContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
 import {
   seedNormalUserWatchProfile,
   clearNormalUserWatchProfile,
@@ -14,16 +14,13 @@ import {
 // The mock is published to the host on loopback; the plugin container reaches it as mock-trakt.
 const MOCK_TRAKT_PUBLIC = process.env.MOCK_TRAKT_PUBLIC_URL ?? 'http://localhost:9100';
 
-// When the external plugins are staged, global-setup seeds the OFFICIAL Trakt plugin with a token for THIS same
-// normal user. The Helper then legitimately reports that user as linked (sourced through the official plugin),
-// so the two tests below that assert an UNLINKED starting state no longer hold for this user. They still run in
-// the common no-external-plugins CI leg (own device flow only); the official-plugin path is covered end to end
-// by trakt-official-plugin.api.spec.ts.
-const OFFICIAL_PLUGIN_STAGED = process.env.JFH_E2E_EXTERNAL_PLUGINS === '1';
-
 const auth = loadAuth();
 let admin: APIRequestContext;
 let user: APIRequestContext | null;
+// A second non-admin user that is never seeded an official Trakt token, so the own-device-flow tests can
+// assert a genuinely unlinked starting state even in the external-plugins CI leg (where the primary normal
+// user is linked through the official plugin). The official-plugin path is covered by trakt-official-plugin.api.spec.ts.
+let deviceUser: APIRequestContext | null;
 
 // Snapshot of the shared-backend Configuration fields this spec mutates, so afterAll can put them
 // back verbatim and not leak Trakt/Seerr state into later specs that assume a pristine config.
@@ -53,6 +50,7 @@ async function traktHook(path: string): Promise<void> {
 test.beforeAll(async () => {
   admin = await apiContext(auth);
   user = await normalUserContext(auth);
+  deviceUser = await deviceFlowUserContext(auth);
 
   const current = await admin.get(p('Configuration'));
   if (current.ok()) {
@@ -120,6 +118,9 @@ test.afterAll(async () => {
   if (user) {
     await user.dispose();
   }
+  if (deviceUser) {
+    await deviceUser.dispose();
+  }
 });
 
 test.beforeEach(async () => {
@@ -127,22 +128,23 @@ test.beforeEach(async () => {
 });
 
 test('personal Trakt starts unlinked, then links through the device flow', async () => {
-  test.skip(OFFICIAL_PLUGIN_STAGED, 'official plugin seeds this user a token -> not unlinked; covered by trakt-official-plugin.api.spec.ts');
-  expect(user, 'normal user required').toBeTruthy();
+  requireDeviceUser();
 
-  // Before linking the personal endpoint reports Linked=false (the UI shows the connect panel).
-  const before = await user!.get(p('Discovery/My/Trakt'));
+  // Before linking the personal endpoint reports Linked=false (the UI shows the connect panel). This runs
+  // against the dedicated device-flow user, who is never seeded an official token, so "unlinked" holds even
+  // when the official plugin is staged.
+  const before = await deviceUser!.get(p('Discovery/My/Trakt'));
   expect(before.ok()).toBeTruthy();
   expect((await before.json()).Linked).toBe(false);
 
   // Start the device flow.
-  const start = await user!.post(p('Discovery/My/Trakt/Device/Start'), { headers: { 'Content-Type': 'application/json' }, data: {} });
+  const start = await deviceUser!.post(p('Discovery/My/Trakt/Device/Start'), { headers: { 'Content-Type': 'application/json' }, data: {} });
   expect(start.ok(), `device start: ${start.status()}`).toBeTruthy();
   const device = await start.json();
   expect(device.user_code).toBeTruthy();
 
   // Poll once while the mock is still pending.
-  const pending = await user!.post(p('Discovery/My/Trakt/Device/Poll'), {
+  const pending = await deviceUser!.post(p('Discovery/My/Trakt/Device/Poll'), {
     headers: { 'Content-Type': 'application/json' },
     data: { DeviceCode: device.device_code },
   });
@@ -152,15 +154,15 @@ test('personal Trakt starts unlinked, then links through the device flow', async
   // Arm the mock to approve, poll again (respecting the per-user 5s poll throttle).
   await traktHook('/arm-linked');
   await new Promise((r) => setTimeout(r, 6000));
-  const linked = await user!.post(p('Discovery/My/Trakt/Device/Poll'), {
+  const linked = await deviceUser!.post(p('Discovery/My/Trakt/Device/Poll'), {
     headers: { 'Content-Type': 'application/json' },
     data: { DeviceCode: device.device_code },
   });
   expect(linked.ok()).toBeTruthy();
   expect((await linked.json()).Status).toBe('Linked');
 
-  // After linking the personal endpoint returns a scored result envelope.
-  const after = await user!.get(p('Discovery/My/Trakt'));
+  // After linking the personal endpoint reports the user as linked.
+  const after = await deviceUser!.get(p('Discovery/My/Trakt'));
   expect(after.ok()).toBeTruthy();
   expect((await after.json()).Linked).toBe(true);
 });
@@ -172,26 +174,26 @@ test('trending is available without linking', async () => {
 });
 
 test('disconnect clears the link', async () => {
-  test.skip(OFFICIAL_PLUGIN_STAGED, 'official plugin keeps this user linked after an own-flow disconnect; covered by trakt-official-plugin.api.spec.ts');
-  expect(user, 'normal user required').toBeTruthy();
+  requireDeviceUser();
   await ensureLinkedForDisconnect();
-  const res = await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), { headers: { 'Content-Type': 'application/json' }, data: {} });
+  const res = await deviceUser!.post(p('Discovery/My/Trakt/Device/Disconnect'), { headers: { 'Content-Type': 'application/json' }, data: {} });
   expect(res.ok()).toBeTruthy();
   expect((await res.json()).Success).toBe(true);
 
-  // The link is actually gone: the personal endpoint reports Linked:false again.
-  const after = await user!.get(p('Discovery/My/Trakt'));
+  // The link is actually gone: the personal endpoint reports Linked:false again. The device-flow user is
+  // never officially linked, so disconnect returns it to a truly unlinked state (no official token survives it).
+  const after = await deviceUser!.get(p('Discovery/My/Trakt'));
   expect(after.ok()).toBeTruthy();
   expect((await after.json()).Linked).toBe(false);
 });
 
 /**
- * Links the normal user unless already linked. The fallback path runs only when an earlier
+ * Links the device-flow user unless already linked. The fallback path runs only when an earlier
  * test already spent the per-minute start / 5s poll windows, so both calls honor 429s via
  * the server's Retry-After instead of failing on the first throttled attempt.
  */
 async function ensureLinkedForDisconnect(): Promise<void> {
-  const cur = await user!.get(p('Discovery/My/Trakt'));
+  const cur = await deviceUser!.get(p('Discovery/My/Trakt'));
   expect(cur.ok()).toBeTruthy();
   if ((await cur.json()).Linked === true) {
     return;
@@ -208,12 +210,12 @@ async function ensureLinkedForDisconnect(): Promise<void> {
 /**
  * POST with 429 retries honoring the server's Retry-After header (seconds, plus a small
  * buffer). Bounded: each throttled attempt reports exactly how long to wait, so three
- * attempts cover even a freshly-spent per-minute start window.
+ * attempts cover even a freshly-spent per-minute start window. Runs as the device-flow user.
  */
 async function postThrottled(ep: string, data: Record<string, unknown>, label: string): Promise<APIResponse> {
   let last: APIResponse | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
-    last = await user!.post(p(ep), { headers: { 'Content-Type': 'application/json' }, data });
+    last = await deviceUser!.post(p(ep), { headers: { 'Content-Type': 'application/json' }, data });
     if (last.status() !== 429) {
       return last;
     }
@@ -222,6 +224,24 @@ async function postThrottled(ep: string, data: Record<string, unknown>, label: s
   }
   expect(last!.status(), `${label}: still throttled after 3 attempts`).not.toBe(429);
   return last!;
+}
+
+/**
+ * Guard for the own-device-flow tests: they need the dedicated device-flow user (never officially linked).
+ * Without it the tests cannot assert a truly unlinked state; fail hard under E2E_REQUIRE_NORMAL_USER=1 so a
+ * broken fixture can't let these vanish green, otherwise skip.
+ */
+function requireDeviceUser(): void {
+  if (deviceUser) {
+    return;
+  }
+  if (process.env.E2E_REQUIRE_NORMAL_USER === '1') {
+    throw new Error(
+      'device-flow user was not provisioned, but E2E_REQUIRE_NORMAL_USER=1 - the own-device-flow tests ' +
+        'must not be allowed to skip. Check the global-setup provisioning logs for e2edeviceuser.',
+    );
+  }
+  test.skip(true, 'no device-flow user provisioned (set E2E_REQUIRE_NORMAL_USER=1 to fail instead)');
 }
 
 test('Trakt endpoints are gated by the discovery-access toggle', async () => {
