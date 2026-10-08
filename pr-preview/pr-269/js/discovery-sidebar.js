@@ -274,13 +274,7 @@
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Narrow panels: slightly smaller tab labels so all three fit without truncation.
-            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
-            // Connect panel for the personal Trakt tab before a user links.
-            '.jfh-discovery-connect { max-width: 520px; margin: 1em auto; text-align: center; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 1.6em; }' +
-            '.jfh-discovery-connect h3 { margin: 0 0 0.6em 0; }' +
-            '.jfh-discovery-connect p { opacity: 0.8; line-height: 1.5; margin: 0.4em 0; }' +
-            '.jfh-discovery-connect-code { font-size: 1.6em; font-weight: 700; letter-spacing: 0.15em; margin: 0.6em 0; color: #00a4dc; }' +
-            '.jfh-discovery-connect-row { display: flex; flex-wrap: wrap; gap: 0.6em; justify-content: center; margin-top: 1em; }';
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }';
         document.head.appendChild(style);
     }
 
@@ -387,10 +381,18 @@
     var lastMountedContainer = null;
     var customTabWatcherStarted = false;
     var mountPending = false;
+    // Mounting is gated until strings are loaded so the first render never flashes the
+    // English fallbacks before the configured language arrives. The observer/listeners,
+    // however, start as early as possible (see startCustomTabWatcher) so a hard reload
+    // that restores an already-built Discovery panel is still caught: without an early
+    // watcher no mutation fires after our script loads, and the tab stays blank until a
+    // manual nav. The watcher queues mounts; this gate releases them once strings land.
+    var _mountEnabled = false;
 
-    function initCustomTab() {
-        injectStyles();
-        tryMountCustomTab();
+    // Starts the DOM watcher and navigation listeners that drive mounts. Idempotent and
+    // independent of the async availability probe, so it can run the instant the script
+    // loads on a home context - the fix for the F5 blank-tab race.
+    function startCustomTabWatcher() {
         if (customTabWatcherStarted) {
             return;
         }
@@ -418,6 +420,14 @@
         });
     }
 
+    function initCustomTab() {
+        injectStyles();
+        // Strings are loaded by the time this runs; release the mount gate and watcher.
+        _mountEnabled = true;
+        startCustomTabWatcher();
+        tryMountCustomTab();
+    }
+
     function scheduleTryMount() {
         if (mountPending) {
             return;
@@ -429,6 +439,37 @@
         });
     }
 
+    // On a hard reload (F5) Custom Tabs restores the active Discovery panel from the
+    // ?tab=N deep link and finishes building it before our MutationObserver exists, so
+    // no further mutation ever fires to trigger a mount - the four fixed timeouts this
+    // replaces could all miss while the async probe/strings were still in flight, leaving
+    // a blank tab until a manual nav produced a fresh mutation. Poll a short bounded
+    // schedule instead, stopping as soon as the active container is filled (or we leave
+    // the home context), so a slow server self-heals instead of racing a fixed deadline.
+    var INITIAL_MOUNT_DELAYS_MS = [250, 500, 1000, 2000, 3500, 5000, 8000];
+
+    function scheduleInitialMountRetries() {
+        var step = 0;
+        function tick() {
+            tryMountCustomTab();
+            if (step >= INITIAL_MOUNT_DELAYS_MS.length) {
+                return;
+            }
+            // A filled active marker means the mount succeeded; stop early. Off the home
+            // context there is nothing to mount, so stop too and let the observer/nav
+            // listeners pick up the next home visit.
+            if (!isOnHomePage()) {
+                return;
+            }
+            var active = findActiveContainer();
+            if (active?.querySelector('.jfh-discovery-container')) {
+                return;
+            }
+            setTimeout(tick, INITIAL_MOUNT_DELAYS_MS[step++]);
+        }
+        tick();
+    }
+
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
@@ -436,6 +477,12 @@
     }
 
     function tryMountCustomTab() {
+        // The watcher may fire before strings have loaded (early start for the F5 race).
+        // Rendering now would flash English fallbacks, so defer until initCustomTab opens
+        // the gate; the retry schedule and queued mutations re-drive the mount right after.
+        if (!_mountEnabled) {
+            return;
+        }
         if (!isOnHomePage()) {
             lastMountedContainer = null;
             return;
@@ -451,6 +498,14 @@
         var container = findActiveContainer();
         if (!container) {
             lastMountedContainer = null;
+            // F5 recovery: on a hard reload Custom Tabs builds the panel via its legacy
+            // path into the Modern layout's display:none .skinBody subtree and never moves
+            // it into <main>, so no VISIBLE container exists even though a marker does. A
+            // hashchange makes Custom Tabs re-render the active tab into <main> (verified:
+            // the panel then lands visible under <main>, same as a real nav). Only nudge
+            // when a stranded marker is actually present and we are on its deep link, and
+            // rate-limit so a tab that legitimately has no visible panel never loops.
+            maybeNudgeStrandedPanel();
             return;
         }
         var needsRender = container !== lastMountedContainer
@@ -460,34 +515,108 @@
         }
         renderDiscovery(container);
         lastMountedContainer = container;
+        // A visible container was found and rendered: the stranded-panel recovery (if any)
+        // succeeded, so refresh the nudge budget for a possible later reload in this session.
+        _nudgeCount = 0;
     }
 
-    // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
-    // and all .tabContent ancestors are .is‑active—preventing the destroy/rebuild flash during tab switches.
+    // F5-recovery nudge (see call site). A hard reload can leave the Custom Tabs panel
+    // stranded in the Modern layout's display:none .skinBody subtree; dispatching a
+    // hashchange makes Custom Tabs re-render the active tab into the visible <main>.
+    // Guards: only fire when a marker exists but none is visible, only on a tab deep
+    // link, and at most a few times with a cooldown so a tab that genuinely has no
+    // visible panel (e.g. feature off) can never spin.
+    var _lastNudgeAt = 0;
+    var _nudgeCount = 0;
+    var NUDGE_COOLDOWN_MS = 1500;
+    var MAX_NUDGES = 4;
+
+    function maybeNudgeStrandedPanel() {
+        if (_nudgeCount >= MAX_NUDGES) {
+            return;
+        }
+        // Only act while a tab deep link is active, AND only for the Discovery panel's own index. A hidden
+        // Discovery marker is normal whenever ANOTHER tab is active (e.g. Favorites #/home?tab=1), so matching
+        // any ?tab=N would make us tear down other tabs' panels and fire a synthetic hashchange on a tab that is
+        // working fine. Custom Tabs stamps each panel's data-index with the same N its ?tab=N deep link carries,
+        // so compare the two.
+        var tabMatch = /[?&]tab=(\d+)/.exec(window.location.hash);
+        if (!tabMatch) {
+            return;
+        }
+        var activeIndex = tabMatch[1];
+        // A marker must exist (Custom Tabs built the panel) yet be invisible (parked in a
+        // display:none subtree). If there is no marker at all, Custom Tabs has not built
+        // anything to recover and the normal observer path will handle a later build.
+        var markers = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
+        if (markers.length === 0) {
+            return;
+        }
+        var anyVisible = false;
+        var strandedPanels = [];
+        for (var marker of markers) {
+            if (marker.offsetParent !== null) {
+                anyVisible = true;
+                break;
+            }
+            // Only the stranded panel whose index matches the active deep link is ours to recover.
+            var panel = marker.closest('[id^="customTab_"]');
+            if (panel && String(panel.dataset.index) === activeIndex) {
+                strandedPanels.push(panel);
+            }
+        }
+        // Nudge only when the active deep link's own Discovery panel is the stranded one.
+        if (anyVisible || strandedPanels.length === 0) {
+            return;
+        }
+        var now = Date.now();
+        if (now - _lastNudgeAt < NUDGE_COOLDOWN_MS) {
+            return;
+        }
+        _lastNudgeAt = now;
+        _nudgeCount++;
+        // CRITICAL: remove the stranded, invisible panel BEFORE nudging. Custom Tabs'
+        // renderModernContent() bails early when it finds an existing customTab_ node via
+        // main.querySelector() - and the legacy-inserted panel lives inside <main> (under
+        // the display:none .skinBody), so it satisfies that check and the panel is never
+        // rebuilt into the visible part of <main>. Worse, nudging without removing it first
+        // can leave the stale hidden panel in place while a second visible one is built,
+        // which is the "content duplicated after nav" symptom. Removing only the active
+        // tab's own stranded panel makes the subsequent hashchange rebuild exactly one, visible.
+        for (var strandedPanel of strandedPanels) {
+            strandedPanel.remove();
+        }
+        // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    // Determines if the marker resides in the currently active, VISIBLE tab panel.
+    // Walks ancestors to reject a hidden/inactive legacy tab wrapper, then requires
+    // the element to actually be laid out. The visibility check is authoritative: on a
+    // hard reload Custom Tabs builds the panel via its legacy ensureContentDiv() path,
+    // which inserts it after #favoritesTab inside the Modern layout's .skinBody subtree
+    // (display:none). That subtree carries a .page ancestor (#indexPage) but is invisible,
+    // so a .page-sawTabWrapper shortcut would wrongly accept it and we would render into a
+    // panel the user never sees ("content gone after F5"). offsetParent === null reliably
+    // means the element or an ancestor is display:none (our marker is never position:fixed),
+    // so it catches exactly that case while still accepting the wrapper-less visible panel.
     function isActiveTabContainer(element) {
         if (!element?.isConnected) {
             return false;
         }
         var node = element.parentElement;
-        var sawTabWrapper = false;
         while (node && node !== document.body) {
             if (node.hidden || node.classList.contains('hide')) {
                 return false;
             }
-            if (node.classList.contains('tabContent')) {
-                sawTabWrapper = true;
-                if (!node.classList.contains('is-active')) {
-                    return false;
-                }
-            }
-            if (node.classList.contains('page')) {
-                sawTabWrapper = true;
+            if (node.classList.contains('tabContent') && !node.classList.contains('is-active')) {
+                return false;
             }
             node = node.parentElement;
         }
-        // With a tab wrapper present, the checks above already proved it active. Without
-        // one (JF12 wrapper-less panel), fall back to actual visibility.
-        return sawTabWrapper || element.offsetParent !== null;
+        // Actual layout is the final gate: a panel parked in a display:none subtree
+        // (the F5 legacy-insert case) has a null offsetParent and is correctly rejected.
+        return element.offsetParent !== null;
     }
 
     function findActiveContainer() {
@@ -510,7 +639,6 @@
     var _activeTab = 'own';
     var _traktPersonalCache = null;
     var _traktTrendingCache = null;
-    var _devicePollTimer = null;
 
     var TAB_OWN = 'own';
     var TAB_TRAKT = 'trakt';
@@ -567,7 +695,6 @@
             return;
         }
 
-        clearDevicePoll();
         var tabs =
             '<div class="jfh-discovery-container"><div class="jfh-discovery-tabs" role="tablist">' +
             tabButton(TAB_OWN, t('discoveryTabForYou', 'For you')) +
@@ -654,15 +781,6 @@
             });
     }
 
-    function clearDevicePoll() {
-        if (_devicePollTimer) {
-            clearTimeout(_devicePollTimer);
-            _devicePollTimer = null;
-        }
-    }
-
-    // Only an unlinked user gets the connect panel; a linked user with an empty
-    // pool gets the regular empty grid from renderCards.
     // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
     // self-refresh in the background: the scheduled task warms both server-side pools, so a tab load
     // reflects the latest warmed data without a client-side refetch loop. A card mutation still bumps
@@ -684,7 +802,7 @@
                     return;
                 }
                 if (resp?.Linked !== true) {
-                    renderConnectPanel(host);
+                    renderTraktNotLinked(host);
                     return;
                 }
                 _traktPersonalCache = { data: resp.Result, userId: startedUserId };
@@ -743,128 +861,11 @@
         return '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations…')) + '</span></div></div>';
     }
 
-    // Shows the device-link call to action. Clicking Connect starts the device flow, swaps in the code +
-    // verification URL, and begins polling until the server reports Linked (then re-renders the grid),
-    // Expired (410, offers restart), or Denied/Error.
-    function renderConnectPanel(host) {
-        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
-            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
-            '<p>' + esc(t('discoveryTraktConnectIntro', 'Link Trakt to see your personal recommendations here.')) + '</p>' +
-            '<div class="jfh-discovery-connect-row">' +
-            '<button class="jfh-discovery-btn jfh-discovery-trakt-connect">' + esc(t('discoveryTraktConnect', 'Connect')) + '</button>' +
-            '</div></div></div>';
-        host.innerHTML = html;
-        var btn = host.querySelector('.jfh-discovery-trakt-connect');
-        if (btn) {
-            btn.addEventListener('click', function () { startDeviceFlow(host); });
-        }
-    }
-
-    function startDeviceFlow(host) {
-        clearDevicePoll();
-        host.innerHTML = spinnerHtml();
-        // Captured so a pending poll never renders into another account's panel after a switch.
-        var startedUserId = currentDiscoveryUserId();
-        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Start'), dataType: 'json' })
-            .then(function (device) {
-                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                if (!device?.user_code) {
-                    renderConnectPanel(host);
-                    return;
-                }
-                renderDeviceCode(host, device);
-                // Stop polling once Trakt's own code lifetime elapses instead of looping until the user
-                // navigates away. Fall back to 10 minutes (Trakt's documented default) when expires_in is
-                // absent, and cap it so a bogus value can never schedule an effectively endless deadline.
-                var lifetimeSeconds = Math.min(Number(device.expires_in) || 600, 900);
-                var deadlineMs = Date.now() + lifetimeSeconds * 1000;
-                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5), startedUserId, deadlineMs);
-            })
-            .catch(function () {
-                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                renderConnectPanel(host);
-                showToast(t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
-            });
-    }
-
-    function renderDeviceCode(host, device) {
-        var url = safeHttpUrl(device.verification_url) || 'https://trakt.tv/activate';
-        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
-            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
-            '<p>' + esc(t('discoveryTraktConnectStep', 'Visit the page below and enter this code:')) + '</p>' +
-            '<div class="jfh-discovery-connect-code">' + esc(device.user_code) + '</div>' +
-            '<div class="jfh-discovery-connect-row">' +
-            '<span class="jfh-discovery-flip-link jfh-discovery-trakt-open" data-href="' + esc(url) + '">' +
-            '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> ' + esc(url) + '</span>' +
-            '</div>' +
-            '<p>' + esc(t('discoveryTraktConnectWaiting', 'Waiting for you to authorize…')) + '</p>' +
-            '</div></div>';
-        host.innerHTML = html;
-        var open = host.querySelector('.jfh-discovery-trakt-open');
-        if (open) {
-            open.addEventListener('click', function () {
-                var safe = safeHttpUrl(this.dataset.href);
-                if (safe) { window.open(safe, '_blank', 'noopener,noreferrer'); }
-            });
-        }
-    }
-
-    function scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs) {
-        clearDevicePoll();
-        // The code has a finite lifetime at Trakt; once it passes, every poll would just return expired.
-        // Stop here with a prompt to retry rather than polling a dead code until the user navigates away.
-        if (Date.now() >= deadlineMs) {
-            renderConnectPanel(host);
-            showToast(t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.'));
-            return;
-        }
-        _devicePollTimer = setTimeout(function () {
-            // Abandon the loop if the user navigated away, switched tabs, or switched
-            // accounts while waiting: the result belongs to the account that started it.
-            if (!document.contains(host) || startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-            ApiClient.ajax({
-                type: 'POST',
-                url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Poll'),
-                data: JSON.stringify({ DeviceCode: deviceCode }),
-                contentType: 'application/json',
-                dataType: 'json'
-            })
-                .then(function (resp) {
-                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                    var status = resp?.Status;
-                    if (status === 'Linked') {
-                        clearDevicePoll();
-                        _traktPersonalCache = null;
-                        renderTraktPersonal(host, true);
-                    } else if (status === 'Pending') {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs);
-                    } else {
-                        // Denied or Error: stop and offer a fresh start, telling the user why the panel reset.
-                        clearDevicePoll();
-                        renderConnectPanel(host);
-                        showToast(t('discoveryTraktConnectDeclined', 'Trakt authorization was not completed. Please try again.'));
-                    }
-                })
-                .catch(function (err) {
-                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                    // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
-                    if (err?.status === 429) {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId, deadlineMs);
-                        return;
-                    }
-                    clearDevicePoll();
-                    // 403 means Trakt was disabled mid-flow: reset the tab shell instead of
-                    // offering a reconnect, matching the other Trakt load paths.
-                    if (err?.status === 403) {
-                        renderTraktError(host, err);
-                        return;
-                    }
-                    renderConnectPanel(host);
-                    showToast(err?.status === 410
-                        ? t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.')
-                        : t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
-                });
-        }, intervalSeconds * 1000);
+    // Trakt is sourced only through the official Trakt plugin, so there is no in-app connect flow; a not-linked
+    // user is told to link in that plugin, after which recommendations appear here automatically.
+    function renderTraktNotLinked(host) {
+        var msg = t('discoveryTraktNotLinkedOfficial', 'Trakt is not linked for your account. Connect your Trakt account in the official Trakt plugin; recommendations will appear here automatically.');
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
     }
 
     function renderCards(container, userDiscovery) {
@@ -1517,8 +1518,7 @@
         // Custom Tab so it can show a "no results" message if the container exists, but do NOT
         // inject sidebar navigation - no point advertising a feature with no content.
         initCustomTab();
-        setTimeout(tryMountCustomTab, 500);
-        setTimeout(tryMountCustomTab, 1500);
+        scheduleInitialMountRetries();
     }
 
     function initDiscoveryUiFull() {
@@ -1528,10 +1528,7 @@
         loadExternalLinksConfig().finally(function () {
             initCustomTab();
             initSidebar();
-            setTimeout(tryMountCustomTab, 500);
-            setTimeout(tryMountCustomTab, 1500);
-            setTimeout(tryMountCustomTab, 3000);
-            setTimeout(tryMountCustomTab, 5000);
+            scheduleInitialMountRetries();
         });
     }
 
@@ -1591,6 +1588,12 @@
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
+        // Start the DOM watcher the moment we know we are on a home context, before the
+        // async probe. On a hard reload Custom Tabs restores the active Discovery panel
+        // immediately; the watcher must already be listening or the restore mutation is
+        // missed and the tab stays blank. Mounts stay gated (_mountEnabled) until strings
+        // load, so this cannot render untranslated content early.
+        startCustomTabWatcher();
         _probeInFlight = true;
         waitForApi(function () {
             // Pin the generation only once a user is actually present (waitForApi may have polled
