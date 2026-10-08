@@ -554,44 +554,44 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
     private sealed class RadarrMovieDto
     {
-        public string? Title { get; set; }
+        public string? Title { get; init; }
 
-        public int Year { get; set; }
+        public int Year { get; init; }
 
-        public string? ImdbId { get; set; }
+        public string? ImdbId { get; init; }
 
-        public int TmdbId { get; set; }
+        public int TmdbId { get; init; }
 
-        public bool HasFile { get; set; }
+        public bool HasFile { get; init; }
 
-        public string? Path { get; set; }
+        public string? Path { get; init; }
     }
 
     private sealed class SonarrSeriesDto
     {
-        public string? Title { get; set; }
+        public string? Title { get; init; }
 
-        public int Year { get; set; }
+        public int Year { get; init; }
 
-        public string? ImdbId { get; set; }
+        public string? ImdbId { get; init; }
 
-        public int TvdbId { get; set; }
+        public int TvdbId { get; init; }
 
         /// <summary>
-        ///     Gets or sets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
+        ///     Gets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
         /// </summary>
-        public int TmdbId { get; set; }
+        public int TmdbId { get; init; }
 
-        public string? Path { get; set; }
+        public string? Path { get; init; }
 
-        public SonarrStatisticsDto? Statistics { get; set; }
+        public SonarrStatisticsDto? Statistics { get; init; }
     }
 
     private sealed class SonarrStatisticsDto
     {
-        public int EpisodeFileCount { get; set; }
+        public int EpisodeFileCount { get; init; }
 
-        public int TotalEpisodeCount { get; set; }
+        public int TotalEpisodeCount { get; init; }
     }
 
     // Deserialization target for the root-folder endpoint. A record has no standalone set accessor,
