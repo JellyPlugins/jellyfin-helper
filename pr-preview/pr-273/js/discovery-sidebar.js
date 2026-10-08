@@ -561,7 +561,7 @@
             }
             // Only the stranded panel whose index matches the active deep link is ours to recover.
             var panel = marker.closest('[id^="customTab_"]');
-            if (panel && String(panel.getAttribute('data-index')) === activeIndex) {
+            if (panel && String(panel.dataset.index) === activeIndex) {
                 strandedPanels.push(panel);
             }
         }
