@@ -126,6 +126,17 @@ public sealed class SecretProtectorTests
 
     [Fact]
     [Trait("Category", "Security")]
+    public void Unprotect_GarbagePayloadBehindPrefix_FailsClosedToEmpty()
+    {
+        // A DP:: marker in front of a payload that is not even valid base64 must fail closed to empty,
+        // confirming the CryptographicException catch also covers a malformed (undecodable) payload.
+        var protector = CreateProtector();
+
+        Assert.Equal(string.Empty, protector.Unprotect("DP::!!!invalid"));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
     public void Protect_IsStableAcrossRepeatedSaves()
     {
         var protector = CreateProtector();

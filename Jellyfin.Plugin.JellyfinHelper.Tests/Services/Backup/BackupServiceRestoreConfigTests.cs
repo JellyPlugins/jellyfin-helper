@@ -946,24 +946,24 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
-    public void RestoreConfig_SeerrApiKey_LongerThan200Chars_NoSpuriousCredentialsChangedWarning()
+    public void RestoreConfig_SeerrApiKey_WithinCap_RoundTripsWithoutTruncationOrSpuriousWarning()
     {
-        var longKey = new string('x', 250);
-        var backupKey = new string('x', 200);
+        // Keys up to the aligned cap (512) must round-trip intact: an identical stored and backup key
+        // reports no credentials change, and the restored value is the full key, not a truncated form.
+        var key = new string('x', 250);
 
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
-        liveConfig.SeerrApiKey = longKey;
+        liveConfig.SeerrApiKey = key;
         liveConfig.SeerrUrl = "https://seerr.example.com";
 
         var backup = MakeMinimalValidBackup();
-        backup.SeerrApiKey = backupKey;
+        backup.SeerrApiKey = key;
 
         var summary = service.RestoreBackup(backup);
 
         Assert.False(summary.CredentialsChanged,
-            "No credentials change should be reported when the backup key is the truncated form of the stored key.");
-        // The restored key must equal the truncated backup value (200 'x' chars), not the full 250-char stored value.
-        Assert.Equal(backupKey, _secretProtector.Unprotect(liveConfig.SeerrApiKey));
+            "No credentials change should be reported when the backup key equals the stored key.");
+        Assert.Equal(key, _secretProtector.Unprotect(liveConfig.SeerrApiKey));
     }
 
     [Fact]

@@ -20,6 +20,11 @@ internal static class LanguageIdentity
     // Shared word for Hindi across locales, kept in one place.
     private const string HindiExonym = "hindi";
 
+    // Hard ceiling on fold-cache entries. Real inputs are a few dozen language tags, so this is never
+    // reached in practice; it exists only so a stream of unique short tags cannot grow the cache without
+    // bound. Once full, FoldDiacritics simply stops caching and keeps folding on the fly.
+    private const int FoldCacheMaxEntries = 1024;
+
     // Bounded fold cache, keyed by exact input. Declared before every table: all
     // builders fold through it during initialization. Concurrent scans share it safely.
     private static readonly ConcurrentDictionary<string, string> FoldCache = new(StringComparer.Ordinal);
@@ -577,8 +582,9 @@ internal static class LanguageIdentity
     private static string FoldDiacritics(string value)
     {
         // Tags repeat heavily per scan (same languages on every file); the small
-        // bounded cache avoids re-normalizing them. Only short tags are cached so
-        // pathological probe strings cannot grow it without bound.
+        // bounded cache avoids re-normalizing them. Only short tags are cached, and only
+        // until the entry ceiling is hit, so neither a pathological probe string nor a
+        // flood of unique short tags can grow it without bound.
         if (value.Length <= 32 && FoldCache.TryGetValue(value, out var cached))
         {
             return cached;
@@ -587,7 +593,7 @@ internal static class LanguageIdentity
         var folded = new string(value.Normalize(NormalizationForm.FormD)
             .Where(static c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
             .ToArray());
-        if (value.Length <= 32)
+        if (value.Length <= 32 && FoldCache.Count < FoldCacheMaxEntries)
         {
             FoldCache.TryAdd(value, folded);
         }

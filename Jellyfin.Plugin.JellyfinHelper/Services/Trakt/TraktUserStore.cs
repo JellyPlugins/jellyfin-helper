@@ -177,10 +177,11 @@ public sealed class TraktUserStore : ITraktUserStore, IDisposable
             {
                 await AtomicFile.WriteAllTextAsync(_filePath, json, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
                 // Persistence is best effort; the in-memory map still serves the current process. Surface it so a
-                // read-only data dir is diagnosable, but never fail the OAuth flow over a disk write.
+                // read-only or locked-down data dir is diagnosable, but never fail the OAuth flow over a disk write.
+                // (OperationCanceledException is intentionally not caught here - a cancelled token must propagate.)
                 _pluginLog.LogWarning(LogSource, "Failed to persist Trakt tokens to disk.", ex, _logger);
             }
         }
@@ -220,10 +221,37 @@ public sealed class TraktUserStore : ITraktUserStore, IDisposable
                 ? new Dictionary<string, StoredEntry>(StringComparer.Ordinal)
                 : new Dictionary<string, StoredEntry>(loaded, StringComparer.Ordinal);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (JsonException ex)
+        {
+            // Corrupt token file: preserve the original before discarding it so a truncated/garbled write
+            // (power loss, half-flushed disk) stays recoverable instead of vanishing with the links it held.
+            PreserveCorruptFile();
+            _pluginLog.LogWarning(LogSource, "Trakt token file is corrupt; kept a .corrupt copy and starting empty.", ex, _logger);
+            _entries = new Dictionary<string, StoredEntry>(StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _pluginLog.LogWarning(LogSource, "Failed to load Trakt tokens from disk; starting empty.", ex, _logger);
             _entries = new Dictionary<string, StoredEntry>(StringComparer.Ordinal);
+        }
+    }
+
+    // Best-effort snapshot of a corrupt token file next to the original. A failure to copy must not stop the
+    // store from degrading to empty, so every file-system error here is swallowed after the attempt.
+    private void PreserveCorruptFile()
+    {
+        if (_filePath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Copy(_filePath, _filePath + ".corrupt", overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _pluginLog.LogWarning(LogSource, "Could not preserve a copy of the corrupt Trakt token file.", ex, _logger);
         }
     }
 

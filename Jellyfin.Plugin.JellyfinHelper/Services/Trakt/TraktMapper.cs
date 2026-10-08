@@ -79,17 +79,47 @@ internal static class TraktMapper
             TmdbId = tmdbId,
             MediaType = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie",
             Title = item.Title,
-            Year = item.Year,
+            Year = SanitizeYear(item.Year),
             Overview = item.Overview,
 
-            // Trakt rating is 0-10 like TMDb's voteAverage, so it carries straight through as the rating signal.
-            VoteAverage = item.Rating ?? 0,
+            // Trakt rating is 0-10 like TMDb's voteAverage, so it carries straight through as the rating
+            // signal - clamped so a malformed payload cannot push a negative or >10 value into the scorer.
+            VoteAverage = Math.Clamp(item.Rating ?? 0, 0d, 10d),
             Popularity = 0,
             GenreIds = [],
             PosterPath = null,
             Adult = false,
-            TraktSlug = string.IsNullOrWhiteSpace(item.Ids?.Slug) ? null : item.Ids.Slug.Trim(),
+            TraktSlug = SanitizeSlug(item.Ids?.Slug),
             SourceRank = rank,
         };
     }
+
+    // Trakt slugs are lowercase alphanumerics joined by hyphens. Whitelist that shape so a crafted slug
+    // (the field is attacker-controllable in test/mocked environments) can never carry path-traversal or
+    // scheme-injection bytes into the frontend deep-link that concatenates it.
+    private static string? SanitizeSlug(string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        var trimmed = slug.Trim();
+        foreach (var c in trimmed)
+        {
+            var isAllowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+            if (!isAllowed)
+            {
+                return null;
+            }
+        }
+
+        return trimmed;
+    }
+
+    // A year outside the DateTime-constructible range would later throw ArgumentOutOfRangeException when the
+    // discovery scorer builds a release/first-air date from it, and one malformed Trakt item would then sink
+    // the whole list. Treat an out-of-range year as absent so the item is still scored, just without a date.
+    private static int? SanitizeYear(int? year)
+        => year is >= 1 and <= 9999 ? year : null;
 }

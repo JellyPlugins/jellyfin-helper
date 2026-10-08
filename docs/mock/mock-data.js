@@ -457,6 +457,7 @@ function mockConsumeDiscovery(tmdbId, mediaType){
   }
   for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(MOCK_DISCOVERY[u]){ drop(MOCK_DISCOVERY[u].Recommendations); } }
   if(typeof MOCK_TRAKT_TRENDING!=="undefined"&&MOCK_TRAKT_TRENDING){ drop(MOCK_TRAKT_TRENDING.Recommendations); }
+  if(typeof MOCK_TRAKT_PERSONAL!=="undefined"&&MOCK_TRAKT_PERSONAL){ drop(MOCK_TRAKT_PERSONAL.Recommendations); }
 }
 
 var MOCK_SEERR_SERVICES_RADARR=[{
@@ -536,6 +537,9 @@ else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:
 else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
 else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
 else if(url.includes("Discovery/Request")&&method==="POST"){try{var rqBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(rqBody.TmdbId,rqBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
+else if(url.includes("Discovery/My/Trakt/Device/Start")&&method==="POST")resolve({user_code:"DEMO1234",device_code:"demo-device-code",verification_url:"https://trakt.tv/activate",interval:5,expires_in:600});
+else if(url.includes("Discovery/My/Trakt/Device/Poll")&&method==="POST")resolve({Status:"Linked"});
+else if(url.includes("Discovery/My/Trakt/Disconnect")&&method==="POST")resolve({Success:true});
 else if(url.includes("Discovery/My/Trakt/Trending"))resolve(structuredClone(MOCK_TRAKT_TRENDING));
 else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:structuredClone(MOCK_TRAKT_PERSONAL)});
 else if(url.includes("Discovery/My/RequestPermissions"))resolve({CanRequest:true,IsTransient:false,Profiles:[],DeniedReason:null});

@@ -16,7 +16,11 @@ public sealed class TraktCacheService
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _personal = new();
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _trendingScored = new();
     private readonly Func<DateTime> _utcNow;
-    private CacheEntry<IReadOnlyList<ExternalDiscoveryCandidate>>? _trending;
+
+    // volatile so a set/invalidate on one thread is observed by a concurrent reader without a lock. The
+    // reference assignment is already atomic; volatile only forbids a stale cached read, which is all this
+    // best-effort pool needs - a full lock would be overkill for process-local cache state.
+    private volatile CacheEntry<IReadOnlyList<ExternalDiscoveryCandidate>>? _trending;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktCacheService"/> class.

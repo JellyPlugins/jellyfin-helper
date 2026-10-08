@@ -103,9 +103,18 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
+        // Re-read the current token: a 401 during the movies fetch may have rotated it, so reusing the
+        // original string here would guarantee an avoidable 401-plus-retry on the shows fetch. This is a
+        // cheap store read (the token is now fresh, so no refresh grant is issued).
+        var showsToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(showsToken))
+        {
+            return null;
+        }
+
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, accessToken, candidates.Count, cancellationToken).ConfigureAwait(false));
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, showsToken, candidates.Count, cancellationToken).ConfigureAwait(false));
         if (candidates.Count == 0)
         {
             return null;

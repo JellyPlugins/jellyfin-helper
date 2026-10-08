@@ -1969,6 +1969,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static TmdbDiscoverItem ToTmdbItem(ExternalDiscoveryCandidate c)
     {
         var isTv = string.Equals(c.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
+
+        // Only build a date from a year the DateTime constructor accepts: an external candidate can carry a
+        // 0 / negative / >9999 year, and letting that reach the constructor would throw and sink the whole
+        // list. An out-of-range year is treated as no date, so the rest of the item still scores.
+        var yearForDate = c.Year is >= 1 and <= 9999 ? c.Year : null;
         return new TmdbDiscoverItem
         {
             Id = c.TmdbId,
@@ -1981,8 +1986,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             PosterPath = c.PosterPath,
             Overview = c.Overview,
             Adult = c.Adult,
-            ReleaseDate = !isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
-            FirstAirDate = isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            ReleaseDate = !isTv && yearForDate.HasValue ? new DateTime(yearForDate.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            FirstAirDate = isTv && yearForDate.HasValue ? new DateTime(yearForDate.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
             TraktSlug = c.TraktSlug,
             SourceRank = c.SourceRank,
         };
@@ -3105,6 +3110,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             throw new UriFormatException("Invalid Seerr base URL.");
         }
+
+        // Same central SSRF guard the integration and Arr paths enforce: the discovery path reaches the
+        // network with an admin-supplied base URL too, so a cloud-metadata host must be blocked here as well.
+        SsrfGuard.ThrowIfCloudMetadataHost(parsedBaseUrl.Host, nameof(baseUrl));
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {

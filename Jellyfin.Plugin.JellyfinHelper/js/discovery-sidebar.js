@@ -538,7 +538,12 @@
                     if (err?.status === 403) {
                         resetTraktState();
                     } else {
-                        _traktEnabled = true;
+                        // Fail closed on a transient/non-403 error: show the single ensemble grid rather
+                        // than a sticky Trakt tab bar whose tabs would each fail. Clearing the probe-user
+                        // marker lets the next mount re-probe, so a brief network blip self-heals instead
+                        // of latching the broken tabs for the rest of the session.
+                        _traktEnabled = false;
+                        _traktProbeUserId = null;
                     }
                 })
                 .finally(function () {
@@ -658,6 +663,10 @@
 
     // Only an unlinked user gets the connect panel; a linked user with an empty
     // pool gets the regular empty grid from renderCards.
+    // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
+    // self-refresh in the background: the scheduled task warms both server-side pools, so a tab load
+    // reflects the latest warmed data without a client-side refetch loop. A card mutation still bumps
+    // _discoveryGeneration and nulls these caches, so the next render re-fetches fresh data.
     function renderTraktPersonal(host, forceRefresh) {
         if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
             renderCards(host, _traktPersonalCache.data);
@@ -764,7 +773,12 @@
                     return;
                 }
                 renderDeviceCode(host, device);
-                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5), startedUserId);
+                // Stop polling once Trakt's own code lifetime elapses instead of looping until the user
+                // navigates away. Fall back to 10 minutes (Trakt's documented default) when expires_in is
+                // absent, and cap it so a bogus value can never schedule an effectively endless deadline.
+                var lifetimeSeconds = Math.min(Number(device.expires_in) || 600, 900);
+                var deadlineMs = Date.now() + lifetimeSeconds * 1000;
+                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5), startedUserId, deadlineMs);
             })
             .catch(function () {
                 if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
@@ -795,8 +809,15 @@
         }
     }
 
-    function scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId) {
+    function scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs) {
         clearDevicePoll();
+        // The code has a finite lifetime at Trakt; once it passes, every poll would just return expired.
+        // Stop here with a prompt to retry rather than polling a dead code until the user navigates away.
+        if (Date.now() >= deadlineMs) {
+            renderConnectPanel(host);
+            showToast(t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.'));
+            return;
+        }
         _devicePollTimer = setTimeout(function () {
             // Abandon the loop if the user navigated away, switched tabs, or switched
             // accounts while waiting: the result belongs to the account that started it.
@@ -816,18 +837,19 @@
                         _traktPersonalCache = null;
                         renderTraktPersonal(host, true);
                     } else if (status === 'Pending') {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId);
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs);
                     } else {
-                        // Denied or Error: stop and offer a fresh start.
+                        // Denied or Error: stop and offer a fresh start, telling the user why the panel reset.
                         clearDevicePoll();
                         renderConnectPanel(host);
+                        showToast(t('discoveryTraktConnectDeclined', 'Trakt authorization was not completed. Please try again.'));
                     }
                 })
                 .catch(function (err) {
                     if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
                     // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
                     if (err?.status === 429) {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId);
+                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId, deadlineMs);
                         return;
                     }
                     clearDevicePoll();
@@ -838,6 +860,9 @@
                         return;
                     }
                     renderConnectPanel(host);
+                    showToast(err?.status === 410
+                        ? t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.')
+                        : t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
                 });
         }, intervalSeconds * 1000);
     }
@@ -1349,7 +1374,9 @@
 
     function esc(str) {
         if (!str) return '';
-        return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+        // Coerce before escaping: a caller may pass a number (e.g. a year or rating), and replaceAll
+        // only exists on strings - without this a non-string value throws instead of being escaped.
+        return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
     function initSidebar() {
