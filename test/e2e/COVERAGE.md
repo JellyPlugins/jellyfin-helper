@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **363 tests** (API + UI) across 58 spec files
+every UI interaction. **360 tests** (API + UI) across 57 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -255,43 +255,20 @@ plugin stays Active after every call).
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
-## 8a. Trakt discovery → `trakt-discovery.api.spec.ts`
-- Runs against the `mock-trakt` server (compose service) with the plugin's Trakt API
-  base URL pointed at it via `JELLYFIN_HELPER_TRAKT_API_BASE`; Trakt is enabled in
-  global-setup with a mock client id/secret.
-- **Device-link state machine:** `GET Discovery/My/Trakt` reports `Linked:false` before
-  linking; `POST Device/Start` returns a user code; `POST Device/Poll` returns `Pending`
-  while the mock is unarmed, then `Linked` after `/arm-linked` (respecting the 5s per-user
-  poll throttle); after linking the personal endpoint returns `Linked:true` with a result.
-  These own-flow link/disconnect tests run against a dedicated second user (`e2edeviceuser`,
-  provisioned without an official Trakt token), so the "starts unlinked" premise holds even
-  when the official plugin is staged and seeds the primary user a token.
-- **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds for an
-  unlinked user (client-id only, no OAuth).
-- **User-Agent gate (Cloudflare):** mock-trakt 403s any API request without a `User-Agent`
-  (mirroring Trakt's Cloudflare front end), and the trending test asserts via the
-  `/last-user-agent` hook that the plugin sent an identifying UA. Guards the production bug
-  where every Trakt call failed 403 because the HTTP client sent no User-Agent.
-- **Disconnect:** `POST Device/Disconnect` clears the link and returns success (the device
-  user has no official token, so disconnect returns it to a truly unlinked state).
-- Snapshots and restores `TraktEnabled`/`TraktClientId` in afterAll so it does not leak
-  state into later specs.
-
-## 8b. Trakt via the official plugin → `trakt-official-plugin.api.spec.ts`
-- Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PLUGINS=1`); the official
-  Jellyfin Trakt plugin (GUID `4fe3201e-…`) is staged by `stage-external-plugins.sh` at its
-  latest release, and global-setup seeds its `Trakt.xml` with a known token for the normal
-  user via `POST /Plugins/<GUID>/Configuration`.
-- **Official-source path:** the normal user is NOT linked via our own device flow, so source
-  resolution falls through to the official plugin's token. The spec seeds the normal user a
-  genre watch profile first (Trakt personal scoring reuses the Seerr-backed external scorer,
-  which returns an empty result without one. Independent of link state), then
-  `GET Discovery/My/Trakt` returns `Linked:true` with recommendations even though the user
-  never ran our device flow.
-- **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`;
-  its `/last-recommendation-bearer` hook confirms the token the Helper forwarded is exactly
-  the seeded official token, proving the official plugin's token (not an own-flow token) was
-  used.
+## 8. Trakt via the official plugin → `trakt-official-plugin.api.spec.ts`
+Trakt discovery is sourced exclusively through the official Jellyfin Trakt plugin (the Helper has no own
+Trakt app). Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PLUGINS=1`); the official plugin
+(GUID `4fe3201e-…`) is staged by `stage-external-plugins.sh` at its latest release, and global-setup seeds its
+`Trakt.xml` with a known token for the normal user via `POST /Plugins/<GUID>/Configuration`.
+- **Official-source path:** the spec seeds the normal user a genre watch profile first (Trakt personal scoring
+  reuses the Seerr-backed external scorer, which returns an empty result without one), then
+  `GET Discovery/My/Trakt` returns `Linked:true` with recommendations sourced through the official plugin.
+- **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`; its
+  `/last-recommendation-bearer` hook confirms the token the Helper forwarded is exactly the seeded token.
+- **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds (client-id only, no OAuth).
+- **User-Agent gate (Cloudflare):** mock-trakt 403s any API request without a `User-Agent` (mirroring Trakt's
+  Cloudflare front end), so a populated grid also proves the plugin sent one. Guards the production bug where
+  every Trakt call failed 403 because the HTTP client sent no User-Agent.
 - **Status endpoint:** `GET Trakt/OfficialPluginStatus` (admin-only) reports `Present:true`.
 
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`

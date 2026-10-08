@@ -15,12 +15,6 @@ const ADMIN_USER = process.env.JELLYFIN_ADMIN_USER ?? 'e2eadmin';
 const ADMIN_PASS = process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
 const NORMAL_USER = process.env.JELLYFIN_USER ?? 'e2euser';
 const NORMAL_PASS = process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!';
-// A SECOND non-admin user who is deliberately never seeded an official Trakt token. The own-device-flow
-// specs (starts-unlinked / disconnect-clears) assert a genuinely unlinked starting state, which the primary
-// normal user no longer has once the official plugin seeds it a token. Running those specs against this user
-// keeps the own-flow covered in the external-plugins CI leg (where staging is mandatory) instead of skipping.
-const DEVICE_FLOW_USER = process.env.JELLYFIN_DEVICE_USER ?? 'e2edeviceuser';
-const DEVICE_FLOW_PASS = process.env.JELLYFIN_DEVICE_USER_PASS ?? 'E2eDevicePass1!';
 
 async function globalSetup(_config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
@@ -170,17 +164,9 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   const normalUser = await provisionNormalUser(admin, ctx, {
     userName: NORMAL_USER,
     password: NORMAL_PASS,
-    // The primary normal user is linked to the mock's SECOND Seerr user (Bob) with the Request permission
+    // The normal user is linked to the mock's SECOND Seerr user (Bob) with the Request permission
     // (bit 32) so the Discovery/My/Request authorization branches are reachable.
     seerrHook: { path: '/seed-user2', permissions: 32 },
-  });
-
-  // A second non-admin user, deliberately WITHOUT a Seerr link or an official Trakt token: the own-device-flow
-  // specs assert a genuinely unlinked starting state (the Device endpoints gate on DiscoveryUserAccessEnabled
-  // only, not on Seerr linkage), so this user needs nothing beyond existing and being able to authenticate.
-  const deviceFlowUser = await provisionNormalUser(admin, ctx, {
-    userName: DEVICE_FLOW_USER,
-    password: DEVICE_FLOW_PASS,
   });
 
   // --- 5c. configure the Discovery custom tab (only when the external plugins
@@ -212,7 +198,6 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     userId,
     userName: ADMIN_USER,
     normalUser, // null if provisioning failed -> Discovery/My tests skip
-    deviceFlowUser, // null if provisioning failed -> own-device-flow specs skip
   };
   writeFileSync(join(__dirname, 'auth.json'), JSON.stringify(out, null, 2));
   process.env.JELLYFIN_TOKEN = token;

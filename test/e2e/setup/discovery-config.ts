@@ -44,9 +44,7 @@ export async function ensureDiscoveryConfigured(
       SeerrUrl: INTERNAL_MOCK_SEERR_URL,
       SeerrApiKey: 'seerr-key',
       DiscoveryUserAccessEnabled: true,
-      TraktEnabled: true,
-      TraktClientId: 'mock-trakt-client-id',
-      TraktClientSecret: 'mock-trakt-client-secret',
+      TraktSourcingEnabled: true,
       ExcludedLibraries: '',
     },
   });

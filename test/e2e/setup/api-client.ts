@@ -25,11 +25,6 @@ export interface AuthInfo {
   userName: string;
   /** Non-admin user for user-facing (Discovery/My) tests; null if unprovisioned. */
   normalUser: NormalUser | null;
-  /**
-   * Second non-admin user, never seeded an official Trakt token, for the own-device-flow specs that assert a
-   * genuinely unlinked starting state. Null if unprovisioned (those specs then skip).
-   */
-  deviceFlowUser: NormalUser | null;
 }
 
 /** Load the auth info persisted by global-setup. */
@@ -45,20 +40,6 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
     baseURL: auth.baseUrl,
     extraHTTPHeaders: {
       Authorization: authHeader(auth.normalUser.token),
-      Accept: 'application/json',
-    },
-  });
-}
-
-/** Create a Playwright request context authenticated as the own-device-flow user (never officially linked). */
-export function deviceFlowUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
-  if (!auth.deviceFlowUser) {
-    return Promise.resolve(null);
-  }
-  return pwRequest.newContext({
-    baseURL: auth.baseUrl,
-    extraHTTPHeaders: {
-      Authorization: authHeader(auth.deviceFlowUser.token),
       Accept: 'application/json',
     },
   });

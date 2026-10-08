@@ -39,9 +39,8 @@ test.describe('Trakt via official plugin', () => {
     await waitForTraktAccessible();
 
     // Trakt personal scoring reuses the Seerr-backed external scorer, which returns null (empty grid) unless
-    // the requesting user has a genre watch profile - independent of link state. The sibling own-flow spec
-    // seeds this too, but tears it down in its own afterAll (and runs first alphabetically), so this spec must
-    // seed its own. Without it the GET below is Linked:true with zero recommendations - a setup gap, not a bug.
+    // the requesting user has a genre watch profile - independent of link state. Seed one so the GET below
+    // returns recommendations rather than Linked:true with an empty result.
     requireNormalUser(user);
     profileSeed = await seedNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId);
   });
@@ -92,29 +91,24 @@ test.describe('Trakt via official plugin', () => {
       await resetCtx.dispose();
     }
 
-    // The normal user is NOT linked via our own device flow, so source resolution falls through to the official
-    // plugin's seeded token. Disconnect clears any residual own-link AND drops the Helper's personal cache, so
-    // the GET below cannot be served from a warm own-flow pool (which would falsify the bearer-provenance check).
-    const disconnect = await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), {
-      headers: { 'Content-Type': 'application/json' },
-      data: {},
-    });
-    expect(disconnect.ok(), `disconnect: ${disconnect.status()}`).toBeTruthy();
-    expect((await disconnect.json()).Success).toBe(true);
-
     const res = await user!.get(p('Discovery/My/Trakt'));
     expect(res.ok(), `GET Discovery/My/Trakt: ${res.status()}`).toBeTruthy();
     const body = (await res.json()) as { Linked?: boolean; Result?: { Recommendations?: unknown[] } | null };
 
-    // Linked is true because the official plugin supplies a usable token even though the user never ran our
-    // own device flow.
+    // Linked is true because the official plugin supplies a usable token for this user.
     expect(body.Linked).toBe(true);
     expect(body.Result?.Recommendations?.length ?? 0).toBeGreaterThan(0);
 
     // Decisive proof: mock-trakt only answers /recommendations/* for a valid Bearer, and the last one it saw
-    // must be the token we seeded into the official plugin's config - not our own-flow token.
+    // must be the token seeded into the official plugin's config.
     const seen = await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer');
     expect(seen.bearer).toBe(SEEDED_OFFICIAL_TRAKT_TOKEN);
+  });
+
+  test('trending is available (client-id only, no linking)', async () => {
+    requireNormalUser(user);
+    const trending = await user!.get(p('Discovery/My/Trakt/Trending'));
+    expect(trending.ok(), `trending: ${trending.status()}`).toBeTruthy();
   });
 
   test('admin status endpoint reports the official plugin present', async () => {

@@ -1,24 +1,18 @@
 /**
- * Mock Trakt server for E2E tests. Implements the subset of the Trakt API the plugin uses: the OAuth device
- * flow (code + token + refresh), personal recommendations, and global trending. Unauthenticated test hooks
- * (/reset, /arm-*) let specs drive the device-flow state machine deterministically. Loopback-only, like the
- * other mocks. Real Trakt sits behind Cloudflare, which 403s any API request without a User-Agent; this mock
- * enforces the same on every real API path (test hooks exempt) so the suite catches a missing UA.
+ * Mock Trakt server for E2E tests. Implements the subset of the Trakt API the plugin uses: personal
+ * recommendations (Bearer required) and global trending (client-id only). An unauthenticated /reset test hook
+ * clears recorded state. Loopback-only, like the other mocks. Real Trakt sits behind Cloudflare, which 403s any
+ * API request without a User-Agent; this mock enforces the same on every real API path (test hooks exempt) so
+ * the suite catches a missing UA.
  */
 import http from 'node:http';
 
 const PORT = Number(process.env.PORT ?? 9100);
 
-// Device-flow state. The token endpoint returns 400 (pending) until armed to succeed, so a spec can assert
-// the "keep polling" path and then the "linked" path without timing races.
-let devicePending = true;
-let lastDeviceCode = null;
 let lastRecommendationBearer = null;
 let lastUserAgent = null;
 
 function reset() {
-  devicePending = true;
-  lastDeviceCode = null;
   lastRecommendationBearer = null;
   lastUserAgent = null;
 }
@@ -46,16 +40,12 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-// Personal recommendations require a Bearer token. The e2e "source via the official Trakt plugin" spec seeds
-// the official token into the official plugin's Trakt.xml; the own-device-flow spec links via this mock and
-// gets the mock-issued tokens. A 200 here PROVES a real token was presented (a wrong/absent bearer gets 401,
-// exactly as real Trakt behaves), so the official-plugin spec can assert its seeded token actually flowed
-// through. Keep the official value in sync with the seeded token in the Playwright setup.
+// Personal recommendations require a Bearer token: the official-plugin spec seeds a known token into the
+// official plugin's Trakt.xml, and the Helper forwards it here. A 200 proves a real token was presented (a
+// wrong/absent bearer gets 401, exactly as real Trakt behaves). Keep the value in sync with the seeded token.
 const EXPECTED_OFFICIAL_BEARER = process.env.TRAKT_EXPECTED_BEARER ?? 'seeded-official-token';
 const VALID_BEARERS = new Set([
   EXPECTED_OFFICIAL_BEARER,
-  'mock-access-token',          // issued by POST /oauth/device/token (own device flow)
-  'mock-access-token-refreshed', // issued by POST /oauth/token (own refresh)
 ]);
 
 function bearerOf(req) {
@@ -98,44 +88,6 @@ const routes = {
     reset();
     sendJson(res, 200, { ok: true });
   },
-  'POST /arm-linked': (_req, res) => {
-    devicePending = false;
-    sendJson(res, 200, { ok: true });
-  },
-
-  // Device flow.
-  'POST /oauth/device/code': (_req, res) => {
-    lastDeviceCode = 'device-code-xyz';
-    sendJson(res, 200, {
-      device_code: lastDeviceCode,
-      user_code: 'ABC123',
-      verification_url: 'https://trakt.tv/activate',
-      expires_in: 600,
-      interval: 1,
-    });
-  },
-  'POST /oauth/device/token': (_req, res) => {
-    if (devicePending) {
-      // 400 is Trakt's "authorization pending" during the device flow.
-      sendJson(res, 400, { error: 'authorization_pending' });
-      return;
-    }
-    sendJson(res, 200, {
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token',
-      expires_in: 7776000,
-      created_at: Math.floor(Date.now() / 1000),
-    });
-  },
-  'POST /oauth/token': (_req, res) => {
-    // Refresh grant.
-    sendJson(res, 200, {
-      access_token: 'mock-access-token-refreshed',
-      refresh_token: 'mock-refresh-token-2',
-      expires_in: 7776000,
-      created_at: Math.floor(Date.now() / 1000),
-    });
-  },
 
   // Personal recommendations (OAuth, Bearer required) and trending (client-id only, no bearer).
   'GET /recommendations/movies': (req, res) => requireBearer(req, res, (r, s) => {
@@ -163,7 +115,6 @@ const routes = {
 const UA_EXEMPT = new Set([
   'GET /health',
   'POST /reset',
-  'POST /arm-linked',
   'GET /last-recommendation-bearer',
   'GET /last-user-agent',
 ]);
