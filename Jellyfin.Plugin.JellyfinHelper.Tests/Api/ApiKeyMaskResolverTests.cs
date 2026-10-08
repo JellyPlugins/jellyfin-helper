@@ -147,6 +147,24 @@ public class ApiKeyMaskResolverTests
         Assert.Equal("stored-key", result);
     }
 
+    [Theory]
+    [InlineData("https://radarr.truenas1.local/", "https://radarr.truenas1.local")]
+    [InlineData("https://radarr.truenas1.local", "https://radarr.truenas1.local/")]
+    [InlineData("https://radarr.truenas1.local///", "https://radarr.truenas1.local")]
+    public void ResolveArrKey_MaskUrlDiffersOnlyByTrailingSlash_StillResolves(string storedUrl, string typedUrl)
+    {
+        // A successful test auto-saves the field verbatim, so stored and typed URLs can drift by a trailing
+        // slash. The resolver folds that away, otherwise the mask fails to resolve and the key is lost.
+        var stored = new List<ArrInstanceConfig>
+        {
+            new() { Url = storedUrl, ApiKey = "stored-key", Name = "R" }
+        };
+
+        var result = ApiKeyMaskResolver.ResolveArrKey(ApiKeyMask, typedUrl, "R", stored);
+
+        Assert.Equal("stored-key", result);
+    }
+
     [Fact]
     public void ResolveArrKey_MaskNoMatch_ReturnsEmptyString()
     {

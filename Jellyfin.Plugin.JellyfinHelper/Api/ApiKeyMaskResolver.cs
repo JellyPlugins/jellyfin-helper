@@ -47,11 +47,11 @@ internal static class ApiKeyMaskResolver
         }
 
         var list = stored as IReadOnlyList<ArrInstanceConfig> ?? stored.ToList();
-        var trimmedUrl = url?.Trim();
+        var canonicalUrl = CanonicalizeUrl(url);
 
         // Exact Name+URL match first - the only safe disambiguation when several instances share a URL.
         var exact = list.FirstOrDefault(p =>
-            string.Equals(p.Url?.Trim(), trimmedUrl, StringComparison.OrdinalIgnoreCase)
+            string.Equals(CanonicalizeUrl(p.Url), canonicalUrl, StringComparison.OrdinalIgnoreCase)
             && p.Name == name);
         if (exact is not null)
         {
@@ -62,7 +62,15 @@ internal static class ApiKeyMaskResolver
         // shares the URL. Multiple same-URL instances with no name match would otherwise forward another
         // instance's key upstream, so fail closed with an empty result instead.
         var urlMatches = list.Where(p =>
-            string.Equals(p.Url?.Trim(), trimmedUrl, StringComparison.OrdinalIgnoreCase)).ToList();
+            string.Equals(CanonicalizeUrl(p.Url), canonicalUrl, StringComparison.OrdinalIgnoreCase)).ToList();
         return urlMatches.Count == 1 ? urlMatches[0].ApiKey ?? string.Empty : string.Empty;
+    }
+
+    // A trailing slash is cosmetic ("https://host" and "https://host/" address the same instance), but a
+    // successful connection test auto-saves whatever is in the URL field, so the stored and typed forms can
+    // drift by exactly that slash. Fold it away here so the mask still resolves to the right stored key.
+    private static string CanonicalizeUrl(string? url)
+    {
+        return url?.Trim().TrimEnd('/') ?? string.Empty;
     }
 }
