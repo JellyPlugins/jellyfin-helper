@@ -35,7 +35,6 @@ export async function seedNormalUserWatchProfile(
   adminUserId: string,
   normalUserId: string,
 ): Promise<WatchProfileSeed> {
-  const played: string[] = [];
   const originalGenres = new Map<string, string[] | undefined>();
 
   const res = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${adminUserId}`);
@@ -47,12 +46,15 @@ export async function seedNormalUserWatchProfile(
     .map((i) => i.Id);
   expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
 
-  for (const id of movies.slice(0, SEED_COUNT)) {
-    await assignGenre(admin, adminUserId, originalGenres, id, SEED_GENRE);
-    const mark = await admin.post(`/UserPlayedItems/${id}?userId=${normalUserId}`);
-    expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
-    played.push(id);
-  }
+  // The seeded movies are independent of each other, so assign + mark them concurrently.
+  const played = await Promise.all(
+    movies.slice(0, SEED_COUNT).map(async (id) => {
+      await assignGenre(admin, adminUserId, originalGenres, id, SEED_GENRE);
+      const mark = await admin.post(`/UserPlayedItems/${id}?userId=${normalUserId}`);
+      expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
+      return id;
+    }),
+  );
   const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${normalUserId}`);
   expect([200, 204]).toContain(fav.status());
   const favorite = movies[0];
@@ -88,23 +90,27 @@ export async function clearNormalUserWatchProfile(
   normalUserId: string,
   seed: WatchProfileSeed,
 ): Promise<void> {
-  for (const id of seed.played) {
-    await admin.delete(`/UserPlayedItems/${id}?userId=${normalUserId}`).catch(() => undefined);
-  }
+  // Each unwind is independent (distinct items), so run them concurrently. Best-effort: later specs
+  // must not inherit the profile.
+  await Promise.all(
+    seed.played.map((id) => admin.delete(`/UserPlayedItems/${id}?userId=${normalUserId}`).catch(() => undefined)),
+  );
   if (seed.favorite) {
     await admin.delete(`/UserFavoriteItems/${seed.favorite}?userId=${normalUserId}`).catch(() => undefined);
   }
-  for (const [itemId, genres] of seed.originalGenres) {
-    try {
-      const cur = await admin.get(`/Items/${itemId}?userId=${adminUserId}`);
-      if (!cur.ok()) continue;
-      const dto = (await cur.json()) as { Genres?: string[] };
-      dto.Genres = genres ?? [];
-      await admin.post(`/Items/${itemId}`, { headers: { 'Content-Type': 'application/json' }, data: dto }).catch(() => undefined);
-    } catch {
-      // best-effort restore
-    }
-  }
+  await Promise.all(
+    [...seed.originalGenres].map(async ([itemId, genres]) => {
+      try {
+        const cur = await admin.get(`/Items/${itemId}?userId=${adminUserId}`);
+        if (!cur.ok()) return;
+        const dto = (await cur.json()) as { Genres?: string[] };
+        dto.Genres = genres ?? [];
+        await admin.post(`/Items/${itemId}`, { headers: { 'Content-Type': 'application/json' }, data: dto }).catch(() => undefined);
+      } catch {
+        // best-effort restore
+      }
+    }),
+  );
 }
 
 /**
