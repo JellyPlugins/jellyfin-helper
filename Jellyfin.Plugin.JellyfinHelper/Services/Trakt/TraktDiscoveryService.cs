@@ -106,22 +106,17 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var (movies, officialAuthFailed) = await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(movies);
 
-        // A revoked/stale OFFICIAL token fails the movies call and would fail the shows call identically (same
-        // dead token, same app). Stop here instead of firing a second doomed request that just re-logs the same
-        // auth failure; only the official plugin can re-link this user. Serve nothing cache-free so the next
-        // request retries once the plugin has rotated.
+        // A revoked/stale official token fails the movies call and would fail the shows call identically (same
+        // dead token, same app). Stop here instead of firing a second doomed request; only the official plugin
+        // can re-link this user. Serve nothing cache-free so the next request retries once the plugin rotates.
         if (officialAuthFailed)
         {
             return null;
         }
 
-        // The movies fetch on the own flow can unlink the user mid-flight (dead grant). Re-resolve before the
-        // shows fetch so it never runs with a dead own token. The re-resolved source must be the SAME kind of
-        // source: an unlink mid-flight drops the own link, and the fallback would otherwise switch to the
-        // official token and cache a shows-only partial pool under it. Stop instead; the next request resolves
-        // cleanly to the surviving source.
+        // Re-resolve before the shows fetch so a token that went away between the two calls is caught.
         var showsSource = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
-        if (showsSource is null || showsSource.IsOwnFlow != source.IsOwnFlow)
+        if (showsSource is null)
         {
             _cache.InvalidatePersonal(userId);
             return null;
@@ -169,10 +164,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         var config = GetConfig();
 
-        // Trending is sourceable when the master switch is on AND Trakt is available at all: own creds
-        // (TraktEnabled) OR the official plugin present. Gating purely on TraktEnabled would blank the trending
-        // grid on an official-plugin-only server, which has no own creds. Unlike personal, trending needs only a
-        // client id (no bearer), so the official app id is fine.
+        // Trending is sourceable when the master switch is on AND the official Trakt plugin is present. Trending
+        // needs only a client id (no bearer), so the official app id is used.
         if (config is null || !config.TraktSourcingEnabled || !_personalSources.IsAvailable(config))
         {
             return null;
@@ -220,9 +213,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return;
         }
 
-        // Run when Trakt is sourceable at all: either own creds are stored (TraktEnabled) OR the official plugin
-        // is present. An official-plugin-only server has no own creds, so gating purely on TraktEnabled would
-        // skip warming its users entirely.
+        // Run only when the official Trakt plugin is present (the sole Trakt source).
         if (!_personalSources.IsAvailable(config))
         {
             return;
@@ -259,42 +250,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         Guid userId, string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
-        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, source.IsOwnFlow, cancellationToken).ConfigureAwait(false);
+        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, cancellationToken).ConfigureAwait(false);
 
-        // A revoked/stale foreign token answers 401 OR 403 ("unapproved app" when the token predates the current
-        // official client id). Either way we are read-only on it and the next fetch would fail identically, so
-        // signal the caller to skip the remaining calls for this user rather than repeat the failure.
-        var officialAuthFailed = !source.IsOwnFlow
-            && status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
-        if (officialAuthFailed)
+        // A revoked/stale official token answers 401 OR 403 ("unapproved app" when the token predates the current
+        // official client id). We are read-only on it (the official plugin owns refresh/re-link), and the next
+        // fetch would fail identically, so signal the caller to skip the remaining calls for this user.
+        if (status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            // The official plugin owns the token lifecycle (single-use refresh, re-link). Fail this fetch and
-            // let the official plugin refresh on its own cycle; never refresh or unlink the foreign token here.
             return ([], true);
-        }
-
-        if (status == HttpStatusCode.Unauthorized)
-        {
-            // Own flow: the stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
-            // refresh and retry once with the new credential.
-            var renewed = await _personalSources.RefreshOwnTokenAsync(userId, source.AccessToken, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(renewed) || string.Equals(renewed, source.AccessToken, StringComparison.Ordinal))
-            {
-                // No new credential to retry with: fail this fetch without unlinking, so a transient
-                // outage never destroys a healthy link.
-                return ([], false);
-            }
-
-            using var retry = BuildRequest(relPath, source.ClientId, limit, renewed);
-            (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(retry, relPath, source.IsOwnFlow, cancellationToken).ConfigureAwait(false);
-            if (status == HttpStatusCode.Unauthorized)
-            {
-                // Fresh credentials rejected: the grant is dead. Unlink so the UI offers a re-link
-                // instead of an empty grid.
-                await _personalSources.UnlinkOwnAsync(userId, cancellationToken).ConfigureAwait(false);
-                _cache.InvalidatePersonal(userId);
-                return ([], false);
-            }
         }
 
         var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
@@ -306,24 +269,20 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         var all = new List<ExternalDiscoveryCandidate>();
 
-        // On an official-plugin-only server there is no own client id; trending is client-id-only (no bearer), so
-        // fall back to the official app's public id rather than sending an empty trakt-api-key (which Trakt rejects).
-        var clientId = string.IsNullOrWhiteSpace(config.TraktClientId)
-            ? External.OfficialTraktPluginReader.OfficialTraktClientId
-            : config.TraktClientId;
+        // Trending is client-id-only (no bearer). Trakt is sourced through the official plugin, so use its public
+        // app id rather than an empty trakt-api-key (which Trakt rejects).
+        var clientId = External.OfficialTraktPluginReader.OfficialTraktClientId;
 
         using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            // Trending carries no bearer, so a failure is a client-id/network problem, never a stale foreign
-            // token - keep it at WARN (isOwnFlow: true suppresses nothing here).
-            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", isOwnFlow: true, cancellationToken).ConfigureAwait(false);
+            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
         using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", isOwnFlow: true, cancellationToken).ConfigureAwait(false);
+            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, cancellationToken).ConfigureAwait(false);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -335,7 +294,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(
-        HttpRequestMessage request, string relPath, bool isOwnFlow, CancellationToken cancellationToken)
+        HttpRequestMessage request, string relPath, bool hasBearer, CancellationToken cancellationToken)
     {
         try
         {
@@ -343,7 +302,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                LogFetchFailure(relPath, isOwnFlow, response);
+                LogFetchFailure(relPath, hasBearer, response);
                 return (default, response.StatusCode);
             }
 
@@ -359,28 +318,23 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
     }
 
-    // Logs an HTTP failure with the endpoint and source, plus a short Trakt-side body/VIP header for diagnosis.
-    // A 401/403 on the OFFICIAL-plugin flow is expected and unactionable here (its token can expire or be revoked
-    // on trakt.tv, and we are strictly read-only on it), so it is logged at DEBUG once per endpoint rather than as
-    // a repeated WARN burst - without it a single stale foreign token spams the log on every movies+shows pass and
-    // every warm cycle. Everything else stays WARN. No token value is ever logged (the body is Trakt's error, the
-    // headers are rate/VIP metadata).
-    private void LogFetchFailure(string relPath, bool isOwnFlow, HttpResponseMessage response)
+    // Logs an HTTP failure with the endpoint, plus the VIP header for diagnosis. A 401/403 on a bearer (personal)
+    // call means the official plugin's token is stale/revoked - expected, unactionable here (read-only; only the
+    // official plugin can re-link), and noisy, so it is logged at DEBUG rather than as a repeated WARN burst.
+    // Trending (no bearer) and all other failures stay WARN. No token value is ever logged.
+    private void LogFetchFailure(string relPath, bool hasBearer, HttpResponseMessage response)
     {
         var code = (int)response.StatusCode;
-        var source = isOwnFlow ? "own" : "official";
         var authFailure = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 
-        var detail = $"Trakt fetch failed: {code} ({relPath}, source={source}).";
+        var detail = $"Trakt fetch failed: {code} ({relPath}).";
         if (response.Headers.TryGetValues("X-VIP-User", out var vip))
         {
             detail += $" X-VIP-User={string.Join(",", vip)}";
         }
 
-        if (authFailure && !isOwnFlow)
+        if (authFailure && hasBearer)
         {
-            // Expected, unactionable, and noisy: downgrade to DEBUG so a stale/revoked foreign token (which only
-            // the official plugin can re-link) does not fill the log with WARNs. The admin still sees it at DEBUG.
             _pluginLog.LogDebug(LogSource, detail + " The official Trakt plugin must re-link this user.", _logger);
             return;
         }

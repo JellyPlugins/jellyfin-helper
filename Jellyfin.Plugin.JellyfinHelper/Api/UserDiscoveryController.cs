@@ -694,7 +694,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Checks whether Trakt can be sourced for the user-facing read endpoints: the master
     ///     <see cref="Configuration.PluginConfiguration.TraktSourcingEnabled"/> switch is on AND the official
-    ///     Trakt plugin is present (the only Trakt source — the Helper has no own Trakt app).
+    ///     Trakt plugin is present (the only Trakt source. The Helper has no own Trakt app).
     /// </summary>
     private bool IsTraktEnabled()
     {

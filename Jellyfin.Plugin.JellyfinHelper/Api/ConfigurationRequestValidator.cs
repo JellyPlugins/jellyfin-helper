@@ -153,7 +153,7 @@ public static class ConfigurationRequestValidator
     /// <summary>
     ///     Validates the Trakt-related fields: the client id and secret must be provided together (one without
     ///     the other is a misconfiguration), and neither may contain control characters or exceed sane length
-    ///     bounds. There is no separate enable flag — Trakt is enabled by storing both credentials.
+    ///     bounds. There is no separate enable flag. Trakt is enabled by storing both credentials.
     /// </summary>
     /// <param name="request">The configuration update request to validate.</param>
     /// <returns>An error message string, or <c>null</c> when the Trakt settings are valid.</returns>
@@ -182,7 +182,7 @@ public static class ConfigurationRequestValidator
 
         // Both credentials must be supplied together. A null field means "preserve the stored value" (a client
         // without the Trakt card), so only non-null fields constrain each other. The mask sentinel counts as
-        // "secret present" (keep the stored one). An id without a secret — or a real new secret without an id —
+        // "secret present" (keep the stored one). An id without a secret. Or a real new secret without an id
         // cannot authenticate.
         if (!string.IsNullOrWhiteSpace(request.TraktClientId)
             && request.TraktClientSecret is not null

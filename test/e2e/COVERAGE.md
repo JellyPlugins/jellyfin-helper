@@ -285,7 +285,7 @@ plugin stays Active after every call).
 - **Official-source path:** the normal user is NOT linked via our own device flow, so source
   resolution falls through to the official plugin's token. The spec seeds the normal user a
   genre watch profile first (Trakt personal scoring reuses the Seerr-backed external scorer,
-  which returns an empty result without one — independent of link state), then
+  which returns an empty result without one. Independent of link state), then
   `GET Discovery/My/Trakt` returns `Linked:true` with recommendations even though the user
   never ran our device flow.
 - **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`;
@@ -338,7 +338,7 @@ script. Both staged by `run.sh` and configured in `global-setup` (toggle on + a
 - `discovery-sidebar.js` **never fabricates its own `customTab_` panel** (no stray marker outside a
   Custom-Tabs panel; exactly one panel), proving it no longer fights Custom Tabs for the DOM.
 - **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false`, the panel renders the
-  explicit "not enabled" message and **never a result grid** — the user-access gate hides the
+  explicit "not enabled" message and **never a result grid** The user-access gate hides the
   feature's content even though the external Custom Tabs plugin still shows the tab button. The
   describe brackets the toggle and restores access in `afterAll`.
 - Skips loudly when the external plugins are not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).

@@ -126,20 +126,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             return new SecretProtector(provider, logger);
         });
 
-        // Trakt per-user OAuth token store. Reads the data path at construction so tokens persist across
-        // restarts; falls back to in-memory only when the data path is unavailable.
-        serviceCollection.AddSingleton<Services.Trakt.ITraktUserStore>(sp =>
-            new Services.Trakt.TraktUserStore(
-                sp.GetRequiredService<ISecretProtector>(),
-                sp.GetRequiredService<IPluginLogService>(),
-                sp.GetRequiredService<ILogger<Services.Trakt.TraktUserStore>>(),
-                Plugin.Instance?.DataFolderPath));
-
         serviceCollection.AddSingleton<Services.Trakt.External.IOfficialTraktPluginReader>(CreateOfficialTraktPluginReader);
 
-        serviceCollection.AddSingleton<Services.Trakt.ITraktAuthService, Services.Trakt.TraktAuthService>();
         serviceCollection.AddSingleton<Services.Trakt.TraktCacheService>();
-        serviceCollection.AddSingleton<Services.Trakt.ITraktPersonalSourceService, Services.Trakt.TraktPersonalSourceService>();
+        serviceCollection.AddSingleton<Services.Trakt.ITraktPersonalSourceService>(sp =>
+            new Services.Trakt.TraktPersonalSourceService(
+                sp.GetRequiredService<Services.Trakt.External.IOfficialTraktPluginReader>()));
         serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();

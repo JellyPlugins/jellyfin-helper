@@ -1874,7 +1874,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // The Trakt tab preserves Trakt's own ranking, so our soft quality floors (minimum rating, minimum
         // year) must not silently prune what Trakt deliberately surfaced. Disable both for this path by passing
-        // 0 — ComputeMinYear returns 0 when avgYear is 0. The real avgYear still flows into the scoring context
+        // 0 - ComputeMinYear returns 0 when avgYear is 0. The real avgYear still flows into the scoring context
         // below as a feature input; only the filter thresholds are relaxed. Hard filters (parental, owned,
         // excluded set, dedup) stay fully active.
         var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVoteAverage: 0, avgYear: 0, isChildAccount);
@@ -2021,7 +2021,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         // Sort for enrichment selection: by source rank when the source supplies its own ordering (Trakt),
-        // otherwise by pre-score. Sorting before the Take is load-bearing — a score-based Take would drop
+        // otherwise by pre-score. Sorting before the Take is load-bearing. A score-based Take would drop
         // low-score-but-high-rank items the rank-based path must keep.
         if (context.RankBasedOrdering)
         {
@@ -2085,7 +2085,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     // Orders by source rank ascending (lower rank = better), with null ranks sorted last so a candidate the
     // source did not rank never displaces a ranked one. Ties keep the input order (stable callers use List.Sort,
-    // which is not stable, so equal ranks are unspecified among themselves — source ranks are unique in practice).
+    // which is not stable, so equal ranks are unspecified among themselves. Source ranks are unique in practice).
     private static int CompareBySourceRank(TmdbDiscoverItem a, TmdbDiscoverItem b)
     {
         if (a.SourceRank == b.SourceRank)

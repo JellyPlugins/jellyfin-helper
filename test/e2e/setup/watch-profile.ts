@@ -4,7 +4,7 @@
  * Trakt personal recommendations reuse the Seerr-backed external-candidate scorer
  * (SeerrDiscoveryService.ScoreExternalCandidatesAsync), which returns null unless the requesting user has a
  * watch profile with a non-empty genre-preference vector. Link state (GetMyTrakt's `Linked`) only reflects
- * whether a token exists, so a linked user with no profile legitimately yields an empty result — both the
+ * whether a token exists, so a linked user with no profile legitimately yields an empty result. Both the
  * own-device-flow spec and the official-plugin spec need this seed before asserting a populated grid.
  *
  * The ffmpeg fixtures carry no genre metadata, so seeding assigns a valid genre ("Action") to a few movies

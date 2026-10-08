@@ -699,7 +699,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void Validate_ReturnsError_WhenTraktClientSecretSetWithoutClientId()
     {
-        // A real new secret without an id cannot authenticate — both credentials are required together.
+        // A real new secret without an id cannot authenticate. Both credentials are required together.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
@@ -715,7 +715,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void Validate_ReturnsError_WhenTraktClientIdSetWithoutClientSecret()
     {
-        // An id without a secret cannot authenticate — both credentials are required together.
+        // An id without a secret cannot authenticate. Both credentials are required together.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,

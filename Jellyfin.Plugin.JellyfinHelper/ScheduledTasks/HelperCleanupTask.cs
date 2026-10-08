@@ -481,7 +481,7 @@ public class HelperCleanupTask : IScheduledTask
 
     private async Task RunTraktDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (!config.TraktEnabled)
+        if (!config.TraktSourcingEnabled)
         {
             progress.Report(100);
             return;
