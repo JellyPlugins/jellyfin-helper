@@ -108,7 +108,7 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            // Malformed/locked/foreign-schema-changed config must degrade to "no token" (own-flow fallback),
+            // Malformed/locked/foreign-schema-changed config must degrade to "no token" (no usable source),
             // never throw. FileStream/XmlReader.Create can throw beyond IO/Xml (ArgumentException,
             // NotSupportedException, SecurityException, ...), so catch all non-fatal failures. No token material
             // is logged.

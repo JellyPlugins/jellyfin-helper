@@ -193,8 +193,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
-│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt endpoints: TraktEnabled 403 gate, linked/not-linked envelope, device start/poll/disconnect, 410 on expired, start/poll 429 throttles
-│   ├── TraktDiscoveryDtoTests.cs                     # Trakt API DTOs: linked/unlinked envelope, poll request/response JSON round-trips
+│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt read endpoints: official-plugin-absent/master-switch 403 gates, linked/not-linked envelope, mid-fetch link lapse, authentication requirement
+│   ├── TraktDiscoveryDtoTests.cs                     # Trakt linked/unlinked envelope DTO: defaults, result carriage, JSON round-trip
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
@@ -335,7 +335,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
 │   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
-│   │   ├── TraktPersonalSourceServiceTests.cs # Source lifecycle: strict own-precedence (no official fallback on dead own token), official fallback, cheap link check without refresh, merged/deduped warm population, own refresh/unlink delegation
+│   │   ├── TraktPersonalSourceServiceTests.cs # Source lifecycle: official-token resolve, null-config guards, cheap link check, warm population, no own app
 │   │   └── External/                      # Official-Trakt-plugin reader tests
 │   │       ├── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE/oversize config; dedupes linked users; leaves file unchanged
 │   │       └── OfficialTraktPluginGuidsTests.cs # Pins the foreign plugin id (4fe3201e-…) + config file name (Trakt.xml) so a silent change to either is caught
@@ -667,13 +667,13 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsService.cs   # Aggregates growth data into per-library insights
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
-│   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
+│   ├── Trakt/                   # Trakt discovery source (official Jellyfin Trakt plugin, read-only)
 │   │   ├── TraktApi.cs              # Shared Trakt API base URL (env-overridable for e2e, defaults to api.trakt.tv)
-│   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
+│   │   ├── ITraktDiscoveryService.cs # Personal (official-plugin token) + global trending (official client id) contract; both scored through the shared seam
 │   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
-│   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (resolve with strict own-precedence, cheap link check, merged warm ids, own refresh/unlink)
-│   │   ├── TraktPersonalSourceService.cs  # Own device-flow link first, official plugin token as read-only fallback; owns all precedence rules so the discovery service stays within its constructor budget
-│   │   ├── TraktPersonalSource.cs         # Resolved source value (client id + bearer + own/official flag)
+│   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (official-token resolve, cheap link check, warm ids)
+│   │   ├── TraktPersonalSourceService.cs  # Resolves the official plugin token as read-only source; owns all resolution rules so the discovery service stays within its constructor budget
+│   │   ├── TraktPersonalSource.cs         # Resolved source value (official client id + bearer)
 │   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
 │   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
 │   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
@@ -758,7 +758,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
 - `TraktOfficialPluginControllerTests.cs` - Tests TraktOfficialPluginController OfficialPluginStatus mirrors the reader's presence probe
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
-- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, device poll request/response, JSON round-trips)
+- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, JSON round-trips)
 - `TrashControllerTests.cs`
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`

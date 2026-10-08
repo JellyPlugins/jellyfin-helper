@@ -307,7 +307,7 @@ RadarrInstances:[{Name:"Radarr Main",Url:"http://192.168.1.100:7878",ApiKey:"dem
 SonarrInstances:[{Name:"Sonarr",Url:"http://192.168.1.100:8989",ApiKey:"demo-key-abcd",Libraries:"TV Shows"},{Name:"Sonarr Anime",Url:"http://192.168.1.100:8990",ApiKey:"demo-key-efgh",Libraries:""}],
 SeerrUrl:"http://192.168.1.100:5055",SeerrApiKey:"demo-seerr-key",
 SeerrCleanupTaskMode:"DryRun",SeerrCleanupAgeDays:365,
-TraktSourcingEnabled:false,
+TraktSourcingEnabled:true,
 RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion:3
 };
 
@@ -537,9 +537,6 @@ else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:
 else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
 else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
 else if(url.includes("Discovery/Request")&&method==="POST"){try{var rqBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(rqBody.TmdbId,rqBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
-else if(url.includes("Discovery/My/Trakt/Device/Start")&&method==="POST")resolve({user_code:"DEMO1234",device_code:"demo-device-code",verification_url:"https://trakt.tv/activate",interval:5,expires_in:600});
-else if(url.includes("Discovery/My/Trakt/Device/Poll")&&method==="POST")resolve({Status:"Linked"});
-else if(url.includes("Discovery/My/Trakt/Disconnect")&&method==="POST")resolve({Success:true});
 else if(url.includes("Discovery/My/Trakt/Trending"))resolve(structuredClone(MOCK_TRAKT_TRENDING));
 else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:structuredClone(MOCK_TRAKT_PERSONAL)});
 else if(url.includes("Discovery/My/RequestPermissions"))resolve({CanRequest:true,IsTransient:false,Profiles:[],DeniedReason:null});
@@ -550,7 +547,6 @@ else if(url.includes("Discovery/My"))resolve(structuredClone(MOCK_DISCOVERY[0]))
 else if(url.includes("Discovery")&&!url.includes("Services")&&!url.includes("Request"))resolve(structuredClone(MOCK_DISCOVERY));
 else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Jellyseerr (demo)"});
 else if(url.includes("Trakt/OfficialPluginStatus"))resolve({Present:true});
-else if(url.includes("Trakt/Test"))resolve({success:true,message:"Connected to Trakt (demo)"});
 else if(url.includes("ArrIntegration/TestConnection"))resolve({Success:true,Message:"Connection successful (demo)"});
 else if(url.includes("ArrIntegration/Compare/"))resolve(structuredClone(MOCK_ARR_COMPARE));
 else if(url.includes("Logs/Download")){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}

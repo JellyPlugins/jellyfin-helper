@@ -250,8 +250,8 @@ async function authenticateWithRetry(
 /**
  * Create (or reuse) a non-admin test user and authenticate as it. Returns the captured token/userId, or null
  * if provisioning failed (dependent specs then skip). `opts.seerrHook`, when given, links the user to a mock
- * Seerr user with the stated permissions; omit it for a user that needs no Seerr linkage (e.g. the pure
- * own-device-flow user). Extracted from globalSetup to keep the top-level flow flat.
+ * Seerr user with the stated permissions; omit it for a user that needs no Seerr linkage. Extracted from
+ * globalSetup to keep the top-level flow flat.
  */
 async function provisionNormalUser(
   admin: ProvisionCtx,
@@ -290,7 +290,7 @@ async function provisionNormalUser(
     // eslint-disable-next-line no-console
     console.log(`[global-setup] non-admin user ${userName} ready (${nj.User.Id})`);
 
-    // Link to a mock Seerr user only when requested (the own-device-flow user needs none).
+    // Link to a mock Seerr user only when requested.
     if (seerrHook) {
       await seedSeerr(seerrHook.path, { jellyfinUserId: nj.User.Id, permissions: seerrHook.permissions });
     }

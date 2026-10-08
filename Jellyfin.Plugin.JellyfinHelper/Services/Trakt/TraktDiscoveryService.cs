@@ -39,7 +39,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory (uses the hardened "Trakt" client).</param>
-    /// <param name="personalSources">The per-user personal-source lifecycle (own link first, official plugin fallback).</param>
+    /// <param name="personalSources">The per-user personal-source lifecycle (official Trakt plugin token, read-only).</param>
     /// <param name="discoveryService">The discovery service exposing the external-candidate scoring seam.</param>
     /// <param name="cache">The Trakt result cache.</param>
     /// <param name="pluginLog">The plugin log service.</param>
@@ -72,11 +72,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
-        // Cheap link gate first (memory + file read, no network, no token refresh): unlinked users never
-        // fetch, and any leftover cache from before a disconnect is dropped instead of served stale. A full
-        // source resolution (which may issue a refresh grant on the own flow) runs only on a cache miss, so a
-        // transient token failure never drops a warm cache and cache hits never touch the network or the disk.
-        // The precedence rules themselves live in ITraktPersonalSourceService; this method only orchestrates.
+        // Cheap link gate first (memory + file read, no network): unlinked users never fetch, and any
+        // leftover cache from before a disconnect is dropped instead of served stale. A full source
+        // resolution runs only on a cache miss, so a transient failure never drops a warm cache and cache
+        // hits never touch the network or the disk.
+        // The resolution rules themselves live in ITraktPersonalSourceService; this method only orchestrates.
         if (!_personalSources.IsLinked(userId, config))
         {
             _cache.InvalidatePersonal(userId);
@@ -89,11 +89,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
-        // Resolve this user's personal source. Precedence is deterministic and documented: the user's OWN
-        // device-flow link always wins, so installing the official Trakt plugin never silently switches the
-        // source for a user who already linked here. Only when the user has no own link do we fall back to the
-        // official plugin's token (sourcing through its single app avoids Trakt's one-app-per-free-account
-        // collision). Resolution is per user, not cached globally, so two users can use different sources.
+        // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
+        // the sole Trakt source). Resolution is per user, not cached globally.
         var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
@@ -224,10 +221,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
         _cache.InvalidateTrendingPool();
 
-        // Warm both source populations: users linked via our own device flow, plus users the official plugin
-        // holds a usable token for (sourced only through it, so absent from our own store). Dedupe so a user
-        // linked both ways is warmed once; own-flow precedence is still resolved per user inside GetPersonalAsync.
-        // The merged population comes from the source service, which owns both stores.
+        // Warm every user the official plugin holds a usable token for. The population comes from the
+        // source service, which owns the foreign token store.
         var userIds = _personalSources.GetLinkedUserIds();
 
         foreach (var userId in userIds)

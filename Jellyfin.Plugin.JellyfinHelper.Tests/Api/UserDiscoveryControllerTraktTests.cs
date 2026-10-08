@@ -18,9 +18,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
-///     Tests the Trakt endpoints on UserDiscoveryController: the TraktEnabled 403 gate, the linked/not-linked
-///     envelope, device start/poll/disconnect flow, poll status to HTTP mapping (410 on expired), and the
-///     per-user start/poll throttles that return 429.
+///     Tests the Trakt read endpoints on UserDiscoveryController: the official-plugin-absent/master-switch 403
+///     gates, the linked/not-linked envelope, and the authentication requirement.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class UserDiscoveryControllerTraktTests : IDisposable
@@ -143,7 +142,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
 
         // Link state is resolved by the discovery service, not the result: a linked user with an
-        // empty pool sees the (empty) grid, not the connect panel.
+        // empty pool sees the (empty) grid, not the not-linked message.
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
         Assert.True(payload.Linked);
@@ -153,9 +152,9 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     [Fact]
     public async Task GetMyTrakt_WhenLinkedOnlyViaOfficialPlugin_ReturnsLinkedTrueWithResult()
     {
-        // The target scenario of this feature: a free-account user linked ONLY through the official Trakt
-        // plugin (no own device-flow token). The discovery service resolves the official source, so the
-        // envelope must report linked=true and surface the fetched result instead of the connect panel.
+        // The target scenario of this feature: a user linked through the official Trakt plugin. The discovery
+        // service resolves the official source, so the envelope must report linked=true and surface the
+        // fetched result instead of the not-linked message.
         var userId = Guid.NewGuid();
         var scored = new DiscoveryResult { UserId = userId };
         _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
@@ -170,7 +169,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     }
 
     [Fact]
-    public async Task GetMyTrakt_WhenFetchUnlinks_ReturnsLinkedFalse()
+    public async Task GetMyTrakt_WhenLinkLapsesMidFetch_ReturnsLinkedFalse()
     {
         var userId = Guid.NewGuid();
         var linked = true;
@@ -181,8 +180,8 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
 
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
 
-        // The fetch unlinked a dead grant mid-flight: the endpoint re-resolves link state so the UI
-        // offers a re-link instead of an empty grid.
+        // The link lapsed mid-fetch: the endpoint re-resolves link state so the UI shows the
+        // not-linked message instead of an empty grid.
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
         Assert.False(payload.Linked);

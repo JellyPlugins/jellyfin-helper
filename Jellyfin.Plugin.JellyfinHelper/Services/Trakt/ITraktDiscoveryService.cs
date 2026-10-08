@@ -22,10 +22,9 @@ public interface ITraktDiscoveryService
     Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Returns whether the user has a usable personal Trakt source: either an own device-flow link with a
-    ///     valid token, or (when the official Trakt plugin is present) a usable token it holds for this user.
-    ///     Drives the link-status envelope so official-plugin-only users are reported as linked and get their
-    ///     recommendations fetched instead of being shown the connect panel.
+    ///     Returns whether the user has a usable personal Trakt source: the official Trakt plugin holds a
+    ///     usable token for this user. Drives the link-status envelope so linked users get their
+    ///     recommendations fetched instead of being shown the not-linked message.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -33,9 +32,9 @@ public interface ITraktDiscoveryService
     Task<bool> IsLinkedForAsync(Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Drops the user's cached personal recommendations. Called when the user disconnects their own Trakt
-    ///     link so stale recommendations are not served (up to the 12h TTL) after the link is gone, and so the
-    ///     next request re-resolves the source cleanly rather than serving a warm cache from a now-dead source.
+    ///     Drops the user's cached personal recommendations so stale recommendations are not served (up to the
+    ///     12h TTL) after the link is gone, and so the next request re-resolves cleanly rather than serving a
+    ///     warm cache from a now-dead source.
     /// </summary>
     /// <param name="userId">The Jellyfin user id whose personal cache to drop.</param>
     void InvalidatePersonal(Guid userId);

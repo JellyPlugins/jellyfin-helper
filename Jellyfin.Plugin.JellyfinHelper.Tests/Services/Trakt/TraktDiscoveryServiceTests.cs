@@ -424,7 +424,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_TransportFailure_ReturnsNullWithoutUnlinking()
+    public async Task GetPersonal_TransportFailure_ReturnsNullWithoutScoring()
     {
         var userId = Guid.NewGuid();
         var throwingHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
@@ -436,7 +436,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         throwingFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(throwingHandler.Object));
         var sut = CreateServiceWithFactory(throwingFactory.Object);
 
-        // A network failure degrades to null instead of an HTTP 500, and never destroys the link.
+        // A network failure degrades to null instead of an HTTP 500, and never scores.
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
         _discovery.Verify(
             d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
@@ -555,10 +555,10 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_NotOwnLinkedButOfficialPresent_SourcesViaOfficialToken()
+    public async Task GetPersonal_OfficialPresent_SourcesViaOfficialToken()
     {
         var userId = Guid.NewGuid();
-        // Not linked here: own flow unavailable.
+        // The official plugin holds a token for the user.
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
             .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
@@ -569,7 +569,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
 
         Assert.NotNull(result);
-        // Proves the official plugin's app id + its token were used, not our own client id.
+        // Proves the official plugin's app id + its token were used.
         Assert.All(captured, c =>
         {
             Assert.Equal(Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktPluginReader.OfficialTraktClientId, c.ApiKey);
@@ -594,13 +594,13 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_OfficialSource401_DoesNotRefreshOrUnlink()
+    public async Task GetPersonal_OfficialSource401_ReturnsNullWithoutScoring()
     {
         var userId = Guid.NewGuid();
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
             .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
-        // Both fetches 401: the official token went stale. We must NOT refresh or unlink the foreign token.
+        // Both fetches 401: the official token went stale; serve null without scoring.
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
 
@@ -702,10 +702,10 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task IsLinkedFor_OnlyOfficialPluginHasToken_ReturnsTrue()
+    public async Task IsLinkedFor_OfficialHasToken_ReturnsTrue()
     {
-        // The feature's whole point: an official-plugin user must report linked so the controller fetches their
-        // recommendations instead of showing the not-linked message. (Regression guard for B1.)
+        // An official-plugin user must report linked so the controller fetches their recommendations
+        // instead of showing the not-linked message.
         var userId = Guid.NewGuid();
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
         _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))

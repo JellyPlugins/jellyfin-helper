@@ -599,8 +599,8 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Returns the current user's personal Trakt recommendations, scored for them. When the user has not
-    ///     linked Trakt the response is {Linked:false} so the UI shows the connect panel; otherwise it is a
-    ///     DiscoveryResult. 403 when Trakt is disabled by the admin.
+    ///     linked Trakt in the official plugin the response is {Linked:false} so the UI shows the not-linked
+    ///     message; otherwise it is a DiscoveryResult. 403 when Trakt is disabled by the admin.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A link-status envelope or a scored discovery result.</returns>
@@ -621,17 +621,17 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        // Link state is resolved by the discovery service across BOTH sources (own device-flow link and the
-        // official Trakt plugin's token), so a user linked only through the official plugin is reported linked
-        // and fetched, instead of being shown the connect panel. Without a usable source the fetch is skipped.
+        // Link state is resolved by the discovery service from the official Trakt plugin's token, so a
+        // linked user is reported linked and fetched instead of being shown the not-linked message. Without
+        // a usable token the fetch is skipped.
         var linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         var result = linked
             ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
             : null;
         if (linked && result is null)
         {
-            // The fetch can unlink a dead grant mid-flight; report the current state
-            // so the UI offers a re-link instead of an empty grid.
+            // The link lapsed mid-fetch (token went away between the calls); report the current state
+            // so the UI shows the not-linked message instead of an empty grid.
             linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
@@ -694,7 +694,9 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Checks whether Trakt can be sourced for the user-facing read endpoints: the master
     ///     <see cref="Configuration.PluginConfiguration.TraktSourcingEnabled"/> switch is on AND the official
-    ///     Trakt plugin is present (the only Trakt source. The Helper has no own Trakt app).
+    ///     Trakt plugin is present (the only Trakt source. The Helper has no own Trakt app). A stored
+    ///     opt-in outlives an uninstalled official plugin (the settings row hides, the gate stays shut),
+    ///     so reinstalling resumes without reconfiguration.
     /// </summary>
     private bool IsTraktEnabled()
     {
