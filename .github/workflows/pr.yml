@@ -47,9 +47,15 @@ jobs:
 
     - name: Create test package
       run: |
+        # Ship the ENTIRE publish output, not a hand-picked *.dll subset: picking
+        # files silently dropped transitive deps / deps.json / logo.png before and
+        # made Jellyfin mark the plugin "Malfunctioned". This mirrors the TrueNAS
+        # deploy (scp of the whole publish dir) 1:1.
         mkdir package
-        cp publish/*.dll package/
-        cp publish/*.pdb package/ 2>/dev/null || true
+        cp -r publish/. package/
+        # meta.json completes the installable layout (same file the deploy ships);
+        # generate-meta.ps1 reads manifest.json and is OS-independent.
+        pwsh -NoProfile -File generate-meta.ps1 -OutputDir package
         cd package
         zip ../${PLUGIN_NAME}_test-build.zip ./*
 
