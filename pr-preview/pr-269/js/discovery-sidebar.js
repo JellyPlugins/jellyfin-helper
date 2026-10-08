@@ -298,7 +298,15 @@
     }
 
     function invalidateDiscoveryResult() {
+        // A request/dismiss mutates the shared candidate pool, so every tab's
+        // cache is stale - not just the own-tab one. Nulling the Trakt caches
+        // keeps a pre-mutation card from reappearing if the user switches tabs
+        // before the delayed refresh runs. (The caches are hoisted vars declared
+        // further down.) The generation bump below invalidates in-flight Trakt
+        // GETs via their startedGeneration guard.
         _discoveryResultCache = null;
+        _traktPersonalCache = null;
+        _traktTrendingCache = null;
         // Any GET already in flight predates this invalidation and must not
         // commit its (now stale) result.
         _discoveryGeneration++;
