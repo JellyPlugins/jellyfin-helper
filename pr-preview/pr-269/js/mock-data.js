@@ -457,6 +457,7 @@ function mockConsumeDiscovery(tmdbId, mediaType){
   }
   for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(MOCK_DISCOVERY[u]){ drop(MOCK_DISCOVERY[u].Recommendations); } }
   if(typeof MOCK_TRAKT_TRENDING!=="undefined"&&MOCK_TRAKT_TRENDING){ drop(MOCK_TRAKT_TRENDING.Recommendations); }
+  if(typeof MOCK_TRAKT_PERSONAL!=="undefined"&&MOCK_TRAKT_PERSONAL){ drop(MOCK_TRAKT_PERSONAL.Recommendations); }
 }
 
 var MOCK_SEERR_SERVICES_RADARR=[{
