@@ -147,8 +147,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 ? Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName)
                 : null;
 
+            // Presence means installed AND active: GetPlugin returns disabled, malfunctioned, or superseded
+            // plugins too, and sourcing through a plugin that is not running would serve a stale token.
             bool IsPresent() =>
-                pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is not null;
+                pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is { } plugin
+                && plugin.Manifest.Status == MediaBrowser.Model.Plugins.PluginStatus.Active;
 
             return new Services.Trakt.External.OfficialTraktPluginReader(
                 IsPresent,

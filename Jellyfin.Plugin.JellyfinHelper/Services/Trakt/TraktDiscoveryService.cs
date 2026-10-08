@@ -72,16 +72,13 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
-        // Resolve this user's personal source. Precedence is deterministic and documented: the user's OWN
-        // device-flow link always wins, so installing the official Trakt plugin never silently switches the
-        // source for a user who already linked here. Only when the user has no own link do we fall back to the
-        // official plugin's token (sourcing through its single app avoids Trakt's one-app-per-free-account
-        // collision). Resolution is per user, not cached globally, so two users can use different sources.
+        // Cheap link gate first (memory + file read, no network, no token refresh): unlinked users never
+        // fetch, and any leftover cache from before a disconnect is dropped instead of served stale. A full
+        // source resolution (which may issue a refresh grant on the own flow) runs only on a cache miss, so a
+        // transient token failure never drops a warm cache and cache hits never touch the network or the disk.
         // The precedence rules themselves live in ITraktPersonalSourceService; this method only orchestrates.
-        var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
-        if (source is null)
+        if (!_personalSources.IsLinked(userId, config))
         {
-            // No usable source for this user: drop any stale cache rather than serving it after a disconnect.
             _cache.InvalidatePersonal(userId);
             return null;
         }
@@ -92,16 +89,31 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
+        // Resolve this user's personal source. Precedence is deterministic and documented: the user's OWN
+        // device-flow link always wins, so installing the official Trakt plugin never silently switches the
+        // source for a user who already linked here. Only when the user has no own link do we fall back to the
+        // official plugin's token (sourcing through its single app avoids Trakt's one-app-per-free-account
+        // collision). Resolution is per user, not cached globally, so two users can use different sources.
+        var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
+        if (source is null)
+        {
+            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, but keep
+            // the outcome cache-free so the next request retries instead of pinning the outage.
+            return null;
+        }
+
         var candidates = new List<ExternalDiscoveryCandidate>();
         candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false));
 
         // The movies fetch on the own flow can unlink the user mid-flight (dead grant). Re-resolve before the
-        // shows fetch so it never runs with a dead own token. Because own-precedence is strict (an own-linked
-        // user whose token is gone resolves to null, never to the official token), a re-resolve that now returns
-        // null means the own link died mid-flight: stop rather than silently finishing on a different source.
+        // shows fetch so it never runs with a dead own token. The re-resolved source must be the SAME kind of
+        // source: an unlink mid-flight drops the own link, and the fallback would otherwise switch to the
+        // official token and cache a shows-only partial pool under it. Stop instead; the next request resolves
+        // cleanly to the surviving source.
         var showsSource = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
-        if (showsSource is null)
+        if (showsSource is null || showsSource.IsOwnFlow != source.IsOwnFlow)
         {
+            _cache.InvalidatePersonal(userId);
             return null;
         }
 

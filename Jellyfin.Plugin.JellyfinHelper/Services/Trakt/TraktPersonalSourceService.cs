@@ -40,11 +40,15 @@ public sealed class TraktPersonalSourceService : ITraktPersonalSourceService
 
     /// <inheritdoc />
     public bool IsAvailable(PluginConfiguration config)
-        => config.TraktEnabled || _officialPlugin.IsPresent();
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return config.TraktEnabled || _officialPlugin.IsPresent();
+    }
 
     /// <inheritdoc />
     public async Task<TraktPersonalSource?> ResolveAsync(Guid userId, PluginConfiguration config, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(config);
         // Own device-flow link wins, so installing the official plugin never silently switches the source for a
         // user who already linked here. GetValidAccessTokenAsync may issue a refresh grant, which we want on the
         // own path; it is awaited (never sync-over-async) and honors the request cancellation token.
@@ -76,6 +80,7 @@ public sealed class TraktPersonalSourceService : ITraktPersonalSourceService
     /// <inheritdoc />
     public bool IsLinked(Guid userId, PluginConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
         // Own link first (store read only, no token validation or refresh), then the official plugin's usable
         // token. Mirrors ResolveAsync's precedence without the network cost.
         if (_store.GetToken(userId)?.IsLinked == true && !string.IsNullOrWhiteSpace(config.TraktClientId))

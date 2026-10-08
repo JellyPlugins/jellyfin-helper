@@ -49,6 +49,30 @@ public sealed class TraktPersonalSourceServiceTests
     }
 
     [Fact]
+    public async Task ResolveAsync_NullConfig_Throws()
+    {
+        var sut = CreateService();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => sut.ResolveAsync(Guid.NewGuid(), null!, CancellationToken.None));
+    }
+
+    [Fact]
+    public void IsLinked_NullConfig_Throws()
+    {
+        var sut = CreateService();
+
+        Assert.Throws<ArgumentNullException>(() => sut.IsLinked(Guid.NewGuid(), null!));
+    }
+
+    [Fact]
+    public void IsAvailable_NullConfig_Throws()
+    {
+        var sut = CreateService();
+
+        Assert.Throws<ArgumentNullException>(() => sut.IsAvailable(null!));
+    }
+
+    [Fact]
     public async Task ResolveAsync_OwnLinked_ReturnsOwnSourceWithoutConsultingOfficial()
     {
         var userId = Guid.NewGuid();

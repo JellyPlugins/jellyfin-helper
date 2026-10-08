@@ -383,6 +383,43 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_OwnGrantDiesMidFlight_DoesNotFinishOnOfficialSource()
+    {
+        // Dead own grant AND an official-plugin token for the same user: the movies fetch unlinks the own
+        // flow, so the re-resolve between the fetches falls through to the official token. The service must
+        // stop rather than score and cache a shows-only partial pool sourced through the official app.
+        var userId = Guid.NewGuid();
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
+        _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
+        // Mirror the production store: once RemoveAsync runs, the token is gone and the re-resolve between
+        // the movies and shows fetches reaches the official branch.
+        _store.Setup(s => s.RemoveAsync(userId, It.IsAny<CancellationToken>()))
+            .Callback(() => _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null))
+            .Returns(Task.CompletedTask);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
+        // Movies 401, retry 401 (dead grant → unlink). The shows fetch must never run.
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+
+        var (sut, captured) = CreateCapturingService();
+        var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Null(result);
+        _store.Verify(s => s.RemoveAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
+        // Only the own-flow movies fetch and its retry ran (both under the own client id); nothing was
+        // fetched through the official token, scored, or cached.
+        Assert.Equal(2, captured.Count);
+        Assert.All(captured, c => Assert.Equal("client-id", c.ApiKey));
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task GetTrending_Disabled_ReturnsNullWithoutFetch()
     {
         Plugin.Instance!.Configuration.TraktEnabled = false;
