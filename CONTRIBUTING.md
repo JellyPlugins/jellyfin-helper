@@ -336,7 +336,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
-│   │   └── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
+│   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
+│   │   └── External/                      # Official-Trakt-plugin reader tests
+│   │       └── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE config; leaves file unchanged
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -685,7 +687,12 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
 │   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
 │   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)
-│   │   └── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
+│   │   ├── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
+│   │   └── External/                # Coupling to the OFFICIAL Jellyfin Trakt plugin, confined to one place
+│   │       ├── IOfficialTraktPluginReader.cs # Presence probe + read-only per-user token lookup contract
+│   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic); matches on LinkedMbUserId; honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed to null
+│   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access/refresh/expiry); never references the foreign assembly
+│   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs

@@ -130,6 +130,29 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 sp.GetRequiredService<ILogger<Services.Trakt.TraktUserStore>>(),
                 Plugin.Instance?.DataFolderPath));
 
+        // Reads the OFFICIAL Trakt plugin's persisted config so the Helper can source recommendations through
+        // its single app on a free Trakt account (one connected app per account). Host services are resolved
+        // lazily and nullably: a Jellyfin without IPluginManager/IApplicationPaths must not break DI, it must
+        // simply report the official plugin as absent so the Helper keeps its own-client-id flow.
+        serviceCollection.AddSingleton<Services.Trakt.External.IOfficialTraktPluginReader>(sp =>
+        {
+            var pluginManager = sp.GetService<MediaBrowser.Common.Plugins.IPluginManager>();
+            var appPaths = sp.GetService<MediaBrowser.Common.Configuration.IApplicationPaths>();
+            var configurationsPath = appPaths?.PluginConfigurationsPath;
+            var configPath = string.IsNullOrEmpty(configurationsPath)
+                ? null
+                : Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName);
+
+            bool IsPresent() =>
+                pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is not null;
+
+            return new Services.Trakt.External.OfficialTraktPluginReader(
+                IsPresent,
+                configPath,
+                sp.GetRequiredService<IPluginLogService>(),
+                sp.GetRequiredService<ILogger<Services.Trakt.External.OfficialTraktPluginReader>>());
+        });
+
         serviceCollection.AddSingleton<Services.Trakt.ITraktAuthService, Services.Trakt.TraktAuthService>();
         serviceCollection.AddSingleton<Services.Trakt.TraktCacheService>();
         serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
