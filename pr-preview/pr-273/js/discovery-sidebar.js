@@ -462,7 +462,7 @@
                 return;
             }
             var active = findActiveContainer();
-            if (active && active.querySelector('.jfh-discovery-container')) {
+            if (active?.querySelector('.jfh-discovery-container')) {
                 return;
             }
             setTimeout(tick, INITIAL_MOUNT_DELAYS_MS[step++]);
