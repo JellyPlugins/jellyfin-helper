@@ -55,7 +55,7 @@ jobs:
         cp -r publish/. package/
         # meta.json completes the installable layout (same file the deploy ships);
         # generate-meta.ps1 reads manifest.json and is OS-independent.
-        pwsh -NoProfile -File generate-meta.ps1 -OutputDir package
+        pwsh -NoProfile -File ./generate-meta.ps1 -OutputDir package
         cd package
         zip ../${PLUGIN_NAME}_test-build.zip ./*
 
