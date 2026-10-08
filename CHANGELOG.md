@@ -33,7 +33,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6552 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the official-Trakt-plugin reader (hardened XML parse, read-only token, source-precedence matrix). The Trakt device-flow controller now also covers every poll terminal state (linked, denied, error) end to end.
+- **Unit: 6555 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the official-Trakt-plugin reader (hardened XML parse, read-only token, source-precedence matrix). The Trakt device-flow controller now also covers every poll terminal state (linked, denied, error) end to end.
 - **End-to-end: 361 tests.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and stages the official Jellyfin Trakt plugin with a seeded per-user token to prove the Helper sources personal recommendations and trending through it (the mock Trakt server enforces the production User-Agent gate). A negative custom-tab spec proves the Discovery panel stays unpopulated when user access is disabled. (Authoritative count: `cd test/e2e && npx playwright test --list`.)
 
 ### Special Thanks

@@ -40,6 +40,9 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         _cacheFile = Path.GetTempFileName();
         _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: _cacheFile);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
+        // The Trakt endpoints cap their result to the same visible count as the "For you" tab, read from the
+        // discovery service; mirror the real MaxVisiblePerUser so the cap tests are deterministic.
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
         // Trakt is sourced only through the official plugin; present by default so the read endpoints are open.
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
 
@@ -214,6 +217,66 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var result = await CreateController(userId).GetMyTraktTrending(CancellationToken.None);
 
         Assert.Same(scored, Assert.IsType<OkObjectResult>(result.Result).Value);
+    }
+
+    private static DiscoveryResult ResultWith(Guid userId, int count)
+    {
+        var r = new DiscoveryResult { UserId = userId };
+        for (var i = 0; i < count; i++)
+        {
+            r.Recommendations.Add(new DiscoveryRecommendation { TmdbId = 1000 + i, MediaType = "movie", Title = $"m{i}" });
+        }
+
+        return r;
+    }
+
+    [Fact]
+    public async Task GetMyTrakt_WhenPoolExceedsVisibleCap_ReturnsOnlyFirstN()
+    {
+        // The Trakt services return the full scored pool (two lists at the Trakt limit each), but the tab must
+        // show the same visible count as "For you" so one tab never looks richer than the other. The cap keeps
+        // the pool's ranking order (first N), so the extra items stay available as backfill after a request/dismiss.
+        var userId = Guid.NewGuid();
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(ResultWith(userId, 25));
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        var payload = Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(payload.Linked);
+        Assert.Equal(10, payload.Result!.Recommendations.Count);
+        // Ranking is preserved: the first N of the pool, in order.
+        Assert.Equal(1000, payload.Result.Recommendations[0].TmdbId);
+        Assert.Equal(1009, payload.Result.Recommendations[9].TmdbId);
+    }
+
+    [Fact]
+    public async Task GetMyTraktTrending_WhenPoolExceedsVisibleCap_ReturnsOnlyFirstN()
+    {
+        var userId = Guid.NewGuid();
+        _traktDiscovery.Setup(d => d.GetTrendingAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(ResultWith(userId, 25));
+
+        var result = await CreateController(userId).GetMyTraktTrending(CancellationToken.None);
+
+        var payload = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(10, payload.Recommendations.Count);
+        Assert.Equal(1000, payload.Recommendations[0].TmdbId);
+    }
+
+    [Fact]
+    public async Task GetMyTrakt_WhenPoolWithinCap_ReturnsSameInstanceUnchanged()
+    {
+        // At or below the cap nothing is sliced, and the original result instance flows through untouched so a
+        // small pool pays no allocation and callers relying on reference identity keep working.
+        var userId = Guid.NewGuid();
+        var scored = ResultWith(userId, 10);
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(scored);
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        var payload = Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Same(scored, payload.Result);
     }
 
     [Fact]

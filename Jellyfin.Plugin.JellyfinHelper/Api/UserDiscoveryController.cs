@@ -635,7 +635,7 @@ public sealed class UserDiscoveryController : ControllerBase
             linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
-        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = result });
+        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = CapToVisible(result) });
     }
 
     /// <summary>
@@ -661,7 +661,33 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var result = await _traktDiscovery.GetTrendingAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        return Ok(result);
+        return Ok(CapToVisible(result));
+    }
+
+    /// <summary>
+    ///     Caps a Trakt discovery result to the same visible count as the "For you" tab
+    ///     (<see cref="ISeerrDiscoveryService.MaxVisiblePerUser"/>). The Trakt services return the full scored
+    ///     pool (two lists at the Trakt limit each) and already drop requested/dismissed items via
+    ///     FilterConsumedItems, so capping here mirrors GetMyDiscoveryResults: the user sees at most N, and when
+    ///     one is requested or dismissed the next pool item takes its slot on the following load. The pool stays
+    ///     uncapped in the Trakt cache so that backfill has something to promote.
+    /// </summary>
+    /// <param name="result">The scored Trakt result, or null when nothing was sourced.</param>
+    /// <returns>The result with its recommendations capped, or null when the input was null.</returns>
+    private DiscoveryResult? CapToVisible(DiscoveryResult? result)
+    {
+        if (result is null || result.Recommendations.Count <= _discovery.MaxVisiblePerUser)
+        {
+            return result;
+        }
+
+        return new DiscoveryResult
+        {
+            UserId = result.UserId,
+            UserName = result.UserName,
+            Recommendations = result.Recommendations.Take(_discovery.MaxVisiblePerUser).ToList(),
+            GeneratedAt = result.GeneratedAt,
+        };
     }
 
     /// <summary>
