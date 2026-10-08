@@ -47,7 +47,9 @@ function renderArrInstanceRow(type, index, inst, showLibraries) {
     h += '<label for="' + instanceApiKeyId + '">' + T('apiKey', 'API Key')
         + '</label><input type="password" id="' + instanceApiKeyId + '">';
     var instanceSkipCertId = prefix + '_skipCert';
-    var skipCert = inst ? !!inst.SkipCertificateValidation : false;
+    // Accept either casing from the server config so a serialization change can never silently render
+    // this security checkbox unchecked (which the next save would then persist as "validation on").
+    var skipCert = inst ? !!(inst.SkipCertificateValidation ?? inst.skipCertificateValidation) : false;
     h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="'
         + instanceSkipCertId + '"' + (skipCert ? ' checked' : '') + '><label for="'
         + instanceSkipCertId + '">' + escHtml(T('arrSkipCertValidation',
