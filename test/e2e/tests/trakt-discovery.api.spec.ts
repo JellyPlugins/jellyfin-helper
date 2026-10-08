@@ -47,6 +47,18 @@ async function traktHook(path: string): Promise<void> {
   }
 }
 
+/** Read a mock-trakt test hook (GET, JSON) from the host. */
+async function traktHookJson<T>(path: string): Promise<T> {
+  const ctx = await pwRequest.newContext();
+  try {
+    const res = await ctx.get(`${MOCK_TRAKT_PUBLIC}${path}`);
+    expect(res.ok(), `mock hook ${path}: ${res.status()}`).toBeTruthy();
+    return (await res.json()) as T;
+  } finally {
+    await ctx.dispose();
+  }
+}
+
 test.beforeAll(async () => {
   admin = await apiContext(auth);
   user = await normalUserContext(auth);
@@ -171,6 +183,13 @@ test('trending is available without linking', async () => {
   expect(user, 'normal user required').toBeTruthy();
   const trending = await user!.get(p('Discovery/My/Trakt/Trending'));
   expect(trending.ok(), `trending: ${trending.status()}`).toBeTruthy();
+
+  // Real Trakt sits behind Cloudflare, which 403s requests with no User-Agent (the plugin shipped without one
+  // and every call failed in production). mock-trakt now enforces the same, so a successful trending fetch
+  // already proves a UA was sent; assert its value identifies the plugin.
+  const seen = await traktHookJson<{ userAgent: string | null }>('/last-user-agent');
+  expect(seen.userAgent, 'plugin must send a User-Agent to Trakt').toBeTruthy();
+  expect(seen.userAgent).toContain('JellyfinHelper');
 });
 
 test('disconnect clears the link', async () => {

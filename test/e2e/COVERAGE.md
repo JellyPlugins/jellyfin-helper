@@ -268,6 +268,10 @@ plugin stays Active after every call).
   when the official plugin is staged and seeds the primary user a token.
 - **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds for an
   unlinked user (client-id only, no OAuth).
+- **User-Agent gate (Cloudflare):** mock-trakt 403s any API request without a `User-Agent`
+  (mirroring Trakt's Cloudflare front end), and the trending test asserts via the
+  `/last-user-agent` hook that the plugin sent an identifying UA. Guards the production bug
+  where every Trakt call failed 403 because the HTTP client sent no User-Agent.
 - **Disconnect:** `POST Device/Disconnect` clears the link and returns success (the device
   user has no official token, so disconnect returns it to a truly unlinked state).
 - Snapshots and restores `TraktEnabled`/`TraktClientId` in afterAll so it does not leak

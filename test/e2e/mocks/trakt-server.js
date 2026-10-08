@@ -2,7 +2,8 @@
  * Mock Trakt server for E2E tests. Implements the subset of the Trakt API the plugin uses: the OAuth device
  * flow (code + token + refresh), personal recommendations, and global trending. Unauthenticated test hooks
  * (/reset, /arm-*) let specs drive the device-flow state machine deterministically. Loopback-only, like the
- * other mocks.
+ * other mocks. Real Trakt sits behind Cloudflare, which 403s any API request without a User-Agent; this mock
+ * enforces the same on every real API path (test hooks exempt) so the suite catches a missing UA.
  */
 import http from 'node:http';
 
@@ -13,11 +14,13 @@ const PORT = Number(process.env.PORT ?? 9100);
 let devicePending = true;
 let lastDeviceCode = null;
 let lastRecommendationBearer = null;
+let lastUserAgent = null;
 
 function reset() {
   devicePending = true;
   lastDeviceCode = null;
   lastRecommendationBearer = null;
+  lastUserAgent = null;
 }
 
 // Fixtures. Each list intentionally includes one item WITHOUT a tmdb id so the plugin's drop-and-count path
@@ -149,11 +152,40 @@ const routes = {
   // Test hook: report the Bearer token last presented to a recommendations endpoint, so a spec can prove the
   // official plugin's seeded token (not our own-flow token) actually reached Trakt.
   'GET /last-recommendation-bearer': (_req, res) => sendJson(res, 200, { bearer: lastRecommendationBearer }),
+
+  // Test hook: report the User-Agent last presented on a real API path, so a spec can prove the plugin sends
+  // one (real Trakt/Cloudflare 403s requests without a UA - the production bug this guards against).
+  'GET /last-user-agent': (_req, res) => sendJson(res, 200, { userAgent: lastUserAgent }),
 };
+
+// Test hooks and health are driven by Playwright (not the plugin) and are exempt from the Cloudflare-style
+// User-Agent gate below; everything else is a real Trakt API path the plugin calls.
+const UA_EXEMPT = new Set([
+  'GET /health',
+  'POST /reset',
+  'POST /arm-linked',
+  'GET /last-recommendation-bearer',
+  'GET /last-user-agent',
+]);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const handler = routes[`${req.method} ${url.pathname}`];
+  const routeKey = `${req.method} ${url.pathname}`;
+
+  // Real Trakt sits behind Cloudflare, which 403s any request without a User-Agent. The plugin failed exactly
+  // this way in production (HttpClient sends none by default). Enforce the same here so the e2e suite proves
+  // the plugin now sends a UA - a missing one is a 403 on every real API path, not a silent pass.
+  if (!UA_EXEMPT.has(routeKey)) {
+    const ua = req.headers['user-agent'];
+    if (typeof ua !== 'string' || ua.trim() === '') {
+      await readBody(req);
+      return sendJson(res, 403, { error: 'forbidden', reason: 'missing user-agent' });
+    }
+    // Record the UA the plugin presented so a spec can prove it is non-empty and identifies the plugin.
+    lastUserAgent = ua;
+  }
+
+  const handler = routes[routeKey];
   if (handler) {
     handler(req, res);
     return;

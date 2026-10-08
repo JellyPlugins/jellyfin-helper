@@ -92,6 +92,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         {
             client.Timeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
             client.MaxResponseContentBufferSize = maxResponseBytes;
+            // Trakt sits behind Cloudflare, which 403s requests that carry no User-Agent. HttpClient sends none
+            // by default, so every Trakt call failed with 403 regardless of a valid token/client id. Send an
+            // explicit identifying UA so Cloudflare lets the request through.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                $"JellyfinHelper/{Plugin.Instance?.Version?.ToString() ?? "3.0"} (+https://github.com/JellyPlugins/jellyfin-helper)");
         }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         // The provider stays private to this plugin so keyrings can neither affect nor be affected by
