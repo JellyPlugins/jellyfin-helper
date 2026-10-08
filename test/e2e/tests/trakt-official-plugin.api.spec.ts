@@ -12,12 +12,18 @@
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p } from '../setup/api-client.ts';
 import { SEEDED_OFFICIAL_TRAKT_TOKEN, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
+import {
+  seedNormalUserWatchProfile,
+  clearNormalUserWatchProfile,
+  type WatchProfileSeed,
+} from '../setup/watch-profile.ts';
 
 const MOCK_TRAKT_PUBLIC = process.env.MOCK_TRAKT_PUBLIC_URL ?? 'http://localhost:9100';
 
 const auth = loadAuth();
 let admin: APIRequestContext;
 let user: APIRequestContext | null;
+let profileSeed: WatchProfileSeed | null = null;
 
 test.describe('Trakt via official plugin', () => {
   test.skip(process.env.JFH_E2E_EXTERNAL_PLUGINS !== '1', 'external plugins (incl. official Trakt) not staged');
@@ -31,9 +37,20 @@ test.describe('Trakt via official plugin', () => {
     // 403'd by the access gate, then poll until the probing user actually sees non-403 before any test body.
     await ensureDiscoveryConfigured(admin, (m) => console.log(`[trakt-official] ${m}`));
     await waitForTraktAccessible();
+
+    // Trakt personal scoring reuses the Seerr-backed external scorer, which returns null (empty grid) unless
+    // the requesting user has a genre watch profile - independent of link state. The sibling own-flow spec
+    // seeds this too, but tears it down in its own afterAll (and runs first alphabetically), so this spec must
+    // seed its own. Without it the GET below is Linked:true with zero recommendations - a setup gap, not a bug.
+    requireNormalUser(user);
+    profileSeed = await seedNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId);
   });
 
   test.afterAll(async () => {
+    if (profileSeed) {
+      await clearNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId, profileSeed);
+    }
+
     await admin?.dispose();
     await user?.dispose();
   });

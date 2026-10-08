@@ -5,6 +5,11 @@
  */
 import { test, expect, request as pwRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiContext, normalUserContext, loadAuth, p, API_KEY_MASK } from '../setup/api-client.ts';
+import {
+  seedNormalUserWatchProfile,
+  clearNormalUserWatchProfile,
+  type WatchProfileSeed,
+} from '../setup/watch-profile.ts';
 
 // The mock is published to the host on loopback; the plugin container reaches it as mock-trakt.
 const MOCK_TRAKT_PUBLIC = process.env.MOCK_TRAKT_PUBLIC_URL ?? 'http://localhost:9100';
@@ -31,11 +36,9 @@ interface ConfigSnapshot {
 }
 let snapshot: ConfigSnapshot = {};
 
-// Non-admin watch-profile seed state, unwound in afterAll so later specs (workers: 1 shares one
-// backend) do not inherit a profile this spec created on the normal user.
-const seededPlayed: string[] = [];
-let seededFavorite: string | null = null;
-const originalGenres = new Map<string, string[] | undefined>();
+// Non-admin watch-profile seed handle, unwound in afterAll so later specs (workers: 1 shares one backend)
+// do not inherit a profile this spec created on the normal user.
+let profileSeed: WatchProfileSeed | null = null;
 
 /** Drive a mock-trakt test hook from the host. */
 async function traktHook(path: string): Promise<void> {
@@ -45,75 +48,6 @@ async function traktHook(path: string): Promise<void> {
   } finally {
     await ctx.dispose();
   }
-}
-
-/**
- * Set a genre on an item via fetch-modify-save. ItemUpdateController replaces the whole DTO, so we
- * edit the item's own DTO rather than posting a partial body. Mirrors discovery-my.api.spec.ts.
- */
-async function assignGenre(itemId: string, genre: string): Promise<void> {
-  const get = await admin.get(`/Items/${itemId}?userId=${auth.userId}`);
-  expect(get.ok(), `fetch item ${itemId}: ${get.status()}`).toBeTruthy();
-  const dto = (await get.json()) as { Genres?: string[] };
-  if (!originalGenres.has(itemId)) {
-    originalGenres.set(itemId, dto.Genres ? [...dto.Genres] : undefined);
-  }
-  dto.Genres = [genre];
-  const post = await admin.post(`/Items/${itemId}`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: dto,
-  });
-  expect(post.ok(), `set genre on ${itemId}: ${post.status()}`).toBeTruthy();
-}
-
-/**
- * Seed a genre watch profile for the NON-admin user. Trakt personal scoring reuses the shared
- * external-candidate scorer (SeerrDiscoveryService.ScoreExternalCandidatesAsync), which returns null
- * — making GetMyTrakt report Linked=false — unless the requesting user has a watch profile whose
- * genre-preference vector is non-empty. The ffmpeg fixtures carry no genre metadata, so we assign a
- * valid genre ("Action") and mark a few items played for the normal user, then poll until the engine
- * sees the profile. Admin credentials can edit any user's playback via ?userId=.
- */
-async function seedNormalUserWatchProfile(normalUserId: string): Promise<void> {
-  const res = await admin.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
-  expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
-  const body = (await res.json()) as { Items?: Array<{ Id: string; Name?: string }> };
-  const movies = (body.Items ?? [])
-    .slice()
-    .sort((a, b) => (a.Name ?? a.Id).localeCompare(b.Name ?? b.Id))
-    .map((i) => i.Id);
-  expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
-
-  for (const id of movies.slice(0, 3)) {
-    await assignGenre(id, 'Action');
-    const mark = await admin.post(`/UserPlayedItems/${id}?userId=${normalUserId}`);
-    expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
-    seededPlayed.push(id);
-  }
-  const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${normalUserId}`);
-  expect([200, 204]).toContain(fav.status());
-  seededFavorite = movies[0];
-
-  // The profile edits flush asynchronously; poll until the engine sees them (hard-fail on timeout so
-  // a setup race surfaces as itself, not as a confusing Linked=false later).
-  let lastProfile: { GenreDistribution?: Record<string, number>; WatchedMovieCount?: number } = {};
-  let visible = false;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const wp = await admin.get(p(`Recommendations/WatchProfile/${normalUserId}`));
-    if (wp.ok()) {
-      lastProfile = (await wp.json()) as typeof lastProfile;
-      if ((lastProfile.WatchedMovieCount ?? 0) >= 3 && (lastProfile.GenreDistribution?.Action ?? 0) >= 3) {
-        visible = true;
-        break;
-      }
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  expect(
-    visible,
-    `normal-user watch profile never became visible (setup race, not a product bug): ` +
-      `WatchedMovieCount=${lastProfile.WatchedMovieCount ?? 0}, Action=${lastProfile.GenreDistribution?.Action ?? 0}.`,
-  ).toBe(true);
 }
 
 test.beforeAll(async () => {
@@ -151,28 +85,14 @@ test.beforeAll(async () => {
   // The device-flow spec links as the non-admin user; its personal recommendations only score (and
   // thus report Linked=true) once that user has a genre watch profile.
   if (user) {
-    await seedNormalUserWatchProfile(auth.normalUser!.userId);
+    profileSeed = await seedNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId);
   }
 });
 
 test.afterAll(async () => {
   // Unwind the non-admin watch profile this spec created.
-  for (const id of seededPlayed) {
-    await admin.delete(`/UserPlayedItems/${id}?userId=${auth.normalUser?.userId}`).catch(() => undefined);
-  }
-  if (seededFavorite) {
-    await admin.delete(`/UserFavoriteItems/${seededFavorite}?userId=${auth.normalUser?.userId}`).catch(() => undefined);
-  }
-  for (const [itemId, genres] of originalGenres) {
-    try {
-      const cur = await admin.get(`/Items/${itemId}?userId=${auth.userId}`);
-      if (!cur.ok()) continue;
-      const dto = (await cur.json()) as { Genres?: string[] };
-      dto.Genres = genres ?? [];
-      await admin.post(`/Items/${itemId}`, { headers: { 'Content-Type': 'application/json' }, data: dto }).catch(() => undefined);
-    } catch {
-      // best-effort restore
-    }
+  if (profileSeed) {
+    await clearNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId, profileSeed);
   }
 
   // Restore the Configuration fields this spec mutated. GET masked the Seerr key, so re-send the mask
