@@ -27,13 +27,12 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock = new();
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock = new();
-    private readonly Mock<ITraktAuthService> _traktAuth = new();
     private readonly Mock<ITraktDiscoveryService> _traktDiscovery = new();
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin = new();
     private readonly Mock<IPluginConfigurationService> _configServiceMock = new();
     private readonly DiscoveryCacheService _cache;
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
-    private readonly PluginConfiguration _config = new() { TraktEnabled = true, DiscoveryUserAccessEnabled = true };
+    private readonly PluginConfiguration _config = new() { TraktSourcingEnabled = true, DiscoveryUserAccessEnabled = true };
     private readonly string _cacheFile;
 
     public UserDiscoveryControllerTraktTests()
@@ -42,6 +41,8 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         _cacheFile = Path.GetTempFileName();
         _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: _cacheFile);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
+        // Trakt is sourced only through the official plugin; present by default so the read endpoints are open.
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
 
         // Fresh generation per test so throttle keys from a prior test cannot leak across the shared cache.
         UserDiscoveryController.ClearRateLimitState();
@@ -67,7 +68,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     {
         var controller = new UserDiscoveryController(
             _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object,
-            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _officialPlugin.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
+            _memoryCache, _traktDiscovery.Object, _officialPlugin.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
 
         var claims = new List<Claim>();
         if (userId.HasValue)
@@ -85,22 +86,19 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     private static int Status(ActionResult result) => Assert.IsType<ObjectResult>(result, exactMatch: false).StatusCode ?? 0;
 
     [Fact]
-    public async Task GetMyTrakt_WhenTraktDisabled_Returns403()
+    public async Task GetMyTrakt_WhenOfficialPluginAbsent_Returns403()
     {
-        _config.TraktEnabled = false;
-        // Official plugin absent (mock default) and no own creds: Trakt is genuinely unavailable.
+        // The official plugin is the only Trakt source; absent means Trakt is genuinely unavailable.
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(false);
         var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
         Assert.Equal(403, Status(result.Result!));
     }
 
     [Fact]
-    public async Task GetMyTrakt_WhenOwnCredsDisabledButOfficialPluginPresent_NotForbidden()
+    public async Task GetMyTrakt_WhenOfficialPluginPresentButNotLinked_NotForbidden()
     {
-        // No own client-id creds, but the official Trakt plugin can source per-user tokens, so Trakt access
-        // must be allowed rather than 403'd. Not linked anywhere, so the body reports linked=false with a 200 -
-        // the point being it is NOT the 403 Trakt-disabled gate.
-        _config.TraktEnabled = false;
-        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        // The official Trakt plugin can source per-user tokens, so Trakt access is allowed (not 403'd). Not
+        // linked for this user, so the body reports linked=false with a 200 - the point being it is NOT the gate.
         var userId = Guid.NewGuid();
         _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((DiscoveryResult?)null);
 
@@ -220,178 +218,15 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     }
 
     [Fact]
-    public async Task StartTraktDevice_ReturnsDeviceCode()
-    {
-        var device = new TraktDeviceCodeResponse { DeviceCode = "dev", UserCode = "ABCD", VerificationUrl = "https://trakt.tv/activate", ExpiresIn = 600, Interval = 5 };
-        _traktAuth.Setup(a => a.StartDeviceAuthAsync(It.IsAny<CancellationToken>())).ReturnsAsync(device);
-
-        var result = await CreateController(Guid.NewGuid()).StartTraktDevice(CancellationToken.None);
-
-        Assert.Same(device, Assert.IsType<OkObjectResult>(result).Value);
-    }
-
-    [Fact]
-    public async Task StartTraktDevice_SecondCallWithinWindow_Returns429()
-    {
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.StartDeviceAuthAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TraktDeviceCodeResponse { DeviceCode = "dev" });
-
-        var controller = CreateController(userId);
-        await controller.StartTraktDevice(CancellationToken.None);
-        var second = await CreateController(userId).StartTraktDevice(CancellationToken.None);
-
-        Assert.Equal(429, Status(second));
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_Pending_Returns200WithStatus()
-    {
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Pending);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("Pending", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_Expired_Returns410()
-    {
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Expired);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        Assert.Equal(410, Status(result));
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_SlowDown_Returns429()
-    {
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.SlowDown);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        Assert.Equal(429, Status(result));
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_Linked_Returns200WithLinkedStatus()
-    {
-        // Terminal success: the user approved the code and a token was stored. The controller passes the
-        // Linked status through as a 200, which is what the own-device-flow e2e asserts on its final poll.
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Linked);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("Linked", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_Denied_Returns200WithDeniedStatus()
-    {
-        // The user explicitly denied the request: not an error on our side, so the status passes through as a
-        // 200 and the client decides how to present it (distinct from the 410/429 stop/backoff cases).
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Denied);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("Denied", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_Error_Returns200WithErrorStatus()
-    {
-        // A transient/unexpected poll failure passes through as a 200 with the Error status so the client can
-        // retry or restart; only Expired (410) and SlowDown (429) get a non-200 contract.
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(userId, "dev", It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Error);
-
-        var result = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("Error", Assert.IsType<TraktDevicePollResponse>(ok.Value).Status);
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_SecondCallWithinWindow_Returns429()
-    {
-        var userId = Guid.NewGuid();
-        _traktAuth.Setup(a => a.PollDeviceAuthAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(TraktDevicePollStatus.Pending);
-
-        await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-        var second = await CreateController(userId).PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        Assert.Equal(429, Status(second));
-    }
-
-    [Fact]
-    public async Task StartTraktDevice_OfficialOnlyServerNoOwnCreds_Returns403()
-    {
-        // Device flow needs an own OAuth app. On an official-plugin-only server (no own creds) the device
-        // endpoints must 403 - the OR gate that unlocks the read endpoints does NOT unlock Start/Poll.
-        _config.TraktEnabled = false;
-        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
-
-        var result = await CreateController(Guid.NewGuid()).StartTraktDevice(CancellationToken.None);
-
-        Assert.Equal(403, Status(result));
-    }
-
-    [Fact]
-    public async Task PollTraktDevice_OfficialOnlyServerNoOwnCreds_Returns403()
-    {
-        _config.TraktEnabled = false;
-        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
-
-        var result = await CreateController(Guid.NewGuid())
-            .PollTraktDevice(new TraktDevicePollRequest { DeviceCode = "dev" }, CancellationToken.None);
-
-        Assert.Equal(403, Status(result));
-    }
-
-    [Fact]
     public async Task GetMyTrakt_MasterSwitchOff_Returns403()
     {
-        // The master switch suppresses Trakt entirely, even with own creds AND the official plugin present.
+        // The master switch suppresses Trakt entirely, even with the official plugin present.
         _config.TraktSourcingEnabled = false;
-        _config.TraktEnabled = true;
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
 
         var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
 
         Assert.Equal(403, Status(result.Result!));
-    }
-
-    [Fact]
-    public async Task Disconnect_RemovesLinkAndReturnsSuccess()
-    {
-        var userId = Guid.NewGuid();
-
-        var result = await CreateController(userId).DisconnectTrakt(CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        Assert.True(Assert.IsType<RequestResult>(ok.Value).Success);
-        _traktAuth.Verify(a => a.DisconnectAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task Disconnect_InvalidatesPersonalCache()
-    {
-        // Disconnecting must drop the user's cached recommendations so a stale pool is not served (up to the
-        // 12h TTL) after the link is gone, and so the next request re-resolves the source cleanly.
-        var userId = Guid.NewGuid();
-
-        await CreateController(userId).DisconnectTrakt(CancellationToken.None);
-
-        _traktDiscovery.Verify(d => d.InvalidatePersonal(userId), Times.Once);
     }
 
     [Fact]

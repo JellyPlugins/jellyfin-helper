@@ -8,8 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 ///     Reports whether the official Jellyfin Trakt plugin is installed and active, so the config page can offer
-///     the "source through the official plugin" mode. Split out of <see cref="TraktController"/> (which validates
-///     the Helper's own Trakt app): each admin Trakt concern has exactly one controller.
+///     the "source through the official plugin" mode (the only Trakt source — the Helper has no own app).
 /// </summary>
 [ApiController]
 [Authorize(Policy = "RequiresElevation")]
