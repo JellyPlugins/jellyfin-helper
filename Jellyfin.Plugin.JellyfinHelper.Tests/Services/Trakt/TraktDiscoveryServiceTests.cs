@@ -32,7 +32,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin;
 
     // Not readonly: a couple of logging tests swap in a DEBUG-level log service before building the SUT.
-    private IPluginLogService _pluginLog;
+    private PluginLogService _pluginLog;
 
     public TraktDiscoveryServiceTests()
     {

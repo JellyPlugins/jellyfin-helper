@@ -256,11 +256,24 @@ test.describe('Discovery custom tab - access disabled', () => {
     // content: no result grid is ever rendered. (On the home custom-tab the panel simply stays empty rather
     // than showing the config-page "not enabled" message, so we assert the grid's absence, not a message.)
     await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+
+    // The bail under test happens exactly when discovery-sidebar.js gets the 403 from /Discovery/My,
+    // so synchronize on that response instead of sleeping: arm before the click (each click remounts
+    // into Custom Tabs' rebuilt panel and refetches while uncached), then assert no grid was ever built.
+    const bailResponse = page.waitForResponse(
+      (res) => {
+        try {
+          return new URL(res.url()).pathname === p('Discovery/My') && res.status() === 403;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20_000 },
+    );
     await clickDiscoveryTab(page);
+    await bailResponse;
 
     const grid = page.locator('.jellyfinhelper.discovery .jfh-discovery-grid');
-    // Give the sidebar script the same window it would need to populate a grid, then assert it never did.
-    await page.waitForTimeout(3_000);
     await expect(grid).toHaveCount(0);
   });
 });
