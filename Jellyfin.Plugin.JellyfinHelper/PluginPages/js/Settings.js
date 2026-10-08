@@ -1264,7 +1264,7 @@ function attachSeerrHandlers() {
 /**
  * Trakt admin test. Validates the shared OAuth application's Client ID against Trakt's client-id-only trending
  * endpoint, then auto-saves on success (quiet) exactly like the Seerr test. The Client Secret is not tested:
- * in the device flow it is only used during token exchange, which no admin-level call can exercise - so a green
+ * in the device flow it is only used during token exchange, which no admin-level call can exercise. So a green
  * result is labelled as a Client ID check, and a missing secret is called out rather than reported as a full OK.
  */
 function attachTraktHandlers() {
