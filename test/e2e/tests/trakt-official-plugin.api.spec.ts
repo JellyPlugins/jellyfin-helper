@@ -49,8 +49,18 @@ test.describe('Trakt via official plugin', () => {
   test('personal recommendations are sourced via the official plugin token', async () => {
     requireNormalUser(user);
 
+    // Clear the mock's recorded bearer so the provenance assert can only pass on a fresh fetch made during
+    // this test, never on residue from an earlier spec.
+    const resetCtx = await pwRequest.newContext();
+    try {
+      await resetCtx.post(`${MOCK_TRAKT_PUBLIC}/reset`);
+    } finally {
+      await resetCtx.dispose();
+    }
+
     // The normal user is NOT linked via our own device flow, so source resolution falls through to the official
-    // plugin's seeded token. Make sure any residual own-link from an earlier spec is cleared first.
+    // plugin's seeded token. Disconnect clears any residual own-link AND drops the Helper's personal cache, so
+    // the GET below cannot be served from a warm own-flow pool (which would falsify the bearer-provenance check).
     await user!.post(p('Discovery/My/Trakt/Device/Disconnect'), {
       headers: { 'Content-Type': 'application/json' },
       data: {},

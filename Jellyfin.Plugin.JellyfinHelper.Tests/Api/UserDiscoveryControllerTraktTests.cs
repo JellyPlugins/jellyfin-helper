@@ -29,7 +29,6 @@ public sealed class UserDiscoveryControllerTraktTests
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock = new();
     private readonly Mock<ITraktAuthService> _traktAuth = new();
     private readonly Mock<ITraktDiscoveryService> _traktDiscovery = new();
-    private readonly Mock<ITraktUserStore> _traktStore = new();
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin = new();
     private readonly Mock<IPluginConfigurationService> _configServiceMock = new();
     private readonly DiscoveryCacheService _cache;
@@ -50,7 +49,7 @@ public sealed class UserDiscoveryControllerTraktTests
     {
         var controller = new UserDiscoveryController(
             _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object,
-            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _traktStore.Object, _officialPlugin.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
+            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _officialPlugin.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
 
         var claims = new List<Claim>();
         if (userId.HasValue)
@@ -122,12 +121,12 @@ public sealed class UserDiscoveryControllerTraktTests
     public async Task GetMyTrakt_WhenLinkedButEmpty_ReturnsLinkedTrueWithNullResult()
     {
         var userId = Guid.NewGuid();
-        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((DiscoveryResult?)null);
 
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
 
-        // Link state comes from the store, not the result: a linked user with an
+        // Link state is resolved by the discovery service, not the result: a linked user with an
         // empty pool sees the (empty) grid, not the connect panel.
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
@@ -136,18 +135,38 @@ public sealed class UserDiscoveryControllerTraktTests
     }
 
     [Fact]
+    public async Task GetMyTrakt_WhenLinkedOnlyViaOfficialPlugin_ReturnsLinkedTrueWithResult()
+    {
+        // The target scenario of this feature: a free-account user linked ONLY through the official Trakt
+        // plugin (no own device-flow token). The discovery service resolves the official source, so the
+        // envelope must report linked=true and surface the fetched result instead of the connect panel.
+        var userId = Guid.NewGuid();
+        var scored = new DiscoveryResult { UserId = userId };
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(scored);
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
+        Assert.True(payload.Linked);
+        Assert.Same(scored, payload.Result);
+    }
+
+    [Fact]
     public async Task GetMyTrakt_WhenFetchUnlinks_ReturnsLinkedFalse()
     {
         var userId = Guid.NewGuid();
-        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
+        var linked = true;
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(() => linked);
         _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>()))
-            .Callback(() => _traktStore.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null))
+            .Callback(() => linked = false)
             .ReturnsAsync((DiscoveryResult?)null);
 
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
 
-        // The fetch unlinked a dead grant mid-flight: the endpoint reports the current
-        // state so the UI offers a re-link instead of an empty grid.
+        // The fetch unlinked a dead grant mid-flight: the endpoint re-resolves link state so the UI
+        // offers a re-link instead of an empty grid.
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
         Assert.False(payload.Linked);
@@ -159,7 +178,7 @@ public sealed class UserDiscoveryControllerTraktTests
     {
         var userId = Guid.NewGuid();
         var scored = new DiscoveryResult { UserId = userId };
-        _traktStore.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "r" });
+        _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(scored);
 
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
@@ -263,6 +282,18 @@ public sealed class UserDiscoveryControllerTraktTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         Assert.True(Assert.IsType<RequestResult>(ok.Value).Success);
         _traktAuth.Verify(a => a.DisconnectAsync(userId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Disconnect_InvalidatesPersonalCache()
+    {
+        // Disconnecting must drop the user's cached recommendations so a stale pool is not served (up to the
+        // 12h TTL) after the link is gone, and so the next request re-resolves the source cleanly.
+        var userId = Guid.NewGuid();
+
+        await CreateController(userId).DisconnectTrakt(CancellationToken.None);
+
+        _traktDiscovery.Verify(d => d.InvalidatePersonal(userId), Times.Once);
     }
 
     [Fact]

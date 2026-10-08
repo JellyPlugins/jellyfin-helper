@@ -58,7 +58,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
-        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktAuthService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktUserStore>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
+        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktAuthService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {

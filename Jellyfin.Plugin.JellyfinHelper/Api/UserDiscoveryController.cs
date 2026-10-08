@@ -58,7 +58,6 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly IPluginConfigurationService _configurationService;
     private readonly ITraktAuthService _traktAuth;
     private readonly ITraktDiscoveryService _traktDiscovery;
-    private readonly ITraktUserStore _traktStore;
     private readonly Services.Trakt.External.IOfficialTraktPluginReader _officialTraktPlugin;
     private readonly ILogger<UserDiscoveryController> _logger;
 
@@ -72,7 +71,6 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
     /// <param name="traktAuth">The Trakt auth service (device flow).</param>
     /// <param name="traktDiscovery">The Trakt discovery service (personal + trending).</param>
-    /// <param name="traktStore">The Trakt token store, the source of truth for link state.</param>
     /// <param name="officialTraktPlugin">Reader reporting whether the official Trakt plugin can source Trakt.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
@@ -83,7 +81,6 @@ public sealed class UserDiscoveryController : ControllerBase
         IMemoryCache memoryCache,
         ITraktAuthService traktAuth,
         ITraktDiscoveryService traktDiscovery,
-        ITraktUserStore traktStore,
         Services.Trakt.External.IOfficialTraktPluginReader officialTraktPlugin,
         ILogger<UserDiscoveryController> logger)
     {
@@ -94,7 +91,6 @@ public sealed class UserDiscoveryController : ControllerBase
         _memoryCache = memoryCache;
         _traktAuth = traktAuth;
         _traktDiscovery = traktDiscovery;
-        _traktStore = traktStore;
         _officialTraktPlugin = officialTraktPlugin;
         _logger = logger;
     }
@@ -635,9 +631,10 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        // Link state comes from the token store, not the result: an empty pool still
-        // renders the grid, and without a token the fetch is skipped entirely.
-        var linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+        // Link state is resolved by the discovery service across BOTH sources (own device-flow link and the
+        // official Trakt plugin's token), so a user linked only through the official plugin is reported linked
+        // and fetched, instead of being shown the connect panel. Without a usable source the fetch is skipped.
+        var linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         var result = linked
             ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
             : null;
@@ -645,7 +642,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             // The fetch can unlink a dead grant mid-flight; report the current state
             // so the UI offers a re-link instead of an empty grid.
-            linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+            linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok(new TraktDiscoveryResponse { Linked = linked, Result = result });
@@ -791,6 +788,10 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         await _traktAuth.DisconnectAsync(userId.Value, cancellationToken).ConfigureAwait(false);
+
+        // Drop the user's cached personal recommendations so a stale pool is not served after the link is gone
+        // (and so the next request re-resolves the source instead of serving a warm cache from a dead source).
+        _traktDiscovery.InvalidatePersonal(userId.Value);
         return Ok(new RequestResult { Success = true, Message = "Trakt disconnected." });
     }
 

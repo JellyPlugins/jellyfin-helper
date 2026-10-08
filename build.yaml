@@ -22,6 +22,6 @@ changelog: |-
   - Radarr/Sonarr instances behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect via a per-instance "Skip certificate validation" checkbox in Settings (connection tests, comparison, and discovery exclusions honor it; validation stays on everywhere else)
   - Free Trakt accounts can now use Trakt discovery alongside the official Trakt plugin without hitting Trakt's one-app-per-account limit: when the official plugin is installed, the Helper sources your personal recommendations through its connection instead of registering a second app. Your own Trakt app still takes precedence if you configure one (e.g. Trakt VIP)
   - Hardening: API keys, the log filter, and backup credentials now reject hidden control characters that could cause errors or log tampering; odd-charset responses are read safely; and restoring a backup that disables TLS validation now warns you first
-  - Tested by 6625 unit tests (expanded security, hardening, and performance coverage) and 362 end-to-end tests
+  - Tested by 6632 unit tests (expanded security, hardening, and performance coverage) and 362 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
   - Special thanks to @TheColin21 (https://github.com/TheColin21) for testing and donation ❤️

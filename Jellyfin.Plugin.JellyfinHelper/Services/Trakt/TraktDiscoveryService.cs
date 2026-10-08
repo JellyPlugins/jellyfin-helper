@@ -86,7 +86,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // source for a user who already linked here. Only when the user has no own link do we fall back to the
         // official plugin's token (sourcing through its single app avoids Trakt's one-app-per-free-account
         // collision). Resolution is per user, not cached globally, so two users can use different sources.
-        var source = ResolvePersonalSource(userId, config);
+        var source = await ResolvePersonalSourceAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
             // No usable source for this user: drop any stale cache rather than serving it after a disconnect.
@@ -103,10 +103,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var candidates = new List<ExternalDiscoveryCandidate>();
         candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false));
 
-        // An own-flow movies fetch can unlink the user mid-flight (dead grant); re-resolve so we never run the
-        // shows fetch with a dead token or score a partial pool. The official source has no such 401-unlink
-        // path, so for it the second resolution simply returns the same token.
-        var showsSource = ResolvePersonalSource(userId, config);
+        // The movies fetch on the own flow can unlink the user mid-flight (dead grant) and roll the token on a
+        // mid-flight refresh. The 401-retry inside FetchPersonalAsync already recovers the rolled token for the
+        // call it happens on, but the shows fetch runs with a separate request; re-resolve so it never fetches
+        // with a dead/stale own token. The official source has no 401-unlink path, so this returns the same token.
+        var showsSource = await ResolvePersonalSourceAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (showsSource is null)
         {
             return null;
@@ -130,17 +131,30 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return null;
     }
 
-    // Picks the per-user personal source, own-link first then the official plugin. Returns null when neither is
-    // usable for this user. For the own path the token is read fresh (so a mid-flight rotation is picked up on
-    // the second call); for the official path the token is read-only from the foreign config and never refreshed.
-    private PersonalSource? ResolvePersonalSource(Guid userId, PluginConfiguration config)
+    /// <inheritdoc />
+    public async Task<bool> IsLinkedForAsync(Guid userId, CancellationToken cancellationToken)
     {
-        // Own device-flow link wins. GetValidAccessTokenAsync is intentionally not awaited here: it may issue a
-        // refresh grant, which we want on the own path. Mirror the original flow by resolving the own token
-        // first and only consulting the official plugin when the user is not linked here.
+        var config = GetConfig();
+        if (config is null)
+        {
+            return false;
+        }
+
+        return await ResolvePersonalSourceAsync(userId, config, cancellationToken).ConfigureAwait(false) is not null;
+    }
+
+    // Picks the per-user personal source, own-link first then the official plugin. Returns null when neither is
+    // usable for this user. For the own path the token is read via the async auth service (so a mid-flight rotation
+    // is picked up on the next call); for the official path the token is read-only from the foreign config and
+    // never refreshed.
+    private async Task<PersonalSource?> ResolvePersonalSourceAsync(Guid userId, PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        // Own device-flow link wins, so installing the official plugin never silently switches the source for a
+        // user who already linked here. GetValidAccessTokenAsync may issue a refresh grant, which we want on the
+        // own path; it is awaited (never sync-over-async) and honors the request cancellation token.
         if (_store.GetToken(userId)?.IsLinked == true && !string.IsNullOrWhiteSpace(config.TraktClientId))
         {
-            var ownToken = _authService.GetValidAccessTokenAsync(userId, CancellationToken.None).GetAwaiter().GetResult();
+            var ownToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(ownToken))
             {
                 return new PersonalSource(config.TraktClientId!, ownToken, IsOwnFlow: true);
@@ -161,10 +175,17 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     /// <inheritdoc />
+    public void InvalidatePersonal(Guid userId) => _cache.InvalidatePersonal(userId);
+
+    /// <inheritdoc />
     public async Task<DiscoveryResult?> GetTrendingAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+
+        // Trending is sourceable whenever Trakt is at all: own creds (TraktEnabled) OR the official plugin present.
+        // Gating purely on TraktEnabled would blank the trending grid on an official-plugin-only server, which has
+        // no own creds. Unlike personal, trending needs only a client id (no bearer), so the official app id is fine.
+        if (config is null || (!config.TraktEnabled && !_officialPlugin.IsPresent()))
         {
             return null;
         }
@@ -298,14 +319,20 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         var all = new List<ExternalDiscoveryCandidate>();
 
-        using (var movieReq = BuildRequest("/movies/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
+        // On an official-plugin-only server there is no own client id; trending is client-id-only (no bearer), so
+        // fall back to the official app's public id rather than sending an empty trakt-api-key (which Trakt rejects).
+        var clientId = string.IsNullOrWhiteSpace(config.TraktClientId)
+            ? External.OfficialTraktPluginReader.OfficialTraktClientId
+            : config.TraktClientId;
+
+        using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
         {
             var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
-        using (var showReq = BuildRequest("/shows/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
+        using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
         {
             var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, cancellationToken).ConfigureAwait(false);
 

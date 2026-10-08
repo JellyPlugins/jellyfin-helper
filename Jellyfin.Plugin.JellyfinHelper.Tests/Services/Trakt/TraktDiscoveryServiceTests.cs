@@ -183,6 +183,29 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task InvalidatePersonal_DropsCache_NextCallRefetches()
+    {
+        var userId = Guid.NewGuid();
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        Assert.NotNull(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        // After invalidation the warm pool is gone, so the next call must fetch again: queue a fresh pair.
+        // A Strict handler would throw on an un-queued fetch, so completing proves the re-fetch happened.
+        sut.InvalidatePersonal(userId);
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+
+        Assert.NotNull(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        Assert.Empty(_responses); // both queued fetches were consumed - no stale cache served
+    }
+
+    [Fact]
     public async Task GetPersonal_ServesSeamFilteredResult()
     {
         var userId = Guid.NewGuid();
@@ -724,6 +747,68 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         // The official-only user was warmed: a fetch ran under the official plugin's app + seeded token.
         AssertOfficialCaptured(captured);
+    }
+
+    [Fact]
+    public async Task IsLinkedFor_OwnLinkedWithToken_ReturnsTrue()
+    {
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "b" });
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("own-tok");
+
+        var (sut, _) = CreateCapturingService();
+        Assert.True(await sut.IsLinkedForAsync(userId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IsLinkedFor_OnlyOfficialPluginHasToken_ReturnsTrue()
+    {
+        // The feature's whole point: an official-plugin-only user (no own link) must report linked so the
+        // controller fetches their recommendations instead of showing the connect panel. (Regression guard for B1.)
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", "r", FarFuture));
+
+        var (sut, _) = CreateCapturingService();
+        Assert.True(await sut.IsLinkedForAsync(userId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IsLinkedFor_NeitherSource_ReturnsFalse()
+    {
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(false);
+
+        var (sut, _) = CreateCapturingService();
+        Assert.False(await sut.IsLinkedForAsync(userId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetTrending_OfficialOnlyServer_UsesOfficialClientIdFallback()
+    {
+        // Official-plugin-only server: no own creds (TraktEnabled false, blank client id). Trending must still
+        // run (gate relaxed) and fall back to the official app's public id rather than send an empty api key,
+        // which Trakt would reject. (Regression guard for B2.)
+        Plugin.Instance!.Configuration.TraktEnabled = false;
+        Plugin.Instance!.Configuration.TraktClientId = string.Empty;
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
+
+        var (sut, captured) = CreateCapturingService();
+        var result = await sut.GetTrendingAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(captured);
+        // Trending is client-id-only (no bearer); the official app id is the fallback key.
+        Assert.All(captured, c =>
+        {
+            Assert.Equal(Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktPluginReader.OfficialTraktClientId, c.ApiKey);
+            Assert.Null(c.Authorization);
+        });
     }
 
     private static void AssertOfficialCaptured(List<CapturedRequest> captured)
