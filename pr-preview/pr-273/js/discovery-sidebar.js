@@ -274,13 +274,7 @@
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Narrow panels: slightly smaller tab labels so all three fit without truncation.
-            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
-            // Connect panel for the personal Trakt tab before a user links.
-            '.jfh-discovery-connect { max-width: 520px; margin: 1em auto; text-align: center; background: rgba(255,255,255,0.04); border-radius: 10px; padding: 1.6em; }' +
-            '.jfh-discovery-connect h3 { margin: 0 0 0.6em 0; }' +
-            '.jfh-discovery-connect p { opacity: 0.8; line-height: 1.5; margin: 0.4em 0; }' +
-            '.jfh-discovery-connect-code { font-size: 1.6em; font-weight: 700; letter-spacing: 0.15em; margin: 0.6em 0; color: #00a4dc; }' +
-            '.jfh-discovery-connect-row { display: flex; flex-wrap: wrap; gap: 0.6em; justify-content: center; margin-top: 1em; }';
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }';
         document.head.appendChild(style);
     }
 
@@ -463,7 +457,7 @@
     }
 
     // Determines if the marker resides in the currently active tab panel by checking that it’s attached, not hidden,
-    // and all .tabContent ancestors are .is‑active—preventing the destroy/rebuild flash during tab switches.
+    // and all .tabContent ancestors are .is‑active-preventing the destroy/rebuild flash during tab switches.
     function isActiveTabContainer(element) {
         if (!element?.isConnected) {
             return false;
@@ -510,7 +504,6 @@
     var _activeTab = 'own';
     var _traktPersonalCache = null;
     var _traktTrendingCache = null;
-    var _devicePollTimer = null;
 
     var TAB_OWN = 'own';
     var TAB_TRAKT = 'trakt';
@@ -567,7 +560,6 @@
             return;
         }
 
-        clearDevicePoll();
         var tabs =
             '<div class="jfh-discovery-container"><div class="jfh-discovery-tabs" role="tablist">' +
             tabButton(TAB_OWN, t('discoveryTabForYou', 'For you')) +
@@ -654,15 +646,6 @@
             });
     }
 
-    function clearDevicePoll() {
-        if (_devicePollTimer) {
-            clearTimeout(_devicePollTimer);
-            _devicePollTimer = null;
-        }
-    }
-
-    // Only an unlinked user gets the connect panel; a linked user with an empty
-    // pool gets the regular empty grid from renderCards.
     // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
     // self-refresh in the background: the scheduled task warms both server-side pools, so a tab load
     // reflects the latest warmed data without a client-side refetch loop. A card mutation still bumps
@@ -684,7 +667,7 @@
                     return;
                 }
                 if (resp?.Linked !== true) {
-                    renderConnectPanel(host);
+                    renderTraktNotLinked(host);
                     return;
                 }
                 _traktPersonalCache = { data: resp.Result, userId: startedUserId };
@@ -743,128 +726,11 @@
         return '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations…')) + '</span></div></div>';
     }
 
-    // Shows the device-link call to action. Clicking Connect starts the device flow, swaps in the code +
-    // verification URL, and begins polling until the server reports Linked (then re-renders the grid),
-    // Expired (410, offers restart), or Denied/Error.
-    function renderConnectPanel(host) {
-        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
-            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
-            '<p>' + esc(t('discoveryTraktConnectIntro', 'Link Trakt to see your personal recommendations here.')) + '</p>' +
-            '<div class="jfh-discovery-connect-row">' +
-            '<button class="jfh-discovery-btn jfh-discovery-trakt-connect">' + esc(t('discoveryTraktConnect', 'Connect')) + '</button>' +
-            '</div></div></div>';
-        host.innerHTML = html;
-        var btn = host.querySelector('.jfh-discovery-trakt-connect');
-        if (btn) {
-            btn.addEventListener('click', function () { startDeviceFlow(host); });
-        }
-    }
-
-    function startDeviceFlow(host) {
-        clearDevicePoll();
-        host.innerHTML = spinnerHtml();
-        // Captured so a pending poll never renders into another account's panel after a switch.
-        var startedUserId = currentDiscoveryUserId();
-        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Start'), dataType: 'json' })
-            .then(function (device) {
-                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                if (!device?.user_code) {
-                    renderConnectPanel(host);
-                    return;
-                }
-                renderDeviceCode(host, device);
-                // Stop polling once Trakt's own code lifetime elapses instead of looping until the user
-                // navigates away. Fall back to 10 minutes (Trakt's documented default) when expires_in is
-                // absent, and cap it so a bogus value can never schedule an effectively endless deadline.
-                var lifetimeSeconds = Math.min(Number(device.expires_in) || 600, 900);
-                var deadlineMs = Date.now() + lifetimeSeconds * 1000;
-                scheduleDevicePoll(host, device.device_code, Math.max(5, Number(device.interval) || 5), startedUserId, deadlineMs);
-            })
-            .catch(function () {
-                if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                renderConnectPanel(host);
-                showToast(t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
-            });
-    }
-
-    function renderDeviceCode(host, device) {
-        var url = safeHttpUrl(device.verification_url) || 'https://trakt.tv/activate';
-        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-connect">' +
-            '<h3>' + esc(t('discoveryTraktConnectTitle', 'Connect your Trakt account')) + '</h3>' +
-            '<p>' + esc(t('discoveryTraktConnectStep', 'Visit the page below and enter this code:')) + '</p>' +
-            '<div class="jfh-discovery-connect-code">' + esc(device.user_code) + '</div>' +
-            '<div class="jfh-discovery-connect-row">' +
-            '<span class="jfh-discovery-flip-link jfh-discovery-trakt-open" data-href="' + esc(url) + '">' +
-            '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> ' + esc(url) + '</span>' +
-            '</div>' +
-            '<p>' + esc(t('discoveryTraktConnectWaiting', 'Waiting for you to authorize…')) + '</p>' +
-            '</div></div>';
-        host.innerHTML = html;
-        var open = host.querySelector('.jfh-discovery-trakt-open');
-        if (open) {
-            open.addEventListener('click', function () {
-                var safe = safeHttpUrl(this.dataset.href);
-                if (safe) { window.open(safe, '_blank', 'noopener,noreferrer'); }
-            });
-        }
-    }
-
-    function scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs) {
-        clearDevicePoll();
-        // The code has a finite lifetime at Trakt; once it passes, every poll would just return expired.
-        // Stop here with a prompt to retry rather than polling a dead code until the user navigates away.
-        if (Date.now() >= deadlineMs) {
-            renderConnectPanel(host);
-            showToast(t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.'));
-            return;
-        }
-        _devicePollTimer = setTimeout(function () {
-            // Abandon the loop if the user navigated away, switched tabs, or switched
-            // accounts while waiting: the result belongs to the account that started it.
-            if (!document.contains(host) || startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-            ApiClient.ajax({
-                type: 'POST',
-                url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Device/Poll'),
-                data: JSON.stringify({ DeviceCode: deviceCode }),
-                contentType: 'application/json',
-                dataType: 'json'
-            })
-                .then(function (resp) {
-                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                    var status = resp?.Status;
-                    if (status === 'Linked') {
-                        clearDevicePoll();
-                        _traktPersonalCache = null;
-                        renderTraktPersonal(host, true);
-                    } else if (status === 'Pending') {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds, startedUserId, deadlineMs);
-                    } else {
-                        // Denied or Error: stop and offer a fresh start, telling the user why the panel reset.
-                        clearDevicePoll();
-                        renderConnectPanel(host);
-                        showToast(t('discoveryTraktConnectDeclined', 'Trakt authorization was not completed. Please try again.'));
-                    }
-                })
-                .catch(function (err) {
-                    if (startedUserId !== currentDiscoveryUserId()) { clearDevicePoll(); return; }
-                    // 410 Gone means the code expired; 429 means we polled too fast (back off one interval).
-                    if (err?.status === 429) {
-                        scheduleDevicePoll(host, deviceCode, intervalSeconds + 1, startedUserId, deadlineMs);
-                        return;
-                    }
-                    clearDevicePoll();
-                    // 403 means Trakt was disabled mid-flow: reset the tab shell instead of
-                    // offering a reconnect, matching the other Trakt load paths.
-                    if (err?.status === 403) {
-                        renderTraktError(host, err);
-                        return;
-                    }
-                    renderConnectPanel(host);
-                    showToast(err?.status === 410
-                        ? t('discoveryTraktCodeExpired', 'The Trakt code expired. Please try connecting again.')
-                        : t('discoveryTraktConnectFailed', 'Could not start Trakt authorization. Try again.'));
-                });
-        }, intervalSeconds * 1000);
+    // Trakt is sourced only through the official Trakt plugin, so there is no in-app connect flow; a not-linked
+    // user is told to link in that plugin, after which recommendations appear here automatically.
+    function renderTraktNotLinked(host) {
+        var msg = t('discoveryTraktNotLinkedOfficial', 'Trakt is not linked for your account. Connect your Trakt account in the official Trakt plugin; recommendations will appear here automatically.');
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
     }
 
     function renderCards(container, userDiscovery) {

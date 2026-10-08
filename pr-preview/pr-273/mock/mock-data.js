@@ -307,7 +307,7 @@ RadarrInstances:[{Name:"Radarr Main",Url:"http://192.168.1.100:7878",ApiKey:"dem
 SonarrInstances:[{Name:"Sonarr",Url:"http://192.168.1.100:8989",ApiKey:"demo-key-abcd",Libraries:"TV Shows"},{Name:"Sonarr Anime",Url:"http://192.168.1.100:8990",ApiKey:"demo-key-efgh",Libraries:""}],
 SeerrUrl:"http://192.168.1.100:5055",SeerrApiKey:"demo-seerr-key",
 SeerrCleanupTaskMode:"DryRun",SeerrCleanupAgeDays:365,
-TraktEnabled:false,TraktSourcingEnabled:true,TraktClientId:"",TraktClientSecret:"",
+TraktSourcingEnabled:false,
 RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion:3
 };
 
