@@ -33,8 +33,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly ITraktUserStore _store;
     private readonly ISeerrDiscoveryService _discoveryService;
     private readonly TraktCacheService _cache;
+    private readonly External.IOfficialTraktPluginReader _officialPlugin;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TraktDiscoveryService> _logger;
+    private readonly Func<DateTimeOffset> _now;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
@@ -44,39 +46,50 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// <param name="store">The token store, used to enumerate linked users on refresh.</param>
     /// <param name="discoveryService">The discovery service exposing the external-candidate scoring seam.</param>
     /// <param name="cache">The Trakt result cache.</param>
+    /// <param name="officialPlugin">Reader for the official Trakt plugin's per-user token (fallback source).</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="now">Clock seam (absolute instant) for deterministic expiry handling; defaults to local now.</param>
     public TraktDiscoveryService(
         IHttpClientFactory httpClientFactory,
         ITraktAuthService authService,
         ITraktUserStore store,
         ISeerrDiscoveryService discoveryService,
         TraktCacheService cache,
+        External.IOfficialTraktPluginReader officialPlugin,
         IPluginLogService pluginLog,
-        ILogger<TraktDiscoveryService> logger)
+        ILogger<TraktDiscoveryService> logger,
+        Func<DateTimeOffset>? now = null)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _authService = authService ?? throw new ArgumentNullException(nameof(authService));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _discoveryService = discoveryService ?? throw new ArgumentNullException(nameof(discoveryService));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _officialPlugin = officialPlugin ?? throw new ArgumentNullException(nameof(officialPlugin));
         _pluginLog = pluginLog ?? throw new ArgumentNullException(nameof(pluginLog));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _now = now ?? (() => DateTimeOffset.Now);
     }
 
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+        if (config is null)
         {
             return null;
         }
 
-        // Link check first (memory-only): unlinked users never fetch, and any leftover cache from
-        // before a disconnect is dropped instead of served stale.
-        if (_store.GetToken(userId)?.IsLinked != true)
+        // Resolve this user's personal source. Precedence is deterministic and documented: the user's OWN
+        // device-flow link always wins, so installing the official Trakt plugin never silently switches the
+        // source for a user who already linked here. Only when the user has no own link do we fall back to the
+        // official plugin's token (sourcing through its single app avoids Trakt's one-app-per-free-account
+        // collision). Resolution is per user, not cached globally, so two users can use different sources.
+        var source = ResolvePersonalSource(userId, config);
+        if (source is null)
         {
+            // No usable source for this user: drop any stale cache rather than serving it after a disconnect.
             _cache.InvalidatePersonal(userId);
             return null;
         }
@@ -87,34 +100,21 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
-        var accessToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            // No usable token and nothing cached: nothing to serve.
-            return null;
-        }
-
         var candidates = new List<ExternalDiscoveryCandidate>();
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, rankOffset: 0, cancellationToken).ConfigureAwait(false));
-        if (_store.GetToken(userId)?.IsLinked != true)
-        {
-            // The movies fetch unlinked the user (dead grant): skip the shows fetch with the dead
-            // token instead of scoring a partial pool that is never served and must not be cached.
-            return null;
-        }
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false));
 
-        // Re-read the current token: a 401 during the movies fetch may have rotated it, so reusing the
-        // original string here would guarantee an avoidable 401-plus-retry on the shows fetch. This is a
-        // cheap store read (the token is now fresh, so no refresh grant is issued).
-        var showsToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(showsToken))
+        // An own-flow movies fetch can unlink the user mid-flight (dead grant); re-resolve so we never run the
+        // shows fetch with a dead token or score a partial pool. The official source has no such 401-unlink
+        // path, so for it the second resolution simply returns the same token.
+        var showsSource = ResolvePersonalSource(userId, config);
+        if (showsSource is null)
         {
             return null;
         }
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, showsToken, candidates.Count, cancellationToken).ConfigureAwait(false));
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false));
         if (candidates.Count == 0)
         {
             return null;
@@ -125,6 +125,36 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             _cache.SetPersonal(userId, result);
             return _discoveryService.FilterConsumedItems(userId, result);
+        }
+
+        return null;
+    }
+
+    // Picks the per-user personal source, own-link first then the official plugin. Returns null when neither is
+    // usable for this user. For the own path the token is read fresh (so a mid-flight rotation is picked up on
+    // the second call); for the official path the token is read-only from the foreign config and never refreshed.
+    private PersonalSource? ResolvePersonalSource(Guid userId, PluginConfiguration config)
+    {
+        // Own device-flow link wins. GetValidAccessTokenAsync is intentionally not awaited here: it may issue a
+        // refresh grant, which we want on the own path. Mirror the original flow by resolving the own token
+        // first and only consulting the official plugin when the user is not linked here.
+        if (_store.GetToken(userId)?.IsLinked == true && !string.IsNullOrWhiteSpace(config.TraktClientId))
+        {
+            var ownToken = _authService.GetValidAccessTokenAsync(userId, CancellationToken.None).GetAwaiter().GetResult();
+            if (!string.IsNullOrEmpty(ownToken))
+            {
+                return new PersonalSource(config.TraktClientId!, ownToken, IsOwnFlow: true);
+            }
+        }
+
+        // Fallback: the official plugin holds a usable, unexpired token for this Jellyfin user.
+        if (_officialPlugin.IsPresent())
+        {
+            var officialToken = _officialPlugin.TryGetToken(userId, _now());
+            if (officialToken is not null)
+            {
+                return new PersonalSource(External.OfficialTraktPluginReader.OfficialTraktClientId, officialToken.AccessToken, IsOwnFlow: false);
+            }
         }
 
         return null;
@@ -202,23 +232,31 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
-        Guid userId, string relPath, string mediaType, PluginConfiguration config, string accessToken, int rankOffset, CancellationToken cancellationToken)
+        Guid userId, string relPath, string mediaType, PersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
     {
-        using var request = BuildRequest(relPath, config.TraktClientId, config.TraktLimit, accessToken);
+        using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
         var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, cancellationToken).ConfigureAwait(false);
         if (status == HttpStatusCode.Unauthorized)
         {
-            // The stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
+            if (!source.IsOwnFlow)
+            {
+                // The official plugin owns the token lifecycle (single-use refresh, re-link). We are strictly
+                // read-only on it: a 401 just means its token went stale, so fail this fetch and let the
+                // official plugin refresh on its own cycle. Never refresh or unlink the foreign token here.
+                return [];
+            }
+
+            // Own flow: the stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
             // refresh and retry once with the new credential.
-            var renewed = await _authService.RefreshAccessTokenAsync(userId, accessToken, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(renewed) || string.Equals(renewed, accessToken, StringComparison.Ordinal))
+            var renewed = await _authService.RefreshAccessTokenAsync(userId, source.AccessToken, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(renewed) || string.Equals(renewed, source.AccessToken, StringComparison.Ordinal))
             {
                 // No new credential to retry with: fail this fetch without unlinking, so a transient
                 // outage never destroys a healthy link.
                 return [];
             }
 
-            using var retry = BuildRequest(relPath, config.TraktClientId, config.TraktLimit, renewed);
+            using var retry = BuildRequest(relPath, source.ClientId, limit, renewed);
             (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(retry, cancellationToken).ConfigureAwait(false);
             if (status == HttpStatusCode.Unauthorized)
             {
@@ -309,4 +347,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private static PluginConfiguration? GetConfig() => Plugin.Instance?.Configuration;
+
+    // The resolved per-user personal source: which Trakt app (client id) and bearer token to fetch with, and
+    // whether it is the user's own device-flow link (which owns the 401-driven refresh/unlink lifecycle) or the
+    // read-only official-plugin token (which the Helper must never refresh or unlink).
+    private sealed record PersonalSource(string ClientId, string AccessToken, bool IsOwnFlow);
 }
