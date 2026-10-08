@@ -248,11 +248,17 @@ test.describe('Discovery custom tab - access disabled', () => {
     const admin = await apiContext(auth);
     const probe = (await normalUserContext(auth)) ?? admin;
     try {
-      // Turn the user-access toggle OFF (leave the rest of the discovery config intact). Poll until the
-      // user-facing read actually 403s, so the UI assertion below is not racing an un-propagated toggle.
+      // Turn the user-access toggle OFF while preserving the rest of the config. PUT /Configuration binds the
+      // whole ConfigurationUpdateRequest and resets every omitted non-nullable field to its default, so a
+      // partial body would wipe Seerr/Arr/cleanup settings that later specs (workers: 1, shared backend) rely
+      // on. Read the current config, flip only the toggle, and write it back. Poll until the user-facing read
+      // actually 403s, so the UI assertion below is not racing an un-propagated toggle.
+      const current = await admin.get(p('Configuration'));
+      expect(current.ok(), `read configuration: ${current.status()}`).toBeTruthy();
+      const cfg = (await current.json()) as Record<string, unknown>;
       const put = await admin.put(p('Configuration'), {
         headers: { 'Content-Type': 'application/json' },
-        data: { DiscoveryUserAccessEnabled: false },
+        data: { ...cfg, DiscoveryUserAccessEnabled: false },
       });
       expect(put.ok(), `disable discovery access: ${put.status()}`).toBeTruthy();
       await expect

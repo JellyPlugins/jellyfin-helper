@@ -250,8 +250,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     ///     Builds the reader for the OFFICIAL Trakt plugin's persisted config so the Helper can source
     ///     recommendations through its single app on a free Trakt account (one connected app per account).
     ///     Host services are resolved lazily and nullably: a Jellyfin without IPluginManager/IApplicationPaths
-    ///     must not break DI, it must simply report the official plugin as absent so the Helper keeps its
-    ///     own-client-id flow. Extracted from <see cref="RegisterServices"/> to keep that method's complexity
+    ///     must not break DI, it must simply report the official plugin as absent so the Helper surfaces Trakt
+    ///     as unavailable. Extracted from <see cref="RegisterServices"/> to keep that method's complexity
     ///     within budget.
     /// </summary>
     /// <param name="serviceProvider">The service provider to resolve host and plugin services from.</param>

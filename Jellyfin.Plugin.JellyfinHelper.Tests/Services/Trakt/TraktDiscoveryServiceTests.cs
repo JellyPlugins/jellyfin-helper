@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Moq.Protected;
@@ -28,6 +29,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private readonly Mock<ISeerrDiscoveryService> _discovery;
     private readonly TraktCacheService _cache;
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin;
+    private readonly Mock<IUserManager> _userManager = new();
 
     // Not readonly: a couple of logging tests swap in a DEBUG-level log service before building the SUT.
     private PluginLogService _pluginLog;
@@ -89,6 +91,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             _discovery.Object,
             _cache,
             _pluginLog,
+            _userManager.Object,
             NullLogger<TraktDiscoveryService>.Instance);
 
     private static DiscoveryResult Scored(Guid userId, params (int TmdbId, string MediaType, string Title)[] items)
@@ -122,6 +125,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(5)]
+    [InlineData(6)]
     public void Ctor_NullDependency_Throws(int index)
     {
         var factory = new Mock<IHttpClientFactory>().Object;
@@ -129,16 +133,18 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var discovery = new Mock<ISeerrDiscoveryService>().Object;
         var cache = new TraktCacheService();
         var pluginLog = TestMockFactory.CreatePluginLogService();
+        var userManager = new Mock<IUserManager>().Object;
         var logger = NullLogger<TraktDiscoveryService>.Instance;
 
         Assert.Throws<ArgumentNullException>(() => index switch
         {
-            0 => new TraktDiscoveryService(null!, sources, discovery, cache, pluginLog, logger),
-            1 => new TraktDiscoveryService(factory, null!, discovery, cache, pluginLog, logger),
-            2 => new TraktDiscoveryService(factory, sources, null!, cache, pluginLog, logger),
-            3 => new TraktDiscoveryService(factory, sources, discovery, null!, pluginLog, logger),
-            4 => new TraktDiscoveryService(factory, sources, discovery, cache, null!, logger),
-            _ => new TraktDiscoveryService(factory, sources, discovery, cache, pluginLog, null!),
+            0 => new TraktDiscoveryService(null!, sources, discovery, cache, pluginLog, userManager, logger),
+            1 => new TraktDiscoveryService(factory, null!, discovery, cache, pluginLog, userManager, logger),
+            2 => new TraktDiscoveryService(factory, sources, null!, cache, pluginLog, userManager, logger),
+            3 => new TraktDiscoveryService(factory, sources, discovery, null!, pluginLog, userManager, logger),
+            4 => new TraktDiscoveryService(factory, sources, discovery, cache, null!, userManager, logger),
+            5 => new TraktDiscoveryService(factory, sources, discovery, cache, pluginLog, null!, logger),
+            _ => new TraktDiscoveryService(factory, sources, discovery, cache, pluginLog, userManager, null!),
         });
     }
 
@@ -550,6 +556,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             _discovery.Object,
             _cache,
             _pluginLog,
+            new Mock<IUserManager>().Object,
             NullLogger<TraktDiscoveryService>.Instance);
         return (sut, captured);
     }
@@ -637,6 +644,44 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         // one Forbidden response stays un-consumed in the queue.
         Assert.Single(traktEntries, e => e.Message.Contains("403", StringComparison.Ordinal));
         Assert.Single(_responses);
+    }
+
+    [Fact]
+    public async Task GetPersonal_AuthFailure_NamesTheAffectedUserInDebugLog()
+    {
+        // The admin-only plugin log must name WHO needs a re-link, not just that "a user" does; otherwise the
+        // admin cannot act. Resolve the username from the user manager and surface it in the DEBUG line.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _userManager.Setup(m => m.GetUserById(userId)).Returns(new Jellyfin.Database.Implementations.Entities.User("alice", "Default", "Default"));
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "DEBUG" && e.Message.Contains("alice", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_AuthFailure_FallsBackToUserIdWhenNameUnavailable()
+    {
+        // A renamed/removed account (user manager returns null) must not blank the message or throw: fall back
+        // to the raw id so the admin still has an unambiguous handle.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _userManager.Setup(m => m.GetUserById(userId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "DEBUG" && e.Message.Contains(userId.ToString("N"), StringComparison.Ordinal));
     }
 
     [Fact]

@@ -24,7 +24,7 @@ public interface IOfficialTraktPluginReader
     /// <param name="now">The current instant (absolute <see cref="DateTimeOffset"/>), used to skip expired tokens.</param>
     /// <returns>
     ///     The token when the user is linked in the official plugin and the token is present and unexpired;
-    ///     otherwise <see langword="null"/> (caller falls back to the Helper's own-client-id flow).
+    ///     otherwise <see langword="null"/> (no personal Trakt source is usable for this user).
     /// </returns>
     OfficialTraktToken? TryGetToken(Guid jellyfinUserId, DateTimeOffset now);
 

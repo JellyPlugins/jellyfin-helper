@@ -11,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
@@ -33,6 +34,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly ISeerrDiscoveryService _discoveryService;
     private readonly TraktCacheService _cache;
     private readonly IPluginLogService _pluginLog;
+    private readonly IUserManager _userManager;
     private readonly ILogger<TraktDiscoveryService> _logger;
 
     /// <summary>
@@ -43,6 +45,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// <param name="discoveryService">The discovery service exposing the external-candidate scoring seam.</param>
     /// <param name="cache">The Trakt result cache.</param>
     /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="userManager">The Jellyfin user manager, used only to resolve a username for diagnostic logs.</param>
     /// <param name="logger">The logger.</param>
     public TraktDiscoveryService(
         IHttpClientFactory httpClientFactory,
@@ -50,6 +53,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         ISeerrDiscoveryService discoveryService,
         TraktCacheService cache,
         IPluginLogService pluginLog,
+        IUserManager userManager,
         ILogger<TraktDiscoveryService> logger)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
@@ -57,6 +61,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         _discoveryService = discoveryService ?? throw new ArgumentNullException(nameof(discoveryService));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _pluginLog = pluginLog ?? throw new ArgumentNullException(nameof(pluginLog));
+        _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -100,7 +105,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        var (movies, officialAuthFailed) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false);
+        var (movies, officialAuthFailed) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(movies);
 
         // A revoked/stale official token fails the movies call and would fail the shows call identically (same
@@ -121,7 +126,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        var (shows, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false);
+        var (shows, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
@@ -242,10 +247,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed)> FetchPersonalAsync(
-        string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
+        string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, Guid userId, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
-        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, cancellationToken).ConfigureAwait(false);
+        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
 
         // A revoked/stale official token answers 401 OR 403 ("unapproved app" when the token predates the current
         // official client id). We are read-only on it (the official plugin owns refresh/re-link), and the next
@@ -270,14 +275,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, cancellationToken).ConfigureAwait(false);
+            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
         using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, cancellationToken).ConfigureAwait(false);
+            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -289,7 +294,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(
-        HttpRequestMessage request, string relPath, bool hasBearer, CancellationToken cancellationToken)
+        HttpRequestMessage request, string relPath, bool hasBearer, Guid? userId, CancellationToken cancellationToken)
     {
         try
         {
@@ -297,7 +302,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                LogFetchFailure(relPath, hasBearer, response);
+                LogFetchFailure(relPath, hasBearer, userId, response);
                 return (default, response.StatusCode);
             }
 
@@ -316,8 +321,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // Logs an HTTP failure with the endpoint, plus the VIP header for diagnosis. A 401/403 on a bearer (personal)
     // call means the official plugin's token is stale/revoked - expected, unactionable here (read-only; only the
     // official plugin can re-link), and noisy, so it is logged at DEBUG rather than as a repeated WARN burst.
-    // Trending (no bearer) and all other failures stay WARN. No token value is ever logged.
-    private void LogFetchFailure(string relPath, bool hasBearer, HttpResponseMessage response)
+    // The affected user is named so the admin knows WHO to re-link (the plugin log is admin-only). Trending (no
+    // bearer) and all other failures stay WARN. No token value is ever logged.
+    private void LogFetchFailure(string relPath, bool hasBearer, Guid? userId, HttpResponseMessage response)
     {
         var code = (int)response.StatusCode;
         var authFailure = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
@@ -330,11 +336,32 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         if (authFailure && hasBearer)
         {
-            _pluginLog.LogDebug(LogSource, detail + " The official Trakt plugin must re-link this user.", _logger);
+            var who = DescribeUser(userId);
+            _pluginLog.LogDebug(LogSource, detail + $" The official Trakt plugin must re-link {who}.", _logger);
             return;
         }
 
         _pluginLog.LogWarning(LogSource, detail, logger: _logger);
+    }
+
+    // Resolves a user-facing identity for diagnostic logs: the username when it can be looked up, falling back to
+    // the raw id (then "this user") so a missing/renamed account never throws or blanks the message.
+    private string DescribeUser(Guid? userId)
+    {
+        if (userId is null || userId.Value.Equals(Guid.Empty))
+        {
+            return "this user";
+        }
+
+        try
+        {
+            var name = _userManager.GetUserById(userId.Value)?.Username;
+            return string.IsNullOrWhiteSpace(name) ? $"user {userId.Value:N}" : $"user '{name}'";
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return $"user {userId.Value:N}";
+        }
     }
 
     private static HttpRequestMessage BuildRequest(string relPath, string clientId, int limit, string? accessToken)

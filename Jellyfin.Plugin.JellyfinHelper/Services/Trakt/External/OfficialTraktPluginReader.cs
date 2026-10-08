@@ -80,7 +80,7 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
         {
             // A presence probe must never throw into discovery or the UI. The broad catch is intentional (the
             // injected delegate calls the host IPluginManager, whose failure modes we do not control), so treat
-            // ANY non-fatal failure as "absent" and fall back to the own-client-id flow. SonarCloud S2221 flags
+            // ANY non-fatal failure as "absent" (no Trakt source usable). SonarCloud S2221 flags
             // this generic catch - it is accepted by design here, not suppressed. Fatal process-ending exceptions
             // still propagate.
             if (ex.IsFatal())
@@ -265,7 +265,7 @@ public sealed class OfficialTraktPluginReader : IOfficialTraktPluginReader
             return null;
         }
 
-        // A linked user with no usable access token is dropped so callers fall back to the own-client-id flow.
+        // A linked user with no usable access token is dropped (no Trakt source usable for them).
         // Whitespace-only is treated as absent: it would produce a malformed Authorization header, not a token.
         if (string.IsNullOrWhiteSpace(accessToken))
         {
