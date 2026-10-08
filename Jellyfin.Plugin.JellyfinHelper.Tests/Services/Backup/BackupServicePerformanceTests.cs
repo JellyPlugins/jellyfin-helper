@@ -152,8 +152,6 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
     public void Serialize_FullBackup_50kBaseline_20kTimeline_CompletesWithin2Seconds()
     {
         var backup = CreateLargeBackup(timelinePoints: BackupValidator.MaxTimelineDataPoints, baselineDirs: 50_000, arrInstances: 3);
-        backup.TraktClientId = "trakt-id";
-        backup.TraktClientSecret = "trakt-secret";
         backup.SeerrSkipCertificateValidation = true;
         backup.SyncRecommendationsToPlaylist = true;
         backup.DiscoveryUserAccessEnabled = true;

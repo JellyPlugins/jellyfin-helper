@@ -108,11 +108,14 @@ public class ArrIntegrationController : ControllerBase
                 .Concat(config.SonarrInstances ?? []);
             apiKey = ApiKeyMaskResolver.ResolveArrKey(request.ApiKey, request.Url, request.Name, storedInstances);
 
-            // Mask sent but no stored instance matches this URL/Name. Do NOT forward the mask upstream (it would always fail with a misleading 401).
+            // Mask sent but no stored instance matches this URL/Name - either the URL was edited since
+            // the key was saved, or no instance was ever saved for it. Nothing upstream was
+            // contacted, so this is a client-input error (400), not an upstream failure (502), and the message can
+            // be specific without acting as a reachability oracle: tell the admin to re-enter the real key.
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 _pluginLog.LogWarning("API", "Arr connection test received the masked key sentinel but no stored instance matched the URL/Name; cannot resolve a real key.", logger: _logger);
-                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
+                return BadRequest(new ConnectionTestResponse { Success = false, Message = "No saved API key matches this URL and instance. Re-enter the API key." });
             }
         }
 

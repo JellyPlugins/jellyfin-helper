@@ -59,12 +59,6 @@ public static class BackupValidator
     internal const int MaxApiKeyLength = 512;
 
     /// <summary>
-    ///     Maximum length for the Trakt client id, matching the settings validator's 512-character limit so an
-    ///     exported configuration that passed settings validation can always be restored.
-    /// </summary>
-    internal const int MaxTraktClientIdLength = 512;
-
-    /// <summary>
     ///     Maximum string length for instance name fields.
     /// </summary>
     internal const int MaxInstanceNameLength = 100;
@@ -193,20 +187,6 @@ public static class BackupValidator
         ValidateStringField(result, backup.SeerrUrl, "SeerrUrl", MaxUrlLength);
         ValidateStringField(result, backup.SeerrApiKey, "SeerrApiKey", MaxApiKeyLength);
         ValidateStringField(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", MaxStringLength);
-        // Match the settings contract: client id up to 512 chars, and the secret has no settings-side length
-        // limit, so cap it only at the generic string limit to keep any valid export restorable.
-        ValidateStringField(result, backup.TraktClientId, "TraktClientId", MaxTraktClientIdLength);
-        ValidateStringField(result, backup.TraktClientSecret, "TraktClientSecret", MaxStringLength);
-
-        if (!string.IsNullOrEmpty(backup.TraktClientId) && ContainsControlCharacters(backup.TraktClientId))
-        {
-            result.Errors.Add("TraktClientId contains invalid control characters.");
-        }
-
-        if (!string.IsNullOrEmpty(backup.TraktClientSecret) && ContainsControlCharacters(backup.TraktClientSecret))
-        {
-            result.Errors.Add("TraktClientSecret contains invalid control characters.");
-        }
 
         if (backup.SeerrSkipCertificateValidation == true)
         {

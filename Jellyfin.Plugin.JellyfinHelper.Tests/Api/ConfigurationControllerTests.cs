@@ -1870,80 +1870,30 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateConfiguration_TraktClientIdAndSecretBothSet_DerivesTraktEnabledTrue()
+    public async Task UpdateConfiguration_TraktSourcingEnabled_PersistedVerbatim()
     {
-        var request = new ConfigurationUpdateRequest
-        {
-            TraktClientId = "client-id",
-            TraktClientSecret = "client-secret"
-        };
+        // The master switch is user-facing: a non-null value is stored as-is.
+        _config.TraktSourcingEnabled = true;
 
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { TraktSourcingEnabled = false }, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.True(_config.TraktEnabled);
-        Assert.Equal("client-id", _config.TraktClientId);
+        Assert.False(_config.TraktSourcingEnabled);
     }
 
     [Fact]
-    public async Task UpdateConfiguration_TraktCredentialsCleared_DerivesTraktEnabledFalse()
+    public async Task UpdateConfiguration_TraktSourcingEnabledOmitted_PreservesStoredValue()
     {
-        // Start from a configured state, then clear both credentials; the derived flag must follow.
-        _config.TraktClientId = "existing-id";
-        _config.TraktClientSecret = _secretProtector.Protect("existing-secret");
-        _config.TraktEnabled = true;
+        // A partial PUT (client without the Trakt card) omits the field; the stored value must survive.
+        // Seed true: it is the non-default, so the test actually proves preservation (seeding false would
+        // pass even if the field were overwritten with the default).
+        _config.TraktSourcingEnabled = true;
 
-        var request = new ConfigurationUpdateRequest
-        {
-            TraktClientId = "",
-            TraktClientSecret = ""
-        };
-
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { }, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.False(_config.TraktEnabled);
-        Assert.Equal(string.Empty, _config.TraktClientId);
-        Assert.Equal(string.Empty, _config.TraktClientSecret);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_TraktRequestEnabledFlagIgnored_DerivedFromCredentials()
-    {
-        // A client that still sends TraktEnabled=true must not force the flag on without credentials:
-        // the server derives it solely from stored client id + secret.
-        var request = new ConfigurationUpdateRequest
-        {
-            TraktEnabled = true,
-            TraktClientId = null,
-            TraktClientSecret = null
-        };
-
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
-        Assert.IsType<OkObjectResult>(result);
-        Assert.False(_config.TraktEnabled);
-    }
-
-    [Fact]
-    public async Task UpdateConfiguration_TraktSecretMaskPreservesStoredSecretAndKeepsEnabled()
-    {
-        // The mask sentinel means "keep the stored secret", so an id + mask stays a configured (enabled) state.
-        _config.TraktClientId = "existing-id";
-        _config.TraktClientSecret = _secretProtector.Protect("existing-secret");
-        _config.TraktEnabled = true;
-        var storedSecret = _config.TraktClientSecret;
-
-        var request = new ConfigurationUpdateRequest
-        {
-            TraktClientId = "existing-id",
-            TraktClientSecret = "********"
-        };
-
-        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
-        Assert.IsType<OkObjectResult>(result);
-        Assert.True(_config.TraktEnabled);
-        Assert.Equal(storedSecret, _config.TraktClientSecret);
+        Assert.True(_config.TraktSourcingEnabled);
     }
 }

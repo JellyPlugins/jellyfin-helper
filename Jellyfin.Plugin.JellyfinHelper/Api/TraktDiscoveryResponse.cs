@@ -4,7 +4,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 ///     Response envelope for the current user's personal Trakt recommendations: Linked=false
-///     shows the connect panel, otherwise the scored result is carried along.
+///     shows the not-linked message (link in the official Trakt plugin), otherwise the scored
+///     result is carried along.
 /// </summary>
 public sealed class TraktDiscoveryResponse
 {

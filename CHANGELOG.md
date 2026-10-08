@@ -10,18 +10,20 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Added
 
 - **Trakt discovery source in the Discovery sidebar.** When the admin enables Trakt, the Discovery tab gains two extra sub-tabs beside the local "For you" grid: "Trakt for you" (your personal Trakt recommendations) and "Trakt trending" (global trending, no login). The tabs use the exact same card layout, request and dismiss mechanics, and per-user ML scoring as the local grid, with an added Trakt deep link on the card back. With Trakt disabled the panel is unchanged.
-- **Per-user Trakt linking via the OAuth device flow.** The admin registers one Trakt application for the whole server; each user then links their own Trakt account from a connect panel with a one-time code and verification URL, no per-user admin setup. Tokens are refreshed automatically and can be disconnected again.
-- **Secrets encrypted at rest with Data Protection.** All stored credentials (Trakt tokens, plus the existing Seerr and Arr API keys, migrated transparently) are now encrypted on disk via ASP.NET Core Data Protection with a data-path keyring, never written or logged in plain text. Backups keep secrets portable and re-encrypt them on restore; the on-the-wire mask behavior is unchanged.
+- **Secrets encrypted at rest with Data Protection.** All stored credentials (Seerr and Arr API keys, migrated transparently) are now encrypted on disk via ASP.NET Core Data Protection with a data-path keyring, never written or logged in plain text. Backups keep secrets portable and re-encrypt them on restore; the on-the-wire mask behavior is unchanged.
 - **Optional TLS certificate bypass per Arr instance.** Radarr/Sonarr servers behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect: each instance has a "Skip certificate validation" checkbox in Settings. It applies to connection tests, library comparison, and discovery exclusions; validation stays enabled everywhere else, failed tests name the certificate cause in the server log, and a warning is logged whenever a test runs with validation disabled.
+- **Trakt discovery through the official Trakt plugin (no second app).** On a free Trakt account only one connected app is allowed per account, so the Helper sources each user's personal recommendations by reading the official Jellyfin Trakt plugin's existing per-user token (strictly read-only. It never refreshes or writes the token back) and calling Trakt under the official plugin's app, so Trakt only ever sees one app. The Helper has no own Trakt app: without the official plugin there is nothing to source from. All coupling to the official plugin lives in a single encapsulated reader. A new "Enable Trakt discovery" switch (shown only while the official plugin is detected) is the admin's global off-switch: when off, the Helper sources no Trakt recommendations even while the official plugin is installed.
 
 ### Fixed
 
 - **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. The injected script fabricated its own `customTab_` panel, which fought the Custom Tabs plugin for the same DOM node during the switch-into-tab rebuild. The script is now purely reactive: it only fills the live marker the Custom Tabs plugin provides, never creates a panel, resets a detached reference, and re-checks on class-only tab activation. The tab renders every time, with no blank frame.
 - **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The click handler used the legacy positional tab index, unreliable on Jellyfin 12 where tabs are MUI anchors. It now matches the tab's `?tab=N` deep link in both the header and the narrow-screen drawer, falls back to hash navigation, and keeps the legacy path for 10.x.
+- **A stale official-plugin Trakt token no longer floods the log.** When the official Trakt plugin holds a revoked/expired token for a user, Trakt rejects it (401/403). The Helper now stops after the first rejected call for that user instead of firing the second (shows) request that fails identically, and logs the failure once at debug level with the endpoint and source. The admin sees which user needs a re-link in the official plugin, without a burst of warnings. The token is never refreshed or unlinked (the official plugin owns it).
+- **Clearer Arr connection-test error after a URL change.** Testing an Arr instance whose URL was edited since its key was saved left the key field holding the hidden placeholder, which could not resolve to the stored key. The test now returns an actionable "re-enter the API key" message instead of a generic connection failure, and never forwards the placeholder upstream.
 
 ### Security
 
-- **Control-character injection rejected at the edge.** API keys (Arr instances), the log-viewer source filter, and backup-file credentials (Trakt client ID/secret, Arr keys) are now rejected when they contain CR, LF, tab, or NUL. These characters carry no legitimate value and otherwise reach the outbound HTTP header layer (an uncaught 500) or enable log/response splitting in the admin UI — now a clean client-input error instead.
+- **Control-character injection rejected at the edge.** API keys (Arr instances), the log-viewer source filter, and backup-file credentials (Arr keys) are now rejected when they contain CR, LF, tab, or NUL. These characters carry no legitimate value and otherwise reach the outbound HTTP header layer (an uncaught 500) or enable log/response splitting in the admin UI. Now a clean client-input error instead.
 - **UTF-7 responses neutralized.** Seerr/Arr HTTP responses declaring a `utf-7` charset are decoded as UTF-8 instead, closing a vector that can smuggle markup past downstream filters.
 - **Backup restore warns on TLS bypass.** Restoring a backup that enables "skip certificate validation" (Seerr or any Arr instance) now surfaces an explicit warning, so an inherited insecure setting is a deliberate choice, not a silent one.
 
@@ -31,12 +33,13 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6593 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation.
-- **End-to-end: 360 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
+- **Unit: 6558 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the official-Trakt-plugin reader (hardened XML parse, read-only token, source-precedence matrix). The Trakt device-flow controller now also covers every poll terminal state (linked, denied, error) end to end.
+- **End-to-end: 361 tests.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and stages the official Jellyfin Trakt plugin with a seeded per-user token to prove the Helper sources personal recommendations and trending through it (the mock Trakt server enforces the production User-Agent gate). A negative custom-tab spec proves the Discovery panel stays unpopulated when user access is disabled. (Authoritative count: `cd test/e2e && npx playwright test --list`.)
 
 ### Special Thanks
 
 - Special thanks to [@TheColin21](https://github.com/TheColin21) for testing and donation ❤️
+- Special thanks to Daniel for his donation ❤️
 
 ## [3.0.0.4] - 2026-09-26
 

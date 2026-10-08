@@ -210,6 +210,25 @@ public class PluginServiceRegistratorTests : IDisposable
     }
 
     [Fact]
+    public void RegisterServices_TraktClient_SendsUserAgent()
+    {
+        // BUG GUARD: Trakt sits behind Cloudflare, which 403s requests that carry no User-Agent. HttpClient
+        // sends none by default, so without an explicit UA every Trakt call failed with 403 regardless of a
+        // valid token/client id (all users saw an empty Discovery grid). The Trakt client must set a UA.
+        var sc = Register();
+        sc.AddLogging();
+        var provider = sc.BuildServiceProvider();
+        var factory = provider.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+
+        var trakt = factory.CreateClient("Trakt");
+
+        Assert.NotEmpty(trakt.DefaultRequestHeaders.UserAgent);
+        Assert.Contains(
+            trakt.DefaultRequestHeaders.UserAgent,
+            p => (p.Product?.Name ?? string.Empty).Contains("JellyfinHelper", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void RegisterServices_UnknownClientName_FallsBackToDefaultTimeout()
     {
         // Negative sanity check: a typo'd name doesn't accidentally match one of our registrations. Confirms our named-client registrations are actually keyed on the exact names controllers use.

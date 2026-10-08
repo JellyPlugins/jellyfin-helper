@@ -104,23 +104,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool DiscoveryUserAccessEnabled { get; set; }
 
     /// <summary>
-    ///     Gets or sets a value indicating whether the Trakt discovery source is enabled. This is a DERIVED flag,
-    ///     not a user-facing toggle: the config endpoint sets it true whenever both <see cref="TraktClientId"/>
-    ///     and <see cref="TraktClientSecret"/> are stored, and false otherwise. When off the Discovery sidebar
-    ///     shows only the local ensemble grid, exactly as before Trakt existed.
+    ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled. User-facing toggle shown
+    ///     only when the official Trakt plugin is detected (the sole Trakt source): when off, the Helper sources
+    ///     no Trakt recommendations. Default false so Trakt is opt-in.
     /// </summary>
-    public bool TraktEnabled { get; set; }
-
-    /// <summary>
-    ///     Gets or sets the Trakt OAuth application client id. Registered once by the admin; shared by all users.
-    /// </summary>
-    public string TraktClientId { get; set; } = string.Empty;
-
-    /// <summary>
-    ///     Gets or sets the Trakt OAuth application client secret. Stored encrypted at rest and never returned to
-    ///     the client in plain text.
-    /// </summary>
-    public string TraktClientSecret { get; set; } = string.Empty;
+    public bool TraktSourcingEnabled { get; set; }
 
     /// <summary>
     ///     Gets or sets the Trakt HTTP request timeout in seconds. Default 30. Valid range 5-60; out-of-range

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Download and stage the two external plugins the Discovery custom tab depends on
-# (Custom Tabs + File Transformation) into the e2e config volume, using the same
-# "<Name>_<Version>" folder layout Jellyfin's loader requires.
+# Download and stage the external plugins the e2e suite depends on into the config
+# volume, using the same "<Name>_<Version>" folder layout Jellyfin's loader requires:
+#   - Custom Tabs + File Transformation  (the Discovery custom tab),
+#   - the official Trakt plugin           (the "source Trakt through the official plugin" tests).
 #
 # Always tracks the LATEST release of each repo (resolved via the GitHub API) and
 # picks that release's highest Jellyfin-12 asset, so CI exercises the current
 # plugins without any pin to bump. Overridable for offline/debug runs:
-#   CUSTOMTABS_RELEASE, FILETRANSFORMATION_RELEASE  (force a specific tag)
-#   CUSTOMTABS_ASSET, FILETRANSFORMATION_ASSET      (force a specific asset name
-#     for one plugin; EXTERNAL_PLUGIN_JF_ASSET remains as a blanket fallback
-#     for both)
-#   GITHUB_TOKEN                                    (lifts the API rate limit)
+#   CUSTOMTABS_RELEASE, FILETRANSFORMATION_RELEASE, TRAKT_RELEASE  (force a tag)
+#   CUSTOMTABS_ASSET, FILETRANSFORMATION_ASSET, TRAKT_ASSET        (force an asset
+#     name for one plugin; EXTERNAL_PLUGIN_JF_ASSET remains a blanket fallback)
+#   GITHUB_TOKEN                                                   (lifts the API rate limit)
 set -euo pipefail
 
 STAGE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +24,7 @@ EXTERNAL_PLUGIN_JF_MAJOR="${EXTERNAL_PLUGIN_JF_MAJOR:-12}"
 # runs against the newest published plugins.
 CUSTOMTABS_RELEASE="${CUSTOMTABS_RELEASE:-}"
 FILETRANSFORMATION_RELEASE="${FILETRANSFORMATION_RELEASE:-}"
+TRAKT_RELEASE="${TRAKT_RELEASE:-}"
 
 # Single allowed curl protocol: every curl call below pins both the initial
 # request (--proto) and any -L redirect (--proto-redir) to this value so a
@@ -55,10 +56,12 @@ resolve_tag() {
 }
 
 # Pick the asset to download for a given tag: a per-plugin override wins, then the
-# blanket EXTERNAL_PLUGIN_JF_ASSET fallback, else the highest-sorted
-# "Release-<major>.*.zip" asset on that release.
+# blanket EXTERNAL_PLUGIN_JF_ASSET fallback, else the highest-sorted asset matching
+# the plugin's asset glob (defaults to "Release-<major>.*.zip" for our own-schema
+# plugins; the official Trakt plugin passes "trakt_*.zip" since it uses a different
+# naming convention).
 resolve_asset() {
-  local repo="$1" tag="$2" asset_override="${3:-}"
+  local repo="$1" tag="$2" asset_override="${3:-}" asset_glob="${4:-}"
   if [[ -n "$asset_override" ]]; then
     echo "$asset_override"
     return 0
@@ -67,9 +70,14 @@ resolve_asset() {
     echo "$EXTERNAL_PLUGIN_JF_ASSET"
     return 0
   fi
+  # Translate a shell glob (e.g. "trakt_*.zip" or "Release-12.*.zip") into a regex
+  # for the asset-name match, then pick the highest version-sorted match.
+  local pattern="${asset_glob:-Release-${EXTERNAL_PLUGIN_JF_MAJOR}.*.zip}"
+  local regex
+  regex="$(printf '%s' "$pattern" | sed -e 's/[.]/\\./g' -e 's/[*]/[^"]*/g')"
   gh_curl "https://api.github.com/repos/${repo}/releases/tags/${tag}" \
-    | grep -o '"name"[[:space:]]*:[[:space:]]*"Release-'"${EXTERNAL_PLUGIN_JF_MAJOR}"'[^"]*\.zip"' \
-    | sed -E 's/.*"(Release-[^"]*)".*/\1/' \
+    | grep -oE '"name"[[:space:]]*:[[:space:]]*"'"${regex}"'"' \
+    | sed -E 's/.*"([^"]*)".*/\1/' \
     | sort -V \
     | tail -n1
 }
@@ -78,7 +86,7 @@ resolve_asset() {
 # aborts on any non-zero. The external plugins are a required prerequisite, so
 # an unresolvable latest asset is a real signal, not a reason to drop coverage.
 stage_one() {
-  local name="$1" guid="$2" repo="$3" pin="$4" asset_override="${5:-}"
+  local name="$1" guid="$2" repo="$3" pin="$4" asset_override="${5:-}" asset_glob="${6:-}"
 
   local tag
   tag="$(resolve_tag "$repo" "$pin" || true)"
@@ -88,9 +96,9 @@ stage_one() {
   fi
 
   local asset
-  asset="$(resolve_asset "$repo" "$tag" "$asset_override" || true)"
+  asset="$(resolve_asset "$repo" "$tag" "$asset_override" "$asset_glob" || true)"
   if [[ -z "$asset" ]]; then
-    echo "[stage-external] SKIP ${name}: no Release-${EXTERNAL_PLUGIN_JF_MAJOR}.* asset on ${repo}@${tag}" >&2
+    echo "[stage-external] SKIP ${name}: no matching release asset on ${repo}@${tag}" >&2
     return 2
   fi
 
@@ -141,6 +149,18 @@ stage_one "Custom Tabs" "fbacd0b6-fd46-4a05-b0a4-2045d6a135b0" \
   "IAmParadox27/jellyfin-plugin-custom-tabs" \
   "$CUSTOMTABS_RELEASE" \
   "${CUSTOMTABS_ASSET:-}" \
+  || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
+
+# Official Jellyfin Trakt plugin: lets the e2e stack exercise the Helper's
+# "source Trakt through the official plugin" mode. Its release assets are named
+# "trakt_<ver>.zip" (not our Release-12.*.zip schema), so pass that asset glob.
+# The Helper reads this plugin's config file (configurations/Trakt.xml), which the
+# Playwright setup seeds with a known per-user token.
+stage_one "Trakt" "4fe3201e-d6ae-4f2e-8917-e12bda571281" \
+  "jellyfin/jellyfin-plugin-trakt" \
+  "${TRAKT_RELEASE:-}" \
+  "${TRAKT_ASSET:-}" \
+  "trakt_*.zip" \
   || { [[ $? -eq 2 ]] && any_absent=1 || exit 1; }
 
 if [[ "$any_absent" -eq 1 ]]; then

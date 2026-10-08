@@ -515,6 +515,10 @@ function loadSettings(onDone) {
         h += '</div>';
         h += '<div style="margin-top:0.6em;font-size:0.9em;">' + escHtml(T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?')) + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →')) + '</a></div>';
         h += '</div></div>';
+
+        // Only shown when the official Trakt plugin is present (loadTraktOfficialStatus unhides it); default off.
+        h += '<div class="checkbox-row" id="traktSourcingRow" style="display:none;margin-top:0.2em;"><input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === true ? ' checked' : '') + '><label for="cfgTraktSourcingEnabled">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label></div>';
+        h += '<div class="help-text" id="traktSourcingHint" style="display:none;">' + escHtml(T('traktSourcingHint', 'Sources Trakt recommendations through the official Trakt plugin.')) + '</div>';
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
@@ -566,27 +570,6 @@ function loadSettings(onDone) {
         h += '</div>';
         h += '</div></div>';
 
-        // Trakt discovery source (admin registers one OAuth app; users link individually via device flow).
-        // Only shown when the Discovery sidebar is enabled, since that is the only surface the Trakt tabs
-        // appear on; without it the card would configure a feature the user can never reach.
-        if (cfg.DiscoveryUserAccessEnabled) {
-            var traktHasCfg = !!(cfg.TraktClientId && cfg.TraktClientSecret);
-            h += '<div class="section-title">' + escHtml(T('settingsTraktTitle', 'Trakt settings')) + '</div>';
-            h += '<div class="help-text">' + escHtml(T('settingsTraktHelp', 'Register one Trakt application for this server at trakt.tv/oauth/applications. The application form requires a Redirect URI field: set it to urn:ietf:wg:oauth:2.0:oob (the device-flow placeholder — no redirect actually happens). Each user then links their own Trakt account from the Discovery page with a one-time code. No per-user setup is needed.')) + '</div>';
-            h += '<div class="arr-collapsible' + (!traktHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleTrakt">';
-            h += renderArrCollapseButton(!traktHasCfg, SVG.EYE, escHtml(T('traktInstance', 'Trakt Application')), traktHasCfg ? mi('check_circle') : '', 'Trakt');
-            h += '<div class="arr-collapsible-body" aria-hidden="' + (traktHasCfg ? 'true' : 'false') + '">';
-            h += '<label for="cfgTraktClientId">' + escHtml(T('traktClientId', 'Trakt Client ID')) + '</label>';
-            h += '<input type="text" id="cfgTraktClientId" value="' + escAttr(cfg.TraktClientId || '') + '">';
-            h += '<label for="cfgTraktClientSecret">' + escHtml(T('traktClientSecret', 'Trakt Client Secret')) + '</label>';
-            h += '<input type="password" id="cfgTraktClientSecret">';
-            h += '<div class="help-text">' + escHtml(T('traktClientHelp', 'Create an application at trakt.tv/oauth/applications. Set its required Redirect URI field to urn:ietf:wg:oauth:2.0:oob; the device flow performs no redirect, so the value is only a form placeholder.')) + '</div>';
-            h += '<div style="margin-top:0.5em;">';
-            h += '<button type="button" class="action-btn btn-arr-test" id="btnTestTrakt" style="padding:0.3em 1em;font-size:0.85em;">' + mi('extension') + escHtml(T('testConnection', 'Test Connection')) + '</button>';
-            h += '</div>';
-            h += '</div></div>';
-        }
-
         h += '<div class="section-title">' + escHtml(T('settingsArrTitle', 'Arr stack settings')) + '</div>';
         var radarrInstances = resolveArrInstances(cfg, 'Radarr');
         var radarrCount = radarrInstances.length;
@@ -625,7 +608,7 @@ function loadSettings(onDone) {
         h += '</div>';
 
         form.innerHTML = h;
-        ['Seerr', 'Trakt', 'Radarr', 'Sonarr'].forEach(function (type) {
+        ['Seerr', 'Radarr', 'Sonarr'].forEach(function (type) {
             var hdrBtn = document.getElementById('arrCollapsibleHeader' + type);
             if (hdrBtn) {
                 hdrBtn.addEventListener('click', function () {
@@ -640,8 +623,6 @@ function loadSettings(onDone) {
         });
         var seerrKeyEl = document.getElementById('cfgSeerrApiKey');
         if (seerrKeyEl) { seerrKeyEl.value = cfg.SeerrApiKey || ''; }
-        var traktSecretEl = document.getElementById('cfgTraktClientSecret');
-        if (traktSecretEl) { traktSecretEl.value = cfg.TraktClientSecret || ''; }
         setArrInstanceApiKeys('Radarr', radarrInstances);
         setArrInstanceApiKeys('Sonarr', sonarrInstances);
         var saveBandBtn = document.getElementById('btnSaveSettings');
@@ -651,7 +632,7 @@ function loadSettings(onDone) {
         attachAddHandlers();
         attachBackupHandlers();
         attachSeerrHandlers();
-        attachTraktHandlers();
+        loadTraktOfficialStatus();
         attachDiscoveryCopyHandler();
         attachTaskDescHandlers();
         attachAutoSaveHandlers();
@@ -711,11 +692,8 @@ function buildSettingsPayload() {
         SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
         SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
         SeerrSkipCertificateValidation: document.getElementById('cfgSeerrSkipCert') ? document.getElementById('cfgSeerrSkipCert').checked : false,
-        // Trakt fields are null when the card is absent (Discovery sidebar off) so the server preserves the
-        // stored Trakt config instead of clearing it on an unrelated save. There is no enable toggle: the
-        // server derives TraktEnabled from whether a client id + secret are stored.
-        TraktClientId: document.getElementById('cfgTraktClientId') ? document.getElementById('cfgTraktClientId').value : null,
-        TraktClientSecret: document.getElementById('cfgTraktClientSecret') ? document.getElementById('cfgTraktClientSecret').value : null,
+        // null when the checkbox is absent (no official plugin) so a partial PUT preserves the stored value.
+        TraktSourcingEnabled: document.getElementById('cfgTraktSourcingEnabled') ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = document.getElementById('cfgSeerrUrl')?.value || '';
@@ -1266,54 +1244,20 @@ function attachSeerrHandlers() {
 }
 
 /**
- * Trakt admin test. Validates the shared OAuth application's Client ID against Trakt's client-id-only trending
- * endpoint, then auto-saves on success (quiet) exactly like the Seerr test. The Client Secret is not tested:
- * in the device flow it is only used during token exchange, which no admin-level call can exercise. So a green
- * result is labelled as a Client ID check, and a missing secret is called out rather than reported as a full OK.
+ * Probe the admin-only official-plugin status endpoint and reveal the Trakt sourcing checkbox only when the
+ * official Trakt plugin is present (Trakt discovery is sourced exclusively through it).
  */
-function attachTraktHandlers() {
-    var btn = document.getElementById('btnTestTrakt');
-    if (!btn) return;
-    var _traktTimer = null;
-    btn.addEventListener('click', function () {
-        var clientId = document.getElementById('cfgTraktClientId')?.value || '';
-        var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
-
-        if (_traktTimer) {
-            clearTimeout(_traktTimer);
-            _traktTimer = null;
-        }
-
-        if (!clientId) {
-            _traktTimer = showButtonFeedback(btn, false, T('traktFillFields', 'Please fill in the Client ID first.'), originalHtml, 3000);
-            return;
-        }
-        btn.disabled = true;
-        btn.innerHTML = '<span class="btn-spinner"></span>' + escHtml(T('testing', 'Testing…'));
-        apiPost('JellyfinHelper/Trakt/Test', {ClientId: clientId}, function (res) {
-            btn.disabled = false;
-            // Jellyfin 12 serializes DTOs in PascalCase; accept camelCase too for parity with the Seerr handler.
-            var testOk = res && (res.Success || res.success);
-            var testMsg = res && (res.Message || res.message);
-            if (testOk) {
-                // The test only validates the Client ID against Trakt's client-id-only endpoint; the Client
-                // Secret is exercised only during per-user token exchange and cannot be checked here. Make the
-                // button say so, and flag a missing secret, so a green result is not read as a full-config OK.
-                var hasSecret = !!(document.getElementById('cfgTraktClientSecret')?.value || '').trim();
-                var okMsg = hasSecret
-                    ? (testMsg || T('traktClientIdValid', 'Trakt Client ID is valid.'))
-                    : T('traktClientIdValidNoSecret', 'Client ID is valid. Add the Client Secret so users can link their accounts.');
-                _traktTimer = showButtonFeedback(btn, true, okMsg, originalHtml, hasSecret ? 3000 : 5000);
-                // Auto-save after a successful test (quiet to avoid double feedback), same as Seerr.
-                var payload = buildSettingsPayload();
-                doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderTrakt')});
-            } else {
-                _traktTimer = showButtonFeedback(btn, false, testMsg || 'Failed', originalHtml);
-            }
-        }, function () {
-            btn.disabled = false;
-            _traktTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
-        });
+function loadTraktOfficialStatus() {
+    var row = document.getElementById('traktSourcingRow');
+    var hint = document.getElementById('traktSourcingHint');
+    if (!row) return;
+    apiGet('JellyfinHelper/Trakt/OfficialPluginStatus', function (res) {
+        var present = !!(res && (res.Present || res.present));
+        row.style.display = present ? '' : 'none';
+        if (hint) hint.style.display = present ? '' : 'none';
+    }, function () {
+        row.style.display = 'none';
+        if (hint) hint.style.display = 'none';
     });
 }
 
@@ -1482,8 +1426,9 @@ function attachAutoSaveHandlers() {
     }
 
     // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
-    // card (rendered only when discovery access is on) appears/disappears live instead of waiting for
-    // the next tab load. loadSettings re-fetches config, so the card reflects the just-saved state.
+    // sourcing row (revealed only when the official Trakt plugin is present) appears/disappears live
+    // instead of waiting for the next tab load. loadSettings re-fetches config, so the row reflects
+    // the just-saved state.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {

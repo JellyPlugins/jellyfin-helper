@@ -34,12 +34,6 @@ public sealed class UserDiscoveryController : ControllerBase
     private const string RadarrServiceType = "radarr";
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
-    // Trakt device-flow throttles. Start is expensive (allocates a device code on Trakt) so it is capped hard;
-    // Poll matches Trakt's prescribed 5s interval so one impatient client cannot degrade the shared client-id
-    // budget for every other user.
-    private static readonly TimeSpan TraktDeviceStartRateLimit = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan TraktDevicePollRateLimit = TimeSpan.FromSeconds(5);
-
     /// <summary>
     ///     Minimum interval between out-of-band request reconciliations for a single user on the view-load path. Matches the Seerr user-roster cache TTL, below which a re-fetch cannot surface fresher data.
     /// </summary>
@@ -56,9 +50,8 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginConfigurationService _configurationService;
-    private readonly ITraktAuthService _traktAuth;
     private readonly ITraktDiscoveryService _traktDiscovery;
-    private readonly ITraktUserStore _traktStore;
+    private readonly Services.Trakt.External.IOfficialTraktPluginReader _officialTraktPlugin;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -69,9 +62,8 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="configurationService">The plugin configuration service.</param>
     /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
-    /// <param name="traktAuth">The Trakt auth service (device flow).</param>
     /// <param name="traktDiscovery">The Trakt discovery service (personal + trending).</param>
-    /// <param name="traktStore">The Trakt token store, the source of truth for link state.</param>
+    /// <param name="officialTraktPlugin">Reader reporting whether the official Trakt plugin can source Trakt.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
@@ -79,9 +71,8 @@ public sealed class UserDiscoveryController : ControllerBase
         IDiscoveryFeedbackStore feedbackStore,
         IPluginConfigurationService configurationService,
         IMemoryCache memoryCache,
-        ITraktAuthService traktAuth,
         ITraktDiscoveryService traktDiscovery,
-        ITraktUserStore traktStore,
+        Services.Trakt.External.IOfficialTraktPluginReader officialTraktPlugin,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
@@ -89,9 +80,8 @@ public sealed class UserDiscoveryController : ControllerBase
         _feedbackStore = feedbackStore;
         _configurationService = configurationService;
         _memoryCache = memoryCache;
-        _traktAuth = traktAuth;
         _traktDiscovery = traktDiscovery;
-        _traktStore = traktStore;
+        _officialTraktPlugin = officialTraktPlugin;
         _logger = logger;
     }
 
@@ -609,8 +599,8 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Returns the current user's personal Trakt recommendations, scored for them. When the user has not
-    ///     linked Trakt the response is {Linked:false} so the UI shows the connect panel; otherwise it is a
-    ///     DiscoveryResult. 403 when Trakt is disabled by the admin.
+    ///     linked Trakt in the official plugin the response is {Linked:false} so the UI shows the not-linked
+    ///     message; otherwise it is a DiscoveryResult. 403 when Trakt is disabled by the admin.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A link-status envelope or a scored discovery result.</returns>
@@ -631,20 +621,21 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        // Link state comes from the token store, not the result: an empty pool still
-        // renders the grid, and without a token the fetch is skipped entirely.
-        var linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+        // Link state is resolved by the discovery service from the official Trakt plugin's token, so a
+        // linked user is reported linked and fetched instead of being shown the not-linked message. Without
+        // a usable token the fetch is skipped.
+        var linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         var result = linked
             ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
             : null;
         if (linked && result is null)
         {
-            // The fetch can unlink a dead grant mid-flight; report the current state
-            // so the UI offers a re-link instead of an empty grid.
-            linked = _traktStore.GetToken(userId.Value)?.IsLinked == true;
+            // The link lapsed mid-fetch (token went away between the calls); report the current state
+            // so the UI shows the not-linked message instead of an empty grid.
+            linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
-        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = result });
+        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = CapToVisible(result) });
     }
 
     /// <summary>
@@ -670,134 +661,33 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var result = await _traktDiscovery.GetTrendingAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        return Ok(result);
+        return Ok(CapToVisible(result));
     }
 
     /// <summary>
-    ///     Starts the Trakt device-link flow for the current user, returning the code and verification URL to
-    ///     display. Throttled to one start per minute per user.
+    ///     Caps a Trakt discovery result to the same visible count as the "For you" tab
+    ///     (<see cref="ISeerrDiscoveryService.MaxVisiblePerUser"/>). The Trakt services return the full scored
+    ///     pool (two lists at the Trakt limit each) and already drop requested/dismissed items via
+    ///     FilterConsumedItems, so capping here mirrors GetMyDiscoveryResults: the user sees at most N, and when
+    ///     one is requested or dismissed the next pool item takes its slot on the following load. The pool stays
+    ///     uncapped in the Trakt cache so that backfill has something to promote.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The device-code response, or an error status.</returns>
-    [HttpPost("Trakt/Device/Start")]
-    [ProducesResponseType(typeof(TraktDeviceCodeResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    [ProducesResponseType(StatusCodes.Status502BadGateway)]
-    public async Task<ActionResult> StartTraktDevice(CancellationToken cancellationToken)
+    /// <param name="result">The scored Trakt result, or null when nothing was sourced.</param>
+    /// <returns>The result with its recommendations capped, or null when the input was null.</returns>
+    private DiscoveryResult? CapToVisible(DiscoveryResult? result)
     {
-        var accessError = CheckTraktAccess();
-        if (accessError is not null)
+        if (result is null || result.Recommendations.Count <= _discovery.MaxVisiblePerUser)
         {
-            return accessError;
+            return result;
         }
 
-        var userId = GetCurrentUserId();
-        if (userId == null)
+        return new DiscoveryResult
         {
-            return Unauthorized();
-        }
-
-        if (CheckThrottle(BuildTraktStartKey(userId.Value), TraktDeviceStartRateLimit, out var retryAfter))
-        {
-            return TooMany(retryAfter);
-        }
-
-        var device = await _traktAuth.StartDeviceAuthAsync(cancellationToken).ConfigureAwait(false);
-        if (device is null)
-        {
-            return StatusCode(502, new RequestResult { Success = false, Message = "Could not start Trakt device authorization." });
-        }
-
-        return Ok(device);
-    }
-
-    /// <summary>
-    ///     Polls once for approval of a device code. Throttled to one poll per 5 seconds per user, matching
-    ///     Trakt's prescribed poll interval. Returns the poll status; an expired code yields 410 so the client
-    ///     stops polling.
-    /// </summary>
-    /// <param name="dto">The poll request carrying the device code.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A status envelope, 410 when expired, or 429 when polling too fast.</returns>
-    [HttpPost("Trakt/Device/Poll")]
-    [ProducesResponseType(typeof(TraktDevicePollResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status410Gone)]
-    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public async Task<ActionResult> PollTraktDevice([FromBody] TraktDevicePollRequest dto, CancellationToken cancellationToken)
-    {
-        var accessError = CheckTraktAccess();
-        if (accessError is not null)
-        {
-            return accessError;
-        }
-
-        ArgumentNullException.ThrowIfNull(dto);
-
-        var userId = GetCurrentUserId();
-        if (userId == null)
-        {
-            return Unauthorized();
-        }
-
-        if (CheckThrottle(BuildTraktPollKey(userId.Value), TraktDevicePollRateLimit, out var retryAfter))
-        {
-            return TooMany(retryAfter);
-        }
-
-        var status = await _traktAuth.PollDeviceAuthAsync(userId.Value, dto.DeviceCode ?? string.Empty, cancellationToken).ConfigureAwait(false);
-
-        // An expired code is terminal: tell the client to stop polling and restart with a fresh code.
-        if (status == TraktDevicePollStatus.Expired)
-        {
-            return StatusCode(StatusCodes.Status410Gone, new TraktDevicePollResponse { Status = status.ToString() });
-        }
-
-        // Trakt asked us to slow down: surface a 429 with a Retry-After so the client backs off one
-        // interval instead of restarting the whole device flow.
-        if (status == TraktDevicePollStatus.SlowDown)
-        {
-            return TooMany((int)Math.Ceiling(TraktDevicePollRateLimit.TotalSeconds));
-        }
-
-        return Ok(new TraktDevicePollResponse { Status = status.ToString() });
-    }
-
-    /// <summary>
-    ///     Disconnects the current user's Trakt link, removing their stored tokens.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A success result.</returns>
-    [HttpPost("Trakt/Device/Disconnect")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<RequestResult>> DisconnectTrakt(CancellationToken cancellationToken)
-    {
-        var accessError = CheckTraktAccess();
-        if (accessError is not null)
-        {
-            return accessError;
-        }
-
-        var userId = GetCurrentUserId();
-        if (userId == null)
-        {
-            return Unauthorized();
-        }
-
-        await _traktAuth.DisconnectAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        return Ok(new RequestResult { Success = true, Message = "Trakt disconnected." });
-    }
-
-    private ObjectResult TooMany(int retryAfterSeconds)
-    {
-        Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
-        {
-            Success = false,
-            Message = "Too many requests. Please wait before trying again."
-        });
+            UserId = result.UserId,
+            UserName = result.UserName,
+            Recommendations = result.Recommendations.Take(_discovery.MaxVisiblePerUser).ToList(),
+            GeneratedAt = result.GeneratedAt,
+        };
     }
 
     /// <summary>
@@ -827,70 +717,35 @@ public sealed class UserDiscoveryController : ControllerBase
     internal static string BuildReconcileKey(Guid jellyfinUserId) =>
         $"JellyfinHelper:discovery:reconcile:{_rateLimitGeneration}:{jellyfinUserId:N}";
 
-    /// <summary>Builds the per-user Trakt device-start throttle key, namespaced by the rate-limit generation.</summary>
-    /// <param name="jellyfinUserId">The Jellyfin user the start belongs to.</param>
-    /// <returns>The throttle cache key.</returns>
-    internal static string BuildTraktStartKey(Guid jellyfinUserId) =>
-        $"JellyfinHelper:trakt:devicestart:{_rateLimitGeneration}:{jellyfinUserId:N}";
-
-    /// <summary>Builds the per-user Trakt device-poll throttle key, namespaced by the rate-limit generation.</summary>
-    /// <param name="jellyfinUserId">The Jellyfin user the poll belongs to.</param>
-    /// <returns>The throttle cache key.</returns>
-    internal static string BuildTraktPollKey(Guid jellyfinUserId) =>
-        $"JellyfinHelper:trakt:devicepoll:{_rateLimitGeneration}:{jellyfinUserId:N}";
-
     /// <summary>
-    ///     Atomically checks and claims a throttle window keyed by <paramref name="key"/>. Shares the static
-    ///     gate + memory cache with the request limiter so all per-user throttles behave identically.
+    ///     Checks whether Trakt can be sourced for the user-facing read endpoints: the master
+    ///     <see cref="Configuration.PluginConfiguration.TraktSourcingEnabled"/> switch is on AND the official
+    ///     Trakt plugin is present (the only Trakt source. The Helper has no own Trakt app). A stored
+    ///     opt-in outlives an uninstalled official plugin (the settings row hides, the gate stays shut),
+    ///     so reinstalling resumes without reconfiguration.
     /// </summary>
-    /// <param name="key">The throttle cache key.</param>
-    /// <param name="window">The minimum interval between allowed calls.</param>
-    /// <param name="retryAfterSeconds">The seconds to wait when the window is still open.</param>
-    /// <returns><c>true</c> when the call must be rejected as throttled.</returns>
-    private bool CheckThrottle(string key, TimeSpan window, out int retryAfterSeconds)
+    private bool IsTraktEnabled()
     {
-        var now = DateTime.UtcNow;
-        var throttled = false;
-        retryAfterSeconds = 0;
-
-        lock (RateLimitGate)
-        {
-            if (_memoryCache.TryGetValue<DateTime>(key, out var last))
-            {
-                var elapsed = now - last;
-                if (elapsed < window)
-                {
-                    throttled = true;
-                    retryAfterSeconds = (int)Math.Ceiling((window - elapsed).TotalSeconds);
-                }
-            }
-
-            if (!throttled)
-            {
-                _memoryCache.Set(key, now, window);
-            }
-        }
-
-        return throttled;
+        var config = _configurationService.GetConfiguration();
+        return config.TraktSourcingEnabled && _officialTraktPlugin.IsPresent();
     }
 
-    /// <summary>Checks whether Trakt is configured (client id + secret stored, surfaced as the derived flag).</summary>
-    private bool IsTraktEnabled() => _configurationService.GetConfiguration().TraktEnabled;
-
     /// <summary>
-    ///     Combined gate for every user-facing Trakt endpoint. Trakt tabs are a feature of the Discovery sidebar,
-    ///     so they require BOTH that the admin granted user-level discovery access AND that Trakt is configured.
-    ///     Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access is allowed.
-    ///     The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs at all.
+    ///     Combined gate for the user-facing Trakt READ endpoints. Trakt tabs are a feature of the Discovery
+    ///     sidebar, so they require BOTH that the admin granted user-level discovery access AND that Trakt is
+    ///     sourceable. Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access
+    ///     is allowed. The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs.
     /// </summary>
-    private ObjectResult? CheckTraktAccess()
+    private ObjectResult? CheckTraktAccess() => CheckTraktAccessCore(IsTraktEnabled());
+
+    private ObjectResult? CheckTraktAccessCore(bool traktAvailable)
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
             return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
         }
 
-        if (!IsTraktEnabled())
+        if (!traktAvailable)
         {
             return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
         }

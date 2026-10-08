@@ -11,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
@@ -29,38 +30,38 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(12);
 
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ITraktAuthService _authService;
-    private readonly ITraktUserStore _store;
+    private readonly ITraktPersonalSourceService _personalSources;
     private readonly ISeerrDiscoveryService _discoveryService;
     private readonly TraktCacheService _cache;
     private readonly IPluginLogService _pluginLog;
+    private readonly IUserManager _userManager;
     private readonly ILogger<TraktDiscoveryService> _logger;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory (uses the hardened "Trakt" client).</param>
-    /// <param name="authService">The auth service, for per-user access tokens.</param>
-    /// <param name="store">The token store, used to enumerate linked users on refresh.</param>
+    /// <param name="personalSources">The per-user personal-source lifecycle (official Trakt plugin token, read-only).</param>
     /// <param name="discoveryService">The discovery service exposing the external-candidate scoring seam.</param>
     /// <param name="cache">The Trakt result cache.</param>
     /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="userManager">The Jellyfin user manager, used only to resolve a username for diagnostic logs.</param>
     /// <param name="logger">The logger.</param>
     public TraktDiscoveryService(
         IHttpClientFactory httpClientFactory,
-        ITraktAuthService authService,
-        ITraktUserStore store,
+        ITraktPersonalSourceService personalSources,
         ISeerrDiscoveryService discoveryService,
         TraktCacheService cache,
         IPluginLogService pluginLog,
+        IUserManager userManager,
         ILogger<TraktDiscoveryService> logger)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        _authService = authService ?? throw new ArgumentNullException(nameof(authService));
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _personalSources = personalSources ?? throw new ArgumentNullException(nameof(personalSources));
         _discoveryService = discoveryService ?? throw new ArgumentNullException(nameof(discoveryService));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _pluginLog = pluginLog ?? throw new ArgumentNullException(nameof(pluginLog));
+        _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -68,14 +69,20 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+        if (config is null || !config.TraktSourcingEnabled)
         {
+            // Master switch off: source nothing from either own creds or the official plugin, and drop any warm
+            // pool so flipping the switch takes effect immediately rather than on the 12h TTL.
+            _cache.InvalidatePersonal(userId);
             return null;
         }
 
-        // Link check first (memory-only): unlinked users never fetch, and any leftover cache from
-        // before a disconnect is dropped instead of served stale.
-        if (_store.GetToken(userId)?.IsLinked != true)
+        // Cheap link gate first (memory + file read, no network): unlinked users never fetch, and any
+        // leftover cache from before a disconnect is dropped instead of served stale. A full source
+        // resolution runs only on a cache miss, so a transient failure never drops a warm cache and cache
+        // hits never touch the network or the disk.
+        // The resolution rules themselves live in ITraktPersonalSourceService; this method only orchestrates.
+        if (!_personalSources.IsLinked(userId, config))
         {
             _cache.InvalidatePersonal(userId);
             return null;
@@ -87,34 +94,40 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
-        var accessToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(accessToken))
+        // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
+        // the sole Trakt source). Resolution is per user, not cached globally.
+        var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
+        if (source is null)
         {
-            // No usable token and nothing cached: nothing to serve.
+            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, but keep
+            // the outcome cache-free so the next request retries instead of pinning the outage.
             return null;
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, rankOffset: 0, cancellationToken).ConfigureAwait(false));
-        if (_store.GetToken(userId)?.IsLinked != true)
+        var (movies, officialAuthFailed) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
+        candidates.AddRange(movies);
+
+        // A revoked/stale official token fails the movies call and would fail the shows call identically (same
+        // dead token, same app). Stop here instead of firing a second doomed request; only the official plugin
+        // can re-link this user. Serve nothing cache-free so the next request retries once the plugin rotates.
+        if (officialAuthFailed)
         {
-            // The movies fetch unlinked the user (dead grant): skip the shows fetch with the dead
-            // token instead of scoring a partial pool that is never served and must not be cached.
             return null;
         }
 
-        // Re-read the current token: a 401 during the movies fetch may have rotated it, so reusing the
-        // original string here would guarantee an avoidable 401-plus-retry on the shows fetch. This is a
-        // cheap store read (the token is now fresh, so no refresh grant is issued).
-        var showsToken = await _authService.GetValidAccessTokenAsync(userId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(showsToken))
+        // Re-resolve before the shows fetch so a token that went away between the two calls is caught.
+        var showsSource = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
+        if (showsSource is null)
         {
+            _cache.InvalidatePersonal(userId);
             return null;
         }
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, showsToken, candidates.Count, cancellationToken).ConfigureAwait(false));
+        var (shows, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
+        candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
             return null;
@@ -131,10 +144,31 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     /// <inheritdoc />
+    public Task<bool> IsLinkedForAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var config = GetConfig();
+        if (config is null || !config.TraktSourcingEnabled)
+        {
+            return Task.FromResult(false);
+        }
+
+        // Answer "is this user linked?" WITHOUT forcing a token refresh. A link-status check runs on every tab
+        // load / status poll; refreshing just to answer a boolean would hit the network and rotate the
+        // single-use refresh token. The source service reads link state cheaply (store + file read).
+        return Task.FromResult(_personalSources.IsLinked(userId, config));
+    }
+
+    /// <inheritdoc />
+    public void InvalidatePersonal(Guid userId) => _cache.InvalidatePersonal(userId);
+
+    /// <inheritdoc />
     public async Task<DiscoveryResult?> GetTrendingAsync(Guid userId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+
+        // Trending is sourceable when the master switch is on AND the official Trakt plugin is present. Trending
+        // needs only a client id (no bearer), so the official app id is used.
+        if (config is null || !config.TraktSourcingEnabled || !_personalSources.IsAvailable(config))
         {
             return null;
         }
@@ -175,7 +209,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     public async Task RefreshAllAsync(CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        if (config is null || !config.TraktEnabled)
+        if (config is null || !config.TraktSourcingEnabled)
+        {
+            // Master switch off: warm nothing. (The next live request also short-circuits, so no stale pool.)
+            return;
+        }
+
+        // Run only when the official Trakt plugin is present (the sole Trakt source).
+        if (!_personalSources.IsAvailable(config))
         {
             return;
         }
@@ -185,7 +226,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
         _cache.InvalidateTrendingPool();
 
-        foreach (var userId in _store.GetLinkedUserIds())
+        // Warm every user the official plugin holds a usable token for. The population comes from the
+        // source service, which owns the foreign token store.
+        var userIds = _personalSources.GetLinkedUserIds();
+
+        foreach (var userId in userIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -201,54 +246,43 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
     }
 
-    private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
-        Guid userId, string relPath, string mediaType, PluginConfiguration config, string accessToken, int rankOffset, CancellationToken cancellationToken)
+    private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed)> FetchPersonalAsync(
+        string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, Guid userId, CancellationToken cancellationToken)
     {
-        using var request = BuildRequest(relPath, config.TraktClientId, config.TraktLimit, accessToken);
-        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, cancellationToken).ConfigureAwait(false);
-        if (status == HttpStatusCode.Unauthorized)
-        {
-            // The stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
-            // refresh and retry once with the new credential.
-            var renewed = await _authService.RefreshAccessTokenAsync(userId, accessToken, cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(renewed) || string.Equals(renewed, accessToken, StringComparison.Ordinal))
-            {
-                // No new credential to retry with: fail this fetch without unlinking, so a transient
-                // outage never destroys a healthy link.
-                return [];
-            }
+        using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
+        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
 
-            using var retry = BuildRequest(relPath, config.TraktClientId, config.TraktLimit, renewed);
-            (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(retry, cancellationToken).ConfigureAwait(false);
-            if (status == HttpStatusCode.Unauthorized)
-            {
-                // Fresh credentials rejected: the grant is dead. Unlink so the UI offers a re-link
-                // instead of an empty grid.
-                await _store.RemoveAsync(userId, cancellationToken).ConfigureAwait(false);
-                _cache.InvalidatePersonal(userId);
-                return [];
-            }
+        // A revoked/stale official token answers 401 OR 403 ("unapproved app" when the token predates the current
+        // official client id). We are read-only on it (the official plugin owns refresh/re-link), and the next
+        // fetch would fail identically, so signal the caller to skip the remaining calls for this user.
+        if (status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            return ([], true);
         }
 
         var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
         LogDropped(dropped, mediaType, "personal");
-        return mapped;
+        return (mapped, false);
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
         var all = new List<ExternalDiscoveryCandidate>();
 
-        using (var movieReq = BuildRequest("/movies/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
+        // Trending is client-id-only (no bearer). Trakt is sourced through the official plugin, so use its public
+        // app id rather than an empty trakt-api-key (which Trakt rejects).
+        var clientId = External.OfficialTraktPluginReader.OfficialTraktClientId;
+
+        using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, cancellationToken).ConfigureAwait(false);
+            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
-        using (var showReq = BuildRequest("/shows/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
+        using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, cancellationToken).ConfigureAwait(false);
+            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -259,7 +293,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return all;
     }
 
-    private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(
+        HttpRequestMessage request, string relPath, bool hasBearer, Guid? userId, CancellationToken cancellationToken)
     {
         try
         {
@@ -267,7 +302,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                _pluginLog.LogWarning(LogSource, $"Trakt fetch failed: {(int)response.StatusCode}.", logger: _logger);
+                LogFetchFailure(relPath, hasBearer, userId, response);
                 return (default, response.StatusCode);
             }
 
@@ -278,8 +313,54 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Network, timeout, size-limit, and malformed-payload failures degrade to an empty
             // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
-            _pluginLog.LogWarning(LogSource, "Trakt fetch failed.", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Trakt fetch failed ({relPath}).", ex, _logger);
             return (default, HttpStatusCode.ServiceUnavailable);
+        }
+    }
+
+    // Logs an HTTP failure with the endpoint, plus the VIP header for diagnosis. A 401/403 on a bearer (personal)
+    // call means the official plugin's token is stale/revoked - expected, unactionable here (read-only; only the
+    // official plugin can re-link), and noisy, so it is logged at DEBUG rather than as a repeated WARN burst.
+    // The affected user is named so the admin knows WHO to re-link (the plugin log is admin-only). Trending (no
+    // bearer) and all other failures stay WARN. No token value is ever logged.
+    private void LogFetchFailure(string relPath, bool hasBearer, Guid? userId, HttpResponseMessage response)
+    {
+        var code = (int)response.StatusCode;
+        var authFailure = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+
+        var detail = $"Trakt fetch failed: {code} ({relPath}).";
+        if (response.Headers.TryGetValues("X-VIP-User", out var vip))
+        {
+            detail += $" X-VIP-User={string.Join(",", vip)}";
+        }
+
+        if (authFailure && hasBearer)
+        {
+            var who = DescribeUser(userId);
+            _pluginLog.LogDebug(LogSource, detail + $" The official Trakt plugin must re-link {who}.", _logger);
+            return;
+        }
+
+        _pluginLog.LogWarning(LogSource, detail, logger: _logger);
+    }
+
+    // Resolves a user-facing identity for diagnostic logs: the username when it can be looked up, falling back to
+    // the raw id (then "this user") so a missing/renamed account never throws or blanks the message.
+    private string DescribeUser(Guid? userId)
+    {
+        if (userId is null || userId.Value.Equals(Guid.Empty))
+        {
+            return "this user";
+        }
+
+        try
+        {
+            var name = _userManager.GetUserById(userId.Value)?.Username;
+            return string.IsNullOrWhiteSpace(name) ? $"user {userId.Value:N}" : $"user '{name}'";
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return $"user {userId.Value:N}";
         }
     }
 

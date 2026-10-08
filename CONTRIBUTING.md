@@ -144,10 +144,10 @@ the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
 stops 403ing. Turning a trampled-access setup race into a loud failure instead
 of a silent mount timeout.
 
-**No version pinning — always latest, by design.** CI and the nightly run resolve
+**No version pinning. Always latest, by design.** CI and the nightly run resolve
 the newest published release of both Custom Tabs and File Transformation on every
 run. This is intentional: Jellyfin Helper must stay compatible with the latest of
-each, and the nightly is the tripwire — if an upstream update breaks the custom-tab
+each, and the nightly is the tripwire. If an upstream update breaks the custom-tab
 integration, that surfaces as a red `discovery-customtab` spec so it can be fixed,
 rather than being masked by a frozen pin. Do not add `*_RELEASE` / `*_ASSET` pins to
 the workflows. The only non-pinning knob is a token to lift the GitHub API rate limit:
@@ -188,13 +188,13 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── RecommendationControllerTests.cs
 │   ├── RecommendationControllerDiagnosticsTests.cs      # GET /Recommendations/Diagnostics/Ensemble: 200 populated DTO, Available=false on null, 503 when deactivated
 │   ├── TrashControllerTests.cs
-│   ├── TraktControllerTests.cs                         # TestConnection: blank-input rejection, client-id trim, 200 valid, 502 rejected
+│   ├── TraktOfficialPluginControllerTests.cs           # OfficialPluginStatus mirrors the reader's presence probe (true/false)
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
-│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt endpoints: TraktEnabled 403 gate, linked/not-linked envelope, device start/poll/disconnect, 410 on expired, start/poll 429 throttles
-│   ├── TraktDiscoveryDtoTests.cs                     # Trakt API DTOs: linked/unlinked envelope, poll request/response JSON round-trips
+│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt read endpoints: official-plugin-absent/master-switch 403 gates, linked/not-linked envelope, mid-fetch link lapse, authentication requirement
+│   ├── TraktDiscoveryDtoTests.cs                     # Trakt linked/unlinked envelope DTO: defaults, result carriage, JSON round-trip
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
@@ -331,12 +331,14 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   ├── Trakt/                     # Trakt discovery source tests
-│   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation, GetLinkedUserIds
-│   │   ├── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
 │   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
-│   │   └── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
+│   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
+│   │   ├── TraktPersonalSourceServiceTests.cs # Source lifecycle: official-token resolve, null-config guards, cheap link check, warm population, no own app
+│   │   └── External/                      # Official-Trakt-plugin reader tests
+│   │       ├── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE/oversize config; dedupes linked users; leaves file unchanged
+│   │       └── OfficialTraktPluginGuidsTests.cs # Pins the foreign plugin id (4fe3201e-…) + config file name (Trakt.xml) so a silent change to either is caught
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -469,15 +471,13 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
 │   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
-│   ├── TraktController.cs               # Admin-only Trakt config API. POST /JellyfinHelper/Trakt/Test validates the shared OAuth app's Client ID via Trakt's client-id-only trending endpoint (200 valid, 401/403 rejected). The Client Secret is not tested: the device flow only uses it during token exchange, which no admin-level call can exercise without a user approving a device code.
-│   ├── TraktTestRequest.cs              # Request DTO carrying the Trakt Client ID to validate (not a masked secret - the Client ID is returned to the admin as-is, so there is no sentinel to resolve)
+│   ├── TraktOfficialPluginController.cs # Admin-only GET /JellyfinHelper/Trakt/OfficialPluginStatus: reports whether the official Trakt plugin is present (shares the route prefix with TraktController; each admin Trakt concern has exactly one controller)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
-│   ├── TraktDevicePollRequest.cs        # Trakt device poll DTO (DeviceCode, nullable; controller coalesces to empty)
-│   ├── TraktDevicePollResponse.cs       # Trakt device poll status envelope (Status)
 │   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
+│   ├── OfficialTraktPluginStatusResponse.cs # Admin-only GET /Trakt/OfficialPluginStatus payload: Present flag so the config page can relax the own-client-id requirement
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
@@ -501,8 +501,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
 │   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
 │   ├── TraktDiscoveryResponse.cs        # GET /Discovery/My/Trakt envelope: Linked flag + optional scored Result
-│   ├── TraktDevicePollRequest.cs        # POST /Discovery/My/Trakt/Device/Poll body: device code
-│   ├── TraktDevicePollResponse.cs       # Device-poll response: status name (Pending/Linked/Expired/Denied/Error)
 │   ├── TrashAccessEntry.cs              # Per-path access result entry (used in TrashAccessResponse)
 │   ├── TrashAccessResponse.cs           # POST /Trash/CheckAccess response: allAccessible flag + results
 │   ├── TrashConfigResponse.cs           # GET /Trash/Contents response: useTrash, retentionDays, libraries
@@ -669,23 +667,23 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsService.cs   # Aggregates growth data into per-library insights
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
-│   ├── Trakt/                   # Trakt discovery source (OAuth device flow + external recommendations)
-│   │   ├── ITraktAuthService.cs     # Device-flow + token lifecycle contract (start/poll/get-valid-token/disconnect)
+│   ├── Trakt/                   # Trakt discovery source (official Jellyfin Trakt plugin, read-only)
 │   │   ├── TraktApi.cs              # Shared Trakt API base URL (env-overridable for e2e, defaults to api.trakt.tv)
-│   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
-│   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
+│   │   ├── ITraktDiscoveryService.cs # Personal (official-plugin token) + global trending (official client id) contract; both scored through the shared seam
 │   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
+│   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (official-token resolve, cheap link check, warm ids)
+│   │   ├── TraktPersonalSourceService.cs  # Resolves the official plugin token as read-only source; owns all resolution rules so the discovery service stays within its constructor budget
+│   │   ├── TraktPersonalSource.cs         # Resolved source value (official client id + bearer)
 │   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
 │   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
-│   │   ├── ITraktUserStore.cs       # Per-user token storage contract (GetToken/GetLinkedUserIds/SaveAsync/RemoveAsync)
-│   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence
-│   │   ├── TraktUserToken.cs        # Per-user token record (access/refresh/expiry) with IsLinked guard
-│   │   ├── TraktDeviceCodeResponse.cs # POST /oauth/device/code response (device/user code, verification URL, expiry, interval)
-│   │   ├── TraktTokenResponse.cs    # Token payload from device/token + refresh (access/refresh/expires_in/created_at)
-│   │   ├── TraktDevicePollStatus.cs # Poll outcome enum (Pending/Linked/Expired/Denied/Error)
 │   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
 │   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)
-│   │   └── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
+│   │   ├── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
+│   │   └── External/                # Coupling to the OFFICIAL Jellyfin Trakt plugin, confined to one place
+│   │       ├── IOfficialTraktPluginReader.cs # Presence probe + read-only per-user token lookup contract
+│   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic, whitespace-packing-safe); TryGetToken matches on LinkedMbUserId, GetLinkedUserIds enumerates all usable users (for pre-warming); honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed
+│   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access token + expiry; no refresh token held); never references the foreign assembly
+│   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs
@@ -758,9 +756,9 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RecommendationControllerDiagnosticsTests.cs`
 - `ResponseDtoTests.cs`
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
-- `TraktControllerTests.cs` - Tests TraktController TestConnection: blank-input rejection, client-id trim, 200 on valid, 502 on rejected
+- `TraktOfficialPluginControllerTests.cs` - Tests TraktOfficialPluginController OfficialPluginStatus mirrors the reader's presence probe
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
-- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, device poll request/response, JSON round-trips)
+- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, JSON round-trips)
 - `TrashControllerTests.cs`
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`
@@ -1050,8 +1048,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RequestResult.cs`
 - `SeerrController.cs`
 - `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection
-- `TraktController.cs` - Admin-only Trakt config API; POST Test validates the Client ID via the client-id-only trending endpoint
-- `TraktTestRequest.cs` - Request DTO carrying the Trakt Client ID to validate
+- `TraktOfficialPluginController.cs` - Admin-only GET OfficialPluginStatus under the same route prefix; reports official-plugin presence
 - `SeerrUrlResponse.cs`
 - `TranslationsController.cs`
 - `TrashAccessEntry.cs`

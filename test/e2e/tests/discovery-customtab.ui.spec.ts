@@ -165,6 +165,33 @@ test.describe('Discovery custom tab (home page)', () => {
     await expectDiscoveryRendered(page);
   });
 
+  // Regression guard for the F5 blank-tab bug: with the Discovery tab active, a hard
+  // reload restores the ?tab=N deep link and Custom Tabs rebuilds the panel BEFORE
+  // discovery-sidebar.js finishes its async availability probe. If the DOM watcher only
+  // started after that probe, the restore mutation was already missed and the panel
+  // stayed blank until a manual nav away-and-back. The fix starts the watcher the moment
+  // the home context is known (pre-probe), so the restored panel is caught and filled
+  // without any further navigation. This test reloads on the deep link and asserts the
+  // panel renders on its own.
+  test('renders after a hard reload with the Discovery tab active (no manual nav)', async ({ page }) => {
+    await openHome(page);
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+
+    await clickDiscoveryTab(page);
+    await expectDiscoveryRendered(page);
+
+    // Clicking the tab deep-links the URL to ?tab=N; a reload here is a true F5 of the
+    // active-Discovery state, not a fresh home load. (addInitScript re-seeds credentials
+    // on every navigation, so the SPA auto-logs-in again after the reload.)
+    const urlWithTab = page.url();
+    expect(urlWithTab, 'clicking Discovery should deep-link the tab into the URL').toContain('tab=');
+
+    await page.reload();
+
+    // No clickDiscoveryTab here: the panel must fill itself from the restored deep link.
+    await expectDiscoveryRendered(page);
+  });
+
   test('discovery-sidebar.js never fabricates its own customTab_ panel', async ({ page }) => {
     await openHome(page);
     await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
@@ -202,5 +229,84 @@ test.describe('Discovery custom tab (home page)', () => {
     expect(ownership.stray, 'a discovery marker exists outside a Custom Tabs panel').toBe(0);
     expect(ownership.panelCount, 'exactly one custom-tab panel should exist').toBe(1);
     expect(ownership.unowned, 'the panel is not structurally owned by Custom Tabs').toBe(0);
+  });
+});
+
+/**
+ * Negative counterpart: with the user-access toggle OFF, the Discovery panel must NOT render a result grid.
+ * The tab button itself is owned by the external Custom Tabs plugin (its ContentHtml), so it can still appear
+ * in the header - what OUR code controls is population: discovery-sidebar.js gets a 403 from /Discovery/My and
+ * renders the explicit "not enabled" message instead of cards. Asserting the grid never appears (and the
+ * disabled message does) is the behavioral proof that access-off hides the feature's content. Runs in its own
+ * describe so its config toggling is bracketed and restored, never leaking into the positive tests above.
+ */
+test.describe('Discovery custom tab - access disabled', () => {
+  test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / File Transformation not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
+
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    const probe = (await normalUserContext(auth)) ?? admin;
+    try {
+      // Turn the user-access toggle OFF while preserving the rest of the config. PUT /Configuration binds the
+      // whole ConfigurationUpdateRequest and resets every omitted non-nullable field to its default, so a
+      // partial body would wipe Seerr/Arr/cleanup settings that later specs (workers: 1, shared backend) rely
+      // on. Read the current config, flip only the toggle, and write it back. Poll until the user-facing read
+      // actually 403s, so the UI assertion below is not racing an un-propagated toggle.
+      const current = await admin.get(p('Configuration'));
+      expect(current.ok(), `read configuration: ${current.status()}`).toBeTruthy();
+      const cfg = (await current.json()) as Record<string, unknown>;
+      const put = await admin.put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: { ...cfg, DiscoveryUserAccessEnabled: false },
+      });
+      expect(put.ok(), `disable discovery access: ${put.status()}`).toBeTruthy();
+      await expect
+        .poll(async () => (await probe.get(p('Discovery/My'))).status(), { timeout: 15_000 })
+        .toBe(403);
+    } finally {
+      if (probe !== admin) await probe.dispose();
+      await admin.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    // Restore access for every later spec (workers: 1 shares one backend).
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    try {
+      await ensureDiscoveryConfigured(admin);
+    } finally {
+      await admin.dispose();
+    }
+  });
+
+  test('access-disabled panel never renders a result grid', async ({ page }) => {
+    await openHome(page);
+
+    // The Custom Tabs plugin still injects its tab (it owns that), so a user can still click it. But with the
+    // user-access gate off, discovery-sidebar.js gets a 403 from /Discovery/My and bails before building any
+    // content: no result grid is ever rendered. (On the home custom-tab the panel simply stays empty rather
+    // than showing the config-page "not enabled" message, so we assert the grid's absence, not a message.)
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+
+    // The bail under test happens exactly when discovery-sidebar.js gets the 403 from /Discovery/My,
+    // so synchronize on that response instead of sleeping: arm before the click (each click remounts
+    // into Custom Tabs' rebuilt panel and refetches while uncached), then assert no grid was ever built.
+    const bailResponse = page.waitForResponse(
+      (res) => {
+        try {
+          return new URL(res.url()).pathname === p('Discovery/My') && res.status() === 403;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20_000 },
+    );
+    await clickDiscoveryTab(page);
+    await bailResponse;
+
+    const grid = page.locator('.jellyfinhelper.discovery .jfh-discovery-grid');
+    await expect(grid).toHaveCount(0);
   });
 });

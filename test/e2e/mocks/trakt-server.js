@@ -1,21 +1,20 @@
 /**
- * Mock Trakt server for E2E tests. Implements the subset of the Trakt API the plugin uses: the OAuth device
- * flow (code + token + refresh), personal recommendations, and global trending. Unauthenticated test hooks
- * (/reset, /arm-*) let specs drive the device-flow state machine deterministically. Loopback-only, like the
- * other mocks.
+ * Mock Trakt server for E2E tests. Implements the subset of the Trakt API the plugin uses: personal
+ * recommendations (Bearer required) and global trending (client-id only). An unauthenticated /reset test hook
+ * clears recorded state. Loopback-only, like the other mocks. Real Trakt sits behind Cloudflare, which 403s any
+ * API request without a User-Agent; this mock enforces the same on every real API path (test hooks exempt) so
+ * the suite catches a missing UA.
  */
 import http from 'node:http';
 
 const PORT = Number(process.env.PORT ?? 9100);
 
-// Device-flow state. The token endpoint returns 400 (pending) until armed to succeed, so a spec can assert
-// the "keep polling" path and then the "linked" path without timing races.
-let devicePending = true;
-let lastDeviceCode = null;
+let lastRecommendationBearer = null;
+let lastUserAgent = null;
 
 function reset() {
-  devicePending = true;
-  lastDeviceCode = null;
+  lastRecommendationBearer = null;
+  lastUserAgent = null;
 }
 
 // Fixtures. Each list intentionally includes one item WITHOUT a tmdb id so the plugin's drop-and-count path
@@ -41,6 +40,31 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
+// Personal recommendations require a Bearer token: the official-plugin spec seeds a known token into the
+// official plugin's Trakt.xml, and the Helper forwards it here. A 200 proves a real token was presented (a
+// wrong/absent bearer gets 401, exactly as real Trakt behaves). Keep the value in sync with the seeded token.
+const EXPECTED_OFFICIAL_BEARER = process.env.TRAKT_EXPECTED_BEARER ?? 'seeded-official-token';
+const VALID_BEARERS = new Set([
+  EXPECTED_OFFICIAL_BEARER,
+]);
+
+function bearerOf(req) {
+  const auth = req.headers['authorization'];
+  if (typeof auth !== 'string' || !auth.startsWith('Bearer ')) {
+    return null;
+  }
+  return auth.slice('Bearer '.length);
+}
+
+function requireBearer(req, res, handler) {
+  const token = bearerOf(req);
+  if (token === null || !VALID_BEARERS.has(token)) {
+    sendJson(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  handler(req, res);
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -64,55 +88,55 @@ const routes = {
     reset();
     sendJson(res, 200, { ok: true });
   },
-  'POST /arm-linked': (_req, res) => {
-    devicePending = false;
-    sendJson(res, 200, { ok: true });
-  },
 
-  // Device flow.
-  'POST /oauth/device/code': (_req, res) => {
-    lastDeviceCode = 'device-code-xyz';
-    sendJson(res, 200, {
-      device_code: lastDeviceCode,
-      user_code: 'ABC123',
-      verification_url: 'https://trakt.tv/activate',
-      expires_in: 600,
-      interval: 1,
-    });
-  },
-  'POST /oauth/device/token': (_req, res) => {
-    if (devicePending) {
-      // 400 is Trakt's "authorization pending" during the device flow.
-      sendJson(res, 400, { error: 'authorization_pending' });
-      return;
-    }
-    sendJson(res, 200, {
-      access_token: 'mock-access-token',
-      refresh_token: 'mock-refresh-token',
-      expires_in: 7776000,
-      created_at: Math.floor(Date.now() / 1000),
-    });
-  },
-  'POST /oauth/token': (_req, res) => {
-    // Refresh grant.
-    sendJson(res, 200, {
-      access_token: 'mock-access-token-refreshed',
-      refresh_token: 'mock-refresh-token-2',
-      expires_in: 7776000,
-      created_at: Math.floor(Date.now() / 1000),
-    });
-  },
-
-  // Personal recommendations (OAuth) and trending (client-id only).
-  'GET /recommendations/movies': (_req, res) => sendJson(res, 200, recommendationMovies),
-  'GET /recommendations/shows': (_req, res) => sendJson(res, 200, recommendationShows),
+  // Personal recommendations (OAuth, Bearer required) and trending (client-id only, no bearer).
+  'GET /recommendations/movies': (req, res) => requireBearer(req, res, (r, s) => {
+    lastRecommendationBearer = bearerOf(r);
+    sendJson(s, 200, recommendationMovies);
+  }),
+  'GET /recommendations/shows': (req, res) => requireBearer(req, res, (r, s) => {
+    lastRecommendationBearer = bearerOf(r);
+    sendJson(s, 200, recommendationShows);
+  }),
   'GET /movies/trending': (_req, res) => sendJson(res, 200, trendingMovies),
   'GET /shows/trending': (_req, res) => sendJson(res, 200, trendingShows),
+
+  // Test hook: report the Bearer token last presented to a recommendations endpoint, so a spec can prove the
+  // official plugin's seeded token (not our own-flow token) actually reached Trakt.
+  'GET /last-recommendation-bearer': (_req, res) => sendJson(res, 200, { bearer: lastRecommendationBearer }),
+
+  // Test hook: report the User-Agent last presented on a real API path, so a spec can prove the plugin sends
+  // one (real Trakt/Cloudflare 403s requests without a UA - the production bug this guards against).
+  'GET /last-user-agent': (_req, res) => sendJson(res, 200, { userAgent: lastUserAgent }),
 };
+
+// Test hooks and health are driven by Playwright (not the plugin) and are exempt from the Cloudflare-style
+// User-Agent gate below; everything else is a real Trakt API path the plugin calls.
+const UA_EXEMPT = new Set([
+  'GET /health',
+  'POST /reset',
+  'GET /last-recommendation-bearer',
+  'GET /last-user-agent',
+]);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const handler = routes[`${req.method} ${url.pathname}`];
+  const routeKey = `${req.method} ${url.pathname}`;
+
+  // Real Trakt sits behind Cloudflare, which 403s any request without a User-Agent. The plugin failed exactly
+  // this way in production (HttpClient sends none by default). Enforce the same here so the e2e suite proves
+  // the plugin now sends a UA - a missing one is a 403 on every real API path, not a silent pass.
+  if (!UA_EXEMPT.has(routeKey)) {
+    const ua = req.headers['user-agent'];
+    if (typeof ua !== 'string' || ua.trim() === '') {
+      await readBody(req);
+      return sendJson(res, 403, { error: 'forbidden', reason: 'missing user-agent' });
+    }
+    // Record the UA the plugin presented so a spec can prove it is non-empty and identifies the plugin.
+    lastUserAgent = ua;
+  }
+
+  const handler = routes[routeKey];
   if (handler) {
     handler(req, res);
     return;

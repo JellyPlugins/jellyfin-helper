@@ -84,25 +84,10 @@ public class ConfigurationUpdateRequest
     public bool? SeerrSkipCertificateValidation { get; init; }
 
     /// <summary>
-    ///     Gets a value indicating whether the Trakt discovery source is enabled.
+    ///     Gets a value indicating whether Trakt sourcing is enabled (user-facing toggle). Null when the client
+    ///     omits it (partial PUT) so the stored value is preserved; a non-null value is persisted verbatim.
     /// </summary>
-    /// <remarks>
-    ///     Accepted for backward compatibility but IGNORED on save: the server derives TraktEnabled from whether
-    ///     a client id and secret are stored (see ApplyTraktSettings). The admin UI no longer sends this field.
-    /// </remarks>
-    public bool? TraktEnabled { get; init; }
-
-    /// <summary>
-    ///     Gets the Trakt OAuth application client id. Nullable: a client without the Trakt card (Discovery
-    ///     sidebar off) sends null so the stored value is preserved rather than cleared.
-    /// </summary>
-    public string? TraktClientId { get; init; }
-
-    /// <summary>
-    ///     Gets the Trakt OAuth application client secret (mask sentinel preserves the stored value). Nullable:
-    ///     a client without the Trakt card sends null so the stored value is preserved rather than cleared.
-    /// </summary>
-    public string? TraktClientSecret { get; init; }
+    public bool? TraktSourcingEnabled { get; init; }
 
     /// <summary>
     ///     Gets the Trakt HTTP request timeout in seconds. Nullable so older clients do not reset it.

@@ -92,6 +92,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         {
             client.Timeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
             client.MaxResponseContentBufferSize = maxResponseBytes;
+            // Trakt sits behind Cloudflare, which 403s requests that carry no User-Agent. HttpClient sends none
+            // by default, so every Trakt call failed with 403 regardless of a valid token/client id. Send an
+            // explicit identifying UA so Cloudflare lets the request through.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                $"JellyfinHelper/{Plugin.Instance?.Version?.ToString() ?? "3.0"} (+https://github.com/JellyPlugins/jellyfin-helper)");
         }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         // The provider stays private to this plugin so keyrings can neither affect nor be affected by
@@ -121,17 +126,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             return new SecretProtector(provider, logger);
         });
 
-        // Trakt per-user OAuth token store. Reads the data path at construction so tokens persist across
-        // restarts; falls back to in-memory only when the data path is unavailable.
-        serviceCollection.AddSingleton<Services.Trakt.ITraktUserStore>(sp =>
-            new Services.Trakt.TraktUserStore(
-                sp.GetRequiredService<ISecretProtector>(),
-                sp.GetRequiredService<IPluginLogService>(),
-                sp.GetRequiredService<ILogger<Services.Trakt.TraktUserStore>>(),
-                Plugin.Instance?.DataFolderPath));
+        serviceCollection.AddSingleton<Services.Trakt.External.IOfficialTraktPluginReader>(CreateOfficialTraktPluginReader);
 
-        serviceCollection.AddSingleton<Services.Trakt.ITraktAuthService, Services.Trakt.TraktAuthService>();
         serviceCollection.AddSingleton<Services.Trakt.TraktCacheService>();
+        serviceCollection.AddSingleton<Services.Trakt.ITraktPersonalSourceService>(sp =>
+            new Services.Trakt.TraktPersonalSourceService(
+                sp.GetRequiredService<Services.Trakt.External.IOfficialTraktPluginReader>()));
         serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
@@ -247,7 +247,43 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     }
 
     /// <summary>
-    ///     Resolves the Data Protection keyring directory below the plugin data path, creating it when needed.
+    ///     Builds the reader for the OFFICIAL Trakt plugin's persisted config so the Helper can source
+    ///     recommendations through its single app on a free Trakt account (one connected app per account).
+    ///     Host services are resolved lazily and nullably: a Jellyfin without IPluginManager/IApplicationPaths
+    ///     must not break DI, it must simply report the official plugin as absent so the Helper surfaces Trakt
+    ///     as unavailable. Extracted from <see cref="RegisterServices"/> to keep that method's complexity
+    ///     within budget.
+    /// </summary>
+    /// <param name="serviceProvider">The service provider to resolve host and plugin services from.</param>
+    /// <returns>The configured reader.</returns>
+    private static Services.Trakt.External.OfficialTraktPluginReader CreateOfficialTraktPluginReader(IServiceProvider serviceProvider)
+    {
+        var pluginManager = serviceProvider.GetService<MediaBrowser.Common.Plugins.IPluginManager>();
+        var appPaths = serviceProvider.GetService<MediaBrowser.Common.Configuration.IApplicationPaths>();
+        var configurationsPath = appPaths?.PluginConfigurationsPath;
+
+        // Only hand the reader a fully-qualified path. A relative/empty value would make File.Exists resolve
+        // against the process CWD (not the config dir), so treat it as "no config" and let the reader report
+        // the plugin absent rather than probing an unexpected location.
+        var configPath = !string.IsNullOrEmpty(configurationsPath) && Path.IsPathFullyQualified(configurationsPath)
+            ? Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName)
+            : null;
+
+        // Presence means installed AND active: GetPlugin returns disabled, malfunctioned, or superseded
+        // plugins too, and sourcing through a plugin that is not running would serve a stale token.
+        bool IsPresent() =>
+            pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is { } plugin
+            && plugin.Manifest.Status == MediaBrowser.Model.Plugins.PluginStatus.Active;
+
+        return new Services.Trakt.External.OfficialTraktPluginReader(
+            IsPresent,
+            configPath,
+            serviceProvider.GetRequiredService<IPluginLogService>(),
+            serviceProvider.GetRequiredService<ILogger<Services.Trakt.External.OfficialTraktPluginReader>>());
+    }
+
+    /// <summary>
+    ///     Resolves the Data Protection keyring directory under the plugin data path, creating it when needed.
     ///     Path.Join never discards the base path, and a relative base is rejected outright so the ring can
     ///     never land in the process working directory.
     /// </summary>
