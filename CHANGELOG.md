@@ -31,7 +31,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6590 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation.
+- **Unit: 6592 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation.
 - **End-to-end: 360 tests across 57 files.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and now adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending.
 
 ## [3.0.0.4] - 2026-09-26

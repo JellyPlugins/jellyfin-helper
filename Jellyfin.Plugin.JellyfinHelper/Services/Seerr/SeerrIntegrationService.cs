@@ -61,13 +61,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         // Validate inputs before entering the catch-all try block so programming-error
         // exceptions (invalid key format) propagate instead of being swallowed as
         // connection failures.
-        if (apiKey.Contains('\r', StringComparison.Ordinal)
-            || apiKey.Contains('\n', StringComparison.Ordinal)
-            || apiKey.Contains('\t', StringComparison.Ordinal)
-            || apiKey.Contains('\0', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
-        }
+        EnsureApiKeyHeaderSafe(apiKey);
 
         try
         {
@@ -80,9 +74,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             // the otherwise cryptic "HTTP 301" into actionable guidance instead of a generic failure.
             if (IsRedirect(response.StatusCode))
             {
-                var location = response.Headers.Location;
-                var suffix = location is not null ? $" Suggested URL: {SsrfGuard.SafeEndpointLabel(location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(baseUri, location).AbsoluteUri)}" : string.Empty;
-                return (false, $"The server redirected the request (HTTP {(int)response.StatusCode}). Check the Seerr URL, e.g. add a trailing slash or use https://.{suffix}");
+                return (false, DescribeRedirect(response.StatusCode, response.Headers.Location, baseUri));
             }
 
             if (!response.IsSuccessStatusCode)
@@ -590,13 +582,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
 
         // Reject keys containing CR, LF, tab, or NUL to prevent header injection via TryAddWithoutValidation.
-        if (apiKey.Contains('\r', StringComparison.Ordinal)
-            || apiKey.Contains('\n', StringComparison.Ordinal)
-            || apiKey.Contains('\t', StringComparison.Ordinal)
-            || apiKey.Contains('\0', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
-        }
+        EnsureApiKeyHeaderSafe(apiKey);
 
         var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
         // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime. The insecure
@@ -624,6 +610,33 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     // treats a redirect as a URL-configuration hint rather than a success or an opaque failure.
     private static bool IsRedirect(HttpStatusCode status)
         => (int)status is >= 300 and <= 399;
+
+    // Reject keys containing CR, LF, tab, or NUL before they reach TryAddWithoutValidation, where they would
+    // otherwise enable header injection. Shared by the test and request-build paths.
+    private static void EnsureApiKeyHeaderSafe(string apiKey)
+    {
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
+        }
+    }
+
+    // Builds the actionable redirect message, resolving a relative Location against the base and echoing a
+    // credential-free label so the admin sees where the server wanted to send the request.
+    private static string DescribeRedirect(HttpStatusCode status, Uri? location, Uri baseUri)
+    {
+        var suffix = string.Empty;
+        if (location is not null)
+        {
+            var absolute = location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(baseUri, location).AbsoluteUri;
+            suffix = $" Suggested URL: {SsrfGuard.SafeEndpointLabel(absolute)}";
+        }
+
+        return $"The server redirected the request (HTTP {(int)status}). Check the Seerr URL, e.g. add a trailing slash or use https://.{suffix}";
+    }
 
     /// <summary>
     ///     Builds an HttpRequestMessage for the given method and relative path, attaching the API key per-request so the shared factory-managed client is not mutated.

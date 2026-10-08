@@ -533,10 +533,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         if ((int)response.StatusCode is >= 300 and <= 399)
         {
             var location = response.Headers.Location;
-            var target = location is null
-                ? null
-                : SsrfGuard.SafeEndpointLabel(location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(url, location).AbsoluteUri);
-            var hint = target is null ? string.Empty : $" Suggested URL: {target}.";
+            var hint = string.Empty;
+            if (location is not null)
+            {
+                var absolute = location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(url, location).AbsoluteUri;
+                hint = $" Suggested URL: {SsrfGuard.SafeEndpointLabel(absolute)}.";
+            }
+
             throw new HttpRequestException($"The server redirected the request (HTTP {(int)response.StatusCode}). Check the URL, e.g. use https:// or the exact host the server expects.{hint}", null, response.StatusCode);
         }
 
