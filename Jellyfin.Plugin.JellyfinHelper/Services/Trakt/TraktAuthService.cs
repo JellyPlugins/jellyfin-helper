@@ -34,9 +34,16 @@ public sealed class TraktAuthService : ITraktAuthService
     private readonly ILogger<TraktAuthService> _logger;
     private readonly Func<DateTime> _utcNow;
 
-    // One refresh gate per user that ever hits an expired token (bounded by the user count). Concurrent
-    // requests for the same user share a single refresh grant instead of racing it.
-    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _refreshGates = new();
+    // One gate per user, serializing every token mutation for that user: the refresh grant, the device-poll
+    // store, and disconnect. All three take THIS instance (we never remove it), so disconnect is guaranteed
+    // to be ordered against a concurrent poll/refresh instead of racing a separate semaphore. Bounded by the
+    // user count, so the dictionary cannot grow without bound.
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _userGates = new();
+
+    // Bumped on every disconnect. A device poll captures it before its network call and, after taking the
+    // gate, refuses to store if it changed meanwhile: this makes disconnect authoritative over an approval
+    // that was already in flight, so the user cannot end up linked again after an explicit disconnect.
+    private readonly ConcurrentDictionary<Guid, long> _disconnectGenerations = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktAuthService"/> class.
@@ -126,6 +133,10 @@ public sealed class TraktAuthService : ITraktAuthService
             client_secret = clientSecret,
         });
 
+        // Snapshot the disconnect generation before the network round-trip so a disconnect that lands while
+        // this poll is in flight can be detected after the gate is taken, and the store skipped.
+        var startGeneration = _disconnectGenerations.GetOrAdd(userId, 0);
+
         using var request = BuildJsonRequest(HttpMethod.Post, "/oauth/device/token", body);
         try
         {
@@ -146,7 +157,27 @@ public sealed class TraktAuthService : ITraktAuthService
                         return TraktDevicePollStatus.Error;
                     }
 
-                    await StoreTokenAsync(userId, token, cancellationToken).ConfigureAwait(false);
+                    // Persist under the same per-user gate disconnect takes, so an approval that completes
+                    // while a disconnect is in flight is ordered against it rather than racing: the two can
+                    // no longer interleave into a "disconnected yet linked" state.
+                    var gate = _userGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+                    await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        // A disconnect that landed during the in-flight poll wins: honor it rather than
+                        // re-linking the user with this now-stale approval.
+                        if (_disconnectGenerations.GetOrAdd(userId, 0) != startGeneration)
+                        {
+                            return TraktDevicePollStatus.Error;
+                        }
+
+                        await StoreTokenAsync(userId, token, cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        gate.Release();
+                    }
+
                     return TraktDevicePollStatus.Linked;
                 case HttpStatusCode.BadRequest:
                     return TraktDevicePollStatus.Pending;
@@ -189,7 +220,7 @@ public sealed class TraktAuthService : ITraktAuthService
 
         // Serialize refreshes per user so concurrent requests share one grant. Re-read inside
         // the gate; a concurrent refresh may already have stored a fresh token.
-        var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        var gate = _userGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -218,7 +249,7 @@ public sealed class TraktAuthService : ITraktAuthService
     public async Task<string?> RefreshAccessTokenAsync(Guid userId, string? rejectedAccessToken, CancellationToken cancellationToken)
     {
         // Same per-user gate as the lazy path: concurrent 401s share one forced grant.
-        var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        var gate = _userGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -250,26 +281,25 @@ public sealed class TraktAuthService : ITraktAuthService
     /// <inheritdoc />
     public async Task DisconnectAsync(Guid userId, CancellationToken cancellationToken)
     {
-        // Serialize on the same per-user gate the refresh paths hold across their read-check-store sequence.
-        // Without it, an in-flight refresh could complete and re-store a token after this removal, silently
-        // re-linking a user who just disconnected. Taking the gate forces a strict order: the refresh either
-        // finishes entirely before this runs (nothing to re-store), or runs after the removal.
-        var gate = _refreshGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
+        // Serialize on the same per-user gate every token mutation holds (refresh grant and device-poll
+        // store). Without it, an in-flight poll or refresh could complete and store a token after this
+        // removal, silently re-linking a user who just disconnected. Taking the gate forces a strict order:
+        // the other operation either finishes entirely before this runs (its token is then removed here) or
+        // runs after the removal (it re-reads an unlinked user and stores nothing). The gate is never
+        // removed from the dictionary, so all three operations contend on the SAME instance.
+        var gate = _userGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // Bump before removal so a poll that acquires the gate after us sees the change and refuses to
+            // re-link, and a poll already past its own check has, by the gate, not yet stored.
+            _disconnectGenerations.AddOrUpdate(userId, 1, static (_, current) => current + 1);
             await _store.RemoveAsync(userId, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             gate.Release();
         }
-
-        // Drop the per-user refresh gate so the dictionary cannot grow without bound across link/unlink
-        // cycles. Removed-but-undisposed is deliberate: a concurrent waiter may still hold a reference, and
-        // SemaphoreSlim allocates no unmanaged handle unless AvailableWaitHandle is read (we never do), so an
-        // orphaned instance is reclaimed by the GC without leaking a handle.
-        _refreshGates.TryRemove(userId, out _);
     }
 
     /// <inheritdoc />

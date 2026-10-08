@@ -244,11 +244,51 @@ public sealed class TraktAuthServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PollDeviceAuth_ApprovalCompletingDuringDisconnect_DoesNotRelinkUser()
+    {
+        // The reported ordering race: an approved device poll must not store a token after a disconnect
+        // landed mid-flight, which would re-link a user who just disconnected. The poll snapshots the
+        // disconnect generation before its network call and, after taking the gate, skips the store because
+        // the disconnect bumped that generation.
+        var userId = Guid.NewGuid();
+
+        var release = new TaskCompletionSource();
+        var pollEntered = new TaskCompletionSource();
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Returns(async () =>
+            {
+                pollEntered.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"access_token":"acc","refresh_token":"ref","expires_in":7776000,"created_at":1893456000}"""),
+                };
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        var service = new TraktAuthService(factory.Object, _store, TestMockFactory.CreateSecretProtector(), TestMockFactory.CreatePluginLogService(), NullLogger<TraktAuthService>.Instance, () => _now);
+
+        // Start the poll; it blocks in the handler after capturing the pre-call disconnect generation.
+        var pollTask = service.PollDeviceAuthAsync(userId, "dev", CancellationToken.None);
+        await pollEntered.Task;
+
+        // Disconnect completes fully (bumping the generation) before the poll is allowed to finish.
+        await service.DisconnectAsync(userId, CancellationToken.None);
+        release.SetResult();
+        var status = await pollTask;
+
+        Assert.Equal(TraktDevicePollStatus.Error, status);
+        Assert.Null(_store.GetToken(userId));
+    }
+
+    [Fact]
     public async Task PollDeviceAuth_EmptyDeviceCode_ReturnsError()
     {
         var status = await CreateService().PollDeviceAuthAsync(Guid.NewGuid(), "   ", CancellationToken.None);
-        Assert.Equal(TraktDevicePollStatus.Error, status);
-    }
+        Assert.Equal(TraktDevicePollStatus.Error, status);    }
 
     [Fact]
     public async Task PollDeviceAuth_AnchorsExpiryOnCreatedAt_NotLocalClock()
