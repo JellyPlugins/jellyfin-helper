@@ -32,7 +32,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- **Unit: 6652 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the official-Trakt-plugin reader (hardened XML parse, read-only token, source-precedence matrix).
+- **Unit: 6667 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the official-Trakt-plugin reader (hardened XML parse, read-only token, source-precedence matrix).
 - **End-to-end: 362 tests.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, adds a mock Trakt server exercising the device-link flow, personal recommendations, and trending, and now also stages the official Jellyfin Trakt plugin with a seeded per-user token to prove the Helper sources recommendations through it. (Authoritative count: `cd test/e2e && npx playwright test --list`.)
 
 ### Special Thanks

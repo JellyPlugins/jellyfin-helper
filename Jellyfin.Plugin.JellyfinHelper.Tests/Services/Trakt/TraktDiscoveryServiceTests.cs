@@ -79,13 +79,20 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     private TraktDiscoveryService CreateService()
+        => CreateService(() => DateTimeOffset.Now);
+
+    private TraktDiscoveryService CreateService(Func<DateTimeOffset> now)
+        => CreateServiceWithFactory(_factory.Object, now);
+
+    private TraktDiscoveryService CreateServiceWithFactory(IHttpClientFactory factory)
+        => CreateServiceWithFactory(factory, () => DateTimeOffset.Now);
+
+    private TraktDiscoveryService CreateServiceWithFactory(IHttpClientFactory factory, Func<DateTimeOffset> now)
         => new(
-            _factory.Object,
-            _auth.Object,
-            _store.Object,
+            factory,
+            new TraktPersonalSourceService(_store.Object, _auth.Object, _officialPlugin.Object, now),
             _discovery.Object,
             _cache,
-            _officialPlugin.Object,
             _pluginLog,
             NullLogger<TraktDiscoveryService>.Instance);
 
@@ -120,29 +127,23 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     [InlineData(3)]
     [InlineData(4)]
     [InlineData(5)]
-    [InlineData(6)]
-    [InlineData(7)]
     public void Ctor_NullDependency_Throws(int index)
     {
         var factory = new Mock<IHttpClientFactory>().Object;
-        var auth = new Mock<ITraktAuthService>().Object;
-        var store = new Mock<ITraktUserStore>().Object;
+        var sources = new Mock<ITraktPersonalSourceService>().Object;
         var discovery = new Mock<ISeerrDiscoveryService>().Object;
         var cache = new TraktCacheService();
-        var official = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>().Object;
         var pluginLog = TestMockFactory.CreatePluginLogService();
         var logger = NullLogger<TraktDiscoveryService>.Instance;
 
         Assert.Throws<ArgumentNullException>(() => index switch
         {
-            0 => new TraktDiscoveryService(null!, auth, store, discovery, cache, official, pluginLog, logger),
-            1 => new TraktDiscoveryService(factory, null!, store, discovery, cache, official, pluginLog, logger),
-            2 => new TraktDiscoveryService(factory, auth, null!, discovery, cache, official, pluginLog, logger),
-            3 => new TraktDiscoveryService(factory, auth, store, null!, cache, official, pluginLog, logger),
-            4 => new TraktDiscoveryService(factory, auth, store, discovery, null!, official, pluginLog, logger),
-            5 => new TraktDiscoveryService(factory, auth, store, discovery, cache, null!, pluginLog, logger),
-            6 => new TraktDiscoveryService(factory, auth, store, discovery, cache, official, null!, logger),
-            _ => new TraktDiscoveryService(factory, auth, store, discovery, cache, official, pluginLog, null!),
+            0 => new TraktDiscoveryService(null!, sources, discovery, cache, pluginLog, logger),
+            1 => new TraktDiscoveryService(factory, null!, discovery, cache, pluginLog, logger),
+            2 => new TraktDiscoveryService(factory, sources, null!, cache, pluginLog, logger),
+            3 => new TraktDiscoveryService(factory, sources, discovery, null!, pluginLog, logger),
+            4 => new TraktDiscoveryService(factory, sources, discovery, cache, null!, logger),
+            _ => new TraktDiscoveryService(factory, sources, discovery, cache, pluginLog, null!),
         });
     }
 
@@ -514,9 +515,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             .ThrowsAsync(new HttpRequestException("trakt down"));
         var throwingFactory = new Mock<IHttpClientFactory>();
         throwingFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(throwingHandler.Object));
-        var sut = new TraktDiscoveryService(
-            throwingFactory.Object, _auth.Object, _store.Object, _discovery.Object,
-            _cache, _officialPlugin.Object, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+        var sut = CreateServiceWithFactory(throwingFactory.Object);
 
         // A network failure degrades to null instead of an HTTP 500, and never destroys the link.
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
@@ -536,9 +535,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             .ThrowsAsync(new HttpRequestException("trakt down"));
         var throwingFactory = new Mock<IHttpClientFactory>();
         throwingFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(throwingHandler.Object));
-        var sut = new TraktDiscoveryService(
-            throwingFactory.Object, _auth.Object, _store.Object, _discovery.Object,
-            _cache, _officialPlugin.Object, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+        var sut = CreateServiceWithFactory(throwingFactory.Object);
 
         Assert.Null(await sut.GetTrendingAsync(Guid.NewGuid(), CancellationToken.None));
     }
@@ -567,9 +564,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) =>
                 Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
-        var sut = new TraktDiscoveryService(
-            flakyFactory.Object, _auth.Object, _store.Object, _discovery.Object,
-            _cache, _officialPlugin.Object, _pluginLog, NullLogger<TraktDiscoveryService>.Instance);
+        var sut = CreateServiceWithFactory(flakyFactory.Object);
 
         // A failed movies fetch no longer aborts the shows fetch: the partial pool is served.
         var result = await sut.GetTrendingAsync(userId, CancellationToken.None);
@@ -633,8 +628,12 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
                 Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
 
         var sut = new TraktDiscoveryService(
-            factory.Object, _auth.Object, _store.Object, _discovery.Object,
-            _cache, _officialPlugin.Object, _pluginLog, NullLogger<TraktDiscoveryService>.Instance, () => FarFuture);
+            factory.Object,
+            new TraktPersonalSourceService(_store.Object, _auth.Object, _officialPlugin.Object, () => FarFuture),
+            _discovery.Object,
+            _cache,
+            _pluginLog,
+            NullLogger<TraktDiscoveryService>.Instance);
         return (sut, captured);
     }
 

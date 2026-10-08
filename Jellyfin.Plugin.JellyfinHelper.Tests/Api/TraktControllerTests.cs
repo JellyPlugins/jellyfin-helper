@@ -18,14 +18,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 public class TraktControllerTests
 {
     private readonly Mock<ITraktAuthService> _authService = new();
-    private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin = new();
     private readonly TraktController _controller;
 
     public TraktControllerTests()
     {
         _controller = new TraktController(
             _authService.Object,
-            _officialPlugin.Object,
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<TraktController>().Object)
         {
@@ -88,19 +86,5 @@ public class TraktControllerTests
         Assert.Equal(StatusCodes.Status502BadGateway, obj.StatusCode);
         var body = Assert.IsType<ConnectionTestResponse>(obj.Value);
         Assert.False(body.Success);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void GetOfficialPluginStatus_ReflectsReaderPresence(bool present)
-    {
-        _officialPlugin.Setup(p => p.IsPresent()).Returns(present);
-
-        var result = _controller.GetOfficialPluginStatus();
-
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var body = Assert.IsType<OfficialTraktPluginStatusResponse>(ok.Value);
-        Assert.Equal(present, body.Present);
     }
 }
