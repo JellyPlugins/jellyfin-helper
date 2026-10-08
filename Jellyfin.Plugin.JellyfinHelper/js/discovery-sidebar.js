@@ -548,8 +548,8 @@
             return;
         }
         var anyVisible = false;
-        for (var i = 0; i < markers.length; i++) {
-            if (markers[i].offsetParent !== null) {
+        for (var marker of markers) {
+            if (marker.offsetParent !== null) {
                 anyVisible = true;
                 break;
             }
@@ -563,6 +563,20 @@
         }
         _lastNudgeAt = now;
         _nudgeCount++;
+        // CRITICAL: remove the stranded, invisible panel BEFORE nudging. Custom Tabs'
+        // renderModernContent() bails early when it finds an existing customTab_ node via
+        // main.querySelector() - and the legacy-inserted panel lives inside <main> (under
+        // the display:none .skinBody), so it satisfies that check and the panel is never
+        // rebuilt into the visible part of <main>. Worse, nudging without removing it first
+        // can leave the stale hidden panel in place while a second visible one is built,
+        // which is the "content duplicated after nav" symptom. Dropping every invisible
+        // customTab_ panel first makes the subsequent hashchange rebuild exactly one, visible.
+        var panels = document.querySelectorAll('[id^="customTab_"]');
+        for (var pIdx = 0; pIdx < panels.length; pIdx++) {
+            if (panels[pIdx].offsetParent === null) {
+                panels[pIdx].remove();
+            }
+        }
         // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
         window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
