@@ -133,4 +133,12 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public string? TraktSlug { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the source-assigned rank (0-based, lower is better) carried through from external
+    ///     candidates so a rank-based pipeline can order by the source's own ranking instead of local score.
+    ///     Never serialized: it is internal pipeline state.
+    /// </summary>
+    [JsonIgnore]
+    public int? SourceRank { get; set; }
 }

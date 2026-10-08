@@ -39,6 +39,13 @@ public sealed class ExternalDiscoveryCandidate
     /// <summary>Gets or sets the Trakt URL slug (preferred for building working trakt.tv links).</summary>
     public string? TraktSlug { get; set; }
 
+    /// <summary>
+    ///     Gets or sets the rank the source assigned this candidate (0-based, lower is better). Preserves the
+    ///     external source's own ordering (e.g. Trakt's recommendation order) so a rank-based pipeline can honor
+    ///     it instead of re-ranking by local score. Null when the source supplies no ordering.
+    /// </summary>
+    public int? SourceRank { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the item is adult-flagged.</summary>
     public bool Adult { get; set; }
 }

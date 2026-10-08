@@ -22,7 +22,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 public sealed class TraktDiscoveryService : ITraktDiscoveryService
 {
     private const string LogSource = "Trakt";
-    private const string ReasonKey = "reasonTrakt";
     private const string MediaTypeMovie = "movie";
     private const string MediaTypeTv = "tv";
 
@@ -96,7 +95,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, cancellationToken).ConfigureAwait(false));
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, config, accessToken, rankOffset: 0, cancellationToken).ConfigureAwait(false));
         if (_store.GetToken(userId)?.IsLinked != true)
         {
             // The movies fetch unlinked the user (dead grant): skip the shows fetch with the dead
@@ -104,13 +103,15 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return null;
         }
 
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, accessToken, cancellationToken).ConfigureAwait(false));
+        // Continue the ranking after the movies so personal shows rank below personal movies, matching
+        // the fetch order.
+        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, config, accessToken, candidates.Count, cancellationToken).ConfigureAwait(false));
         if (candidates.Count == 0)
         {
             return null;
         }
 
-        var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, ReasonKey, cancellationToken).ConfigureAwait(false);
+        var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, cancellationToken).ConfigureAwait(false);
         if (result is not null)
         {
             _cache.SetPersonal(userId, result);
@@ -151,7 +152,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         // The raw pool is shared; the scored ranking is cached per user and never served across users.
-        var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, ReasonKey, cancellationToken).ConfigureAwait(false);
+        var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, cancellationToken).ConfigureAwait(false);
         if (scored is null)
         {
             return null;
@@ -192,7 +193,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
-        Guid userId, string relPath, string mediaType, PluginConfiguration config, string accessToken, CancellationToken cancellationToken)
+        Guid userId, string relPath, string mediaType, PluginConfiguration config, string accessToken, int rankOffset, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, config.TraktClientId, config.TraktLimit, accessToken);
         var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, cancellationToken).ConfigureAwait(false);
@@ -220,7 +221,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             }
         }
 
-        var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped);
+        var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
         LogDropped(dropped, mediaType, "personal");
         return mapped;
     }
@@ -239,7 +240,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         using (var showReq = BuildRequest("/shows/trending", config.TraktClientId, config.TraktLimit, accessToken: null))
         {
             var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, cancellationToken).ConfigureAwait(false);
-            all.AddRange(TraktMapper.MapTrendingItems(shows, MediaTypeTv, out var droppedShows));
+
+            // Continue the ranking after the movies so trending shows rank below trending movies, matching
+            // the fetch order the user sees.
+            all.AddRange(TraktMapper.MapTrendingItems(shows, MediaTypeTv, out var droppedShows, all.Count));
             LogDropped(droppedShows, MediaTypeTv, "trending");
         }
 

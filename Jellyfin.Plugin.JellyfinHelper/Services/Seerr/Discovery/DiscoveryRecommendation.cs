@@ -90,6 +90,14 @@ public sealed class DiscoveryRecommendation
     public string? TraktSlug { get; set; }
 
     /// <summary>
+    ///     Gets or sets the source-assigned rank (0-based, lower is better) when the recommendation came from an
+    ///     external source that supplies its own ordering (e.g. Trakt). Lets a rank-based tab preserve the
+    ///     source's order instead of sorting by <see cref="Score"/>. Null for score-ordered (local) results.
+    /// </summary>
+    [JsonIgnore]
+    public int? SourceRank { get; set; }
+
+    /// <summary>
     ///     Gets or sets the known people (actors/directors) from credits enrichment. Excluded from JSON serialization to the frontend (not needed for display).
     /// </summary>
     [JsonIgnore]
@@ -126,5 +134,6 @@ public sealed class DiscoveryRecommendation
         KnownPeople = KnownPeople,
         Popularity = Popularity,
         TraktSlug = TraktSlug,
+        SourceRank = SourceRank,
     };
 }

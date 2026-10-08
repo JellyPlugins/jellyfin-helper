@@ -310,7 +310,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
 │   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
-│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # ScoreExternalCandidatesAsync seam: config/profile/empty guards, candidate mapping + filtering, reasonTrakt stamping
+│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # ScoreExternalCandidatesAsync seam: config/profile/empty guards, candidate mapping + filtering, source-rank ordering, relaxed quality floors, own-rec exclusion, feature-reason preservation
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
@@ -333,7 +333,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Trakt/                     # Trakt discovery source tests
 │   │   ├── TraktUserStoreTests.cs         # Token store: roundtrip, encryption at rest (file never holds plaintext), remove, unlinked reads, cross-instance persistence, per-user isolation, GetLinkedUserIds
 │   │   ├── TraktAuthServiceTests.cs       # Device flow: start, poll status mapping, token persistence on approval, proactive refresh exactly once on expiry, re-link on refresh failure, disconnect
-│   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry
+│   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
 │   │   └── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
@@ -637,7 +637,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
 │   │       ├── DiscoveryResult.cs        # Per-user result container
 │   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
-│   │       ├── ExternalDiscoveryCandidate.cs # Public candidate shape fed to ScoreExternalCandidatesAsync by the Trakt source (tmdbId/mediaType/genres/rating/poster)
+│   │       ├── ExternalDiscoveryCandidate.cs # Public candidate shape fed to ScoreExternalCandidatesAsync by the Trakt source (tmdbId/mediaType/genres/rating/poster/sourceRank)
 │   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
 │   │       ├── SeerrUserPage.cs         # Paginated user list response
 │   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
@@ -675,7 +675,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── TraktAuthService.cs      # Device flow against api.trakt.tv: start/poll status mapping, proactive refresh on expiry, 401 handled by one refresh, never logs tokens
 │   │   ├── ITraktDiscoveryService.cs # Personal (OAuth) + global trending (client id) contract; both scored through the shared seam
 │   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
-│   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); genres filled by Seerr enrichment downstream
+│   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
 │   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
 │   │   ├── ITraktUserStore.cs       # Per-user token storage contract (GetToken/GetLinkedUserIds/SaveAsync/RemoveAsync)
 │   │   ├── TraktUserStore.cs        # DP-encrypted per-user token store: JSON in DataPath, decrypt on read, encrypt on write, atomic persistence

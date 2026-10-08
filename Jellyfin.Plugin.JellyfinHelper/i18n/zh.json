@@ -329,6 +329,7 @@
   "strategyEnsemble": "集成（自适应ML + 规则）",
   "strategyColdStart": "冷启动（热门 + 最新）",
   "recsMatch": "匹配度",
+  "discoveryLocalScore": "本地评分",
   "recsWatchProfiles": "观看档案概览",
   "recsProfilesError": "无法加载观看档案。",
   "recsNoProfiles": "暂无观看档案。",

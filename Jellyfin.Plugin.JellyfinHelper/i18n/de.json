@@ -329,6 +329,7 @@
   "strategyEnsemble": "Ensemble (Adaptives ML + Regeln)",
   "strategyColdStart": "Kaltstart (Beliebt + Neu)",
   "recsMatch": "Übereinstimmung",
+  "discoveryLocalScore": "Lokale Bewertung",
   "recsWatchProfiles": "Sehprofil-Übersicht",
   "recsProfilesError": "Sehprofile konnten nicht geladen werden.",
   "recsNoProfiles": "Keine Sehprofile verfügbar.",

@@ -1801,7 +1801,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     public async Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
         Guid jellyfinUserId,
         IReadOnlyList<ExternalDiscoveryCandidate> candidates,
-        string reasonKey,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -1867,8 +1866,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var sharedExclusions = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         var userExcluded = BuildUserExclusionSet(profile, sharedExclusions);
-        var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
-        var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
+
+        // Drop anything our own local discovery already recommends to this user, so the Trakt tab never
+        // duplicates a title the "For you" tab is already showing. Best-effort: a cache miss or read failure
+        // must not break Trakt scoring.
+        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded).ConfigureAwait(false);
+
+        // The Trakt tab preserves Trakt's own ranking, so our soft quality floors (minimum rating, minimum
+        // year) must not silently prune what Trakt deliberately surfaced. Disable both for this path by passing
+        // 0 — ComputeMinYear returns 0 when avgYear is 0. The real avgYear still flows into the scoring context
+        // below as a feature input; only the filter thresholds are relaxed. Hard filters (parental, owned,
+        // excluded set, dedup) stay fully active.
+        var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVoteAverage: 0, avgYear: 0, isChildAccount);
         if (uniqueCandidates.Count == 0)
         {
             return null;
@@ -1887,18 +1896,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 Client = client,
                 BaseUri = baseUri,
                 ApiKey = apiKey,
+
+                // Preserve the external source's own ranking (e.g. Trakt's recommendation order) instead of
+                // re-ranking by our local score; the score still shows on the card as supporting info.
+                RankBasedOrdering = true,
             },
             cancellationToken).ConfigureAwait(false);
 
-        // Stamp the external source's reason so the card shows "from Trakt" rather than a local-signal reason.
-        if (!string.IsNullOrEmpty(reasonKey))
-        {
-            foreach (var rec in recommendations)
-            {
-                rec.ReasonKey = reasonKey;
-                rec.Reason = reasonKey;
-            }
-        }
+        // Keep the per-item feature reason that BuildRecommendation computed (e.g. "reasonGenre: Sci-Fi") so the
+        // card explains WHY this title fits the user. The Trakt tab itself signals the source, so no generic
+        // source stamp is layered on top (that would clobber the feature reason the card now shows).
 
         return new DiscoveryResult
         {
@@ -1977,6 +1984,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             ReleaseDate = !isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
             FirstAirDate = isTv && c.Year.HasValue ? new DateTime(c.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
             TraktSlug = c.TraktSlug,
+            SourceRank = c.SourceRank,
         };
     }
 
@@ -2007,8 +2015,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             preScored.Add((candidate, score));
         }
 
-        // Sort by pre-score and take top-N for credits enrichment
-        preScored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        // Sort for enrichment selection: by source rank when the source supplies its own ordering (Trakt),
+        // otherwise by pre-score. Sorting before the Take is load-bearing — a score-based Take would drop
+        // low-score-but-high-rank items the rank-based path must keep.
+        if (context.RankBasedOrdering)
+        {
+            preScored.Sort((a, b) => CompareBySourceRank(a.Item, b.Item));
+        }
+        else
+        {
+            preScored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        }
+
         var enrichmentCandidates = preScored
             .Take(CreditsEnrichmentBudget)
             .Select(s => s.Item)
@@ -2038,8 +2056,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             scored.Add((candidate, features, score));
         }
 
-        // Rank and select top-N from enriched candidates
-        scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        // Final ordering: honor the source rank for a rank-based source, else rank by score.
+        if (context.RankBasedOrdering)
+        {
+            scored.Sort((a, b) => CompareBySourceRank(a.Item, b.Item));
+        }
+        else
+        {
+            scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        }
+
         var topN = scored.Take(MaxPoolPerUser).ToList();
 
         // Build recommendations
@@ -2050,6 +2076,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return recommendations;
+    }
+
+    // Orders by source rank ascending (lower rank = better), with null ranks sorted last so a candidate the
+    // source did not rank never displaces a ranked one. Ties keep the input order (stable callers use List.Sort,
+    // which is not stable, so equal ranks are unspecified among themselves — source ranks are unique in practice).
+    private static int CompareBySourceRank(TmdbDiscoverItem a, TmdbDiscoverItem b)
+    {
+        if (a.SourceRank == b.SourceRank)
+        {
+            return 0;
+        }
+
+        if (a.SourceRank is null)
+        {
+            return 1;
+        }
+
+        if (b.SourceRank is null)
+        {
+            return -1;
+        }
+
+        return a.SourceRank.Value.CompareTo(b.SourceRank.Value);
     }
 
     /// <summary>
@@ -2085,7 +2134,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Overview = item.Overview,
             AlreadyRequested = false,
             KnownPeople = item.KnownPeople,
-            TraktSlug = item.TraktSlug
+            TraktSlug = item.TraktSlug,
+            SourceRank = item.SourceRank
         };
     }
 
@@ -2219,6 +2269,36 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return userExcluded;
+    }
+
+    // Folds the user's own currently-cached local discovery recommendations into an exclusion set, so an
+    // external source (Trakt) never surfaces a title the "For you" tab already shows. Keyed on
+    // (TmdbId, lowercased MediaType) to match DeduplicateAndFilter's exclusion lookup. Best-effort: any read
+    // failure leaves the set untouched rather than aborting external scoring.
+    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded)
+    {
+        try
+        {
+            var ownResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false))
+                .FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+            if (ownResult is null)
+            {
+                return;
+            }
+
+            foreach (var rec in ownResult.Recommendations)
+            {
+                var mediaType = string.IsNullOrWhiteSpace(rec.MediaType) ? MediaTypeMovie : rec.MediaType.Trim().ToLowerInvariant();
+                userExcluded.Add((rec.TmdbId, mediaType));
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Could not load own recommendations to exclude for user {jellyfinUserId}: {ex.Message}",
+                _logger);
+        }
     }
 
     private async Task<List<TmdbDiscoverItem>> ExecuteDiscoverQueryAsync(
@@ -3127,5 +3207,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         public required Uri BaseUri { get; init; }
 
         public required string ApiKey { get; init; }
+
+        /// <summary>
+        ///     Gets a value indicating whether to order and truncate by the candidate's
+        ///     <see cref="TmdbDiscoverItem.SourceRank"/> (the external source's own ranking) instead of by local
+        ///     score. The score is still computed and attached for display; it just does not drive the ordering.
+        ///     Default false (local score ordering).
+        /// </summary>
+        public bool RankBasedOrdering { get; init; }
     }
 }

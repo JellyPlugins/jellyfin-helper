@@ -163,5 +163,25 @@ public sealed class DiscoveryRecommendationTests
         Assert.False(sut.AlreadyRequested);
         Assert.Null(sut.KnownPeople);
         Assert.Equal(0.0, sut.Popularity);
+        Assert.Null(sut.SourceRank);
+    }
+
+    [Fact]
+    public void Clone_PreservesSourceRank()
+    {
+        // SourceRank must survive Clone(), or the Trakt tab loses its ordering on cache/FilterConsumedItems
+        // round-trips that clone recommendations.
+        var original = new DiscoveryRecommendation { TmdbId = 7, SourceRank = 3 };
+
+        var copy = original.Clone();
+
+        Assert.Equal(3, copy.SourceRank);
+    }
+
+    [Fact]
+    public void Clone_NullSourceRank_StaysNull()
+    {
+        var copy = new DiscoveryRecommendation { TmdbId = 7 }.Clone();
+        Assert.Null(copy.SourceRank);
     }
 }

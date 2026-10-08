@@ -329,6 +329,7 @@
   "strategyEnsemble": "Topluluk (Uyarlanabilir ML + Kurallar)",
   "strategyColdStart": "Soğuk Başlangıç (Popüler + Yeni)",
   "recsMatch": "eşleşme",
+  "discoveryLocalScore": "Yerel puan",
   "recsWatchProfiles": "İzleme Profilleri",
   "recsProfilesError": "Profiller yüklenemedi.",
   "recsNoProfiles": "Profil mevcut değil.",

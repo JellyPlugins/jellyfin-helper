@@ -20,8 +20,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
 ///     Tests the external-candidate scoring seam used by the Trakt source: config/profile guards, mapping of
-///     public candidates, parental filtering, and reason-key stamping. Scoring internals are covered by the
-///     existing discovery suite; here we assert the seam's observable contract.
+///     public candidates, parental filtering, source-rank ordering, relaxed quality floors, the own-recommendation
+///     exclusion, and feature-reason preservation. Scoring internals are covered by the existing discovery suite;
+///     here we assert the seam's observable contract.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
@@ -32,6 +33,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private readonly Mock<MediaBrowser.Controller.Library.ILibraryManager> _libraryManager =
         TestMockFactory.CreateLibraryManager();
     private readonly Dictionary<int, string> _detailById = new();
+
+    // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
+    // own cached recommendations (the source the own-recommendation exclusion reads).
+    private DiscoveryCacheService? _lastCache;
 
     public SeerrDiscoveryExternalScoringTests()
     {
@@ -100,6 +105,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             ownsNeural: false);
         var pluginLog = new Mock<IPluginLogService>();
         var cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
+        _lastCache = cache;
         _owned.Add(ensemble);
         // The ensemble does not own neural here (ownsNeural: false, like per-user ensembles in
         // production), so it is disposed explicitly alongside it - never implicitly twice.
@@ -160,7 +166,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     [Fact]
     public async Task ReturnsNull_WhenCandidatesEmpty()
     {
-        var result = await CreateService().ScoreExternalCandidatesAsync(Guid.NewGuid(), [], "reasonTrakt", CancellationToken.None);
+        var result = await CreateService().ScoreExternalCandidatesAsync(Guid.NewGuid(), [], CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -168,7 +174,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     public async Task ReturnsNull_WhenSeerrNotConfigured()
     {
         Plugin.Instance!.Configuration.SeerrApiKey = string.Empty;
-        var result = await CreateService().ScoreExternalCandidatesAsync(Guid.NewGuid(), [Candidate(1)], "reasonTrakt", CancellationToken.None);
+        var result = await CreateService().ScoreExternalCandidatesAsync(Guid.NewGuid(), [Candidate(1)], CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -177,12 +183,12 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _history.Setup(h => h.GetUserWatchProfile(userId)).Returns((UserWatchProfile?)null);
-        var result = await CreateService().ScoreExternalCandidatesAsync(userId, [Candidate(1)], "reasonTrakt", CancellationToken.None);
+        var result = await CreateService().ScoreExternalCandidatesAsync(userId, [Candidate(1)], CancellationToken.None);
         Assert.Null(result);
     }
 
     [Fact]
-    public async Task ScoresAndStampsReason_ForScorableCandidates()
+    public async Task ScoresAndKeepsFeatureReason_ForScorableCandidates()
     {
         var userId = Guid.NewGuid();
         SetupProfile(userId);
@@ -190,13 +196,20 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
             [Candidate(101), Candidate(102), Candidate(103)],
-            "reasonTrakt",
             CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(userId, result!.UserId);
         Assert.NotEmpty(result.Recommendations);
-        Assert.All(result.Recommendations, r => Assert.Equal("reasonTrakt", r.ReasonKey));
+
+        // The external path no longer overwrites the reason with a generic source key: each card keeps the
+        // feature reason DetermineReason computed (a real "reason*" key), so the UI can explain the fit.
+        Assert.All(result.Recommendations, r =>
+        {
+            Assert.False(string.IsNullOrEmpty(r.ReasonKey));
+            Assert.StartsWith("reason", r.ReasonKey, StringComparison.Ordinal);
+            Assert.NotEqual("reasonTrakt", r.ReasonKey);
+        });
     }
 
     [Fact]
@@ -208,7 +221,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         // With the default empty feedback store the single scorable candidate survives filtering.
@@ -226,7 +238,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         // The enriched Horror genre hits the teen blacklist; nothing survives.
@@ -242,7 +253,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var teenResult = await CreateService().ScoreExternalCandidatesAsync(
             teenId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         // Fail closed: without enriched genres the blacklist cannot judge, so the item is dropped.
@@ -253,7 +263,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var openResult = await CreateService().ScoreExternalCandidatesAsync(
             openId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         Assert.NotNull(openResult);
@@ -278,7 +287,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                 VoteAverage = 8.5,
                 PosterPath = null,
             }],
-            "reasonTrakt",
             CancellationToken.None);
 
         Assert.NotNull(result);
@@ -297,7 +305,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         // Seerr reports the title as available in the library: no duplicate request is offered.
@@ -314,7 +321,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
             [Candidate(101)],
-            "reasonTrakt",
             CancellationToken.None);
 
         Assert.Null(result);
@@ -327,11 +333,118 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         SetupProfile(userId);
         var service = CreateService();
 
-        await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], "reasonTrakt", CancellationToken.None);
-        await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], "reasonTrakt", CancellationToken.None);
+        await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+        await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
 
         // The library scan backing the shared exclusion set runs once; the second scoring reuses the cache.
         _libraryManager.Verify(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Once);
+    }
+
+    // A candidate carrying an explicit source rank, for the rank-ordering tests.
+    private static ExternalDiscoveryCandidate RankedCandidate(int tmdbId, int sourceRank, double voteAverage = 7.5, int year = 2020) => new()
+    {
+        TmdbId = tmdbId,
+        MediaType = "movie",
+        Title = "Movie " + tmdbId,
+        Year = year,
+        VoteAverage = voteAverage,
+        Popularity = 50,
+        GenreIds = [28],
+        PosterPath = "/p" + tmdbId + ".jpg",
+        SourceRank = sourceRank,
+    };
+
+    [Fact]
+    public async Task PreservesSourceRankOrder_RegardlessOfScore()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+
+        // Feed candidates whose source rank is the REVERSE of their natural TMDb-id order, so a plain
+        // insertion order cannot accidentally satisfy the assertion. The result must follow SourceRank.
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [RankedCandidate(301, sourceRank: 2), RankedCandidate(302, sourceRank: 0), RankedCandidate(303, sourceRank: 1)],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var ids = result!.Recommendations.Select(r => r.TmdbId).ToList();
+        Assert.Equal([302, 303, 301], ids);
+        // The rank is carried onto the recommendation so the ordering is auditable, not incidental.
+        Assert.Equal([0, 1, 2], result.Recommendations.Select(r => r.SourceRank).ToList());
+    }
+
+    [Fact]
+    public async Task KeepsLowScoreHighRankItem_NotTruncatedByScore()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+
+        // The top-ranked item deliberately mismatches the user's Action/Drama taste (a genre the profile does
+        // not favor) so it scores low. Rank-based ordering must still surface it first, proving the score-based
+        // Take() does not drop it.
+        var lowScoreTopRank = new ExternalDiscoveryCandidate
+        {
+            TmdbId = 401,
+            MediaType = "movie",
+            Title = "Niche 401",
+            Year = 2019,
+            VoteAverage = 6.1,
+            GenreIds = [99], // Documentary - not in the user's genre profile
+            SourceRank = 0,
+        };
+
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [RankedCandidate(402, sourceRank: 1), lowScoreTopRank],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(401, result!.Recommendations[0].TmdbId);
+    }
+
+    [Fact]
+    public async Task RelaxesQualityFloors_KeepsLowRatedAndOldTitles()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+
+        // A 3.0-rated 1975 title would be dropped on the local path (min vote 5.0 and the year floor). The
+        // external path relaxes both, so Trakt's deliberate pick survives.
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [RankedCandidate(501, sourceRank: 0, voteAverage: 3.0, year: 1975)],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.TmdbId == 501);
+    }
+
+    [Fact]
+    public async Task ExcludesTitlesAlreadyInOwnRecommendations()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+
+        var service = CreateService();
+
+        // Seed the user's own cached local discovery with tmdb 601, then feed Trakt both 601 and 602.
+        // 601 must be dropped as a duplicate of what the "For you" tab already shows; 602 survives.
+        _lastCache!.Save([new DiscoveryResult
+        {
+            UserId = userId,
+            UserName = "tester",
+            Recommendations = [Rec(601)],
+        }]);
+
+        var result = await service.ScoreExternalCandidatesAsync(
+            userId,
+            [RankedCandidate(601, sourceRank: 0), RankedCandidate(602, sourceRank: 1)],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.DoesNotContain(result!.Recommendations, r => r.TmdbId == 601);
+        Assert.Contains(result.Recommendations, r => r.TmdbId == 602);
     }
 
     private static DiscoveryRecommendation Rec(int tmdbId, string mediaType = "movie", bool requested = false) => new()

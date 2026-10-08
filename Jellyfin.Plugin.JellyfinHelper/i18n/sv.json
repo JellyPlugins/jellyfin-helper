@@ -329,6 +329,7 @@
   "strategyEnsemble": "Ensemble (adaptiv ML + regler)",
   "strategyColdStart": "Kallstart (populärt + nytt)",
   "recsMatch": "matchning",
+  "discoveryLocalScore": "Lokal poäng",
   "recsWatchProfiles": "Tittarprofilöversikt",
   "recsProfilesError": "Kunde inte ladda tittarprofiler.",
   "recsNoProfiles": "Inga tittarprofiler tillgängliga.",

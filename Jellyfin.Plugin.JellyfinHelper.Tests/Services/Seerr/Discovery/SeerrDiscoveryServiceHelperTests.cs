@@ -237,6 +237,22 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     [Fact]
+    public void DeduplicateAndFilter_MinVoteZero_KeepsLowRatedItems()
+    {
+        // The external (Trakt) path passes minVoteAverage 0 to honor Trakt's own picks: even a very low
+        // rating must survive, since Trakt's ranking - not our rating floor - drives that tab.
+        var candidates = new List<TmdbDiscoverItem>
+        {
+            new() { Id = 1, VoteAverage = 1.0, MediaType = "movie" },
+            new() { Id = 2, VoteAverage = 0.0, MediaType = "movie" },
+        };
+
+        var result = InvokeDeduplicateAndFilter(candidates, [], null, minVoteAverage: 0, avgYear: 0, isChildAccount: false);
+
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
     public void DeduplicateAndFilter_DropsItemsInExcludedSet()
     {
         // Excluded via (Id, MediaType) tuple - verifies both keys participate in the lookup.

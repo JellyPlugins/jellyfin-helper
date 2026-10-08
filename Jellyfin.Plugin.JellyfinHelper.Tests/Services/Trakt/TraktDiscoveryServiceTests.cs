@@ -145,7 +145,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         Assert.Null(await sut.GetPersonalAsync(Guid.NewGuid(), CancellationToken.None));
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -154,8 +154,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
         var sut = CreateService();
@@ -178,8 +178,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
         var filtered = Scored(userId, (22, "tv", "Beta"));
         _discovery.Setup(d => d.FilterConsumedItems(userId, It.IsAny<DiscoveryResult>())).Returns(filtered);
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
@@ -197,8 +197,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     public async Task GetTrending_ServesSeamFilteredResult()
     {
         var userId = Guid.NewGuid();
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
         var filtered = Scored(userId, (44, "tv", "T2"));
         _discovery.Setup(d => d.FilterConsumedItems(userId, It.IsAny<DiscoveryResult>())).Returns(filtered);
         _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
@@ -219,7 +219,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -229,9 +229,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
         IReadOnlyList<ExternalDiscoveryCandidate>? seen = null;
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => seen = c)
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => seen = c)
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
         var sut = CreateService();
@@ -257,7 +257,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -266,7 +266,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("token");
-        _discovery.SetupSequence(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _discovery.SetupSequence(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((DiscoveryResult?)null)
             .ReturnsAsync(Scored(userId, (11, "movie", "Alpha")));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
@@ -289,8 +289,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
         _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync("new-token");
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (11, "movie", "Alpha"), (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
@@ -309,8 +309,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var userId = Guid.NewGuid();
         _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("old-token");
         _auth.Setup(a => a.RefreshAccessTokenAsync(userId, It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync((string?)null);
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
         var sut = CreateService();
@@ -335,8 +335,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         _store.Setup(s => s.RemoveAsync(userId, It.IsAny<CancellationToken>()))
             .Callback(() => _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null))
             .Returns(Task.CompletedTask);
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (22, "tv", "Beta")));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
         var sut = CreateService();
@@ -363,9 +363,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userA), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userA), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Scored(userA, (33, "movie", "T1"), (44, "tv", "T2")));
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userB), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userB), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Scored(userB, (33, "movie", "T1"), (44, "tv", "T2")));
         _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
@@ -380,7 +380,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         Assert.NotNull(forB);
         Assert.Equal(userB, forB!.UserId);
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Exactly(2));
     }
 
@@ -404,7 +404,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         await sut.RefreshAllAsync(CancellationToken.None);
 
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -415,9 +415,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var userB = Guid.NewGuid();
         _store.Setup(s => s.GetLinkedUserIds()).Returns(new List<Guid> { userA, userB });
         _auth.Setup(a => a.GetValidAccessTokenAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync("token");
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userA), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userA), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Scored(userA, (11, "movie", "Alpha")));
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userB), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.Is<Guid>(u => u == userB), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("trakt down"));
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
@@ -449,8 +449,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     public async Task GetTrending_SecondCall_ServedFromScoredCacheWithoutRescoring()
     {
         var userId = Guid.NewGuid();
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) => Scored(u, (33, "movie", "T1"), (44, "tv", "T2")));
         _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
         var sut = CreateService();
@@ -466,7 +466,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             first!.Recommendations.Select(r => r.TmdbId),
             second!.Recommendations.Select(r => r.TmdbId));
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -490,7 +490,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
         _store.Verify(s => s.RemoveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _discovery.Verify(
-            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -532,8 +532,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             });
         var flakyFactory = new Mock<IHttpClientFactory>();
         flakyFactory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(flakyHandler.Object));
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) =>
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) =>
                 Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
         var sut = new TraktDiscoveryService(
             flakyFactory.Object, _auth.Object, _store.Object, _discovery.Object,
@@ -550,8 +550,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     public async Task RefreshAll_InvalidatesTrendingPool()
     {
         var userId = Guid.NewGuid();
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, string r, CancellationToken t) =>
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) =>
                 Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
         _store.Setup(s => s.GetLinkedUserIds()).Returns(new List<Guid>());
         var sut = CreateService();

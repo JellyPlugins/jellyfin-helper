@@ -329,6 +329,7 @@
   "strategyEnsemble": "Ensemble (Adaptive ML + Rules)",
   "strategyColdStart": "Cold Start (Popular + Recent)",
   "recsMatch": "match",
+  "discoveryLocalScore": "Local score",
   "recsWatchProfiles": "Watch Profiles Overview",
   "recsProfilesError": "Could not load watch profiles.",
   "recsNoProfiles": "No watch profiles available.",

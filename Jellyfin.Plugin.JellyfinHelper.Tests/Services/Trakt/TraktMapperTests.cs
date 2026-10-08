@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Xunit;
 
@@ -150,5 +151,49 @@ public sealed class TraktMapperTests
 
         Assert.Empty(mapped);
         Assert.Equal(3, dropped);
+    }
+
+    [Fact]
+    public void MapMediaItems_AssignsSourceRankInListOrder()
+    {
+        // The incoming list order is Trakt's own ranking; it must be carried as SourceRank 0,1,2...
+        var mapped = TraktMapper.MapMediaItems([Media(100), Media(200), Media(300)], "movie", out _);
+
+        Assert.Equal([0, 1, 2], mapped.Select(m => m.SourceRank).ToList());
+    }
+
+    [Fact]
+    public void MapMediaItems_DroppedItem_DoesNotShiftLaterRanks()
+    {
+        // The index spans dropped items, so a kept item keeps the rank matching its true Trakt position.
+        var mapped = TraktMapper.MapMediaItems([Media(100), Media(null), Media(300)], "movie", out _);
+
+        Assert.Equal(100, mapped[0].TmdbId);
+        Assert.Equal(0, mapped[0].SourceRank);
+        Assert.Equal(300, mapped[1].TmdbId);
+        Assert.Equal(2, mapped[1].SourceRank);
+    }
+
+    [Fact]
+    public void MapMediaItems_RankOffset_ContinuesNumbering()
+    {
+        // Shows mapped after movies continue the ranking from the movies' count.
+        var mapped = TraktMapper.MapMediaItems([Media(100), Media(200)], "tv", out _, rankOffset: 5);
+
+        Assert.Equal([5, 6], mapped.Select(m => m.SourceRank).ToList());
+    }
+
+    [Fact]
+    public void MapTrendingItems_AssignsSourceRankWithOffset()
+    {
+        var items = new List<TraktTrendingItem>
+        {
+            new() { Watchers = 50, Movie = Media(100) },
+            new() { Watchers = 10, Movie = Media(200) },
+        };
+
+        var mapped = TraktMapper.MapTrendingItems(items, "movie", out _, rankOffset: 3);
+
+        Assert.Equal([3, 4], mapped.Select(m => m.SourceRank).ToList());
     }
 }

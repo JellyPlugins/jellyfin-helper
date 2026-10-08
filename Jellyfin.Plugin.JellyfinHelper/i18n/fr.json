@@ -329,6 +329,7 @@
   "strategyEnsemble": "Ensemble (ML adaptatif + règles)",
   "strategyColdStart": "Démarrage à froid (Populaire + Récent)",
   "recsMatch": "correspondance",
+  "discoveryLocalScore": "Score local",
   "recsWatchProfiles": "Profils de visionnage",
   "recsProfilesError": "Impossible de charger les profils.",
   "recsNoProfiles": "Aucun profil disponible.",
