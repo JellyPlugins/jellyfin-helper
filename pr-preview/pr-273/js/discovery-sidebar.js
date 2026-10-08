@@ -535,11 +535,16 @@
         if (_nudgeCount >= MAX_NUDGES) {
             return;
         }
-        // Only relevant while a Discovery tab deep link is active - a bare #/home has no
-        // custom tab to restore, so a nudge would be pointless churn.
-        if (!/[?&]tab=\d+/.test(window.location.hash)) {
+        // Only act while a tab deep link is active, AND only for the Discovery panel's own index. A hidden
+        // Discovery marker is normal whenever ANOTHER tab is active (e.g. Favorites #/home?tab=1), so matching
+        // any ?tab=N would make us tear down other tabs' panels and fire a synthetic hashchange on a tab that is
+        // working fine. Custom Tabs stamps each panel's data-index with the same N its ?tab=N deep link carries,
+        // so compare the two.
+        var tabMatch = /[?&]tab=(\d+)/.exec(window.location.hash);
+        if (!tabMatch) {
             return;
         }
+        var activeIndex = tabMatch[1];
         // A marker must exist (Custom Tabs built the panel) yet be invisible (parked in a
         // display:none subtree). If there is no marker at all, Custom Tabs has not built
         // anything to recover and the normal observer path will handle a later build.
@@ -548,13 +553,20 @@
             return;
         }
         var anyVisible = false;
+        var strandedPanels = [];
         for (var marker of markers) {
             if (marker.offsetParent !== null) {
                 anyVisible = true;
                 break;
             }
+            // Only the stranded panel whose index matches the active deep link is ours to recover.
+            var panel = marker.closest('[id^="customTab_"]');
+            if (panel && String(panel.getAttribute('data-index')) === activeIndex) {
+                strandedPanels.push(panel);
+            }
         }
-        if (anyVisible) {
+        // Nudge only when the active deep link's own Discovery panel is the stranded one.
+        if (anyVisible || strandedPanels.length === 0) {
             return;
         }
         var now = Date.now();
@@ -569,13 +581,10 @@
         // the display:none .skinBody), so it satisfies that check and the panel is never
         // rebuilt into the visible part of <main>. Worse, nudging without removing it first
         // can leave the stale hidden panel in place while a second visible one is built,
-        // which is the "content duplicated after nav" symptom. Dropping every invisible
-        // customTab_ panel first makes the subsequent hashchange rebuild exactly one, visible.
-        var panels = document.querySelectorAll('[id^="customTab_"]');
-        for (var pIdx = 0; pIdx < panels.length; pIdx++) {
-            if (panels[pIdx].offsetParent === null) {
-                panels[pIdx].remove();
-            }
+        // which is the "content duplicated after nav" symptom. Removing only the active
+        // tab's own stranded panel makes the subsequent hashchange rebuild exactly one, visible.
+        for (var strandedPanel of strandedPanels) {
+            strandedPanel.remove();
         }
         // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
         window.dispatchEvent(new HashChangeEvent('hashchange'));
