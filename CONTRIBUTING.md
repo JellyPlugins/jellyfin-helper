@@ -480,6 +480,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── TraktDevicePollRequest.cs        # Trakt device poll DTO (DeviceCode, nullable; controller coalesces to empty)
 │   ├── TraktDevicePollResponse.cs       # Trakt device poll status envelope (Status)
 │   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
+│   ├── OfficialTraktPluginStatusResponse.cs # Admin-only GET /Trakt/OfficialPluginStatus payload: Present flag so the config page can relax the own-client-id requirement
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API

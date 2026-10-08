@@ -237,6 +237,7 @@
   "traktFillFields": "Lütfen önce Client ID bilgisini doldurun.",
   "traktClientIdValid": "Trakt Client ID geçerli.",
   "traktClientIdValidNoSecret": "Client ID geçerli. Kullanıcıların hesaplarını bağlayabilmesi için Client Secret ekleyin.",
+  "traktOfficialDetected": "Resmi Trakt eklentisi algılandı — Helper onun bağlantısını kullanır, bu yüzden aşağıya kendi Client ID'nizi girmek isteğe bağlıdır. Boş bırakın veya geçersiz kılmak için kendinizinkini (örn. Trakt VIP) girin.",
   "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
   "unsavedChangesMsg": "Kaydedilmemiş ayar değişiklikleriniz var. Ne yapmak istersiniz?",
   "discardChanges": "Değişiklikleri At",

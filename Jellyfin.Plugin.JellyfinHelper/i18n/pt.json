@@ -237,6 +237,7 @@
   "traktFillFields": "Por favor, preencha primeiro o Client ID.",
   "traktClientIdValid": "O Client ID do Trakt é válido.",
   "traktClientIdValidNoSecret": "O Client ID é válido. Adicione o Client Secret para que os usuários possam associar as suas contas.",
+  "traktOfficialDetected": "Plugin oficial do Trakt detectado — o Helper usa a conexão dele, portanto informar um Client ID abaixo é opcional. Deixe em branco ou insira o seu (por exemplo, Trakt VIP) para substituir.",
   "unsavedChangesTitle": "Alterações não salvas",
   "unsavedChangesMsg": "Você tem alterações não salvas. O que deseja fazer?",
   "discardChanges": "Descartar alterações",

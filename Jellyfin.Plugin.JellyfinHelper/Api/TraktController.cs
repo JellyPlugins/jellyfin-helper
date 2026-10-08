@@ -22,6 +22,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class TraktController : ControllerBase
 {
     private readonly ITraktAuthService _authService;
+    private readonly Services.Trakt.External.IOfficialTraktPluginReader _officialPlugin;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TraktController> _logger;
 
@@ -29,16 +30,31 @@ public class TraktController : ControllerBase
     ///     Initializes a new instance of the <see cref="TraktController" /> class.
     /// </summary>
     /// <param name="authService">The Trakt auth service used to validate the client id.</param>
+    /// <param name="officialPlugin">Reader used to report whether the official Trakt plugin is present.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger. Never receives the client id value.</param>
     public TraktController(
         ITraktAuthService authService,
+        Services.Trakt.External.IOfficialTraktPluginReader officialPlugin,
         IPluginLogService pluginLog,
         ILogger<TraktController> logger)
     {
         _authService = authService;
+        _officialPlugin = officialPlugin;
         _pluginLog = pluginLog;
         _logger = logger;
+    }
+
+    /// <summary>
+    ///     Reports whether the official Jellyfin Trakt plugin is installed and active. Admin-only (shares this
+    ///     controller's RequiresElevation policy) so plugin inventory is never exposed to normal users.
+    /// </summary>
+    /// <returns>A payload with a single <c>present</c> flag.</returns>
+    [HttpGet("OfficialPluginStatus")]
+    [ProducesResponseType(typeof(OfficialTraktPluginStatusResponse), StatusCodes.Status200OK)]
+    public ActionResult<OfficialTraktPluginStatusResponse> GetOfficialPluginStatus()
+    {
+        return Ok(new OfficialTraktPluginStatusResponse { Present = _officialPlugin.IsPresent() });
     }
 
     /// <summary>

@@ -30,6 +30,7 @@ public sealed class UserDiscoveryControllerTraktTests
     private readonly Mock<ITraktAuthService> _traktAuth = new();
     private readonly Mock<ITraktDiscoveryService> _traktDiscovery = new();
     private readonly Mock<ITraktUserStore> _traktStore = new();
+    private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin = new();
     private readonly Mock<IPluginConfigurationService> _configServiceMock = new();
     private readonly DiscoveryCacheService _cache;
     private readonly MemoryCache _memoryCache = new(new MemoryCacheOptions());
@@ -49,7 +50,7 @@ public sealed class UserDiscoveryControllerTraktTests
     {
         var controller = new UserDiscoveryController(
             _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object,
-            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _traktStore.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
+            _memoryCache, _traktAuth.Object, _traktDiscovery.Object, _traktStore.Object, _officialPlugin.Object, new Mock<ILogger<UserDiscoveryController>>().Object);
 
         var claims = new List<Claim>();
         if (userId.HasValue)
@@ -70,8 +71,27 @@ public sealed class UserDiscoveryControllerTraktTests
     public async Task GetMyTrakt_WhenTraktDisabled_Returns403()
     {
         _config.TraktEnabled = false;
+        // Official plugin absent (mock default) and no own creds: Trakt is genuinely unavailable.
         var result = await CreateController(Guid.NewGuid()).GetMyTrakt(CancellationToken.None);
         Assert.Equal(403, Status(result.Result!));
+    }
+
+    [Fact]
+    public async Task GetMyTrakt_WhenOwnCredsDisabledButOfficialPluginPresent_NotForbidden()
+    {
+        // No own client-id creds, but the official Trakt plugin can source per-user tokens, so Trakt access
+        // must be allowed rather than 403'd. Not linked anywhere, so the body reports linked=false with a 200 -
+        // the point being it is NOT the 403 Trakt-disabled gate.
+        _config.TraktEnabled = false;
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        var userId = Guid.NewGuid();
+        _traktDiscovery.Setup(d => d.GetPersonalAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync((DiscoveryResult?)null);
+
+        var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
+        Assert.False(payload.Linked);
     }
 
     [Fact]

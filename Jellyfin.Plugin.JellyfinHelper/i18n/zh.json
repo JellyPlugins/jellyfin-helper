@@ -237,6 +237,7 @@
   "traktFillFields": "请先填写 Client ID。",
   "traktClientIdValid": "Trakt Client ID 有效。",
   "traktClientIdValidNoSecret": "Client ID 有效。请添加 Client Secret，以便用户关联各自的账户。",
+  "traktOfficialDetected": "已检测到官方 Trakt 插件 — Helper 将使用其连接，因此下方填写 Client ID 是可选的。可留空，或填写你自己的（例如 Trakt VIP）以覆盖。",
   "unsavedChangesTitle": "未保存的更改",
   "unsavedChangesMsg": "您有未保存的设置更改。您想怎么做？",
   "discardChanges": "放弃更改",

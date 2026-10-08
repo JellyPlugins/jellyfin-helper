@@ -59,6 +59,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly ITraktAuthService _traktAuth;
     private readonly ITraktDiscoveryService _traktDiscovery;
     private readonly ITraktUserStore _traktStore;
+    private readonly Services.Trakt.External.IOfficialTraktPluginReader _officialTraktPlugin;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -72,6 +73,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="traktAuth">The Trakt auth service (device flow).</param>
     /// <param name="traktDiscovery">The Trakt discovery service (personal + trending).</param>
     /// <param name="traktStore">The Trakt token store, the source of truth for link state.</param>
+    /// <param name="officialTraktPlugin">Reader reporting whether the official Trakt plugin can source Trakt.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
@@ -82,6 +84,7 @@ public sealed class UserDiscoveryController : ControllerBase
         ITraktAuthService traktAuth,
         ITraktDiscoveryService traktDiscovery,
         ITraktUserStore traktStore,
+        Services.Trakt.External.IOfficialTraktPluginReader officialTraktPlugin,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
@@ -92,6 +95,7 @@ public sealed class UserDiscoveryController : ControllerBase
         _traktAuth = traktAuth;
         _traktDiscovery = traktDiscovery;
         _traktStore = traktStore;
+        _officialTraktPlugin = officialTraktPlugin;
         _logger = logger;
     }
 
@@ -874,8 +878,14 @@ public sealed class UserDiscoveryController : ControllerBase
         return throttled;
     }
 
-    /// <summary>Checks whether Trakt is configured (client id + secret stored, surfaced as the derived flag).</summary>
-    private bool IsTraktEnabled() => _configurationService.GetConfiguration().TraktEnabled;
+    /// <summary>
+    ///     Checks whether Trakt can be sourced at all: either the admin stored own client-id credentials (the
+    ///     derived TraktEnabled flag), or the official Trakt plugin is present and can supply per-user tokens.
+    ///     The latter lets free-account users who only run the official plugin still get Trakt discovery without
+    ///     a colliding second app.
+    /// </summary>
+    private bool IsTraktEnabled() =>
+        _configurationService.GetConfiguration().TraktEnabled || _officialTraktPlugin.IsPresent();
 
     /// <summary>
     ///     Combined gate for every user-facing Trakt endpoint. Trakt tabs are a feature of the Discovery sidebar,
