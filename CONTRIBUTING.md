@@ -157,10 +157,9 @@ the workflows. The only non-pinning knob is a token to lift the GitHub API rate 
 GITHUB_TOKEN=... bash test/e2e/scripts/run.sh
 ```
 
-When a release asset cannot be resolved the stack still runs the rest of the
-suite, and the `discovery-customtab.ui.spec.ts` regression (navigate in/out of
-the tab, assert it never goes blank and no competing panel is created) skips
-loudly via `JFH_E2E_EXTERNAL_PLUGINS`.
+When a release asset cannot be resolved, `run.sh` aborts the run: the external
+plugins are a hard prerequisite. The `JFH_E2E_EXTERNAL_PLUGINS` guard only makes
+`discovery-customtab.ui.spec.ts` skip when Playwright runs directly without staging.
 
 
 ### Test Structure
