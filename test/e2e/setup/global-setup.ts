@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { authHeader, runLibraryScan } from './api-client.ts';
-import { ensureDiscoveryConfigured } from './discovery-config.ts';
+import { ensureDiscoveryConfigured, seedOfficialTraktPlugin } from './discovery-config.ts';
 import { hasDocker, plantCanaries, plantedCanaries } from './fs-assert.ts';
 import { seedGrowthTimeline } from './seed-timeline.ts';
 
@@ -169,6 +169,13 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // an admin would per the in-app setup hint. The custom-tab UI spec reads
   // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
   await ensureDiscoveryConfigured(admin, (m) => console.log(`[global-setup] ${m}`));
+
+  // --- 5d. seed the official Trakt plugin with a token for the normal user, so the Helper's "source Trakt
+  // through the official plugin" mode has a real token to read from Trakt.xml. The normal user is NOT linked via
+  // our own device flow, so source resolution falls through to the official plugin exactly as intended.
+  if (normalUser) {
+    await seedOfficialTraktPlugin(admin, normalUser.userId, (m) => console.log(`[global-setup] ${m}`));
+  }
 
   // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {

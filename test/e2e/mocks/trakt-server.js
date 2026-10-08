@@ -12,10 +12,12 @@ const PORT = Number(process.env.PORT ?? 9100);
 // the "keep polling" path and then the "linked" path without timing races.
 let devicePending = true;
 let lastDeviceCode = null;
+let lastRecommendationBearer = null;
 
 function reset() {
   devicePending = true;
   lastDeviceCode = null;
+  lastRecommendationBearer = null;
 }
 
 // Fixtures. Each list intentionally includes one item WITHOUT a tmdb id so the plugin's drop-and-count path
@@ -39,6 +41,35 @@ function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) });
   res.end(payload);
+}
+
+// Personal recommendations require a Bearer token. The e2e "source via the official Trakt plugin" spec seeds
+// the official token into the official plugin's Trakt.xml; the own-device-flow spec links via this mock and
+// gets the mock-issued tokens. A 200 here PROVES a real token was presented (a wrong/absent bearer gets 401,
+// exactly as real Trakt behaves), so the official-plugin spec can assert its seeded token actually flowed
+// through. Keep the official value in sync with the seeded token in the Playwright setup.
+const EXPECTED_OFFICIAL_BEARER = process.env.TRAKT_EXPECTED_BEARER ?? 'seeded-official-token';
+const VALID_BEARERS = new Set([
+  EXPECTED_OFFICIAL_BEARER,
+  'mock-access-token',          // issued by POST /oauth/device/token (own device flow)
+  'mock-access-token-refreshed', // issued by POST /oauth/token (own refresh)
+]);
+
+function bearerOf(req) {
+  const auth = req.headers['authorization'];
+  if (typeof auth !== 'string' || !auth.startsWith('Bearer ')) {
+    return null;
+  }
+  return auth.slice('Bearer '.length);
+}
+
+function requireBearer(req, res, handler) {
+  const token = bearerOf(req);
+  if (token === null || !VALID_BEARERS.has(token)) {
+    sendJson(res, 401, { error: 'unauthorized' });
+    return;
+  }
+  handler(req, res);
 }
 
 async function readBody(req) {
@@ -103,11 +134,21 @@ const routes = {
     });
   },
 
-  // Personal recommendations (OAuth) and trending (client-id only).
-  'GET /recommendations/movies': (_req, res) => sendJson(res, 200, recommendationMovies),
-  'GET /recommendations/shows': (_req, res) => sendJson(res, 200, recommendationShows),
+  // Personal recommendations (OAuth, Bearer required) and trending (client-id only, no bearer).
+  'GET /recommendations/movies': (req, res) => requireBearer(req, res, (r, s) => {
+    lastRecommendationBearer = bearerOf(r);
+    sendJson(s, 200, recommendationMovies);
+  }),
+  'GET /recommendations/shows': (req, res) => requireBearer(req, res, (r, s) => {
+    lastRecommendationBearer = bearerOf(r);
+    sendJson(s, 200, recommendationShows);
+  }),
   'GET /movies/trending': (_req, res) => sendJson(res, 200, trendingMovies),
   'GET /shows/trending': (_req, res) => sendJson(res, 200, trendingShows),
+
+  // Test hook: report the Bearer token last presented to a recommendations endpoint, so a spec can prove the
+  // official plugin's seeded token (not our own-flow token) actually reached Trakt.
+  'GET /last-recommendation-bearer': (_req, res) => sendJson(res, 200, { bearer: lastRecommendationBearer }),
 };
 
 const server = http.createServer(async (req, res) => {

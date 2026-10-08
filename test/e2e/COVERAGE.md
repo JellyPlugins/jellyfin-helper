@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **354 tests** (API + UI) across 55 spec files
+every UI interaction. **356 tests** (API + UI) across 56 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -268,6 +268,20 @@ plugin stays Active after every call).
 - **Disconnect:** `POST Device/Disconnect` clears the link and returns success.
 - Snapshots and restores `TraktEnabled`/`TraktClientId` in afterAll so it does not leak
   state into later specs.
+
+## 8b. Trakt via the official plugin → `trakt-official-plugin.api.spec.ts`
+- Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PLUGINS=1`); the official
+  Jellyfin Trakt plugin (GUID `4fe3201e-…`) is staged by `stage-external-plugins.sh` at its
+  latest release, and global-setup seeds its `Trakt.xml` with a known token for the normal
+  user via `POST /Plugins/<GUID>/Configuration`.
+- **Official-source path:** the normal user is NOT linked via our own device flow, so source
+  resolution falls through to the official plugin's token. `GET Discovery/My/Trakt` returns
+  `Linked:true` with recommendations even though the user never ran our device flow.
+- **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`;
+  its `/last-recommendation-bearer` hook confirms the token the Helper forwarded is exactly
+  the seeded official token, proving the official plugin's token (not an own-flow token) was
+  used.
+- **Status endpoint:** `GET Trakt/OfficialPluginStatus` (admin-only) reports `Present:true`.
 
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
