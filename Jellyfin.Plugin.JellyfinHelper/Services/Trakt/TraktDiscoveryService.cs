@@ -103,7 +103,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        var (movies, officialAuthFailed) = await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false);
+        var (movies, officialAuthFailed) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(movies);
 
         // A revoked/stale official token fails the movies call and would fail the shows call identically (same
@@ -124,7 +124,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        var (shows, _) = await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false);
+        var (shows, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
@@ -247,7 +247,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed)> FetchPersonalAsync(
-        Guid userId, string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
+        string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
         var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, cancellationToken).ConfigureAwait(false);
