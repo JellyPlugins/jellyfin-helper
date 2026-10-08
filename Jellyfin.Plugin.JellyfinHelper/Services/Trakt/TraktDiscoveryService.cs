@@ -103,7 +103,17 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false));
+        var (movies, officialAuthFailed) = await FetchPersonalAsync(userId, "/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, cancellationToken).ConfigureAwait(false);
+        candidates.AddRange(movies);
+
+        // A revoked/stale OFFICIAL token fails the movies call and would fail the shows call identically (same
+        // dead token, same app). Stop here instead of firing a second doomed request that just re-logs the same
+        // auth failure; only the official plugin can re-link this user. Serve nothing cache-free so the next
+        // request retries once the plugin has rotated.
+        if (officialAuthFailed)
+        {
+            return null;
+        }
 
         // The movies fetch on the own flow can unlink the user mid-flight (dead grant). Re-resolve before the
         // shows fetch so it never runs with a dead own token. The re-resolved source must be the SAME kind of
@@ -119,7 +129,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        candidates.AddRange(await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false));
+        var (shows, _) = await FetchPersonalAsync(userId, "/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, cancellationToken).ConfigureAwait(false);
+        candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
             return null;
@@ -244,21 +255,26 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
     }
 
-    private async Task<List<ExternalDiscoveryCandidate>> FetchPersonalAsync(
+    private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed)> FetchPersonalAsync(
         Guid userId, string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
-        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, cancellationToken).ConfigureAwait(false);
+        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, source.IsOwnFlow, cancellationToken).ConfigureAwait(false);
+
+        // A revoked/stale foreign token answers 401 OR 403 ("unapproved app" when the token predates the current
+        // official client id). Either way we are read-only on it and the next fetch would fail identically, so
+        // signal the caller to skip the remaining calls for this user rather than repeat the failure.
+        var officialAuthFailed = !source.IsOwnFlow
+            && status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+        if (officialAuthFailed)
+        {
+            // The official plugin owns the token lifecycle (single-use refresh, re-link). Fail this fetch and
+            // let the official plugin refresh on its own cycle; never refresh or unlink the foreign token here.
+            return ([], true);
+        }
+
         if (status == HttpStatusCode.Unauthorized)
         {
-            if (!source.IsOwnFlow)
-            {
-                // The official plugin owns the token lifecycle (single-use refresh, re-link). We are strictly
-                // read-only on it: a 401 just means its token went stale, so fail this fetch and let the
-                // official plugin refresh on its own cycle. Never refresh or unlink the foreign token here.
-                return [];
-            }
-
             // Own flow: the stored token was rejected mid-flight (revoked at trakt.tv after our check): force one
             // refresh and retry once with the new credential.
             var renewed = await _personalSources.RefreshOwnTokenAsync(userId, source.AccessToken, cancellationToken).ConfigureAwait(false);
@@ -266,24 +282,24 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             {
                 // No new credential to retry with: fail this fetch without unlinking, so a transient
                 // outage never destroys a healthy link.
-                return [];
+                return ([], false);
             }
 
             using var retry = BuildRequest(relPath, source.ClientId, limit, renewed);
-            (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(retry, cancellationToken).ConfigureAwait(false);
+            (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(retry, relPath, source.IsOwnFlow, cancellationToken).ConfigureAwait(false);
             if (status == HttpStatusCode.Unauthorized)
             {
                 // Fresh credentials rejected: the grant is dead. Unlink so the UI offers a re-link
                 // instead of an empty grid.
                 await _personalSources.UnlinkOwnAsync(userId, cancellationToken).ConfigureAwait(false);
                 _cache.InvalidatePersonal(userId);
-                return [];
+                return ([], false);
             }
         }
 
         var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
         LogDropped(dropped, mediaType, "personal");
-        return mapped;
+        return (mapped, false);
     }
 
     private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(PluginConfiguration config, CancellationToken cancellationToken)
@@ -298,14 +314,16 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, cancellationToken).ConfigureAwait(false);
+            // Trending carries no bearer, so a failure is a client-id/network problem, never a stale foreign
+            // token - keep it at WARN (isOwnFlow: true suppresses nothing here).
+            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", isOwnFlow: true, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
         using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
         {
-            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, cancellationToken).ConfigureAwait(false);
+            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", isOwnFlow: true, cancellationToken).ConfigureAwait(false);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -316,7 +334,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return all;
     }
 
-    private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(
+        HttpRequestMessage request, string relPath, bool isOwnFlow, CancellationToken cancellationToken)
     {
         try
         {
@@ -324,7 +343,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                _pluginLog.LogWarning(LogSource, $"Trakt fetch failed: {(int)response.StatusCode}.", logger: _logger);
+                LogFetchFailure(relPath, isOwnFlow, response);
                 return (default, response.StatusCode);
             }
 
@@ -335,9 +354,38 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Network, timeout, size-limit, and malformed-payload failures degrade to an empty
             // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
-            _pluginLog.LogWarning(LogSource, "Trakt fetch failed.", ex, _logger);
+            _pluginLog.LogWarning(LogSource, $"Trakt fetch failed ({relPath}).", ex, _logger);
             return (default, HttpStatusCode.ServiceUnavailable);
         }
+    }
+
+    // Logs an HTTP failure with the endpoint and source, plus a short Trakt-side body/VIP header for diagnosis.
+    // A 401/403 on the OFFICIAL-plugin flow is expected and unactionable here (its token can expire or be revoked
+    // on trakt.tv, and we are strictly read-only on it), so it is logged at DEBUG once per endpoint rather than as
+    // a repeated WARN burst - without it a single stale foreign token spams the log on every movies+shows pass and
+    // every warm cycle. Everything else stays WARN. No token value is ever logged (the body is Trakt's error, the
+    // headers are rate/VIP metadata).
+    private void LogFetchFailure(string relPath, bool isOwnFlow, HttpResponseMessage response)
+    {
+        var code = (int)response.StatusCode;
+        var source = isOwnFlow ? "own" : "official";
+        var authFailure = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
+
+        var detail = $"Trakt fetch failed: {code} ({relPath}, source={source}).";
+        if (response.Headers.TryGetValues("X-VIP-User", out var vip))
+        {
+            detail += $" X-VIP-User={string.Join(",", vip)}";
+        }
+
+        if (authFailure && !isOwnFlow)
+        {
+            // Expected, unactionable, and noisy: downgrade to DEBUG so a stale/revoked foreign token (which only
+            // the official plugin can re-link) does not fill the log with WARNs. The admin still sees it at DEBUG.
+            _pluginLog.LogDebug(LogSource, detail + " The official Trakt plugin must re-link this user.", _logger);
+            return;
+        }
+
+        _pluginLog.LogWarning(LogSource, detail, logger: _logger);
     }
 
     private static HttpRequestMessage BuildRequest(string relPath, string clientId, int limit, string? accessToken)

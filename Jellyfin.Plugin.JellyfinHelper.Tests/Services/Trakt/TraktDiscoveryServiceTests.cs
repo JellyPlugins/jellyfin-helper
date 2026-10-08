@@ -30,7 +30,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private readonly Mock<ISeerrDiscoveryService> _discovery;
     private readonly TraktCacheService _cache;
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin;
-    private readonly IPluginLogService _pluginLog;
+
+    // Not readonly: a couple of logging tests swap in a DEBUG-level log service before building the SUT.
+    private IPluginLogService _pluginLog;
 
     public TraktDiscoveryServiceTests()
     {
@@ -759,6 +761,85 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         _auth.Verify(a => a.RefreshAccessTokenAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         _store.Verify(s => s.RemoveAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPersonal_OfficialSource403_LogsAtDebugNotWarn_WithEndpointAndSource()
+    {
+        // A stale/revoked OFFICIAL token (403/401) is expected and unactionable here - only the official plugin
+        // can re-link it. It must NOT spam WARN on every movies+shows pass; it is downgraded to a single DEBUG
+        // line that still names the endpoint and source so the admin can diagnose which user needs a re-link.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+        _responses.Enqueue((HttpStatusCode.Forbidden, "{}"));
+        _responses.Enqueue((HttpStatusCode.Forbidden, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        var traktEntries = _pluginLog.GetEntries(source: "Trakt");
+        Assert.NotEmpty(traktEntries);
+        // No WARN for the foreign auth failure; the entry is DEBUG and carries endpoint + source.
+        Assert.DoesNotContain(traktEntries, e => e.Level == "WARN");
+        Assert.Contains(traktEntries, e =>
+            e.Level == "DEBUG"
+            && e.Message.Contains("403", StringComparison.Ordinal)
+            && e.Message.Contains("source=official", StringComparison.Ordinal)
+            && e.Message.Contains("/recommendations/", StringComparison.Ordinal));
+        // The shows call is skipped after the movies auth-failure, so exactly ONE forbidden fetch is logged -
+        // one Forbidden response stays un-consumed in the queue.
+        Assert.Single(traktEntries, e => e.Message.Contains("403", StringComparison.Ordinal));
+        Assert.Single(_responses);
+    }
+
+    [Fact]
+    public async Task GetPersonal_OfficialSource403OnMovies_SkipsShowsFetch()
+    {
+        // Core of the dead-foreign-token fix: a 403/401 on the movies call means the same token would fail the
+        // shows call identically, so the shows request must NOT fire (no repeated doomed call / duplicate log).
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns((TraktUserToken?)null);
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
+        _officialPlugin.Setup(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("official-tok", FarFuture));
+        // Only the movies response is enqueued: if the shows fetch wrongly fired, the strict handler would throw
+        // on the empty queue, failing the test.
+        _responses.Enqueue((HttpStatusCode.Forbidden, "{}"));
+
+        var sut = CreateService();
+        var result = await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Empty(_responses); // movies consumed, shows never attempted
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPersonal_OwnSource5xx_StaysWarn()
+    {
+        // Regression guard against over-suppression: a 5xx on the OWN flow is a real, actionable failure and must
+        // remain a WARN (only foreign-token 401/403 is downgraded).
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _store.Setup(s => s.GetToken(userId)).Returns(new TraktUserToken { AccessToken = "a", RefreshToken = "b" });
+        _auth.Setup(a => a.GetValidAccessTokenAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync("own-tok");
+        _responses.Enqueue((HttpStatusCode.InternalServerError, "{}"));
+        _responses.Enqueue((HttpStatusCode.InternalServerError, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        var traktEntries = _pluginLog.GetEntries(source: "Trakt");
+        Assert.Contains(traktEntries, e =>
+            e.Level == "WARN"
+            && e.Message.Contains("500", StringComparison.Ordinal)
+            && e.Message.Contains("source=own", StringComparison.Ordinal));
     }
 
     [Fact]
