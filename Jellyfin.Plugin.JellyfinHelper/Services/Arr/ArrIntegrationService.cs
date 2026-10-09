@@ -570,54 +570,29 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         }
     }
 
-    private sealed class ArrSystemStatusDto
-    {
-        public string? AppName { get; init; }
+    // Deserialization targets. Records populate properties through the constructor,
+    // so there is no standalone set accessor for System.Text.Json to leave "unused".
+    private sealed record ArrSystemStatusDto(string? AppName, string? Version);
 
-        public string? Version { get; init; }
-    }
+    private sealed record RadarrMovieDto(
+        string? Title,
+        int Year,
+        string? ImdbId,
+        int TmdbId,
+        bool HasFile,
+        string? Path);
 
-    private sealed class RadarrMovieDto
-    {
-        public string? Title { get; init; }
+    private sealed record SonarrSeriesDto(
+        string? Title,
+        int Year,
+        string? ImdbId,
+        int TvdbId,
+        // TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
+        int TmdbId,
+        string? Path,
+        SonarrStatisticsDto? Statistics);
 
-        public int Year { get; init; }
-
-        public string? ImdbId { get; init; }
-
-        public int TmdbId { get; init; }
-
-        public bool HasFile { get; init; }
-
-        public string? Path { get; init; }
-    }
-
-    private sealed class SonarrSeriesDto
-    {
-        public string? Title { get; init; }
-
-        public int Year { get; init; }
-
-        public string? ImdbId { get; init; }
-
-        public int TvdbId { get; init; }
-
-        /// <summary>
-        ///     Gets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
-        /// </summary>
-        public int TmdbId { get; init; }
-
-        public string? Path { get; init; }
-
-        public SonarrStatisticsDto? Statistics { get; init; }
-    }
-
-    private sealed class SonarrStatisticsDto
-    {
-        public int EpisodeFileCount { get; init; }
-
-        public int TotalEpisodeCount { get; init; }
-    }
+    private sealed record SonarrStatisticsDto(int EpisodeFileCount, int TotalEpisodeCount);
 
     // Deserialization target for the root-folder endpoint. A record has no standalone set accessor,
     // so the property is populated through the constructor by System.Text.Json.
