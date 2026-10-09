@@ -2975,44 +2975,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return false;
             }
 
-            if (detail.Genres is { Count: > 0 })
-            {
-                candidate.GenreIds = detail.Genres.Select(g => g.Id).ToList();
-            }
-
-            // Latch-only: a missing flag must never clear what is already known.
-            if (detail.Adult == true)
-            {
-                candidate.Adult = true;
-            }
-
-            if (string.IsNullOrEmpty(candidate.PosterPath) && !string.IsNullOrEmpty(detail.PosterPath))
-            {
-                candidate.PosterPath = detail.PosterPath;
-            }
-
-            // Seerr wins over the source's overview whenever it has one: an external source like Trakt
-            // supplies English text, while Seerr returns the synopsis in its configured locale. Only an
-            // empty Seerr overview falls back to the source value so a card is never blanked.
-            if (!string.IsNullOrWhiteSpace(detail.Overview))
-            {
-                candidate.Overview = detail.Overview;
-            }
-
-            if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
-            {
-                candidate.VoteAverage = detail.VoteAverage;
-            }
-
-            if (candidate.Popularity <= 0 && detail.Popularity > 0)
-            {
-                candidate.Popularity = detail.Popularity;
-            }
-
-            if (detail.MediaInfo is not null)
-            {
-                candidate.MediaInfo = detail.MediaInfo;
-            }
+            ApplyEnrichedMetadata(candidate, detail);
 
             return true;
         }
@@ -3027,6 +2990,50 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Metadata enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
                 _logger);
             return false;
+        }
+    }
+
+    // Fills a candidate's missing fields from a fetched detail payload. Every rule is latch-only or
+    // fill-if-empty: enrichment must never clear what is already known.
+    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    {
+        if (detail.Genres is { Count: > 0 })
+        {
+            candidate.GenreIds = detail.Genres.Select(g => g.Id).ToList();
+        }
+
+        // Latch-only: a missing flag must never clear what is already known.
+        if (detail.Adult == true)
+        {
+            candidate.Adult = true;
+        }
+
+        if (string.IsNullOrEmpty(candidate.PosterPath) && !string.IsNullOrEmpty(detail.PosterPath))
+        {
+            candidate.PosterPath = detail.PosterPath;
+        }
+
+        // Seerr wins over the source's overview whenever it has one: an external source like Trakt
+        // supplies English text, while Seerr returns the synopsis in its configured locale. Only an
+        // empty Seerr overview falls back to the source value so a card is never blanked.
+        if (!string.IsNullOrWhiteSpace(detail.Overview))
+        {
+            candidate.Overview = detail.Overview;
+        }
+
+        if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
+        {
+            candidate.VoteAverage = detail.VoteAverage;
+        }
+
+        if (candidate.Popularity <= 0 && detail.Popularity > 0)
+        {
+            candidate.Popularity = detail.Popularity;
+        }
+
+        if (detail.MediaInfo is not null)
+        {
+            candidate.MediaInfo = detail.MediaInfo;
         }
     }
 
