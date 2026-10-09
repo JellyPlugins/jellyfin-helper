@@ -2991,6 +2991,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 candidate.PosterPath = detail.PosterPath;
             }
 
+            // Seerr wins over the source's overview whenever it has one: an external source like Trakt
+            // supplies English text, while Seerr returns the synopsis in its configured locale. Only an
+            // empty Seerr overview falls back to the source value so a card is never blanked.
+            if (!string.IsNullOrWhiteSpace(detail.Overview))
+            {
+                candidate.Overview = detail.Overview;
+            }
+
             if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
             {
                 candidate.VoteAverage = detail.VoteAverage;

@@ -144,11 +144,12 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         _history.Setup(h => h.GetSeriesEpisodeCounts()).Returns(new Dictionary<Guid, int>());
     }
 
-    private void ReturnsDetail(int tmdbId, string genresJson, string? posterPath = "/enriched.jpg", bool adult = false, int? mediaStatus = null)
+    private void ReturnsDetail(int tmdbId, string genresJson, string? posterPath = "/enriched.jpg", bool adult = false, int? mediaStatus = null, string? overview = null)
     {
         var mediaInfo = mediaStatus.HasValue ? $"\"mediaInfo\":{{\"status\":{mediaStatus.Value}}}," : string.Empty;
+        var overviewField = overview is null ? string.Empty : $"\"overview\":\"{overview}\",";
         _detailById[tmdbId] =
-            $"{{\"id\":{tmdbId},\"genres\":{genresJson},\"posterPath\":\"{posterPath}\",\"voteAverage\":7,\"popularity\":10,\"adult\":{(adult ? "true" : "false")},{mediaInfo}\"credits\":null}}";
+            $"{{\"id\":{tmdbId},\"genres\":{genresJson},\"posterPath\":\"{posterPath}\",\"voteAverage\":7,\"popularity\":10,\"adult\":{(adult ? "true" : "false")},{overviewField}{mediaInfo}\"credits\":null}}";
     }
 
     private static ExternalDiscoveryCandidate Candidate(int tmdbId) => new()
@@ -293,6 +294,88 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var rec = Assert.Single(result!.Recommendations);
         Assert.Equal("/enriched.jpg", rec.PosterPath);
         Assert.Equal(8.5, rec.TmdbRating);
+    }
+
+    [Fact]
+    public async Task Enrichment_ReplacesSourceOverviewWithSeerrOverview()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        // Seerr returns the synopsis in its configured locale; the candidate carries the source's own-language text.
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]", overview: "Deutsche Beschreibung");
+
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [new ExternalDiscoveryCandidate
+            {
+                TmdbId = 101,
+                MediaType = "movie",
+                Title = "Movie 101",
+                Year = 2020,
+                VoteAverage = 8.5,
+                GenreIds = [28],
+                Overview = "English overview from Trakt",
+            }],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var rec = Assert.Single(result!.Recommendations);
+        Assert.Equal("Deutsche Beschreibung", rec.Overview);
+    }
+
+    [Fact]
+    public async Task Enrichment_KeepsSourceOverview_WhenSeerrOverviewMissing()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        // Detail carries genres (so the item is enrichable and survives) but no overview field at all.
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]");
+
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [new ExternalDiscoveryCandidate
+            {
+                TmdbId = 101,
+                MediaType = "movie",
+                Title = "Movie 101",
+                Year = 2020,
+                VoteAverage = 8.5,
+                GenreIds = [28],
+                Overview = "English overview from Trakt",
+            }],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var rec = Assert.Single(result!.Recommendations);
+        // A blank Seerr overview must never wipe a card: the source text is the fallback.
+        Assert.Equal("English overview from Trakt", rec.Overview);
+    }
+
+    [Fact]
+    public async Task Enrichment_KeepsSourceOverview_WhenSeerrOverviewBlank()
+    {
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        // An all-whitespace Seerr overview is treated as absent, same as a missing field.
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]", overview: "   ");
+
+        var result = await CreateService().ScoreExternalCandidatesAsync(
+            userId,
+            [new ExternalDiscoveryCandidate
+            {
+                TmdbId = 101,
+                MediaType = "movie",
+                Title = "Movie 101",
+                Year = 2020,
+                VoteAverage = 8.5,
+                GenreIds = [28],
+                Overview = "English overview from Trakt",
+            }],
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var rec = Assert.Single(result!.Recommendations);
+        Assert.Equal("English overview from Trakt", rec.Overview);
     }
 
     [Fact]

@@ -35,6 +35,13 @@ internal sealed class SeerrMediaDetailResponse
     public string? PosterPath { get; set; }
 
     /// <summary>
+    ///     Gets or sets the overview/synopsis in Seerr's configured language. Used to replace an external
+    ///     source's own-language overview (e.g. Trakt's always-English text) so cards read in the Seerr locale.
+    /// </summary>
+    [JsonPropertyName("overview")]
+    public string? Overview { get; set; }
+
+    /// <summary>
     ///     Gets or sets the average vote score. Zero when omitted.
     /// </summary>
     [JsonPropertyName("voteAverage")]

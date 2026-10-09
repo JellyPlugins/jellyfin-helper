@@ -129,6 +129,22 @@ public class SeerrDiscoveryDtoTests
         Assert.Null(GetProp(obj, "Credits"));
     }
 
+    [Fact]
+    public void SeerrMediaDetailResponse_DeserializesOverview()
+    {
+        var t = Resolve("SeerrMediaDetailResponse");
+        var obj = Deserialize(t, "{\"id\":550,\"overview\":\"Deutsche Beschreibung\"}");
+        Assert.Equal("Deutsche Beschreibung", GetProp(obj, "Overview"));
+    }
+
+    [Fact]
+    public void SeerrMediaDetailResponse_MissingOverview_StaysNull()
+    {
+        var t = Resolve("SeerrMediaDetailResponse");
+        var obj = Deserialize(t, "{\"id\":550}");
+        Assert.Null(GetProp(obj, "Overview"));
+    }
+
     // SeerrUser (public - no reflection needed)
 
     [Fact]

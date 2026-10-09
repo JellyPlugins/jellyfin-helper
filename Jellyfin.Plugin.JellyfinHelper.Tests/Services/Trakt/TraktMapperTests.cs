@@ -12,6 +12,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Trakt;
 /// </summary>
 public sealed class TraktMapperTests
 {
+    private static readonly string[] ExpectedGenres = ["action", "adventure"];
+
     private static TraktMediaItem Media(int? tmdb, string title = "T", double? rating = 8.0) => new()
     {
         Title = title,
@@ -277,6 +279,6 @@ public sealed class TraktMapperTests
 
         Assert.NotNull(item);
         Assert.Equal("PG-13", item!.Certification);
-        Assert.Equal(new[] { "action", "adventure" }, item.Genres);
+        Assert.Equal(ExpectedGenres, item.Genres);
     }
 }
