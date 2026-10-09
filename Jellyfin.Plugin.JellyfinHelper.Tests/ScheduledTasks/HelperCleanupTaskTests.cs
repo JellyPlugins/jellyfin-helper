@@ -26,6 +26,7 @@ public class HelperCleanupTaskTests
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
     private readonly Mock<IRecommendationPlaylistService> _playlistServiceMock;
+    private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService> _traktDiscoveryMock;
     private readonly HelperCleanupTask _task;
     private PluginConfiguration _config;
 
@@ -103,6 +104,7 @@ public class HelperCleanupTaskTests
         _playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
         _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
+        _traktDiscoveryMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>();
 
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
@@ -124,7 +126,7 @@ public class HelperCleanupTaskTests
             recsCacheMock.Object,
             _playlistServiceMock.Object,
             _seerrDiscoveryServiceMock.Object,
-            Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>());
+            _traktDiscoveryMock.Object);
     }
 
     [Fact]
@@ -444,6 +446,48 @@ public class HelperCleanupTaskTests
         VerifyLogContains("Starting Seerr Cleanup (Dry Run)", LogLevel.Information);
         VerifyLogContains("Max age: 180 days", LogLevel.Information);
         VerifySeerrCalledWith("http://localhost:5055", "test-key", 180, true);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TraktDryRun_LogsSkippedWithoutRefreshing()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.DryRun,
+            TraktSourcingEnabled = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Task started (Dry Run). Skipping Trakt refresh.", LogLevel.Information);
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TraktActivated_RefreshesCachesOnce()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Activate,
+            TraktSourcingEnabled = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Refreshing Trakt discovery caches...", LogLevel.Information);
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

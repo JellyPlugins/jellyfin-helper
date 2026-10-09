@@ -13,15 +13,21 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -364,6 +370,124 @@ public class PluginServiceRegistratorTests : IDisposable
             if (Directory.Exists(basePath))
             {
                 Directory.Delete(basePath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesSecretProtector_EphemeralWhenNoInstance()
+    {
+        // No Plugin instance means no data path: the factory must fall back to the ephemeral provider
+        // instead of throwing, because startup itself must still succeed (secrets just die with restart).
+        ControllerTestFactory.TeardownPluginInstance();
+        var sc = Register();
+        sc.AddSingleton(Mock.Of<ILogger<SecretProtector>>());
+
+        var protector = sc.BuildServiceProvider().GetRequiredService<ISecretProtector>();
+
+        Assert.NotNull(protector);
+        const string secret = "s3cret";
+        Assert.Equal(secret, protector.Unprotect(protector.Protect(secret)));
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesSecretProtector_PersistedRingWhenInstanceAvailable()
+    {
+        // With a Plugin instance the factory must back Data Protection with a keyring under the data
+        // path (not ephemeral): the keys directory is created on disk and secrets round-trip through it.
+        ControllerTestFactory.InitializePluginInstance();
+        Assert.NotNull(Plugin.Instance);
+        var dataPath = Plugin.Instance!.DataFolderPath;
+        Assert.False(string.IsNullOrEmpty(dataPath));
+
+        var sc = Register();
+        sc.AddSingleton(Mock.Of<ILogger<SecretProtector>>());
+
+        var protector = sc.BuildServiceProvider().GetRequiredService<ISecretProtector>();
+
+        Assert.NotNull(protector);
+        const string secret = "s3cret";
+        Assert.Equal(secret, protector.Unprotect(protector.Protect(secret)));
+        Assert.True(Directory.Exists(Path.Join(dataPath, "keys")));
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesOfficialTraktPluginReader_AsAbsentWithoutHostServices()
+    {
+        // Neither IPluginManager nor IApplicationPaths is registered (a host without them): the nullable
+        // GetService lookups yield null and the reader must report absent instead of throwing at startup.
+        var sc = Register();
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+        var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+        Assert.NotNull(reader);
+        Assert.False(reader.IsPresent());
+    }
+
+    [Theory]
+    [InlineData(PluginStatus.Active, true)]
+    [InlineData(PluginStatus.Disabled, false)]
+    public void RegisterServices_OfficialTraktPluginReader_ReflectsPluginStatus(PluginStatus status, bool expected)
+    {
+        // Presence means installed AND active: GetPlugin also returns disabled plugins, and sourcing
+        // through a non-running plugin would serve a stale token, so only Active counts as present.
+        var managerMock = new Mock<IPluginManager>();
+        managerMock
+            .Setup(m => m.GetPlugin(It.IsAny<Guid>(), It.IsAny<Version>()))
+            .Returns(new LocalPlugin("test-path", true, new PluginManifest { Status = status }));
+        var pathsMock = new Mock<IApplicationPaths>();
+        pathsMock.SetupGet(p => p.PluginConfigurationsPath).Returns(Path.GetTempPath());
+
+        var sc = Register();
+        sc.AddSingleton(managerMock.Object);
+        sc.AddSingleton(pathsMock.Object);
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+        var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+        Assert.Equal(expected, reader.IsPresent());
+    }
+
+    [Fact]
+    public void RegisterServices_OfficialTraktPluginReader_ReadsTokenFromComposedConfigPath()
+    {
+        // Proves the factory hands the reader <PluginConfigurationsPath>/Trakt.xml: a token seeded at
+        // that exact file must be readable through the resolved reader (not just a probe flag).
+        var userId = Guid.NewGuid();
+        var configDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(configDir);
+        try
+        {
+            File.WriteAllText(
+                Path.Join(configDir, "Trakt.xml"),
+                "<PluginConfiguration><TraktUsers><TraktUser>"
+                + "<AccessToken>seeded-tok</AccessToken>"
+                + "<RefreshToken>seeded-ref</RefreshToken>"
+                + $"<LinkedMbUserId>{userId:D}</LinkedMbUserId>"
+                + "<AccessTokenExpiration>2099-01-01T00:00:00Z</AccessTokenExpiration>"
+                + "</TraktUser></TraktUsers></PluginConfiguration>");
+            var pathsMock = new Mock<IApplicationPaths>();
+            pathsMock.SetupGet(p => p.PluginConfigurationsPath).Returns(configDir);
+
+            var sc = Register();
+            sc.AddSingleton(pathsMock.Object);
+            sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+            sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+            var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+            var token = reader.TryGetToken(userId, DateTimeOffset.UtcNow);
+            Assert.NotNull(token);
+            Assert.Equal("seeded-tok", token!.AccessToken);
+        }
+        finally
+        {
+            if (Directory.Exists(configDir))
+            {
+                Directory.Delete(configDir, true);
             }
         }
     }

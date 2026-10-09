@@ -46,8 +46,11 @@ export async function seedNormalUserWatchProfile(
     .map((i) => i.Id);
   expect(movies.length, 'need a movie to build a watch profile from').toBeGreaterThan(0);
 
-  // The seeded movies are independent of each other, so assign + mark them concurrently.
-  const played = await Promise.all(
+  // The seeded movies are independent of each other, so assign + mark them concurrently. Settled
+  // (not all): if one mutation fails, the siblings' mutations already landed in the shared backend, and
+  // the caller skips cleanup when seeding throws (no handle to unwind). Unwind the partial state here so
+  // later specs never inherit it, then rethrow the original failure.
+  const settled = await Promise.allSettled(
     movies.slice(0, SEED_COUNT).map(async (id) => {
       await assignGenre(admin, adminUserId, originalGenres, id, SEED_GENRE);
       const mark = await admin.post(`/UserPlayedItems/${id}?userId=${normalUserId}`);
@@ -55,6 +58,23 @@ export async function seedNormalUserWatchProfile(
       return id;
     }),
   );
+  const played: string[] = [];
+  let firstError: unknown = null;
+  for (const entry of settled) {
+    if (entry.status === 'fulfilled') {
+      played.push(entry.value);
+    } else if (firstError === null) {
+      firstError = entry.reason;
+    }
+  }
+  if (firstError !== null) {
+    await clearNormalUserWatchProfile(admin, adminUserId, normalUserId, {
+      played,
+      favorite: null,
+      originalGenres,
+    }).catch(() => undefined);
+    throw firstError;
+  }
   const fav = await admin.post(`/UserFavoriteItems/${movies[0]}?userId=${normalUserId}`);
   expect([200, 204]).toContain(fav.status());
   const favorite = movies[0];

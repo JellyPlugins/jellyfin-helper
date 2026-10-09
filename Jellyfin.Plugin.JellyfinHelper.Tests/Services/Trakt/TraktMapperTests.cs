@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Xunit;
 
@@ -262,5 +263,20 @@ public sealed class TraktMapperTests
         var c = Assert.Single(TraktMapper.MapMediaItems([item], "movie", out _));
 
         Assert.Equal(1999, c.Year);
+    }
+
+    [Fact]
+    public void Deserialize_BindsCertificationAndGenres()
+    {
+        // Contract with the Trakt payload shape: certification and genres arrive on the wire and must bind
+        // (the mapper passes candidates unenriched, but a renamed/unmapped field would silently null these
+        // for every future reader of the DTO).
+        const string json = """{"title":"T","certification":"PG-13","genres":["action","adventure"],"ids":{"tmdb":1}}""";
+
+        var item = JsonSerializer.Deserialize<TraktMediaItem>(json);
+
+        Assert.NotNull(item);
+        Assert.Equal("PG-13", item!.Certification);
+        Assert.Equal(new[] { "action", "adventure" }, item.Genres);
     }
 }

@@ -94,6 +94,21 @@ public sealed class BackupValidatorSecurityTests
         Assert.Contains(result.Warnings, w => w.Contains("TLS certificate validation bypass", StringComparison.Ordinal));
     }
 
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_ArrUrl_Empty_SkipsUrlValidationWithoutError()
+    {
+        // An instance without a URL carries nothing to validate as a URL: no URL error may be reported,
+        // while the other findings for that instance (here the TLS-bypass warning) are still recorded.
+        var backup = CreateValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance { Name = "R1", Url = "", ApiKey = "k", SkipCertificateValidation = true });
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.DoesNotContain(result.Errors, e => e.Contains("is not a valid HTTP/HTTPS URL", StringComparison.Ordinal));
+        Assert.Contains(result.Warnings, w => w.Contains("TLS certificate validation bypass", StringComparison.Ordinal));
+    }
+
     [Theory]
     [Trait("Category", "Security")]
     [InlineData("ftp://host/x")]

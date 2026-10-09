@@ -17,14 +17,20 @@ internal static class TraktApi
 
     // Env override is read once at startup. Test harnesses set it before the plugin loads; a blank or
     // malformed value falls back to the real Trakt endpoint so a bad env can never silently break discovery.
-    private static readonly string ResolvedBaseUrl = ResolveBaseUrl();
+    private static readonly string ResolvedBaseUrl =
+        ResolveBaseUrl(Environment.GetEnvironmentVariable("JELLYFIN_HELPER_TRAKT_API_BASE"));
 
     /// <summary>Gets the Trakt API base URL (no trailing slash).</summary>
     internal static string BaseUrl => ResolvedBaseUrl;
 
-    private static string ResolveBaseUrl()
+    /// <summary>
+    ///     Resolves the base URL from an explicit override value. Pure function so the trimming and
+    ///     fallback rules are unit-testable; production passes the environment variable in.
+    /// </summary>
+    /// <param name="fromEnv">The raw override value, or null when unset.</param>
+    /// <returns>The override without a trailing slash, or the production default.</returns>
+    internal static string ResolveBaseUrl(string? fromEnv)
     {
-        var fromEnv = Environment.GetEnvironmentVariable("JELLYFIN_HELPER_TRAKT_API_BASE");
         if (!string.IsNullOrWhiteSpace(fromEnv)
             && Uri.TryCreate(fromEnv, UriKind.Absolute, out var parsed)
             && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
