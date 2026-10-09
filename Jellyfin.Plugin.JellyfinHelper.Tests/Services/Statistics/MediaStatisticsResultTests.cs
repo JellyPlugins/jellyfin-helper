@@ -372,9 +372,9 @@ public class MediaStatisticsResultTests
         result.Libraries.Add(lib1);
         result.Libraries.Add(lib2);
 
-        Assert.Equal(2, result.TotalVideosWithoutSubtitlesPaths.Count);
-        Assert.Contains("/a.mkv", result.TotalVideosWithoutSubtitlesPaths);
-        Assert.Contains("/b.mkv", result.TotalVideosWithoutSubtitlesPaths);
+        Assert.Equal(2, result.GetTotalVideosWithoutSubtitlesPaths().Count);
+        Assert.Contains("/a.mkv", result.GetTotalVideosWithoutSubtitlesPaths());
+        Assert.Contains("/b.mkv", result.GetTotalVideosWithoutSubtitlesPaths());
     }
 
     [Fact]
@@ -384,7 +384,7 @@ public class MediaStatisticsResultTests
         var lib = new LibraryStatistics();
         lib.VideosWithoutImagesPaths.Add("/c.mkv");
         result.Libraries.Add(lib);
-        Assert.Single(result.TotalVideosWithoutImagesPaths);
+        Assert.Single(result.GetTotalVideosWithoutImagesPaths());
     }
 
     [Fact]
@@ -394,7 +394,7 @@ public class MediaStatisticsResultTests
         var lib = new LibraryStatistics();
         lib.VideosWithoutNfoPaths.Add("/d.mkv");
         result.Libraries.Add(lib);
-        Assert.Single(result.TotalVideosWithoutNfoPaths);
+        Assert.Single(result.GetTotalVideosWithoutNfoPaths());
     }
 
     [Fact]
@@ -404,7 +404,7 @@ public class MediaStatisticsResultTests
         var lib = new LibraryStatistics();
         lib.OrphanedMetadataDirectoriesPaths.Add("/orphaned");
         result.Libraries.Add(lib);
-        Assert.Single(result.TotalOrphanedMetadataDirectoriesPaths);
+        Assert.Single(result.GetTotalOrphanedMetadataDirectoriesPaths());
     }
 
     [Fact]

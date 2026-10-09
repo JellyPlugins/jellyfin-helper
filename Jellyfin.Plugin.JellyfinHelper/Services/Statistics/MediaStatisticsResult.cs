@@ -262,30 +262,6 @@ public class MediaStatisticsResult
     public int TotalOrphanedMetadataDirectories => Libraries.Sum(l => l.OrphanedMetadataDirectories);
 
     /// <summary>
-    /// Gets the aggregated list of video file paths that have no subtitle file in the same directory.
-    /// </summary>
-    public Collection<string> TotalVideosWithoutSubtitlesPaths =>
-        new(Libraries.SelectMany(l => l.VideosWithoutSubtitlesPaths).ToList());
-
-    /// <summary>
-    /// Gets the aggregated list of video file paths that have no image/poster in the same directory.
-    /// </summary>
-    public Collection<string> TotalVideosWithoutImagesPaths =>
-        new(Libraries.SelectMany(l => l.VideosWithoutImagesPaths).ToList());
-
-    /// <summary>
-    /// Gets the aggregated list of video file paths that have no NFO metadata in the same directory.
-    /// </summary>
-    public Collection<string> TotalVideosWithoutNfoPaths =>
-        new(Libraries.SelectMany(l => l.VideosWithoutNfoPaths).ToList());
-
-    /// <summary>
-    /// Gets the aggregated list of directory paths that contain only metadata but no video.
-    /// </summary>
-    public Collection<string> TotalOrphanedMetadataDirectoriesPaths =>
-        new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
-
-    /// <summary>
     /// Gets the set of root paths for all movie libraries.
     /// </summary>
     [JsonInclude]
@@ -314,6 +290,34 @@ public class MediaStatisticsResult
     /// </summary>
     [JsonInclude]
     public HashSet<string> OtherRootPaths => AggregateRootPaths(Other);
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no subtitle file in the same directory.
+    /// </summary>
+    /// <returns>The aggregated subtitle-less video paths across all libraries.</returns>
+    public Collection<string> GetTotalVideosWithoutSubtitlesPaths() =>
+        new(Libraries.SelectMany(l => l.VideosWithoutSubtitlesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no image/poster in the same directory.
+    /// </summary>
+    /// <returns>The aggregated image-less video paths across all libraries.</returns>
+    public Collection<string> GetTotalVideosWithoutImagesPaths() =>
+        new(Libraries.SelectMany(l => l.VideosWithoutImagesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no NFO metadata in the same directory.
+    /// </summary>
+    /// <returns>The aggregated NFO-less video paths across all libraries.</returns>
+    public Collection<string> GetTotalVideosWithoutNfoPaths() =>
+        new(Libraries.SelectMany(l => l.VideosWithoutNfoPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of directory paths that contain only metadata but no video.
+    /// </summary>
+    /// <returns>The aggregated orphaned metadata directory paths across all libraries.</returns>
+    public Collection<string> GetTotalOrphanedMetadataDirectoriesPaths() =>
+        new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
 
     /// <summary>
     ///     Rebuilds the in-memory union from the typed groups. Libraries is excluded from the
