@@ -2811,30 +2811,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<TmdbDiscoverItem> candidates,
         CancellationToken cancellationToken)
     {
-        var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
-        try
+        using var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
+        var tasks = candidates.Select(async candidate =>
         {
-            var tasks = candidates.Select(async candidate =>
+            cancellationToken.ThrowIfCancellationRequested();
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
-                {
-                    await EnrichCandidateWithCreditsAsync(
-                        client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            }).ToList();
+                await EnrichCandidateWithCreditsAsync(
+                    client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToList();
 
-            await Task.WhenAll(tasks).ConfigureAwait(false);
-        }
-        finally
-        {
-            semaphore.Dispose();
-        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -2906,36 +2899,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         CancellationToken cancellationToken)
     {
         var enriched = new HashSet<(int TmdbId, string MediaType)>();
-        var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
-        try
+        using var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
+        var tasks = candidates.Select(async candidate =>
         {
-            var tasks = candidates.Select(async candidate =>
+            cancellationToken.ThrowIfCancellationRequested();
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
+                if (await EnrichCandidateWithMetadataAsync(
+                    client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false))
                 {
-                    if (await EnrichCandidateWithMetadataAsync(
-                        client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false))
+                    lock (enriched)
                     {
-                        lock (enriched)
-                        {
-                            enriched.Add((candidate.Id, candidate.MediaType));
-                        }
+                        enriched.Add((candidate.Id, candidate.MediaType));
                     }
                 }
-                finally
-                {
-                    semaphore.Release();
-                }
-            }).ToList();
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToList();
 
-            await Task.WhenAll(tasks).ConfigureAwait(false);
-        }
-        finally
-        {
-            semaphore.Dispose();
-        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
 
         return enriched;
     }
