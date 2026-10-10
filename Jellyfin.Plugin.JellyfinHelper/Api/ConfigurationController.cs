@@ -11,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -41,6 +42,7 @@ public class ConfigurationController : ControllerBase
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly ISecretProtector _secretProtector;
     private readonly IPerUserEnsembleRegistry? _perUserRegistry;
 
     /// <summary>
@@ -54,6 +56,7 @@ public class ConfigurationController : ControllerBase
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
     /// <param name="ensemble">The ensemble scoring strategy - notified on config save so alpha bounds take effect without restart.</param>
+    /// <param name="secretProtector">Encrypts the Seerr API key before it is persisted, and decrypts the stored key for live connection tests.</param>
     /// <param name="perUserRegistry">
     ///     The per-user ensemble registry - notified on config save so per-user models pick up new blend bounds
     ///     without a restart. Optional so existing callers and tests that do not exercise per-user reconfiguration
@@ -68,6 +71,7 @@ public class ConfigurationController : ControllerBase
         ISeerrIntegrationService seerrService,
         ILibraryManager libraryManager,
         EnsembleScoringStrategy ensemble,
+        ISecretProtector secretProtector,
         IPerUserEnsembleRegistry? perUserRegistry = null)
     {
         _arrService = arrService;
@@ -78,6 +82,7 @@ public class ConfigurationController : ControllerBase
         _seerrService = seerrService;
         _libraryManager = libraryManager;
         _ensemble = ensemble;
+        _secretProtector = secretProtector;
         _perUserRegistry = perUserRegistry;
     }
 
@@ -216,7 +221,7 @@ public class ConfigurationController : ControllerBase
         {
             config = cfg;
             persistedLogLevel = cfg.PluginLogLevel;
-            ApplyRequestToConfig(request, cfg);
+            ApplyRequestToConfig(request, cfg, _secretProtector);
             _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
 
             // Per-user models keep their own copy of the blend bounds, so the same change is pushed to them as
@@ -336,9 +341,16 @@ public class ConfigurationController : ControllerBase
 
         try
         {
+            // Fall back to the persisted value when the request omits the field, so a client that
+            // does not send it still tests against the effective (stored) TLS setting rather than
+            // forcing validation on. ApplyRequestToConfig already ran under the write lock above.
+            var skipCertValidation = request.SeerrSkipCertificateValidation
+                ?? (_configService.IsInitialized && _configService.GetConfiguration().SeerrSkipCertificateValidation);
+
             var (success, message) = await _seerrService.TestConnectionAsync(
                 seerrUrl,
                 seerrApiKey,
+                skipCertValidation,
                 cancellationToken).ConfigureAwait(false);
 
             if (success)
@@ -429,6 +441,7 @@ public class ConfigurationController : ControllerBase
             var (success, message) = await _arrService.TestConnectionAsync(
                 instance.Url,
                 instance.ApiKey,
+                instance.SkipCertificateValidation,
                 cancellationToken).ConfigureAwait(false);
 
             var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{index + 1}";
@@ -467,7 +480,8 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <param name="request">The incoming configuration update request.</param>
     /// <param name="config">The existing plugin configuration to update.</param>
-    private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
+    /// <param name="secretProtector">Encrypts the Seerr API key before it is persisted.</param>
+    private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
         config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
@@ -516,24 +530,66 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel, the key was not changed - preserve the stored value. Trim before comparing so a client that pads the sentinel (e.g.
-        if (!ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
+
+        // Absent means keep: an older UI or API client that omits the field must not silently
+        // re-enable certificate validation on a working private-CA Seerr setup. An explicit false disables.
+        if (request.SeerrSkipCertificateValidation.HasValue)
         {
-            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+            config.SeerrSkipCertificateValidation = request.SeerrSkipCertificateValidation.Value;
         }
+
+        ApplySeerrSecret(request, config, secretProtector);
 
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
+        ApplyTraktSettings(request, config);
+
         NormalizePluginLogLevel(config);
 
         // Update Radarr instances (clear + re-add from request). Snapshot existing instances BEFORE clearing so the sentinel guard can look up the stored key by Name+Url rather than positional index.
-        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances);
+        config.RadarrInstances = RebuildArrInstances(request.RadarrInstances, config.RadarrInstances, secretProtector);
 
         // Update Sonarr instances (clear + re-add from request).
         // Same sentinel-preservation pattern as Radarr above.
-        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances);
+        config.SonarrInstances = RebuildArrInstances(request.SonarrInstances, config.SonarrInstances, secretProtector);
+    }
+
+    /// <summary>
+    ///     Applies the Seerr API key, preserving the stored value when the client echoes back the mask sentinel.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    /// <param name="secretProtector">Encrypts the key before it is persisted.</param>
+    private static void ApplySeerrSecret(ConfigurationUpdateRequest request, PluginConfiguration config, ISecretProtector secretProtector)
+    {
+        // A mask sentinel means the key was not changed - preserve the stored value.
+        if (ApiKeyMaskResolver.IsMask(request.SeerrApiKey))
+        {
+            return;
+        }
+
+        // Encrypt the new key before it is persisted. An empty key clears the stored value.
+        config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey)
+            ? string.Empty
+            : secretProtector.Protect(request.SeerrApiKey.Trim());
+    }
+
+    /// <summary>
+    ///     Applies the Trakt settings. Fields are nullable in the request so a client without the Trakt checkbox
+    ///     (no official plugin) omits them and the stored values are preserved rather than cleared.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    private static void ApplyTraktSettings(ConfigurationUpdateRequest request, PluginConfiguration config)
+    {
+        config.TraktTimeoutSeconds = request.TraktTimeoutSeconds ?? config.TraktTimeoutSeconds;
+        config.TraktLimit = request.TraktLimit ?? config.TraktLimit;
+
+        // Sourcing switch. Absent in the request => keep the stored value, so a partial PUT from a client
+        // without the Trakt checkbox never silently flips Trakt.
+        config.TraktSourcingEnabled = request.TraktSourcingEnabled ?? config.TraktSourcingEnabled;
     }
 
     /// <summary>
@@ -594,10 +650,12 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <param name="requestInstances">The instances from the incoming request (may be null).</param>
     /// <param name="existingInstances">The currently stored instances (may be null).</param>
+    /// <param name="secretProtector">Encrypts each resolved API key before it is persisted.</param>
     /// <returns>A new list of resolved <see cref="ArrInstanceConfig" /> entries.</returns>
     private static List<ArrInstanceConfig> RebuildArrInstances(
         IEnumerable<ArrInstanceConfig>? requestInstances,
-        List<ArrInstanceConfig>? existingInstances)
+        List<ArrInstanceConfig>? existingInstances,
+        ISecretProtector secretProtector)
     {
         var previousInstances = (existingInstances ?? []).ToList();
         var result = new List<ArrInstanceConfig>();
@@ -607,8 +665,9 @@ public class ConfigurationController : ControllerBase
             {
                 Name = instance.Name,
                 Url = instance.Url,
-                ApiKey = ResolveApiKey(instance, previousInstances),
-                Libraries = instance.Libraries
+                ApiKey = ResolveApiKey(instance, previousInstances, secretProtector),
+                Libraries = instance.Libraries,
+                SkipCertificateValidation = instance.SkipCertificateValidation
             });
         }
 
@@ -620,13 +679,18 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     private static string ResolveApiKey(
         ArrInstanceConfig incoming,
-        List<ArrInstanceConfig> previousInstances)
+        List<ArrInstanceConfig> previousInstances,
+        ISecretProtector secretProtector)
     {
         // Delegates to the shared resolver so the save path and the stateless Test-Connection endpoints (ArrIntegrationController / SeerrController) use one implementation of the mask-sentinel semantics.
-        return ApiKeyMaskResolver.ResolveArrKey(
+        var resolved = ApiKeyMaskResolver.ResolveArrKey(
             incoming.ApiKey,
             incoming.Url,
             incoming.Name,
             previousInstances);
+
+        // Encrypt before persisting. Protect is idempotent, so a stored key recovered via the mask
+        // sentinel (already ciphertext) is returned unchanged while a newly entered key is encrypted.
+        return secretProtector.Protect(resolved);
     }
 }

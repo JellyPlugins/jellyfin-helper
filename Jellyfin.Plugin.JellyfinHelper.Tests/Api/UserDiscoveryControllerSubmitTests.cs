@@ -58,7 +58,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
-        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, _loggerMock.Object);
+        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {
@@ -828,4 +828,41 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.True(body.Success);
     }
 
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task SubmitMyRequest_IgnoresDtoSeerrUserId_UsesResolvedId()
+    {
+        // The DTO still carries a legacy SeerrUserId field. It must never be trusted: the
+        // request is always submitted as the Seerr id resolved from the caller's claims.
+        var userId = Guid.NewGuid();
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "queued"))
+            .Verifiable();
+
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", SeerrUserId = 9999 };
+        var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
+
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
+        _discoveryMock.Verify(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()), Times.Once);
+        _discoveryMock.Verify(d => d.SubmitRequestAsync(100, "movie", 9999, null, null, null, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void RequestDto_SeerrUserId_OutOfRange_FailsValidation(int seerrUserId)
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", SeerrUserId = seerrUserId };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.SeerrUserId)));
+    }
 }

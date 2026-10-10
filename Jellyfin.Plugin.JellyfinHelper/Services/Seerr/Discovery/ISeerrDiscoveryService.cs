@@ -17,6 +17,32 @@ public interface ISeerrDiscoveryService
     int MaxVisiblePerUser { get; }
 
     /// <summary>
+    ///     Scores an externally-supplied candidate set for a single user through the same per-user ensemble
+    ///     pipeline the local discovery uses (exclusions, parental filter, pre-score, credits enrichment, final
+    ///     score). Used by the Trakt source. Unlike local discovery, the result preserves the source's own
+    ///     ordering (via <see cref="ExternalDiscoveryCandidate.SourceRank"/>) rather than re-ranking by score,
+    ///     and relaxes the soft quality floors; each recommendation keeps its computed feature reason.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user to score for.</param>
+    /// <param name="candidates">The pre-mapped TMDb candidates to score, carrying the source's rank.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The scored result, or null when the user has no usable profile or no candidates survive.</returns>
+    Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
+        Guid jellyfinUserId,
+        IReadOnlyList<ExternalDiscoveryCandidate> candidates,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Removes dismissed/requested items from a discovery result for a user. Scoring-time exclusion
+    ///     cannot see dismissals or requests that land after the score was computed (and cached), so every
+    ///     serve filters again; this mirrors the local pool's view-load filtering. Never mutates the input.
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user to filter for.</param>
+    /// <param name="result">The result to filter.</param>
+    /// <returns>A new result with only unconsumed recommendations.</returns>
+    DiscoveryResult FilterConsumedItems(Guid jellyfinUserId, DiscoveryResult result);
+
+    /// <summary>
     ///     Generates discovery recommendations for all users and persists results.
     ///     Called by the scheduled task.
     /// </summary>

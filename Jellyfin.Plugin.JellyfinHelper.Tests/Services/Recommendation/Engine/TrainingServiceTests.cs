@@ -578,6 +578,64 @@ public class TrainingServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
+    public void Train_EndToEndPipeline_50Users30Recs_CompletesWithin20Seconds()
+    {
+        // End-to-end gate over the full orchestration: watch-history → BuildExamples →
+        // held-out split → real ensemble (learned + neural + blend) train, persisting to disk.
+        var profiles = new Collection<UserWatchProfile>();
+        var previous = new List<RecommendationResult>();
+        var generatedAt = new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var u = 0; u < 50; u++)
+        {
+            var userId = Guid.NewGuid();
+            profiles.Add(CreateLargeProfile(userId, watchedCount: 30));
+            previous.Add(CreateLargeResult(userId, recommendationCount: 30, generatedAt));
+        }
+
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var dataPath = Path.Join(Path.GetTempPath(), "jfh-train-perf-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dataPath);
+        try
+        {
+            using var neural = new NeuralScoringStrategy();
+            using var global = new EnsembleScoringStrategy(
+                new LearnedScoringStrategy(Path.Join(dataPath, "ml_weights.json")),
+                new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
+                neural,
+                Path.Join(dataPath, "ensemble_state.json"));
+            using var sut = CreateSut();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var trained = sut.Train(global, previous);
+            sw.Stop();
+
+            Assert.True(trained);
+            if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+            {
+                Assert.True(sw.ElapsedMilliseconds < 20_000, "Train pipeline took too long: " + sw.ElapsedMilliseconds + "ms");
+            }
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dataPath, recursive: true);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Best-effort temp cleanup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
+    [Fact]
     public void Train_WithEnoughExamples_UsesHeldOutValidationSplit()
     {
         // BUG GUARD: The held-out split path (Lines 209-215) only fires when trainingExamples.Count >= 20. Below that threshold the code falls back to "train on all, validate on training-set fit".

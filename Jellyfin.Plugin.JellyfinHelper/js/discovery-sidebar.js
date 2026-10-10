@@ -20,6 +20,19 @@
     var _seerrBaseUrl = '';
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
+    // Remounts render instantly from the last good payload for the same user; mutations
+    // and 403s clear it. A silent background refetch keeps it fresh, so there is no TTL.
+    var _discoveryResultCache = null;
+    var _backgroundRefreshInFlight = false;
+    // Bumped on every mutation and on user change; a fetch captures it at start
+    // and its result is discarded if the generation moved on while it was away.
+    var _discoveryGeneration = 0;
+
+    function currentDiscoveryUserId() {
+        return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId?.()) || '';
+    }
+
+
     /** * Returns the URL only if it uses a safe http(s) scheme, otherwise ''. */
     function safeHttpUrl(url) {
         if (typeof url !== 'string') return '';
@@ -28,24 +41,30 @@
         return /^https?:\/\//i.test(trimmed) ? trimmed : '';
     }
 
-    var _waitForApiRetries = 0;
     var MAX_FAST_RETRIES = 60;  // 30 seconds at 500ms intervals (fast polling)
     var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
     var SLOW_POLL_INTERVAL = 3000;
 
-    function waitForApi(callback) {
-        if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
-            _waitForApiRetries++;
-            if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
-                // ApiClient did not become available within ~150 seconds - bail out to
-                // prevent an indefinite timer leak on unauthenticated/guest sessions.
+    // Retry budget is local to each call so concurrent/sequential waits never share a counter:
+    // a previous attempt's accrued retries must not shorten a later one's wait.
+    function waitForApi(callback, onTimeout) {
+        var retries = 0;
+        function attempt() {
+            if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
+                retries++;
+                if (retries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
+                    // ApiClient did not become available within ~150 seconds - bail out to
+                    // prevent an indefinite timer leak on unauthenticated/guest sessions.
+                    if (typeof onTimeout === 'function') onTimeout();
+                    return;
+                }
+                var delay = retries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
+                setTimeout(attempt, delay);
                 return;
             }
-            var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
-            setTimeout(function () { waitForApi(callback); }, delay);
-            return;
+            callback();
         }
-        callback();
+        attempt();
     }
 
     var _strings = null;
@@ -178,7 +197,10 @@
         style.id = 'jfhelper-discovery-styles';
         style.textContent =
             '@keyframes dspin { to { transform: rotate(360deg); } }' +
-            '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); }' +
+            '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
+            // Tab content renders its own container inside the shell container: the inner one must not
+            // add padding again or the grid/headers indent against the tab bar.
+            '.jfh-discovery-container .jfh-discovery-container { max-width: none; margin: 0; padding: 0; }' +
             '.jfh-discovery-spinner { display:flex;justify-content:center;padding:2em; }' +
             '.jfh-discovery-spinner::after { content:"";width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#00a4dc;border-radius:50%;animation:dspin 0.8s linear infinite; }' +
             '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: clamp(0.5em, 1.2vw, 1.2em); }' +
@@ -188,6 +210,15 @@
             '@media (min-width: 1400px) { .jfh-discovery-grid { grid-template-columns: repeat(6, 1fr); } }' +
             '@media (min-width: 1920px) { .jfh-discovery-grid { grid-template-columns: repeat(7, 1fr); } }' +
             '@media (min-width: 2560px) { .jfh-discovery-grid { grid-template-columns: repeat(8, 1fr); } }' +
+            // Container queries mirror the breakpoints above but key off the panel width instead of the
+            // viewport, so a capped panel on an ultrawide screen gets columns it can actually fit. They come
+            // last so they win where supported; older clients without @container keep the media rules above.
+            '@container (min-width: 480px) { .jfh-discovery-grid { grid-template-columns: repeat(3, 1fr); } }' +
+            '@container (min-width: 768px) { .jfh-discovery-grid { grid-template-columns: repeat(4, 1fr); } }' +
+            '@container (min-width: 1024px) { .jfh-discovery-grid { grid-template-columns: repeat(5, 1fr); } }' +
+            '@container (min-width: 1400px) { .jfh-discovery-grid { grid-template-columns: repeat(6, 1fr); } }' +
+            '@container (min-width: 1920px) { .jfh-discovery-grid { grid-template-columns: repeat(7, 1fr); } }' +
+            '@container (min-width: 2560px) { .jfh-discovery-grid { grid-template-columns: repeat(8, 1fr); } }' +
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
             // Poster flip container
             '.jfh-discovery-card-poster { position: relative; perspective: 800px; cursor: pointer; overflow: hidden; }' +
@@ -216,7 +247,8 @@
             '.jfh-discovery-score-mid .jfh-discovery-score-bar { background: #f39c12; }' +
             '.jfh-discovery-score-low .jfh-discovery-score-bar { background: #e74c3c; }' +
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
-            '.jfh-discovery-btn-row { margin-top: auto; display: flex; gap: 0.4em; align-items: stretch; }' +
+            '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
+            '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
             '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
@@ -229,90 +261,845 @@
             // Toast notification
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
-            '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }';
+            '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }' +
+            // Sub-tab bar: one full-width segmented tray with equal-width tabs, so the row is
+            // always symmetric (centered by construction) on desktop and mobile. Long labels
+            // ellipsize instead of breaking the layout on very narrow viewports.
+            '.jfh-discovery-tabs { display: flex; align-items: stretch; gap: 4px; max-width: 100%; margin: 0 0 1em 0; padding: 4px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar { height: 4px; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar-track { background: transparent; }' +
+            '.jfh-discovery-tabs::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
+            '.jfh-discovery-tab { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: 0.5em 1.1em; border: none; border-radius: 7px; background: transparent; color: #bbb; cursor: pointer; font-size: 0.9em; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }' +
+            '.jfh-discovery-tab:hover { color: #fff; }' +
+            '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
+            '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
+            // Narrow panels: slightly smaller tab labels so all three fit without truncation.
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
+            // Trakt pending slot: uncommented mini-spinner reserving roughly the tab bar's
+            // height while the silent probe runs. The tab bar replaces it on success, a
+            // 403/timeout removes it without a trace.
+            '.jfh-trakt-pending { display: flex; justify-content: center; align-items: center; min-height: 40px; margin: 0 0 1em 0; }' +
+            '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }';
         document.head.appendChild(style);
     }
 
-    var lastMountedContainer = null;
-
-    function initCustomTab() {
-        injectStyles();
-        tryMountCustomTab();
-        var pending = false;
-        // Prefer observing the SPA content root rather than document.body to avoid firing on every global DOM mutation.
-        var observeTarget = document.querySelector('.mainAnimatedPages') || document.body;
-        var observer = new MutationObserver(function () {
-            // Re-target to the narrower container if we started on document.body
-            // and .mainAnimatedPages has since appeared.
-            if (observeTarget === document.body) {
-                var narrower = document.querySelector('.mainAnimatedPages');
-                if (narrower) {
-                    observer.disconnect();
-                    observeTarget = narrower;
-                    observer.observe(observeTarget, { childList: true, subtree: true });
-                }
-            }
-            if (!pending) {
-                pending = true;
-                requestAnimationFrame(function () {
-                    pending = false;
-                    tryMountCustomTab();
-                });
-            }
-        });
-        observer.observe(observeTarget, { childList: true, subtree: true });
-    }
-
-    function tryMountCustomTab() {
-        var container = findActiveContainer();
-        if (!container) { lastMountedContainer = null; return; }
-
-        // Determine if we need to (re-)mount: 1. Different container than last time 2.
-        var shouldMount = container !== lastMountedContainer
-            || !container.querySelector('.jfh-discovery-container')
-            || (lastMountedContainer && !document.contains(lastMountedContainer));
-
-        if (!shouldMount) return;
-        renderDiscovery(container);
-        lastMountedContainer = container;
-    }
-
-    function findActiveContainer() {
-        var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        // Priority passes (each newest-first): a candidate inside an ACTIVE .tabContent wins over a
-        // merely-visible .page, which wins over a candidate with no page wrapper. A single combined
-        // scan would return a visible .page before reaching an active .tabContent later in the DOM,
-        // mounting discovery in the wrong container.
-        for (var i = all.length - 1; i >= 0; i--) {
-            var tabContent = all[i].closest('.tabContent');
-            if (tabContent && tabContent.classList.contains('is-active')) return all[i];
-        }
-        for (var j = all.length - 1; j >= 0; j--) {
-            var page = all[j].closest('.page');
-            if (page && !page.classList.contains('hide')) return all[j];
-        }
-        for (var k = all.length - 1; k >= 0; k--) {
-            if (!all[k].closest('.page')) return all[k];
+    function getCachedDiscoveryResult() {
+        // Never serve one user's recommendations to another after an in-tab
+        // account switch.
+        if (_discoveryResultCache && _discoveryResultCache.userId === currentDiscoveryUserId()) {
+            return _discoveryResultCache.data;
         }
         return null;
     }
 
-    function renderDiscovery(container) {
-        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
+    function setCachedDiscoveryResult(data) {
+        _discoveryResultCache = { data: data, userId: currentDiscoveryUserId() };
+    }
+
+    function invalidateDiscoveryResult() {
+        // A request/dismiss mutates the shared candidate pool, so every tab's
+        // cache is stale - not just the own-tab one. Nulling the Trakt caches
+        // keeps a pre-mutation card from reappearing if the user switches tabs
+        // before the delayed refresh runs. (The caches are hoisted vars declared
+        // further down.) The generation bump below invalidates in-flight Trakt
+        // GETs via their startedGeneration guard.
+        _discoveryResultCache = null;
+        _traktPersonalCache = null;
+        _traktTrendingCache = null;
+        _traktProbeResult = null;
+        _trendingPreloadInFlight = false;
+        _ownFetchPromise = null;
+        // Any GET already in flight predates this invalidation and must not
+        // commit its (now stale) result.
+        _discoveryGeneration++;
+    }
+
+    // Normalized timestamp used to decide whether a background fetch returned
+    // newer data than what is already rendered.
+    function discoveryGeneratedAt(data) {
+        var raw = data?.GeneratedAt;
+        if (!raw) { return 0; }
+        var ms = Date.parse(raw);
+        return Number.isNaN(ms) ? 0 : ms;
+    }
+
+    // Fingerprint of the visible set: the pool timestamp alone cannot catch a change
+    // from another client, so the visible ids are compared instead.
+    function discoveryVisibleKey(data) {
+        var recs = data?.Recommendations;
+        if (!Array.isArray(recs)) { return ''; }
+        return recs.map(function (r) {
+            return (r.TmdbId || '') + ':' + (r.MediaType || '');
+        }).join('|');
+    }
+
+    // After a cache-first render, silently refetch once to pick up a scheduler
+    // run or an out-of-band Seerr reconcile. Only re-renders when the payload is
+    // genuinely newer or its visible set changed, and never shows a spinner, so
+    // the visible grid updates in place without a loading flash. A 403 (feature
+    // toggled off) clears the cache and leaves the current view untouched.
+    function maybeRefreshInBackground(container) {
+        if (_backgroundRefreshInFlight) { return; }
+        _backgroundRefreshInFlight = true;
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-            .then(function (data) { renderCards(container, data); })
-            .catch(function (err) {
-                var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
-                if (err && err.status === 403) {
-                    msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
+            .then(function (data) {
+                // Discard if a mutation happened, or the user switched, while the
+                // request was in flight: committing it would clobber newer data
+                // or leak another user's recommendations.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
                 }
-                container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
-                // Surface a user-friendly toast for non-200 responses (never raw backend details)
-                var serverMessage = extractErrorMessage(err);
-                if (serverMessage) {
-                    showToast(getUserFriendlyErrorMessage(serverMessage));
+                var previous = _discoveryResultCache?.data;
+                setCachedDiscoveryResult(data);
+                var changed = !previous
+                    || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous)
+                    || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
+                // Render into the panel that is live now, not the one captured at
+                // call time: Custom Tabs may have rebuilt it while we were away.
+                // With Trakt tabs on, the shell owns lastMountedContainer: only refresh
+                // the own-tab host, and only while it is still the active tab. Rendering
+                // into the outer marker would replace the whole shell (tab bar included).
+                var target = null;
+                if (_traktEnabled) {
+                    var liveHost = lastMountedContainer?.querySelector('.jfh-discovery-tab-host');
+                    if (_activeTab === TAB_OWN && liveHost && document.contains(liveHost)) {
+                        target = liveHost;
+                    }
+                } else if (lastMountedContainer && document.contains(lastMountedContainer)) {
+                    target = lastMountedContainer;
+                } else if (document.contains(container)) {
+                    target = container;
+                }
+                if (changed && target) {
+                    renderCards(target, data);
+                }
+            })
+            .catch(function (err) {
+                if (err?.status === 403) {
+                    invalidateDiscoveryResult();
+                }
+            })
+            .finally(function () {
+                _backgroundRefreshInFlight = false;
+            });
+    }
+
+    var lastMountedContainer = null;
+    var customTabWatcherStarted = false;
+    var mountPending = false;
+    // Mounting is gated until strings are loaded so the first render never flashes the
+    // English fallbacks before the configured language arrives. The observer/listeners,
+    // however, start as early as possible (see startCustomTabWatcher) so a hard reload
+    // that restores an already-built Discovery panel is still caught: without an early
+    // watcher no mutation fires after our script loads, and the tab stays blank until a
+    // manual nav. The watcher queues mounts; this gate releases them once strings land.
+    var _mountEnabled = false;
+
+    // Starts the DOM watcher and navigation listeners that drive mounts. Idempotent and
+    // independent of the async availability probe, so it can run the instant the script
+    // loads on a home context - the fix for the F5 blank-tab race.
+    function startCustomTabWatcher() {
+        if (customTabWatcherStarted) {
+            return;
+        }
+        customTabWatcherStarted = true;
+        // Watch the body: on Modern layout .mainAnimatedPages is an empty decoy sibling,
+        // and reactivated tabs can toggle classes with no childList mutation. rAF keeps it cheap.
+        var observer = new MutationObserver(function () {
+            scheduleTryMount();
+        });
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'hidden']
+        });
+        // Navigation does not always produce an observed mutation in time
+        // (cached views, class-only activation), so re-check explicitly too.
+        window.addEventListener('hashchange', scheduleTryMount);
+        window.addEventListener('popstate', scheduleTryMount);
+        window.addEventListener('pageshow', scheduleTryMount);
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) {
+                scheduleTryMount();
+            }
+        });
+    }
+
+    function initCustomTab() {
+        injectStyles();
+        // Strings are loaded by the time this runs; release the mount gate and watcher.
+        _mountEnabled = true;
+        startCustomTabWatcher();
+        tryMountCustomTab();
+    }
+
+    function scheduleTryMount() {
+        if (mountPending) {
+            return;
+        }
+        mountPending = true;
+        requestAnimationFrame(function () {
+            mountPending = false;
+            tryMountCustomTab();
+        });
+    }
+
+    // On a hard reload (F5) Custom Tabs restores the active Discovery panel from the
+    // ?tab=N deep link and finishes building it before our MutationObserver exists, so
+    // no further mutation ever fires to trigger a mount - the four fixed timeouts this
+    // replaces could all miss while the async probe/strings were still in flight, leaving
+    // a blank tab until a manual nav produced a fresh mutation. Poll a short bounded
+    // schedule instead, stopping as soon as the active container is filled (or we leave
+    // the home context), so a slow server self-heals instead of racing a fixed deadline.
+    var INITIAL_MOUNT_DELAYS_MS = [250, 500, 1000, 2000, 3500, 5000, 8000];
+
+    function scheduleInitialMountRetries() {
+        var step = 0;
+        function tick() {
+            tryMountCustomTab();
+            if (step >= INITIAL_MOUNT_DELAYS_MS.length) {
+                return;
+            }
+            // A filled active marker means the mount succeeded; stop early. Off the home
+            // context there is nothing to mount, so stop too and let the observer/nav
+            // listeners pick up the next home visit.
+            if (!isOnHomePage()) {
+                return;
+            }
+            var active = findActiveContainer();
+            if (active?.querySelector('.jfh-discovery-container')) {
+                return;
+            }
+            setTimeout(tick, INITIAL_MOUNT_DELAYS_MS[step++]);
+        }
+        tick();
+    }
+
+    function isOnHomePage() {
+        var hash = window.location.hash;
+        return hash === '' || hash === '#/home' || hash === '#/home.html'
+            || hash.includes('#/home?') || hash.includes('#/home.html?');
+    }
+
+    function tryMountCustomTab() {
+        // The watcher may fire before strings have loaded (early start for the F5 race).
+        // Rendering now would flash English fallbacks, so defer until initCustomTab opens
+        // the gate; the retry schedule and queued mutations re-drive the mount right after.
+        if (!_mountEnabled) {
+            return;
+        }
+        if (!isOnHomePage()) {
+            lastMountedContainer = null;
+            return;
+        }
+        // Custom Tabs destroys + rebuilds its panel div on every tab (re)activation,
+        // so a cached host goes stale; drop it when detached and remount into the live one.
+        if (lastMountedContainer && !document.contains(lastMountedContainer)) {
+            lastMountedContainer = null;
+        }
+        // Custom Tabs owns the panel and re-injects our marker on each rebuild. Fill the
+        // live marker only, never create one. A node-identity change (rebuild) or a marker
+        // emptied by the rebuild both re-trigger a render below.
+        var container = findActiveContainer();
+        if (!container) {
+            lastMountedContainer = null;
+            // F5 recovery: on a hard reload Custom Tabs builds the panel via its legacy
+            // path into the Modern layout's display:none .skinBody subtree and never moves
+            // it into <main>, so no VISIBLE container exists even though a marker does. A
+            // hashchange makes Custom Tabs re-render the active tab into <main> (verified:
+            // the panel then lands visible under <main>, same as a real nav). Only nudge
+            // when a stranded marker is actually present and we are on its deep link, and
+            // rate-limit so a tab that legitimately has no visible panel never loops.
+            maybeNudgeStrandedPanel();
+            return;
+        }
+        var needsRender = container !== lastMountedContainer
+            || !container.querySelector('.jfh-discovery-container');
+        if (!needsRender) {
+            return;
+        }
+        renderDiscovery(container);
+        lastMountedContainer = container;
+        // A visible container was found and rendered: the stranded-panel recovery (if any)
+        // succeeded, so refresh the nudge budget for a possible later reload in this session.
+        _nudgeCount = 0;
+    }
+
+    // F5-recovery nudge (see call site). A hard reload can leave the Custom Tabs panel
+    // stranded in the Modern layout's display:none .skinBody subtree; dispatching a
+    // hashchange makes Custom Tabs re-render the active tab into the visible <main>.
+    // Guards: only fire when a marker exists but none is visible, only on a tab deep
+    // link, and at most a few times with a cooldown so a tab that genuinely has no
+    // visible panel (e.g. feature off) can never spin.
+    var _lastNudgeAt = 0;
+    var _nudgeCount = 0;
+    var NUDGE_COOLDOWN_MS = 1500;
+    var MAX_NUDGES = 4;
+
+    function maybeNudgeStrandedPanel() {
+        if (_nudgeCount >= MAX_NUDGES) {
+            return;
+        }
+        // Only act while a tab deep link is active, AND only for the Discovery panel's own index. A hidden
+        // Discovery marker is normal whenever ANOTHER tab is active (e.g. Favorites #/home?tab=1), so matching
+        // any ?tab=N would make us tear down other tabs' panels and fire a synthetic hashchange on a tab that is
+        // working fine. Custom Tabs stamps each panel's data-index with the same N its ?tab=N deep link carries,
+        // so compare the two.
+        var tabMatch = /[?&]tab=(\d+)/.exec(window.location.hash);
+        if (!tabMatch) {
+            return;
+        }
+        var activeIndex = tabMatch[1];
+        // A marker must exist (Custom Tabs built the panel) yet be invisible (parked in a
+        // display:none subtree). If there is no marker at all, Custom Tabs has not built
+        // anything to recover and the normal observer path will handle a later build.
+        var markers = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
+        if (markers.length === 0) {
+            return;
+        }
+        var anyVisible = false;
+        var strandedPanels = [];
+        for (var marker of markers) {
+            if (marker.offsetParent !== null) {
+                anyVisible = true;
+                break;
+            }
+            // Only the stranded panel whose index matches the active deep link is ours to recover.
+            var panel = marker.closest('[id^="customTab_"]');
+            if (panel && String(panel.dataset.index) === activeIndex) {
+                strandedPanels.push(panel);
+            }
+        }
+        // Nudge only when the active deep link's own Discovery panel is the stranded one.
+        if (anyVisible || strandedPanels.length === 0) {
+            return;
+        }
+        var now = Date.now();
+        if (now - _lastNudgeAt < NUDGE_COOLDOWN_MS) {
+            return;
+        }
+        _lastNudgeAt = now;
+        _nudgeCount++;
+        // CRITICAL: remove the stranded, invisible panel BEFORE nudging. Custom Tabs'
+        // renderModernContent() bails early when it finds an existing customTab_ node via
+        // main.querySelector() - and the legacy-inserted panel lives inside <main> (under
+        // the display:none .skinBody), so it satisfies that check and the panel is never
+        // rebuilt into the visible part of <main>. Worse, nudging without removing it first
+        // can leave the stale hidden panel in place while a second visible one is built,
+        // which is the "content duplicated after nav" symptom. Removing only the active
+        // tab's own stranded panel makes the subsequent hashchange rebuild exactly one, visible.
+        for (var strandedPanel of strandedPanels) {
+            strandedPanel.remove();
+        }
+        // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+
+    // Determines if the marker resides in the currently active, VISIBLE tab panel.
+    // Walks ancestors to reject a hidden/inactive legacy tab wrapper, then requires
+    // the element to actually be laid out. The visibility check is authoritative: on a
+    // hard reload Custom Tabs builds the panel via its legacy ensureContentDiv() path,
+    // which inserts it after #favoritesTab inside the Modern layout's .skinBody subtree
+    // (display:none). That subtree carries a .page ancestor (#indexPage) but is invisible,
+    // so a .page-sawTabWrapper shortcut would wrongly accept it and we would render into a
+    // panel the user never sees ("content gone after F5"). offsetParent === null reliably
+    // means the element or an ancestor is display:none (our marker is never position:fixed),
+    // so it catches exactly that case while still accepting the wrapper-less visible panel.
+    function isActiveTabContainer(element) {
+        if (!element?.isConnected) {
+            return false;
+        }
+        var node = element.parentElement;
+        while (node && node !== document.body) {
+            if (node.hidden || node.classList.contains('hide')) {
+                return false;
+            }
+            if (node.classList.contains('tabContent') && !node.classList.contains('is-active')) {
+                return false;
+            }
+            node = node.parentElement;
+        }
+        // Actual layout is the final gate: a panel parked in a display:none subtree
+        // (the F5 legacy-insert case) has a null offsetParent and is correctly rejected.
+        return element.offsetParent !== null;
+    }
+
+    function findActiveContainer() {
+        // Custom Tabs re-injects our marker on each panel (re)build, so re-query the
+        // live DOM every pass and never fall back to a cached node. The deepest/last
+        // active marker wins (a reactivated tab appends after stale siblings).
+        var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
+        for (var i = all.length - 1; i >= 0; i--) {
+            if (isActiveTabContainer(all[i])) {
+                return all[i];
+            }
+        }
+        return null;
+    }
+
+    // The active tab persists across remounts; each tab keeps its own cache
+    // so switching tabs is instant and never shows another tab's data.
+    var _traktEnabled = null;
+    var _traktProbeUserId = null;
+    var _activeTab = 'own';
+    var _traktPersonalCache = null;
+    var _traktTrendingCache = null;
+    // Probe response kept so the personal tab can render without refetching the
+    // same endpoint. Consumed once, cleared on any mutation or account switch.
+    var _traktProbeResult = null;
+    // Guards a second probe while one is in flight for the same user (re-mounts
+    // and late resolvers otherwise fan out duplicate Trakt probes).
+    var _traktProbeInFlight = false;
+    // Sequence per fired probe so a stale timeout/finally can never clobber a newer probe's state.
+    var _traktProbeSeq = 0;
+    // Delayed pending-slot reveal: fast probes (e.g. instant local 403s) never flash
+    // a spinner; only a genuinely slow probe shows one.
+    var TRAKT_PENDING_REVEAL_MS = 300;
+    // Silent probe budget: past this the tab stays single-grid and the next mount re-probes.
+    var TRAKT_PROBE_TIMEOUT_MS = 12000;
+    // Background trending preload so the first tab click usually hits the cache.
+    // Keyed by user; cleared on mutation via invalidateDiscoveryResult.
+    var _trendingPreloadInFlight = false;
+    var _trendingPreloadUserId = null;
+    // Shared own-grid fetch: concurrent mounts attach to one request instead of
+    // firing duplicate GETs (shell-first render + probe-finally re-render).
+    var _ownFetchPromise = null;
+    var _ownFetchUserId = null;
+    var _ownFetchGeneration = -1;
+
+    var TAB_OWN = 'own';
+    var TAB_TRAKT = 'trakt';
+    var TAB_TRENDING = 'trending';
+
+    // Clears every Trakt client-side state so the next mount re-probes from scratch.
+    // Used when the feature is toggled off mid-session (403) or the account changes.
+    function resetTraktState() {
+        _traktEnabled = false;
+        _traktProbeUserId = null;
+        _traktPersonalCache = null;
+        _traktTrendingCache = null;
+        _traktProbeResult = null;
+        _traktProbeInFlight = false;
+        _trendingPreloadInFlight = false;
+        _trendingPreloadUserId = null;
+    }
+
+    function renderDiscovery(container, forceRefresh) {
+        // Probe Trakt once per account so one user's result never gates another user's tabs.
+        // With Trakt off the panel stays the single ensemble grid, without layout shift.
+        var probeUserId = currentDiscoveryUserId();
+        if (_traktEnabled === null || _traktProbeUserId !== probeUserId) {
+            // Read before resetting: a probe still in flight for THIS user must not
+            // fire twice, but an account switch always needs a fresh probe even while
+            // the previous user's request is away (its finally self-discards).
+            var sameUserProbeRunning = _traktProbeInFlight && _traktProbeUserId === probeUserId;
+            _traktProbeUserId = probeUserId;
+            _traktEnabled = null;
+            _traktProbeResult = null;
+            // Render the single own-grid immediately so the tab never stays blank
+            // while the probe is in flight; the probe upgrades to the tab bar below.
+            renderShell(container, forceRefresh);
+            scheduleTraktPending(container, probeUserId);
+            if (sameUserProbeRunning) {
+                return;
+            }
+            _traktProbeInFlight = true;
+            var probeSeq = ++_traktProbeSeq;
+            // Fire-time generation: a mutation (request/dismiss) bumping the generation
+            // while the probe is away must not let the pre-mutation payload pass as fresh.
+            // Only the payload is gated by it; the enabled flag stays live so the tabs
+            // do not flicker away after every mutation (a full probe kill would re-hide
+            // them for the whole probe latency on each request/dismiss).
+            var firedGeneration = _discoveryGeneration;
+            var probeSettled = false;
+            var probeTimer = setTimeout(function () {
+                // Stalled probe: fail closed like a transient error so the pending slot
+                // vanishes instead of spinning forever; the next mount re-probes.
+                if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
+                probeSettled = true;
+                _traktProbeInFlight = false;
+                _traktEnabled = false;
+                _traktProbeUserId = null;
+                hideTraktPending(container);
+            }, TRAKT_PROBE_TIMEOUT_MS);
+            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
+                .then(function (resp) {
+                    // Superseded probes never own shared state; the newest probe's
+                    // callbacks alone decide _traktEnabled and the probe result.
+                    if (probeSettled || probeSeq !== _traktProbeSeq || probeUserId !== currentDiscoveryUserId()) { return; }
+                    _traktEnabled = true;
+                    // Keep the probe payload: it is exactly what the personal tab
+                    // would refetch, so the first visit renders without a second GET.
+                    // Stamped with the fire-time generation so a payload that raced a
+                    // mutation is rejected by the consumer's freshness check.
+                    _traktProbeResult = { resp: resp, userId: probeUserId, generation: firedGeneration };
+                })
+                .catch(function (err) {
+                    if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
+                    if (err?.status === 403) {
+                        resetTraktState();
+                    } else {
+                        // Fail closed on a transient/non-403 error: show the single ensemble grid rather
+                        // than a sticky Trakt tab bar whose tabs would each fail. Clearing the probe-user
+                        // marker lets the next mount re-probe, so a brief network blip self-heals instead
+                        // of latching the broken tabs for the rest of the session.
+                        _traktEnabled = false;
+                        _traktProbeUserId = null;
+                    }
+                })
+                .finally(function () {
+                    probeSettled = true;
+                    clearTimeout(probeTimer);
+                    // Only the newest probe owns the in-flight flag; a stale finally must
+                    // not clear it while the replacement request is away.
+                    if (probeSeq === _traktProbeSeq) {
+                        _traktProbeInFlight = false;
+                    } else {
+                        // Superseded: the replacement probe owns state and UI from here.
+                        return;
+                    }
+                    // The probe result belongs to probeUserId and to this mounted panel:
+                    // drop it if the account switched or the panel detached meanwhile.
+                    if (probeUserId !== currentDiscoveryUserId()) { _traktEnabled = null; return; }
+                    if (!document.contains(container)) { return; }
+                    // Re-render only when the shape changes (tabs now known). The own-grid
+                    // rendered above stays live when Trakt is off, avoiding a duplicate fetch.
+                    // Either way the pending slot is done: the tab bar replaces it, or the
+                    // off path removes it without a trace.
+                    hideTraktPending(container);
+                    if (_traktEnabled) {
+                        renderShell(container, forceRefresh);
+                    }
+                });
+            return;
+        }
+
+        renderShell(container, forceRefresh);
+    }
+
+    // Schedules the uncommented pending slot reserving the tab bar's place while the
+    // silent probe runs. Delayed so fast probes never flash it; guarded so it only ever
+    // appears while a probe is genuinely outstanding and no tab bar exists yet.
+    function scheduleTraktPending(container, probeUserId) {
+        setTimeout(function () {
+            if (probeUserId !== currentDiscoveryUserId()) { return; }
+            if (!document.contains(container)) { return; }
+            if (!_traktProbeInFlight || _traktEnabled) { return; }
+            if (container.querySelector('.jfh-trakt-pending') || container.querySelector('.jfh-discovery-tabs')) { return; }
+            var row = document.createElement('div');
+            row.className = 'jfh-trakt-pending';
+            row.setAttribute('role', 'status');
+            row.innerHTML = '<span class="jfh-trakt-pending-dot" aria-hidden="true"></span>';
+            container.insertBefore(row, container.firstChild);
+        }, TRAKT_PENDING_REVEAL_MS);
+    }
+
+    function hideTraktPending(container) {
+        if (!document.contains(container)) { return; }
+        var row = container.querySelector('.jfh-trakt-pending');
+        if (row) { row.remove(); }
+    }
+
+    // Builds the tab bar (when Trakt is on) plus a content host, then renders the active tab into the host.
+    // With Trakt off there is no tab bar and the host fills with the own-grid directly.
+    function renderShell(container, forceRefresh) {
+        if (!_traktEnabled) {
+            renderOwnTab(container, forceRefresh);
+            return;
+        }
+
+        var tabs =
+            '<div class="jfh-discovery-container"><div class="jfh-discovery-tabs" role="tablist">' +
+            tabButton(TAB_OWN, t('discoveryTabForYou', 'For you')) +
+            tabButton(TAB_TRAKT, t('discoveryTabTraktForYou', 'Trakt for you')) +
+            tabButton(TAB_TRENDING, t('discoveryTabTraktTrending', 'Trakt trending')) +
+            '</div><div class="jfh-discovery-tab-host"></div></div>';
+        container.innerHTML = tabs;
+
+        var buttons = container.querySelectorAll('.jfh-discovery-tab');
+        for (const button of buttons) {
+            button.addEventListener('click', function () {
+                var tab = this.dataset.tab;
+                if (tab === _activeTab) { return; }
+                _activeTab = tab;
+                renderShell(container, false);
+            });
+        }
+
+        var host = container.querySelector('.jfh-discovery-tab-host');
+        // Warm the trending pool in the background while the user reads the first
+        // tab, so opening Trending usually hits the cache instead of cold-fetching.
+        maybePreloadTrending();
+        if (_activeTab === TAB_TRAKT) {
+            renderTraktPersonal(host, forceRefresh);
+        } else if (_activeTab === TAB_TRENDING) {
+            renderTraktTrending(host, forceRefresh);
+        } else {
+            renderOwnTab(host, forceRefresh);
+        }
+    }
+
+    function maybePreloadTrending() {
+        var userId = currentDiscoveryUserId();
+        if (!userId) { return; }
+        if (_traktEnabled !== true) { return; }
+        if (_traktTrendingCache && _traktTrendingCache.userId === userId) { return; }
+        if (_trendingPreloadInFlight && _trendingPreloadUserId === userId) { return; }
+        _trendingPreloadInFlight = true;
+        _trendingPreloadUserId = userId;
+        var startedGeneration = _discoveryGeneration;
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
+            .then(function (data) {
+                if (_discoveryGeneration !== startedGeneration || userId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                _traktTrendingCache = { data: data, userId: userId };
+            })
+            .catch(function () {
+                // Ignored by design: a tab click retries with a spinner, so a failed
+                // silent preload must never surface an error or clear Trakt state.
+            })
+            .finally(function () {
+                if (userId === _trendingPreloadUserId) {
+                    _trendingPreloadInFlight = false;
                 }
             });
+    }
+
+    function tabButton(tab, label) {
+        var cls = 'jfh-discovery-tab' + (tab === _activeTab ? ' jfh-discovery-tab-active' : '');
+        return '<button class="' + cls + '" role="tab" data-tab="' + tab + '">' + esc(label) + '</button>';
+    }
+
+    function renderOwnTab(container, forceRefresh) {
+        // Remounts render instantly from the last good payload, then a silent
+        // background refetch swaps in newer data if the scheduler has run.
+        // Only the first mount (or an explicit refresh after a mutation) shows
+        // the spinner and blocks on the network.
+        if (!forceRefresh) {
+            var cached = getCachedDiscoveryResult();
+            if (cached) {
+                renderCards(container, cached);
+                maybeRefreshInBackground(container);
+                return;
+            }
+        }
+        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
+        // A shell-first render plus the probe-finally upgrade can reach this path
+        // twice for the same user/generation. Attach to the in-flight request
+        // instead of firing a duplicate GET; each caller renders into its own host.
+        if (_ownFetchPromise && _ownFetchUserId === startedUserId && _ownFetchGeneration === startedGeneration) {
+            _ownFetchPromise.then(function (data) {
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!document.contains(container)) {
+                    return;
+                }
+                // The probe upgrade may have turned this container into a tab shell
+                // meanwhile; the fresh tab-host render owns the UI, so a stale
+                // own-grid result must not overwrite the tab bar.
+                if (container.querySelector('.jfh-discovery-tabs')) {
+                    return;
+                }
+                setCachedDiscoveryResult(data);
+                renderCards(container, data);
+                // An own render replaces the container content and may have wiped a
+                // shown pending slot; re-schedule it (no-op unless a probe is still out).
+                scheduleTraktPending(container, startedUserId);
+            }).catch(function (err) {
+                // Same staleness contract as the success path: a mutation or account
+                // switch during the fetch makes this failure another render's problem.
+                // Without the generation check a stale 403 would re-invalidate (bumping
+                // the generation) and discard the newer in-flight result.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!document.contains(container)) {
+                    return;
+                }
+                renderOwnError(container, err);
+            });
+            return;
+        }
+        _ownFetchUserId = startedUserId;
+        _ownFetchGeneration = startedGeneration;
+        _ownFetchPromise = ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' });
+        _ownFetchPromise
+            .then(function (data) {
+                // A mutation or account switch during the fetch makes this result
+                // stale; drop it rather than cache/render outdated or cross-user data.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!document.contains(container)) {
+                    return;
+                }
+                // Same upgrade race as the shared-fetch path above: never let a stale
+                // own-grid overwrite a tab shell built while this request was away.
+                if (container.querySelector('.jfh-discovery-tabs')) {
+                    return;
+                }
+                setCachedDiscoveryResult(data);
+                renderCards(container, data);
+                // Same pending-slot re-schedule as the shared-fetch path above.
+                scheduleTraktPending(container, startedUserId);
+            })
+            .catch(function (err) {
+                // Same staleness contract as above: drop the failure when a mutation
+                // or account switch moved the generation on while it was in flight.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                renderOwnError(container, err);
+            })
+            .finally(function () {
+                if (_ownFetchUserId === startedUserId && _ownFetchGeneration === startedGeneration) {
+                    _ownFetchPromise = null;
+                }
+            });
+    }
+
+    function renderOwnError(container, err) {
+        if (!document.contains(container)) {
+            return;
+        }
+        var fallback = getCachedDiscoveryResult();
+        if (err?.status === 403) {
+            invalidateDiscoveryResult();
+        } else if (fallback) {
+            // Transient failure: rather show the last known cards than a blank page.
+            // A tab shell built meanwhile owns the UI; do not overwrite it.
+            if (!container.querySelector('.jfh-discovery-tabs')) {
+                renderCards(container, fallback);
+                scheduleTraktPending(container, currentDiscoveryUserId());
+            }
+            return;
+        }
+        // Same upgrade race as the success path: state above is still cleaned,
+        // but the message must not wipe a freshly built tab bar.
+        if (container.querySelector('.jfh-discovery-tabs')) {
+            return;
+        }
+        var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
+        if (err?.status === 403) {
+            msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
+        }
+        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+        // Surface a user-friendly toast for non-200 responses (never raw backend details)
+        var serverMessage = extractErrorMessage(err);
+        if (serverMessage) {
+            showToast(getUserFriendlyErrorMessage(serverMessage));
+        }
+        // Error renders replace the container content too; re-schedule the pending
+        // slot (no-op unless a probe is still genuinely outstanding).
+        scheduleTraktPending(container, currentDiscoveryUserId());
+    }
+
+    // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
+    // self-refresh in the background: the scheduled task warms both server-side pools, so a tab load
+    // reflects the latest warmed data without a client-side refetch loop. A card mutation still bumps
+    // _discoveryGeneration and nulls these caches, so the next render re-fetches fresh data.
+    function renderTraktPersonal(host, forceRefresh) {
+        if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
+            renderCards(host, _traktPersonalCache.data);
+            return;
+        }
+        // The shell probe already fetched this exact endpoint. Render from it
+        // instead of firing a duplicate GET on the first visit.
+        if (!forceRefresh && _traktProbeResult && _traktProbeResult.userId === currentDiscoveryUserId()
+            && _traktProbeResult.generation === _discoveryGeneration) {
+            var probed = _traktProbeResult;
+            _traktProbeResult = null;
+            if (probed.resp?.Linked !== true) {
+                renderTraktNotLinked(host);
+                return;
+            }
+            _traktPersonalCache = { data: probed.resp.Result, userId: probed.userId };
+            renderCards(host, probed.resp.Result);
+            return;
+        }
+
+        host.innerHTML = spinnerHtml();
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
+            .then(function (resp) {
+                // Drop results that raced an account switch or a mutation:
+                // never cache or render cross-user data.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (resp?.Linked !== true) {
+                    renderTraktNotLinked(host);
+                    return;
+                }
+                _traktPersonalCache = { data: resp.Result, userId: startedUserId };
+                renderCards(host, resp.Result);
+            })
+            .catch(function (err) {
+                // Same stale-response guard as the success path: a 403 from the
+                // previous account must not reset the new user's Trakt state.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                renderTraktError(host, err);
+            });
+    }
+
+    // Global trending tab: no linking required, just fetch and render the per-user-scored pool.
+    function renderTraktTrending(host, forceRefresh) {
+        if (!forceRefresh && _traktTrendingCache && _traktTrendingCache.userId === currentDiscoveryUserId()) {
+            renderCards(host, _traktTrendingCache.data);
+            return;
+        }
+
+        host.innerHTML = spinnerHtml();
+        var startedGeneration = _discoveryGeneration;
+        var startedUserId = currentDiscoveryUserId();
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
+            .then(function (data) {
+                // Same account-switch/mutation guard as the other tabs.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                _traktTrendingCache = { data: data, userId: startedUserId };
+                renderCards(host, data);
+            })
+            .catch(function (err) {
+                // Same stale-response guard as the success path (see personal tab).
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                renderTraktError(host, err);
+            });
+    }
+
+    function renderTraktError(host, err) {
+        if (err?.status === 403) {
+            // Feature toggled off mid-session: hide the tabs on the next mount.
+            resetTraktState();
+        }
+        var msg = (err?.status === 403)
+            ? t('discoveryTraktDisabled', 'Trakt is not enabled. Ask your server administrator to enable it in Jellyfin Helper settings.')
+            : t('discoveryLoadError', 'Could not load discovery suggestions.');
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+    }
+
+    function spinnerHtml() {
+        return '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations…')) + '</span></div></div>';
+    }
+
+    // Trakt is sourced only through the official Trakt plugin, so there is no in-app connect flow; a not-linked
+    // user is told to link in that plugin, after which recommendations appear here automatically.
+    function renderTraktNotLinked(host) {
+        var msg = t('discoveryTraktNotLinkedOfficial', 'Trakt is not linked for your account. Connect your Trakt account in the official Trakt plugin; recommendations will appear here automatically.');
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
     }
 
     function renderCards(container, userDiscovery) {
@@ -343,6 +1130,15 @@
                 extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
                     '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
             }
+            // Trakt deep link to the canonical trakt.tv page via the slug the API returns
+            // (ids.slug). The old trakt.tv/search/tmdb/:id route 404s, and slugs must never be
+            // guessed from titles, so the link renders only with a sane slug while Trakt is on.
+            if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
+                var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
+                var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
+                extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
+                    '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
+            }
             extLinksHtml += '</div>';
 
             if (posterUrl) {
@@ -362,7 +1158,12 @@
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
             var scoreClass = getDiscoveryScoreClass(scorePercent);
-            var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + '</div>';
+            // On the Trakt tabs the cards keep Trakt's own ranking, so the percentage is our local signal, not
+            // the sort order. Flag it with a small "Local score" tag so a lower % sitting above a higher % reads
+            // as intentional. The normal Seerr tab, which IS sorted by this score, shows no tag.
+            var isTraktTab = _activeTab === TAB_TRAKT || _activeTab === TAB_TRENDING;
+            var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
+            var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
             var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
@@ -613,6 +1414,10 @@
             dataType: 'json'
         }).then(function (result) {
             if (result && result.Success) {
+                // Invalidate immediately on success so a stale pool is never
+                // served again, even if the user leaves the tab before the
+                // card-removal animation below runs.
+                invalidateDiscoveryResult();
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
                 // Hide dismiss button in the same row
@@ -630,7 +1435,7 @@
                         setTimeout(function () {
                             card.remove();
                             if (lastMountedContainer) {
-                                renderDiscovery(lastMountedContainer);
+                                renderDiscovery(lastMountedContainer, true);
                             } else {
                                 checkEmptyDiscoveryState(scopeEl);
                             }
@@ -742,6 +1547,10 @@
             contentType: 'application/json',
             dataType: 'json'
         }).then(function () {
+            // Invalidate immediately on success so the dismissed item is never
+            // served from cache again, even if the user navigates away before
+            // the fade-out animation below completes.
+            invalidateDiscoveryResult();
             // Remove the card with a fade-out animation
             var card = btn.closest('.jfh-discovery-card');
             if (card) {
@@ -752,7 +1561,7 @@
                 setTimeout(function () {
                     card.remove();
                     if (lastMountedContainer) {
-                        renderDiscovery(lastMountedContainer);
+                        renderDiscovery(lastMountedContainer, true);
                     } else {
                         checkEmptyDiscoveryState(scopeEl);
                     }
@@ -800,7 +1609,9 @@
 
     function esc(str) {
         if (!str) return '';
-        return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+        // Coerce before escaping: a caller may pass a number (e.g. a year or rating), and replaceAll
+        // only exists on strings - without this a non-string value throws instead of being escaped.
+        return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
     function initSidebar() {
@@ -841,84 +1652,210 @@
             '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
-            var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-            // Strategy 1: Find the discovery container in the DOM, determine its tab index dynamically.
-            // This works regardless of the user-configured tab name.
-            var container = document.querySelector(CUSTOM_TAB_SELECTOR);
-            if (container) {
-                var tabContent = container.closest('[data-index]');
-                if (tabContent) {
-                    var index = Number.parseInt(tabContent.dataset.index, 10);
-                    if (!Number.isNaN(index) && tabs[index]) {
-                        tabs[index].click();
-                        return;
-                    }
-                }
+            if (activateDiscoveryTab()) {
+                return;
             }
-            // Strategy 2: data-attribute match (future Custom Tabs versions may set these)
-            for (var i = 0; i < tabs.length; i++) {
-                if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
-                    tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
-                    tabs[i].click();
-                    return;
-                }
-            }
-            // Strategy 3: Navigate to home first, then retry after DOM settles
-            // (handles case where user is not on the home page)
+            // Not on the home page (or the tab bar has not mounted yet): go home
+            // first, then retry once the DOM settles.
             if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
                 Emby.Page.show('/home.html');
                 setTimeout(function () {
-                    var retryContainer = document.querySelector(CUSTOM_TAB_SELECTOR);
-                    if (retryContainer) {
-                        var retryTabContent = retryContainer.closest('[data-index]');
-                        if (retryTabContent) {
-                            var retryIndex = Number.parseInt(retryTabContent.dataset.index, 10);
-                            var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-                            if (!Number.isNaN(retryIndex) && retryTabs[retryIndex]) {
-                                retryTabs[retryIndex].click();
-                            }
-                        }
+                    if (!activateDiscoveryTab()) {
+                        notifyDiscoveryTabMissing();
                     }
                 }, 800);
                 return;
             }
-            // Fallback: show informational message
-            if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
-                Dashboard.alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
-            } else {
-                showToast(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
-            }
+            notifyDiscoveryTabMissing();
         });
         section.appendChild(navItem);
     }
 
-    waitForApi(function () {
-        loadStrings(function () {
-            // Check if Discovery is available before injecting UI elements.
-            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
-                .then(function (data) {
-                    if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-                        // No discovery data available (task deactivated/dry-run/no results yet) Still init Custom Tab so it can show "no results" message if container exists, but do NOT inject sidebar navigation - no point advertising a feature with no content.
-                        initCustomTab();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        return;
-                    }
-                    // Discovery is active and has recommendations - full initialization.
-                    // Wait for external links config (Seerr URL) before rendering to ensure
-                    // the Seerr link is available on the first card render.
-                    loadExternalLinksConfig().finally(function () {
-                        initCustomTab();
-                        initSidebar();
-                        setTimeout(tryMountCustomTab, 500);
-                        setTimeout(tryMountCustomTab, 1500);
-                        setTimeout(tryMountCustomTab, 3000);
-                        setTimeout(tryMountCustomTab, 5000);
-                    });
-                })
-                .catch(function () {
-                    // 403 (disabled) or network error - do not inject any Discovery UI
-                });
+    // Activate the Custom Tab that holds the discovery marker, across both the
+    // Jellyfin 12 Modern (MUI) header/drawer and the legacy tab bar. Returns
+    // true when a tab control was triggered (or a hash navigation was issued).
+    function activateDiscoveryTab() {
+        var container = document.querySelector(CUSTOM_TAB_SELECTOR);
+        if (!container) {
+            return false;
+        }
+        var panel = container.closest('[data-index]');
+        var dataIndex = panel ? Number.parseInt(panel.dataset.index, 10) : Number.NaN;
+
+        // Modern layout: tab controls are MUI anchors whose href carries the
+        // same ?tab=N deep link the panel's data-index encodes. Match on the
+        // href so the user-configured tab title/position is irrelevant.
+        if (!Number.isNaN(dataIndex)) {
+            var modernLink = document.querySelector(
+                'header.MuiAppBar-root a[href$="?tab=' + dataIndex + '"], '
+                + 'header.MuiAppBar-root a[href$="&tab=' + dataIndex + '"], '
+                + '.MuiDrawer-paper a[href$="?tab=' + dataIndex + '"], '
+                + '.MuiDrawer-paper a[href$="&tab=' + dataIndex + '"]');
+            if (modernLink) {
+                modernLink.click();
+                return true;
+            }
+        }
+
+        var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
+        // Legacy layout: data-index is the positional index into the tab bar.
+        if (!Number.isNaN(dataIndex) && tabs[dataIndex]) {
+            tabs[dataIndex].click();
+            return true;
+        }
+        // data-attribute match (future Custom Tabs versions may set these).
+        for (var i = 0; i < tabs.length; i++) {
+            if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
+                tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
+                tabs[i].click();
+                return true;
+            }
+        }
+        // Modern fallback: no anchor found but the panel knows its deep link, so
+        // route via the hash and let Custom Tabs' own hashchange handler render.
+        if (!Number.isNaN(dataIndex) && document.querySelector('header.MuiAppBar-root')) {
+            window.location.hash = '#/home?tab=' + dataIndex;
+            return true;
+        }
+        return false;
+    }
+
+    function notifyDiscoveryTabMissing() {
+        var msg = t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.');
+        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
+            Dashboard.alert(msg);
+        } else {
+            showToast(msg);
+        }
+    }
+
+    // The script is injected into the single index.html Jellyfin serves for every
+    // SPA route, so it also loads on admin/dashboard pages (e.g. #!/configurationpage)
+    // where no Discovery tab can ever appear. Probing /Discovery/My there is wasted
+    // traffic and, when the feature is disabled, a 403 the browser logs as a console
+    // error. Gate the whole bootstrap on the home context (the same isOnHomePage
+    // signal the mount logic already trusts).
+    //
+    // The full UI (sidebar + tab) inits only once. An empty probe is NOT terminal: a
+    // scheduled task may produce recommendations later in the same SPA session, so we
+    // leave the gate open and re-probe on later home visits until results appear. A 403
+    // (feature disabled by the admin) IS terminal - re-probing would only replay the 403.
+    var _bootstrapped = false;
+    var _discoveryDisabled = false;
+    var _probeInFlight = false;
+    // The user the gates above were last decided for. An in-tab account switch must not inherit
+    // the previous user's terminal 403 or in-flight probe, so a change resets the bootstrap gate.
+    var _probedUserId = null;
+
+    function initDiscoveryUiEmpty() {
+        // No discovery data available (task deactivated/dry-run/no results yet). Still init
+        // Custom Tab so it can show a "no results" message if the container exists, but do NOT
+        // inject sidebar navigation - no point advertising a feature with no content.
+        initCustomTab();
+        scheduleInitialMountRetries();
+    }
+
+    function initDiscoveryUiFull() {
+        // Render immediately; the Seerr-links config loads in parallel (fired in
+        // bootstrapDiscovery) and re-renders once if it arrives late with a URL.
+        initCustomTab();
+        initSidebar();
+        scheduleInitialMountRetries();
+    }
+
+    function handleDiscoveryProbe(data, startedUserId) {
+        // A later account switch started a fresh bootstrap; this result predates it and must not
+        // flip gates or inject UI for the previous user.
+        if (startedUserId !== currentDiscoveryUserId()) {
+            return;
+        }
+        // Check if Discovery is available before injecting UI elements.
+        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+            // Leave the gate open: results may appear after a later scheduled run, and a future
+            // home visit re-probes to upgrade to the full UI without a page reload.
+            initDiscoveryUiEmpty();
+            return;
+        }
+        _bootstrapped = true;
+        // Seed the own-grid cache with the probe payload: it is what the first mount
+        // would fetch moments later, so the initial render is a cache hit.
+        _discoveryResultCache = { data: data, userId: startedUserId };
+        initDiscoveryUiFull();
+    }
+
+    function probeDiscoveryAvailability(startedUserId) {
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+            .then(function (data) {
+                handleDiscoveryProbe(data, startedUserId);
+            })
+            .catch(function (err) {
+                // Ignore a stale response once the account has switched - a prior user's 403 must
+                // not disable Discovery for whoever is signed in now.
+                if (startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                // 403 means the admin disabled the feature: terminal, do not re-probe. Any other
+                // error (network/transient) leaves the gate open for a later retry.
+                if (err?.status === 403) {
+                    _discoveryDisabled = true;
+                }
+            })
+            .finally(function () {
+                // Only the current generation owns the gate; a stale finally must not clear a gate
+                // a newer bootstrap set.
+                if (startedUserId === currentDiscoveryUserId()) {
+                    _probeInFlight = false;
+                }
+            });
+    }
+
+    function bootstrapDiscovery() {
+        // Reset the gates on an in-tab account switch: a prior user's 403 or in-flight probe must
+        // not block a different user who may well have access.
+        var userId = currentDiscoveryUserId();
+        if (userId && userId !== _probedUserId) {
+            _probedUserId = userId;
+            _bootstrapped = false;
+            _discoveryDisabled = false;
+            _probeInFlight = false;
+        }
+        if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
+            return;
+        }
+        // Start the DOM watcher the moment we know we are on a home context, before the
+        // async probe. On a hard reload Custom Tabs restores the active Discovery panel
+        // immediately; the watcher must already be listening or the restore mutation is
+        // missed and the tab stays blank. Mounts stay gated (_mountEnabled) until strings
+        // load, so this cannot render untranslated content early.
+        startCustomTabWatcher();
+        _probeInFlight = true;
+        waitForApi(function () {
+            // Pin the generation only once a user is actually present (waitForApi may have polled
+            // through the signed-out gap). Every async step below re-checks it against the live user
+            // so an account switch mid-flight cannot let a stale callback touch shared state or the UI.
+            var startedUserId = currentDiscoveryUserId();
+            // Seerr-links config loads in parallel with strings/probe instead of gating
+            // first render. A late-arriving URL re-renders the live view once (cache-hit
+            // path, no loading flash) so cards gain their Seerr links.
+            var seerrBefore = _seerrBaseUrl;
+            loadExternalLinksConfig().finally(function () {
+                if (!seerrBefore && _seerrBaseUrl && startedUserId === currentDiscoveryUserId()
+                    && lastMountedContainer && document.contains(lastMountedContainer)) {
+                    renderDiscovery(lastMountedContainer, false);
+                }
+            });
+            loadStrings(function () {
+                if (startedUserId !== currentDiscoveryUserId()) { return; }
+                probeDiscoveryAvailability(startedUserId);
+            });
+        }, function () {
+            // API never became available (timeout): release the gate so a later sign-in can re-probe.
+            _probeInFlight = false;
         });
-    });
+    }
+
+    // Try at load, and on every SPA navigation until the first home context is seen.
+    bootstrapDiscovery();
+    window.addEventListener('hashchange', bootstrapDiscovery);
+    window.addEventListener('popstate', bootstrapDiscovery);
 })();

@@ -16,6 +16,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Querying;
@@ -73,6 +74,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private const int CreditsEnrichmentTimeoutMs = 8_000;
 
     /// <summary>
+    ///     Maximum degree of parallelism for metadata enrichment fetches.
+    ///     Same budget as credits enrichment: bounded Seerr detail calls per candidate.
+    /// </summary>
+    private const int MetadataEnrichmentParallelism = 3;
+
+    /// <summary>
+    ///     Per-request timeout for metadata enrichment calls, in milliseconds.
+    /// </summary>
+    private const int MetadataEnrichmentTimeoutMs = 8_000;
+
+    /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
@@ -114,6 +126,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static readonly TimeSpan SeerrUserCacheTtl = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    ///     TTL for the cached shared exclusion set (library + Arr titles). Scoring runs per user and per
+    ///     view, but the underlying library and Arr rosters barely move within minutes.
+    /// </summary>
+    private static readonly TimeSpan ExclusionCacheTtl = TimeSpan.FromMinutes(5);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
@@ -122,18 +140,28 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginLogService _pluginLog;
+    private readonly ISecretProtector _secretProtector;
     private readonly ILogger<SeerrDiscoveryService> _logger;
 
     /// <summary>
     ///     Cached Seerr user list to avoid re-fetching the full paginated roster on every ResolveSeerrUserIdAsync call (e.g., every frontend request).
     /// </summary>
     private readonly Lock _userCacheLock = new();
+    private readonly Lock _exclusionCacheLock = new();
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
     // Holds the in-flight roster fetch so concurrent callers coalesce onto a single Seerr request
     // instead of each launching their own. Cleared when the fetch completes so the next miss refreshes.
     private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)>? _inflightUserFetch;
+
+    private HashSet<(int TmdbId, string MediaType)>? _cachedExclusions;
+    private DateTime _exclusionsExpiry = DateTime.MinValue;
+
+    // Holds the in-flight exclusion build so concurrent cache misses coalesce onto a single library
+    // scan plus Arr roster download instead of each launching their own. Cleared when the build
+    // settles so the next miss refreshes.
+    private Task<HashSet<(int TmdbId, string MediaType)>>? _inflightExclusionBuild;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
@@ -146,6 +174,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="secretProtector">Decrypts the stored Seerr API key before it is used for outbound calls.</param>
     /// <param name="logger">The logger instance.</param>
     public SeerrDiscoveryService(
         IHttpClientFactory httpClientFactory,
@@ -156,6 +185,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         DiscoveryCacheService cache,
         IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
+        ISecretProtector secretProtector,
         ILogger<SeerrDiscoveryService> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
@@ -166,6 +196,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
+        ArgumentNullException.ThrowIfNull(secretProtector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _httpClientFactory = httpClientFactory;
@@ -176,6 +207,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _cache = cache;
         _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
+        _secretProtector = secretProtector;
         _logger = logger;
     }
 
@@ -249,7 +281,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
-        var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var excludedTmdbIds = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + Arr - per-user dismissed/requested merged later).",
@@ -449,7 +481,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -461,7 +493,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
 
         try
         {
@@ -751,7 +783,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -763,7 +795,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Invalid Seerr configuration.");
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
         return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
     }
@@ -947,7 +979,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -959,7 +991,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             return await FetchAllUserPagesAsync(client, baseUri, apiKey, cancellationToken).ConfigureAwait(false);
@@ -1124,7 +1156,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string apiKey;
         try
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -1136,7 +1168,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         try
         {
             using var listRequest = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}", apiKey);
@@ -1696,9 +1728,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // propagate so TryGenerateForUserAsync classifies it as a transient failure and preserves the
         // user's last-known-good pool rather than clearing it. (In practice the global config check at the
         // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
-        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
+        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
 
-        var client = GetSeerrClient();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var allCandidates = new List<TmdbDiscoverItem>();
 
         // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
@@ -1740,64 +1772,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
             _logger);
 
-        // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
-        // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
-        // once per user and read the feature means from the SAME instance that scores, so a per-user model
-        // materializing mid-run cannot leave scoring and feature means on two different models.
-        var userStrategy = _perUserRegistry.GetEnsembleForUser(profile.UserId);
-        var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
-
-        // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
-        var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
-        foreach (var candidate in uniqueCandidates)
-        {
-            var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = userStrategy.Score(features);
-            preScored.Add((candidate, score));
-        }
-
-        // Sort by pre-score and take top-N for credits enrichment
-        preScored.Sort((a, b) => b.Score.CompareTo(a.Score));
-        var enrichmentCandidates = preScored
-            .Take(CreditsEnrichmentBudget)
-            .Select(s => s.Item)
-            .ToList();
-
-        // Phase 2: ENRICH top candidates with credits data (actors/directors)
-        // Only performed when the user has people preferences to match against.
-        if (preferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
-        {
-            await EnrichTopCandidatesWithCreditsAsync(
-                client, baseUri, apiKey, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
-
-            var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
-            _pluginLog.LogDebug(
-                LogCategory,
-                $"User {profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
-                _logger);
-        }
-
-        // Phase 3: FINAL SCORE the enriched candidates (now with PeopleSimilarity)
-        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(enrichmentCandidates.Count);
-        foreach (var candidate in enrichmentCandidates)
-        {
-            var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, genrePreferences, preferredPeople, avgYear, genreExposure, profile, featureMeans);
-            var score = userStrategy.Score(features);
-            scored.Add((candidate, features, score));
-        }
-
-        // Rank and select top-N from enriched candidates
-        scored.Sort((a, b) => b.Score.CompareTo(a.Score));
-        var topN = scored.Take(MaxPoolPerUser).ToList();
-
-        // Build recommendations
-        var recommendations = new List<DiscoveryRecommendation>(topN.Count);
-        foreach (var (item, features, score) in topN)
-        {
-            recommendations.Add(BuildRecommendation(item, features, score, topGenres, preferredPeople));
-        }
+        var recommendations = await ScoreCandidatesForUserAsync(
+            new CandidateScoringContext
+            {
+                Profile = profile,
+                Candidates = uniqueCandidates,
+                TopGenres = topGenres,
+                GenrePreferences = genrePreferences,
+                PreferredPeople = preferredPeople,
+                AvgYear = avgYear,
+                GenreExposure = genreExposure,
+                Client = client,
+                BaseUri = baseUri,
+                ApiKey = apiKey,
+            },
+            cancellationToken).ConfigureAwait(false);
 
         return new DiscoveryResult
         {
@@ -1806,6 +1795,315 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Recommendations = recommendations,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
+        Guid jellyfinUserId,
+        IReadOnlyList<ExternalDiscoveryCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config is null || string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            // Enrichment and the shared scorer both need a reachable Seerr; without it we cannot score.
+            return null;
+        }
+
+        var profile = _watchHistoryService.GetUserWatchProfile(jellyfinUserId);
+        if (profile is null)
+        {
+            return null;
+        }
+
+        var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
+        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
+        if (genrePreferences.Count == 0)
+        {
+            return null;
+        }
+
+        var topGenres = genrePreferences
+            .OrderByDescending(kv => kv.Value)
+            .Take(3)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        var avgYear = ContentScoring.ComputeAverageYear(profile);
+        var preferredPeople = BuildPreferredPeopleSet(profile);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
+        var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
+
+        Uri baseUri;
+        string apiKey;
+        try
+        {
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(LogCategory, $"External scoring: invalid Seerr configuration: {ex.Message}", logger: _logger);
+            return null;
+        }
+
+        // Score external candidates through the same exclusion + parental + quality filter as local
+        // ones, so owned titles are never suggested or offered for duplicate requests.
+        var mapped = candidates.Select(ToTmdbItem).ToList();
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
+        var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
+        if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
+        {
+            // Fail closed for restricted profiles: without enriched genres the parental blacklist cannot
+            // judge, so drop items the enrichment could not reach rather than risk restricted titles.
+            mapped.RemoveAll(c => !enrichedKeys.Contains((c.Id, c.MediaType)));
+        }
+
+        var sharedExclusions = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var userExcluded = BuildUserExclusionSet(profile, sharedExclusions);
+
+        // Drop anything our own local discovery already recommends to this user, so the Trakt tab never
+        // duplicates a title the "For you" tab is already showing. Best-effort: a cache miss or read failure
+        // must not break Trakt scoring.
+        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded).ConfigureAwait(false);
+
+        // The Trakt tab preserves Trakt's own ranking, so our soft quality floors (minimum rating, minimum
+        // year) must not silently prune what Trakt deliberately surfaced. Disable both for this path by passing
+        // 0 - ComputeMinYear returns 0 when avgYear is 0. The real avgYear still flows into the scoring context
+        // below as a feature input; only the filter thresholds are relaxed. Hard filters (parental, owned,
+        // excluded set, dedup) stay fully active.
+        var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVoteAverage: 0, avgYear: 0, isChildAccount);
+        if (uniqueCandidates.Count == 0)
+        {
+            return null;
+        }
+
+        var recommendations = await ScoreCandidatesForUserAsync(
+            new CandidateScoringContext
+            {
+                Profile = profile,
+                Candidates = uniqueCandidates,
+                TopGenres = topGenres,
+                GenrePreferences = genrePreferences,
+                PreferredPeople = preferredPeople,
+                AvgYear = avgYear,
+                GenreExposure = genreExposure,
+                Client = client,
+                BaseUri = baseUri,
+                ApiKey = apiKey,
+
+                // Preserve the external source's own ranking (e.g. Trakt's recommendation order) instead of
+                // re-ranking by our local score; the score still shows on the card as supporting info.
+                RankBasedOrdering = true,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // Keep the per-item feature reason that BuildRecommendation computed (e.g. "reasonGenre: Sci-Fi") so the
+        // card explains WHY this title fits the user. The Trakt tab itself signals the source, so no generic
+        // source stamp is layered on top (that would clobber the feature reason the card now shows).
+
+        return new DiscoveryResult
+        {
+            UserId = profile.UserId,
+            UserName = profile.UserName,
+            Recommendations = recommendations,
+            GeneratedAt = DateTime.UtcNow
+        };
+    }
+
+    /// <inheritdoc />
+    public DiscoveryResult FilterConsumedItems(Guid jellyfinUserId, DiscoveryResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        HashSet<(int TmdbId, string MediaType)>? excluded = null;
+        try
+        {
+            var dismissed = _feedbackStore.GetDismissedItems(jellyfinUserId);
+            var requested = _feedbackStore.GetRequestedItems(jellyfinUserId);
+            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0)
+            {
+                excluded = new HashSet<(int TmdbId, string MediaType)>();
+                if (dismissed is not null)
+                {
+                    excluded.UnionWith(dismissed);
+                }
+
+                if (requested is not null)
+                {
+                    excluded.UnionWith(requested);
+                }
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Consumed-item filter unavailable for user {jellyfinUserId}; serving unfiltered: {ex.Message}",
+                _logger);
+        }
+
+        return new DiscoveryResult
+        {
+            UserId = result.UserId,
+            UserName = result.UserName,
+            Recommendations = excluded is null
+                ? [.. result.Recommendations]
+                : result.Recommendations
+                    .Where(r =>
+                    {
+                        var mediaType = string.IsNullOrWhiteSpace(r.MediaType) ? MediaTypeMovie : r.MediaType.Trim().ToLowerInvariant();
+                        return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, mediaType));
+                    })
+                    .ToList(),
+            GeneratedAt = result.GeneratedAt,
+        };
+    }
+
+    // Projects a public external candidate onto the internal TMDb candidate shape the scorer consumes.
+    private static TmdbDiscoverItem ToTmdbItem(ExternalDiscoveryCandidate c)
+    {
+        var isTv = string.Equals(c.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
+
+        // Only build a date from a year the DateTime constructor accepts: an external candidate can carry a
+        // 0 / negative / >9999 year, and letting that reach the constructor would throw and sink the whole
+        // list. An out-of-range year is treated as no date, so the rest of the item still scores.
+        var yearForDate = c.Year is >= 1 and <= 9999 ? c.Year : null;
+        return new TmdbDiscoverItem
+        {
+            Id = c.TmdbId,
+            MediaType = isTv ? "tv" : MediaTypeMovie,
+            Title = isTv ? null : c.Title,
+            Name = isTv ? c.Title : null,
+            GenreIds = [.. c.GenreIds],
+            VoteAverage = c.VoteAverage,
+            Popularity = c.Popularity,
+            PosterPath = c.PosterPath,
+            Overview = c.Overview,
+            Adult = c.Adult,
+            ReleaseDate = !isTv && yearForDate.HasValue ? new DateTime(yearForDate.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            FirstAirDate = isTv && yearForDate.HasValue ? new DateTime(yearForDate.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null,
+            TraktSlug = c.TraktSlug,
+            SourceRank = c.SourceRank,
+        };
+    }
+
+    /// <summary>
+    ///     Runs the shared three-phase scoring pipeline over an already-filtered candidate set: pre-score with
+    ///     the user's ensemble, enrich the top-N with credits when the user has people preferences, final-score
+    ///     the enriched set, and project the top results into recommendations. Extracted from
+    ///     GenerateForUserAsync so the Trakt external source scores candidates through the exact same path.
+    /// </summary>
+    private async Task<List<DiscoveryRecommendation>> ScoreCandidatesForUserAsync(
+        CandidateScoringContext context,
+        CancellationToken cancellationToken)
+    {
+        // The user's own ensemble (per-user blend when they have enough history, else the global fallback),
+        // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
+        // once per user and read the feature means from the SAME instance that scores, so a per-user model
+        // materializing mid-run cannot leave scoring and feature means on two different models.
+        var userStrategy = _perUserRegistry.GetEnsembleForUser(context.Profile.UserId);
+        var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
+
+        // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
+        var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
+        foreach (var candidate in context.Candidates)
+        {
+            var features = ExternalCandidateFeatureBuilder.Build(
+                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
+            var score = userStrategy.Score(features);
+            preScored.Add((candidate, score));
+        }
+
+        // Sort for enrichment selection: by source rank when the source supplies its own ordering (Trakt),
+        // otherwise by pre-score. Sorting before the Take is load-bearing. A score-based Take would drop
+        // low-score-but-high-rank items the rank-based path must keep.
+        if (context.RankBasedOrdering)
+        {
+            preScored.Sort((a, b) => CompareBySourceRank(a.Item, b.Item));
+        }
+        else
+        {
+            preScored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        }
+
+        var enrichmentCandidates = preScored
+            .Take(CreditsEnrichmentBudget)
+            .Select(s => s.Item)
+            .ToList();
+
+        // Phase 2: ENRICH top candidates with credits data (actors/directors)
+        // Only performed when the user has people preferences to match against.
+        if (context.PreferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
+        {
+            await EnrichTopCandidatesWithCreditsAsync(
+                context.Client, context.BaseUri, context.ApiKey, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
+
+            var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"User {context.Profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
+                _logger);
+        }
+
+        // Phase 3: FINAL SCORE the enriched candidates (now with PeopleSimilarity)
+        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(enrichmentCandidates.Count);
+        foreach (var candidate in enrichmentCandidates)
+        {
+            var features = ExternalCandidateFeatureBuilder.Build(
+                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
+            var score = userStrategy.Score(features);
+            scored.Add((candidate, features, score));
+        }
+
+        // Final ordering: honor the source rank for a rank-based source, else rank by score.
+        if (context.RankBasedOrdering)
+        {
+            scored.Sort((a, b) => CompareBySourceRank(a.Item, b.Item));
+        }
+        else
+        {
+            scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        }
+
+        var topN = scored.Take(MaxPoolPerUser).ToList();
+
+        // Build recommendations
+        var recommendations = new List<DiscoveryRecommendation>(topN.Count);
+        foreach (var (item, features, score) in topN)
+        {
+            recommendations.Add(BuildRecommendation(item, features, score, context.TopGenres, context.PreferredPeople));
+        }
+
+        return recommendations;
+    }
+
+    // Orders by source rank ascending (lower rank = better), with null ranks sorted last so a candidate the
+    // source did not rank never displaces a ranked one. Ties keep the input order (stable callers use List.Sort,
+    // which is not stable, so equal ranks are unspecified among themselves. Source ranks are unique in practice).
+    private static int CompareBySourceRank(TmdbDiscoverItem a, TmdbDiscoverItem b)
+    {
+        if (a.SourceRank == b.SourceRank)
+        {
+            return 0;
+        }
+
+        if (a.SourceRank is null)
+        {
+            return 1;
+        }
+
+        if (b.SourceRank is null)
+        {
+            return -1;
+        }
+
+        return a.SourceRank.Value.CompareTo(b.SourceRank.Value);
     }
 
     /// <summary>
@@ -1840,7 +2138,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             PosterPath = item.PosterPath,
             Overview = item.Overview,
             AlreadyRequested = false,
-            KnownPeople = item.KnownPeople
+            KnownPeople = item.KnownPeople,
+            TraktSlug = item.TraktSlug,
+            SourceRank = item.SourceRank
         };
     }
 
@@ -1976,6 +2276,36 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return userExcluded;
     }
 
+    // Folds the user's own currently-cached local discovery recommendations into an exclusion set, so an
+    // external source (Trakt) never surfaces a title the "For you" tab already shows. Keyed on
+    // (TmdbId, lowercased MediaType) to match DeduplicateAndFilter's exclusion lookup. Best-effort: any read
+    // failure leaves the set untouched rather than aborting external scoring.
+    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded)
+    {
+        try
+        {
+            var ownResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false))
+                .FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+            if (ownResult is null)
+            {
+                return;
+            }
+
+            foreach (var rec in ownResult.Recommendations)
+            {
+                var mediaType = string.IsNullOrWhiteSpace(rec.MediaType) ? MediaTypeMovie : rec.MediaType.Trim().ToLowerInvariant();
+                userExcluded.Add((rec.TmdbId, mediaType));
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Could not load own recommendations to exclude for user {jellyfinUserId}: {ex.Message}",
+                _logger);
+        }
+    }
+
     private async Task<List<TmdbDiscoverItem>> ExecuteDiscoverQueryAsync(
         HttpClient client,
         Uri baseUri,
@@ -2042,6 +2372,89 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             // intentionally empty: cancellation of the inter-query delay is expected and benign.
         }
+    }
+
+    /// <summary>
+    ///     Returns the shared exclusion set (library + Arr titles), serving the cached copy while fresh.
+    ///     A defensive copy is returned so callers can never mutate the cached set.
+    /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionSetAsync(
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        Task<HashSet<(int TmdbId, string MediaType)>> build;
+        lock (_exclusionCacheLock)
+        {
+            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
+            {
+                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+            }
+
+            // Reuse an in-flight build, but never a settled one: same pattern as the Seerr user
+            // roster, so concurrent Trakt tab loads share one rebuild instead of N parallel ones.
+            if (_inflightExclusionBuild is not { IsCompleted: false })
+            {
+                _inflightExclusionBuild = StartExclusionBuildAsync(config);
+            }
+
+            build = _inflightExclusionBuild;
+        }
+
+        var fresh = await build.WaitAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The shared build already wrote a successful result to the cache before completing, so
+        // once it settles the cache is warm and the fast path above catches any later caller in
+        // this burst. Read the cached copy here so every caller returns the same data.
+        lock (_exclusionCacheLock)
+        {
+            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
+            {
+                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+            }
+        }
+
+        return new HashSet<(int TmdbId, string MediaType)>(fresh);
+    }
+
+    // Starts a single shared exclusion build, publishes the result to the cache before the task
+    // completes, and clears the in-flight slot once it settles. Publishing inside the task closes
+    // the window where a caller arriving after the build settled but before the cache was written
+    // would start a second build. Runs on its own token so it is not cancelled by any one caller's
+    // token; a failed build writes nothing, so it stays on the retriable path.
+    private Task<HashSet<(int TmdbId, string MediaType)>> StartExclusionBuildAsync(PluginConfiguration config)
+    {
+        Task<HashSet<(int TmdbId, string MediaType)>> build = BuildAndCacheExclusionSetAsync(config);
+        _ = build.ContinueWith(
+            _ =>
+            {
+                lock (_exclusionCacheLock)
+                {
+                    // Clear only our own slot. A caller arriving after this build settles but before
+                    // this continuation runs may have already installed a replacement build; wiping it
+                    // would strand that fresh request and force yet another build.
+                    if (ReferenceEquals(_inflightExclusionBuild, build))
+                    {
+                        _inflightExclusionBuild = null;
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return build;
+    }
+
+    private async Task<HashSet<(int TmdbId, string MediaType)>> BuildAndCacheExclusionSetAsync(PluginConfiguration config)
+    {
+        var fresh = await BuildExclusionSetAsync(config, CancellationToken.None).ConfigureAwait(false);
+        lock (_exclusionCacheLock)
+        {
+            _cachedExclusions = fresh;
+            _exclusionsExpiry = DateTime.UtcNow.Add(ExclusionCacheTtl);
+        }
+
+        return fresh;
     }
 
     private async Task<HashSet<(int TmdbId, string MediaType)>> BuildExclusionSetAsync(
@@ -2124,7 +2537,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveRadarrInstances(),
-            _arrIntegration.GetRadarrMoviesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetRadarrMoviesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static m => m.TmdbId,
             MediaTypeMovie,
             "Radarr",
@@ -2146,7 +2559,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         await AddArrExclusionsAsync(
             config.GetEffectiveSonarrInstances(),
-            _arrIntegration.GetSonarrSeriesAsync,
+            (instance, apiKey, ct) => _arrIntegration.GetSonarrSeriesAsync(instance.Url, apiKey, instance.SkipCertificateValidation, ct),
             static s => s.TmdbId,
             "tv",
             "Sonarr",
@@ -2159,7 +2572,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <typeparam name="T">The Arr item type (movie or series).</typeparam>
     /// <param name="instances">The effective Arr instances to query.</param>
-    /// <param name="fetch">Delegate fetching the items for an instance (URL, API key, token).</param>
+    /// <param name="fetch">Delegate fetching the items for an instance (instance, unprotected API key, token).</param>
     /// <param name="tmdbSelector">Selects the TMDb ID from an item.</param>
     /// <param name="mediaType">The media type recorded in the exclusion set.</param>
     /// <param name="arrName">The Arr display name used in log messages (Radarr/Sonarr).</param>
@@ -2168,7 +2581,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <returns>A task representing the asynchronous operation.</returns>
     private async Task AddArrExclusionsAsync<T>(
         IEnumerable<ArrInstanceConfig> instances,
-        Func<string, string, CancellationToken, Task<List<T>?>> fetch,
+        Func<ArrInstanceConfig, string, CancellationToken, Task<List<T>?>> fetch,
         Func<T, int> tmdbSelector,
         string mediaType,
         string arrName,
@@ -2181,7 +2594,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var items = await fetch(
-                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+                    instance, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
                 if (items != null)
                 {
                     foreach (var item in items)
@@ -2398,30 +2811,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<TmdbDiscoverItem> candidates,
         CancellationToken cancellationToken)
     {
-        var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
-        try
+        using var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
+        var tasks = candidates.Select(async candidate =>
         {
-            var tasks = candidates.Select(async candidate =>
+            cancellationToken.ThrowIfCancellationRequested();
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
-                {
-                    await EnrichCandidateWithCreditsAsync(
-                        client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            }).ToList();
+                await EnrichCandidateWithCreditsAsync(
+                    client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToList();
 
-            await Task.WhenAll(tasks).ConfigureAwait(false);
-        }
-        finally
-        {
-            semaphore.Dispose();
-        }
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -2475,6 +2881,145 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 LogCategory,
                 $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
                 _logger);
+        }
+    }
+
+    /// <summary>
+    ///     Enriches mapped external candidates with Seerr metadata (genres, adult flag, poster, rating
+    ///     fallback, popularity, availability) BEFORE filtering, with bounded parallelism. External sources
+    ///     arrive without this data, and the parental blacklist cannot judge genre-less items. Returns the
+    ///     keys that were successfully enriched; failures leave the item untouched for the caller to fail
+    ///     closed on. Source-provided values are never overwritten, only missing ones are filled.
+    /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>> EnrichCandidatesWithMetadataAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<TmdbDiscoverItem> candidates,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new HashSet<(int TmdbId, string MediaType)>();
+        using var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
+        var tasks = candidates.Select(async candidate =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (await EnrichCandidateWithMetadataAsync(
+                    client, baseUri, apiKey, candidate, cancellationToken).ConfigureAwait(false))
+                {
+                    lock (enriched)
+                    {
+                        enriched.Add((candidate.Id, candidate.MediaType));
+                    }
+                }
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        return enriched;
+    }
+
+    /// <summary>
+    ///     Fetches Seerr metadata for a single candidate and fills missing fields, bounded by MetadataEnrichmentTimeoutMs.
+    /// </summary>
+    /// <returns>True when the detail fetch succeeded (even if it carried no new fields).</returns>
+    private async Task<bool> EnrichCandidateWithMetadataAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        TmdbDiscoverItem candidate,
+        CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+
+        var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+            ? $"api/v1/tv/{candidate.Id}"
+            : $"api/v1/movie/{candidate.Id}";
+
+        try
+        {
+            using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
+            using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+            if (detail is null)
+            {
+                return false;
+            }
+
+            ApplyEnrichedMetadata(candidate, detail);
+
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        {
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Metadata enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                _logger);
+            return false;
+        }
+    }
+
+    // Fills a candidate's missing fields from a fetched detail payload. Every rule is latch-only or
+    // fill-if-empty: enrichment must never clear what is already known.
+    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    {
+        if (detail.Genres is { Count: > 0 })
+        {
+            candidate.GenreIds = detail.Genres.Select(g => g.Id).ToList();
+        }
+
+        // Latch-only: a missing flag must never clear what is already known.
+        if (detail.Adult == true)
+        {
+            candidate.Adult = true;
+        }
+
+        if (string.IsNullOrEmpty(candidate.PosterPath) && !string.IsNullOrEmpty(detail.PosterPath))
+        {
+            candidate.PosterPath = detail.PosterPath;
+        }
+
+        // Seerr wins over the source's overview whenever it has one: an external source like Trakt
+        // supplies English text, while Seerr returns the synopsis in its configured locale. Only an
+        // empty Seerr overview falls back to the source value so a card is never blanked.
+        if (!string.IsNullOrWhiteSpace(detail.Overview))
+        {
+            candidate.Overview = detail.Overview;
+        }
+
+        if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
+        {
+            candidate.VoteAverage = detail.VoteAverage;
+        }
+
+        if (candidate.Popularity <= 0 && detail.Popularity > 0)
+        {
+            candidate.Popularity = detail.Popularity;
+        }
+
+        if (detail.MediaInfo is not null)
+        {
+            candidate.MediaInfo = detail.MediaInfo;
         }
     }
 
@@ -2567,6 +3112,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             throw new UriFormatException("Invalid Seerr base URL.");
         }
 
+        // Same central SSRF guard the integration and Arr paths enforce: the discovery path reaches the
+        // network with an admin-supplied base URL too, so a cloud-metadata host must be blocked here as well.
+        SsrfGuard.ThrowIfCloudMetadataHost(parsedBaseUrl.Host, nameof(baseUrl));
+
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("API key is required.", nameof(apiKey));
@@ -2581,8 +3130,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Returns a non-owning HttpClient from the factory. The client must NOT be disposed - its lifetime is managed by IHttpClientFactory.
     /// </summary>
-    private HttpClient GetSeerrClient() =>
-        _httpClientFactory.CreateClient("SeerrDiscovery");
+    private HttpClient GetSeerrClient(bool skipCertificateValidation) =>
+        _httpClientFactory.CreateClient(skipCertificateValidation ? "SeerrDiscoveryInsecure" : "SeerrDiscovery");
 
     /// <summary>
     ///     Builds an HttpRequestMessage with per-request authentication headers.
@@ -2642,4 +3191,39 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     <see cref="UserGenerationStatus.Generated"/>).
     /// </summary>
     private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
+
+    /// <summary>
+    ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared scoring pipeline
+    ///     needs for one user. Cancellation stays a separate parameter by convention.
+    /// </summary>
+    private sealed class CandidateScoringContext
+    {
+        public required UserWatchProfile Profile { get; init; }
+
+        public required List<TmdbDiscoverItem> Candidates { get; init; }
+
+        public required List<string> TopGenres { get; init; }
+
+        public required Dictionary<string, double> GenrePreferences { get; init; }
+
+        public required HashSet<string> PreferredPeople { get; init; }
+
+        public required double AvgYear { get; init; }
+
+        public required PreferenceBuilder.GenreExposureAnalysis GenreExposure { get; init; }
+
+        public required HttpClient Client { get; init; }
+
+        public required Uri BaseUri { get; init; }
+
+        public required string ApiKey { get; init; }
+
+        /// <summary>
+        ///     Gets a value indicating whether to order and truncate by the candidate's
+        ///     <see cref="TmdbDiscoverItem.SourceRank"/> (the external source's own ranking) instead of by local
+        ///     score. The score is still computed and attached for display; it just does not drive the ordering.
+        ///     Default false (local score ordering).
+        /// </summary>
+        public bool RankBasedOrdering { get; init; }
+    }
 }

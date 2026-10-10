@@ -30,8 +30,10 @@ public class SeerrDiscoveryServiceTests : IDisposable
     }
 
     private SeerrDiscoveryService CreateService()
+        => CreateService(new Mock<System.Net.Http.IHttpClientFactory>());
+
+    private SeerrDiscoveryService CreateService(Mock<System.Net.Http.IHttpClientFactory> factory)
     {
-        var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         var history = new Mock<IWatchHistoryService>();
         var arr = new Mock<IArrIntegrationService>();
         var libraryManager = TestMockFactory.CreateLibraryManager();
@@ -62,7 +64,8 @@ public class SeerrDiscoveryServiceTests : IDisposable
         _registries.Add(perUserRegistry);
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object, libraryManager.Object,
-            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
+            perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(), logger.Object);
     }
 
     [Fact]
@@ -140,6 +143,51 @@ public class SeerrDiscoveryServiceTests : IDisposable
             {
                 Plugin.Instance.Configuration.SeerrUrl = prevUrl!;
                 Plugin.Instance.Configuration.SeerrApiKey = prevKey!;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_SkipValidation_UsesInsecureClient()
+    {
+        // The per-user discovery-tab request must honor the Seerr TLS bypass: with the flag on,
+        // submission goes through the insecure named client, never the strict one.
+        ControllerTestFactory.InitializePluginInstance();
+        if (Plugin.Instance!.Configuration == null)
+        {
+            // Another test left the singleton without configuration; start from fresh defaults.
+            ControllerTestFactory.ResetPluginConfiguration();
+        }
+
+        var prevUrl = Plugin.Instance.Configuration?.SeerrUrl;
+        var prevKey = Plugin.Instance.Configuration?.SeerrApiKey;
+        var prevSkip = Plugin.Instance.Configuration?.SeerrSkipCertificateValidation ?? false;
+        try
+        {
+            Plugin.Instance.Configuration!.SeerrUrl = "http://seerr.local";
+            Plugin.Instance.Configuration.SeerrApiKey = "key";
+            Plugin.Instance.Configuration.SeerrSkipCertificateValidation = true;
+
+            var factoryMock = new Mock<System.Net.Http.IHttpClientFactory>();
+            var handler = TestMockFactory.CreateHttpMessageHandler(System.Net.HttpStatusCode.OK, "{}");
+            using var httpClient = new System.Net.Http.HttpClient(handler.Object);
+            factoryMock.Setup(f => f.CreateClient("SeerrDiscoveryInsecure")).Returns(httpClient);
+
+            var service = CreateService(factoryMock);
+            var (success, _) = await service.SubmitRequestAsync(123, "movie", null, null, null, null, CancellationToken.None);
+
+            Assert.True(success);
+            factoryMock.Verify(f => f.CreateClient("SeerrDiscoveryInsecure"), Times.Once);
+            factoryMock.Verify(f => f.CreateClient("SeerrDiscovery"), Times.Never);
+        }
+        finally
+        {
+            ControllerTestFactory.ResetPluginConfiguration();
+            if (Plugin.Instance!.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl ?? string.Empty;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey ?? string.Empty;
+                Plugin.Instance.Configuration.SeerrSkipCertificateValidation = prevSkip;
             }
         }
     }

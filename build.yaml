@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.0.4"
+version: "3.0.1.0"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,13 +13,16 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.0.4 - Per-library file counts, boxset link fix
+  v3.0.1.0 - Discovery tab no longer goes blank on Jellyfin 12
 
-  - The Per-Library Breakdown now shows a file count below every size value (trickplay folders included), so sparse and dense libraries are distinguishable at a glance
-  - Boxset library rows no longer link into the Library Explorer, whose scope excludes boxsets; they render as plain text instead of opening an empty state
-  - Every task dropdown in Settings now explains what the task does, via an info button next to each task name, in all dashboard languages
-  - The Overview Trickplay card now also shows the space used by trickplay images Jellyfin stores internally, on its own line below the alongside-media total, marked with an (internal) badge, or as the headline when no alongside data exists
-  - Compact log view on phones: log entries stack as cards below 700 px instead of squeezing into a four-column table, so no horizontal scrolling is needed, and rows keep breathing room at the screen edges
-  - Roomier Library Explorer filter popovers on phones using nearly the full viewport width, like the bitrate editor
-  - Tested by 6219 unit tests and 352 end-to-end tests
-  - Requires Jellyfin 12.1 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - The Seerr Discovery custom tab reliably shows its content again on Jellyfin 12: navigating away and back no longer leaves it blank. The script now only ever fills the panel the Custom Tabs plugin provides, instead of building a competing one, so the two never fight over the same spot
+  - Returning to the tab is instant and never flashes a spinner: the last results render immediately from memory, and newer suggestions are swapped in silently in the background when a scheduled run has produced them
+  - The sidebar "Seerr Discovery" link now opens the tab correctly on the modern Jellyfin 12 layout (both the top header and the narrow-screen menu), as well as on the classic layout
+  - End-to-end tests now run the real Custom Tabs and File Transformation plugins and repeatedly navigate in and out of the Discovery tab to prove it never goes blank
+  - Radarr/Sonarr instances behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect via a per-instance "Skip certificate validation" checkbox in Settings (connection tests, comparison, and discovery exclusions honor it; validation stays on everywhere else)
+  - Free Trakt accounts can now use Trakt discovery through the official Trakt plugin without hitting Trakt's one-app-per-account limit: when the official plugin is installed, the Helper sources your personal recommendations through its connection instead of registering a second app
+  - Hardening: API keys, the log filter, and backup credentials now reject hidden control characters that could cause errors or log tampering; odd-charset responses are read safely; and restoring a backup that disables TLS validation now warns you first
+  - Tested by 6581 unit tests (expanded security, hardening, and performance coverage) and 361 end-to-end tests
+  - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - Special thanks to @TheColin21 (https://github.com/TheColin21) for testing and donation ❤️
+  - Special thanks to Daniel for his donation ❤️

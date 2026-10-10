@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **350 tests** (API + UI) across 54 spec files
+every UI interaction. **360 tests** (API + UI) across 57 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -255,6 +255,22 @@ plugin stays Active after every call).
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
+## 8. Trakt via the official plugin → `trakt-official-plugin.api.spec.ts`
+Trakt discovery is sourced exclusively through the official Jellyfin Trakt plugin (the Helper has no own
+Trakt app). Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PLUGINS=1`); the official plugin
+(GUID `4fe3201e-…`) is staged by `stage-external-plugins.sh` at its latest release, and global-setup seeds its
+`Trakt.xml` with a known token for the normal user via `POST /Plugins/<GUID>/Configuration`.
+- **Official-source path:** the spec seeds the normal user a genre watch profile first (Trakt personal scoring
+  reuses the Seerr-backed external scorer, which returns an empty result without one), then
+  `GET Discovery/My/Trakt` returns `Linked:true` with recommendations sourced through the official plugin.
+- **Token-provenance proof:** `mock-trakt` requires a valid Bearer on `/recommendations/*`; its
+  `/last-recommendation-bearer` hook confirms the token the Helper forwarded is exactly the seeded token.
+- **Trending without linking:** `GET Discovery/My/Trakt/Trending` responds (client-id only, no OAuth).
+- **User-Agent gate (Cloudflare):** mock-trakt 403s any API request without a `User-Agent` (mirroring Trakt's
+  Cloudflare front end), so a populated grid also proves the plugin sent one. Guards the production bug where
+  every Trakt call failed 403 because the HTTP client sent no User-Agent.
+- **Status endpoint:** `GET Trakt/OfficialPluginStatus` (admin-only) reports `Present:true`.
+
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
@@ -288,6 +304,22 @@ plugin stays Active after every call).
 | Codec **donut** (touch) → one tap shows the segment tooltip and opens the drill-down together, second tap dismisses both (compat-mouse guard) | `codecs-donut.ui.spec.ts` |
 | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer; add-filter popover opens leftwards inside the viewport on desktop | `codecs-explorer.ui.spec.ts` |
 | Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section while short content shows no phantom scrollbar | `explorer-lazy-tree.ui.spec.ts` |
+
+## 10b. UI: Discovery custom tab (home page) → `discovery-customtab.ui.spec.ts`
+Mounts the real `.jellyfinhelper.discovery` marker that the external **Custom Tabs**
+plugin renders from its ContentHtml, with **File Transformation** injecting the
+script. Both staged by `run.sh` and configured in `global-setup` (toggle on + a
+"Seerr Discovery" tab). Regression guard for the Jellyfin 12 blank-tab race:
+- Opening the tab renders content (grid or the explicit no-results message), never a blank panel.
+- Navigating Home ↔ Discovery 20× plus browser back/forward keeps the panel populated every time.
+- `discovery-sidebar.js` **never fabricates its own `customTab_` panel** (no stray marker outside a
+  Custom-Tabs panel; exactly one panel), proving it no longer fights Custom Tabs for the DOM.
+- **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false`, the panel renders the
+  explicit "not enabled" message and **never a result grid** The user-access gate hides the
+  feature's content even though the external Custom Tabs plugin still shows the tab button. The
+  describe brackets the toggle and restores access in `afterAll`.
+- Skips loudly when the external plugins are not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
+
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*

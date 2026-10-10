@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
@@ -35,6 +36,7 @@ public class ArrIntegrationController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ArrIntegrationController> _logger;
     private readonly IPluginLogService _pluginLog;
+    private readonly ISecretProtector _secretProtector;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="ArrIntegrationController" /> class.
@@ -45,13 +47,15 @@ public class ArrIntegrationController : ControllerBase
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="secretProtector">Decrypts stored Arr API keys before outbound calls.</param>
     public ArrIntegrationController(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
         ILogger<ArrIntegrationController> logger,
-        ICleanupConfigHelper configHelper)
+        ICleanupConfigHelper configHelper,
+        ISecretProtector secretProtector)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -59,6 +63,7 @@ public class ArrIntegrationController : ControllerBase
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _secretProtector = secretProtector;
     }
 
     /// <summary>
@@ -103,17 +108,21 @@ public class ArrIntegrationController : ControllerBase
                 .Concat(config.SonarrInstances ?? []);
             apiKey = ApiKeyMaskResolver.ResolveArrKey(request.ApiKey, request.Url, request.Name, storedInstances);
 
-            // Mask sent but no stored instance matches this URL/Name. Do NOT forward the mask upstream (it would always fail with a misleading 401).
+            // Mask sent but no stored instance matches this URL/Name - either the URL was edited since
+            // the key was saved, or no instance was ever saved for it. Nothing upstream was
+            // contacted, so this is a client-input error (400), not an upstream failure (502), and the message can
+            // be specific without acting as a reachability oracle: tell the admin to re-enter the real key.
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 _pluginLog.LogWarning("API", "Arr connection test received the masked key sentinel but no stored instance matched the URL/Name; cannot resolve a real key.", logger: _logger);
-                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
+                return BadRequest(new ConnectionTestResponse { Success = false, Message = "No saved API key matches this URL and instance. Re-enter the API key." });
             }
         }
 
         var (success, message) = await _arrService.TestConnectionAsync(
             parsedUrl.AbsoluteUri,
-            apiKey,
+            _secretProtector.Unprotect(apiKey),
+            request.SkipCertificateValidation ?? false,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)
@@ -180,7 +189,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, instance.ApiKey, cancellationToken)
+            var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
                 .ConfigureAwait(false);
             if (movies is null)
             {
@@ -258,7 +267,7 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
-            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, instance.ApiKey, cancellationToken)
+            var series = await _arrService.GetSonarrSeriesAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
                 .ConfigureAwait(false);
             if (series is null)
             {
@@ -305,7 +314,7 @@ public class ArrIntegrationController : ControllerBase
             return null;
         }
 
-        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, instance.ApiKey, cancellationToken)
+        var rootFolders = await _arrService.GetRootFoldersAsync(instance.Url, _secretProtector.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, cancellationToken)
             .ConfigureAwait(false);
         if (rootFolders is null || rootFolders.Count == 0)
         {

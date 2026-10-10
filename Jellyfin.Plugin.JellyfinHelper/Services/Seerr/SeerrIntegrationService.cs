@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Authentication;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,26 +53,29 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     public async Task<(bool Success, string Message)> TestConnectionAsync(
         string baseUrl,
         string apiKey,
-        CancellationToken cancellationToken)
+        bool skipCertificateValidation = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(apiKey);
 
         // Validate inputs before entering the catch-all try block so programming-error
         // exceptions (invalid key format) propagate instead of being swallowed as
         // connection failures.
-        if (apiKey.Contains('\r', StringComparison.Ordinal)
-            || apiKey.Contains('\n', StringComparison.Ordinal)
-            || apiKey.Contains('\t', StringComparison.Ordinal)
-            || apiKey.Contains('\0', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
-        }
+        EnsureApiKeyHeaderSafe(apiKey);
 
         try
         {
-            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey, skipCertificateValidation);
             using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
             using var response = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+            // A 3xx means the server wants a different URL (commonly a missing trailing slash, http->https,
+            // or a canonical host). We intentionally do not follow redirects (SSRF/MITM hardening), so turn
+            // the otherwise cryptic "HTTP 301" into actionable guidance instead of a generic failure.
+            if (IsRedirect(response.StatusCode))
+            {
+                return (false, DescribeRedirect(response.StatusCode, response.Headers.Location, baseUri));
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -83,6 +88,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             var title = !string.IsNullOrWhiteSpace(settings?.ApplicationTitle)
                 ? settings.ApplicationTitle
                 : "Seerr";
+
+            if (skipCertificateValidation)
+            {
+                _pluginLog.LogWarning(LogCategory, "Seerr connection test OK, but TLS certificate validation is disabled.", null, _logger);
+            }
 
             return (true, $"Connected to {title}");
         }
@@ -97,6 +107,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException or FormatException)
         {
+            if (!skipCertificateValidation && HasCertificateError(ex))
+            {
+                return (false, "Connection failed: TLS certificate validation failed. If Seerr uses a private CA, self-signed, or IP certificate, enable 'Skip certificate validation' in Settings.");
+            }
+
             return (false, $"Connection failed: {ex.Message}");
         }
     }
@@ -107,7 +122,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string apiKey,
         int maxAgeDays,
         bool dryRun,
-        CancellationToken cancellationToken)
+        bool skipCertificateValidation = false,
+        CancellationToken cancellationToken = default)
     {
         if (maxAgeDays < 1)
         {
@@ -122,7 +138,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string key;
         try
         {
-            (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey, skipCertificateValidation);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
@@ -549,7 +565,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     /// <summary>
     ///     Validates the base URL and API key, returning the factory-managed HTTP client and the normalised base URI.
     /// </summary>
-    private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey)
+    private (HttpClient Client, Uri BaseUri, string ApiKey) ValidateAndGetClient(string baseUrl, string apiKey, bool skipCertificateValidation = false)
     {
         if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out var parsedBaseUrl) ||
             (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
@@ -566,6 +582,39 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         }
 
         // Reject keys containing CR, LF, tab, or NUL to prevent header injection via TryAddWithoutValidation.
+        EnsureApiKeyHeaderSafe(apiKey);
+
+        var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime. The insecure
+        // client is a separate named registration with identical hardening except validation.
+        var client = _httpClientFactory.CreateClient(skipCertificateValidation ? "SeerrIntegrationInsecure" : "SeerrIntegration");
+        return (client, baseUri, apiKey);
+    }
+
+    // Walks the exception chain for a TLS handshake failure (unknown issuer / PartialChain is the
+    // reverse-proxy-with-private-CA case) so the test can point at the opt-out instead of a bare message.
+    private static bool HasCertificateError(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is AuthenticationException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // True for the 3xx redirect range. We never auto-follow (SSRF/MITM hardening), so the connection test
+    // treats a redirect as a URL-configuration hint rather than a success or an opaque failure.
+    private static bool IsRedirect(HttpStatusCode status)
+        => (int)status is >= 300 and <= 399;
+
+    // Reject keys containing CR, LF, tab, or NUL before they reach TryAddWithoutValidation, where they would
+    // otherwise enable header injection. Shared by the test and request-build paths.
+    private static void EnsureApiKeyHeaderSafe(string apiKey)
+    {
         if (apiKey.Contains('\r', StringComparison.Ordinal)
             || apiKey.Contains('\n', StringComparison.Ordinal)
             || apiKey.Contains('\t', StringComparison.Ordinal)
@@ -573,10 +622,20 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
+    }
 
-        var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
-        var client = _httpClientFactory.CreateClient("SeerrIntegration");
-        return (client, baseUri, apiKey);
+    // Builds the actionable redirect message, resolving a relative Location against the base and echoing a
+    // credential-free label so the admin sees where the server wanted to send the request.
+    private static string DescribeRedirect(HttpStatusCode status, Uri? location, Uri baseUri)
+    {
+        var suffix = string.Empty;
+        if (location is not null)
+        {
+            var absolute = location.IsAbsoluteUri ? location.AbsoluteUri : new Uri(baseUri, location).AbsoluteUri;
+            suffix = $" Suggested URL: {SsrfGuard.SafeEndpointLabel(absolute)}";
+        }
+
+        return $"The server redirected the request (HTTP {(int)status}). Check the Seerr URL, e.g. add a trailing slash or use https://.{suffix}";
     }
 
     /// <summary>

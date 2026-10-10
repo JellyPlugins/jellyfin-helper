@@ -107,6 +107,7 @@ public class I18NServiceTests : IDisposable
             "arrNotConfigured", "arrCompareError", "comparing",
             "addInstance", "remove", "instanceName", "radarrInstances", "sonarrInstances",
             "testConnection", "testConnectionFailed", "testing", "testMissingFields",
+            "arrSkipCertValidation", "arrSkipCertValidationHelp",
             "url", "apiKey", "andMore", "more",
             // Trash disable dialog keys
             "trashDisablePrompt", "trashDisableQuestion", "trashDisableTitle",
@@ -126,6 +127,7 @@ public class I18NServiceTests : IDisposable
             // Seerr keys
             "seerrCleanup", "seerrNotConfigured", "settingsSeerrTitle", "settingsSeerrHelp",
             "seerrInstance", "seerrUrl", "seerrApiKey",
+            "seerrSkipCertValidation", "seerrSkipCertValidationHelp",
             "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields",
             // Unsaved changes dialog keys
             "unsavedChangesTitle", "unsavedChangesMsg", "discardChanges", "saveAndContinue",

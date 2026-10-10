@@ -13,10 +13,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -46,10 +48,12 @@ public class HelperCleanupTask : IScheduledTask
     private readonly IRecommendationPlaylistService _playlistService;
     private readonly ILinkRepairService _linkRepairService;
     private readonly ISeerrIntegrationService _seerrService;
+    private readonly ISecretProtector _secretProtector;
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
     private readonly ISeerrDiscoveryService _seerrDiscoveryService;
+    private readonly ITraktDiscoveryService _traktDiscoveryService;
     private readonly IUserActivityInsightsService _userActivityInsightsService;
 
     /// <summary>
@@ -67,12 +71,14 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="trashService">The trash service.</param>
     /// <param name="linkRepairService">The link repair service.</param>
     /// <param name="seerrService">The Seerr integration service.</param>
+    /// <param name="secretProtector">Decrypts the stored Seerr API key before the cleanup call uses it.</param>
     /// <param name="userActivityInsightsService">The user activity insights service.</param>
     /// <param name="userActivityCacheService">The user activity cache service.</param>
     /// <param name="recsEngine">The recommendation engine.</param>
     /// <param name="recsCacheService">The recommendation cache service.</param>
     /// <param name="playlistService">The recommendation playlist service.</param>
     /// <param name="seerrDiscoveryService">The Seerr discovery service.</param>
+    /// <param name="traktDiscoveryService">The Trakt discovery service, refreshed alongside Seerr discovery.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -86,12 +92,14 @@ public class HelperCleanupTask : IScheduledTask
         ITrashService trashService,
         ILinkRepairService linkRepairService,
         ISeerrIntegrationService seerrService,
+        ISecretProtector secretProtector,
         IUserActivityInsightsService userActivityInsightsService,
         IUserActivityCacheService userActivityCacheService,
         IRecommendationEngine recsEngine,
         IRecommendationCacheService recsCacheService,
         IRecommendationPlaylistService playlistService,
-        ISeerrDiscoveryService seerrDiscoveryService)
+        ISeerrDiscoveryService seerrDiscoveryService,
+        ITraktDiscoveryService traktDiscoveryService)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -106,12 +114,14 @@ public class HelperCleanupTask : IScheduledTask
         _trashService = trashService;
         _linkRepairService = linkRepairService;
         _seerrService = seerrService;
+        _secretProtector = secretProtector;
         _userActivityInsightsService = userActivityInsightsService;
         _userActivityCacheService = userActivityCacheService;
         _recsEngine = recsEngine;
         _recsCacheService = recsCacheService;
         _playlistService = playlistService;
         _seerrDiscoveryService = seerrDiscoveryService;
+        _traktDiscoveryService = traktDiscoveryService;
     }
 
     /// <inheritdoc />
@@ -122,7 +132,7 @@ public class HelperCleanupTask : IScheduledTask
 
     /// <inheritdoc />
     public string Description =>
-        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations, Seerr Discovery).";
+        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations, Seerr Discovery, Trakt Discovery).";
 
     /// <inheritdoc />
     public string Category => "Jellyfin Helper";
@@ -144,7 +154,8 @@ public class HelperCleanupTask : IScheduledTask
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, false, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, false, (p, ct) => RunUserActivityUpdate(config, p, ct)),
             ("Smart Recommendations", config.RecommendationsTaskMode, true, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct))
+            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct)),
+            ("Trakt Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunTraktDiscovery(config, p, ct))
         };
 
         await RunSubTasksAsync(subTasks, progress, cancellationToken).ConfigureAwait(false);
@@ -406,9 +417,10 @@ public class HelperCleanupTask : IScheduledTask
 
         var seerrResult = await _seerrService.CleanupExpiredRequestsAsync(
             config.SeerrUrl,
-            config.SeerrApiKey,
+            _secretProtector.Unprotect(config.SeerrApiKey),
             config.SeerrCleanupAgeDays,
             dryRun,
+            config.SeerrSkipCertificateValidation,
             cancellationToken).ConfigureAwait(false);
         _pluginLog.LogInfo(
             SeerrCleanupLogSource,
@@ -464,6 +476,27 @@ public class HelperCleanupTask : IScheduledTask
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
         _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
+        progress.Report(100);
+    }
+
+    private async Task RunTraktDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        if (!config.TraktSourcingEnabled)
+        {
+            progress.Report(100);
+            return;
+        }
+
+        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        {
+            _pluginLog.LogInfo("TraktDiscovery", "Task started (Dry Run). Skipping Trakt refresh.", _logger);
+            progress.Report(100);
+            return;
+        }
+
+        _pluginLog.LogInfo("TraktDiscovery", "Refreshing Trakt discovery caches...", _logger);
+        await _traktDiscoveryService.RefreshAllAsync(cancellationToken).ConfigureAwait(false);
+        _pluginLog.LogInfo("TraktDiscovery", "Trakt discovery caches refreshed.", _logger);
         progress.Report(100);
     }
 

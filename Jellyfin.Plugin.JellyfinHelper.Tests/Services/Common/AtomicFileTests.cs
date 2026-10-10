@@ -476,4 +476,23 @@ public sealed class AtomicFileTests : IDisposable
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
         Assert.Empty(orphans);
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData(null)]
+    [InlineData("")]
+    public void WriteAllText_MaliciousEmptyPath_ThrowsWithoutCreatingDirectories(string? path)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => AtomicFile.WriteAllText(path!, "data"));
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void WriteAllText_NullContents_ThrowsArgumentNull()
+    {
+        var path = Path.Join(_tempDir, "null-contents.txt");
+
+        Assert.Throws<ArgumentNullException>(() => AtomicFile.WriteAllText(path, null!));
+        Assert.False(File.Exists(path));
+    }
 }

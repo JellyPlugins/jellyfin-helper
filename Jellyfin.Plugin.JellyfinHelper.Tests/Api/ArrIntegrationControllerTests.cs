@@ -203,9 +203,13 @@ public class ArrIntegrationControllerTests : IDisposable
         var request = new ArrTestConnectionRequest { Url = "http://localhost:7878", ApiKey = ApiKeyMask, Name = "Radarr" };
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
-        var statusResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(502, statusResult.StatusCode);
-        Assert.False(Assert.IsType<ConnectionTestResponse>(statusResult.Value).Success);
+        var statusResult = Assert.IsType<ObjectResult>(result, exactMatch: false);
+        // Nothing upstream was contacted (the mask could not resolve to a real key), so this is a client-input
+        // error (400) with an actionable "re-enter the key" message, not an upstream failure (502).
+        Assert.Equal(400, statusResult.StatusCode);
+        var body = Assert.IsType<ConnectionTestResponse>(statusResult.Value);
+        Assert.False(body.Success);
+        Assert.Contains("Re-enter the API key", body.Message, StringComparison.Ordinal);
         // Strict handler with no SendAsync setup would throw if the upstream were called with the mask.
         handlerMock.Protected().Verify(
             "SendAsync",

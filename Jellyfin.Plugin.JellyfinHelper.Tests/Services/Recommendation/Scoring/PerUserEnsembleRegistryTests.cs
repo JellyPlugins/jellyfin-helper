@@ -1010,4 +1010,32 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         return examples;
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void GetEnsembleForUser_500Users_CompletesWithin1Second()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+
+        var users = new List<Guid>(500);
+        for (var i = 0; i < 500; i++)
+        {
+            users.Add(Guid.NewGuid());
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var u in users)
+        {
+            _ = registry.GetEnsembleForUser(u);
+        }
+
+        sw.Stop();
+
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 1000, "Registry took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
 }

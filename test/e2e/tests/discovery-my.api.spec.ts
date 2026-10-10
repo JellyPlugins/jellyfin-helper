@@ -298,7 +298,7 @@ test.describe.serial('Discovery availability exclusion', () => {
   // no candidates are generated. Since this test suite seeds no playback,
   // it must build its own profile instead of relying on prior test runs.
   // The ffmpeg test fixtures lack genre metadata, which leaves the preference vector empty and causes `SeerrDiscoveryService` to return null and clear the pool.
-  // Assigning "Action"—a valid TMDb genre ID—ensures the mock discovery query returns candidates.
+  // Assigning "Action" (a valid TMDb genre ID) ensures the mock discovery query returns candidates.
   async function seedAdminWatchProfile(): Promise<void> {
     // Ensure a pristine watch profile so leftover playback from other specs (recommendations-ranking)
     // does not dilute the genre vector or change the average-year filter.

@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { authHeader, runLibraryScan } from './api-client.ts';
+import { ensureDiscoveryConfigured, seedOfficialTraktPlugin } from './discovery-config.ts';
 import { hasDocker, plantCanaries, plantedCanaries } from './fs-assert.ts';
 import { seedGrowthTimeline } from './seed-timeline.ts';
 
@@ -87,19 +88,13 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   }
 
   // --- 2. authenticate (retry: Startup/Complete may need a moment) ---------
-  const authenticate = async () =>
+  const authenticate = () =>
     ctx.post('/Users/AuthenticateByName', {
       headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
       data: { Username: ADMIN_USER, Pw: ADMIN_PASS },
     });
 
-  let authRes = await authenticate();
-  for (let attempt = 1; attempt <= 5 && !authRes.ok(); attempt++) {
-    // eslint-disable-next-line no-console
-    console.log(`[global-setup] auth attempt ${attempt} -> ${authRes.status()}; retrying...`);
-    await new Promise((r) => setTimeout(r, 2000));
-    authRes = await authenticate();
-  }
+  const authRes = await authenticateWithRetry(authenticate, 5);
   if (!authRes.ok()) {
     // Dump the current user list to help diagnose (which users actually exist?).
     const usersDump = await ctx
@@ -166,7 +161,27 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   await seedSeerr('/seed-user', { jellyfinUserId: userId });
 
   // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests - These endpoints require a NON-elevated authenticated user + the DiscoveryUserAccessEnabled toggle.
-  const normalUser = await provisionNormalUser(admin, ctx);
+  const normalUser = await provisionNormalUser(admin, ctx, {
+    userName: NORMAL_USER,
+    password: NORMAL_PASS,
+    // The normal user is linked to the mock's SECOND Seerr user (Bob) with the Request permission
+    // (bit 32) so the Discovery/My/Request authorization branches are reachable.
+    seerrHook: { path: '/seed-user2', permissions: 32 },
+  });
+
+  // --- 5c. configure the Discovery custom tab (only when the external plugins
+  // are staged). Enables the user-access toggle so the sidebar + tab are live,
+  // and registers a Custom Tab whose HTML content is our marker div, exactly as
+  // an admin would per the in-app setup hint. The custom-tab UI spec reads
+  // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
+  await ensureDiscoveryConfigured(admin, (m) => console.log(`[global-setup] ${m}`));
+
+  // --- 5d. seed the official Trakt plugin with a token for the normal user, so the Helper's "source Trakt
+  // through the official plugin" mode has a real token to read from Trakt.xml. The normal user is NOT linked via
+  // our own device flow, so source resolution falls through to the official plugin exactly as intended.
+  if (normalUser) {
+    await seedOfficialTraktPlugin(admin, normalUser.userId, (m) => console.log(`[global-setup] ${m}`));
+  }
 
   // In CI we require the non-admin fixture so the authorization / user-facing tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1).
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
@@ -205,53 +220,84 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 }
 
 type ProvisionCtx = Awaited<ReturnType<typeof pwRequest.newContext>>;
+type AuthResponse = Awaited<ReturnType<ProvisionCtx['post']>>;
+
+/** Resolve after `ms`, without an inline Promise executor at the call site. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
- * Create (or reuse) the non-admin test user and authenticate as it. Returns the
- * captured token/userId, or null if provisioning failed (dependent Discovery/My
- * tests then skip). Extracted from globalSetup to keep the top-level flow flat.
+ * Authenticate, retrying up to `remaining` more times with a 2s backoff while
+ * the response is not ok. The retry is intentionally sequential (the server may
+ * need a moment after Startup/Complete); expressing it as bounded recursion
+ * keeps that ordering without an await-in-loop.
+ */
+async function authenticateWithRetry(
+  authenticate: () => Promise<AuthResponse>,
+  remaining: number,
+): Promise<AuthResponse> {
+  const res = await authenticate();
+  if (res.ok() || remaining <= 0) {
+    return res;
+  }
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] auth attempt -> ${res.status()}; retrying (${remaining} left)...`);
+  await delay(2000);
+  return authenticateWithRetry(authenticate, remaining - 1);
+}
+
+/**
+ * Create (or reuse) a non-admin test user and authenticate as it. Returns the captured token/userId, or null
+ * if provisioning failed (dependent specs then skip). `opts.seerrHook`, when given, links the user to a mock
+ * Seerr user with the stated permissions; omit it for a user that needs no Seerr linkage. Extracted from
+ * globalSetup to keep the top-level flow flat.
  */
 async function provisionNormalUser(
   admin: ProvisionCtx,
   ctx: ProvisionCtx,
+  opts: { userName: string; password: string; seerrHook?: { path: string; permissions: number } },
 ): Promise<{ token: string; userId: string; userName: string } | null> {
+  const { userName, password, seerrHook } = opts;
   try {
     const created = await admin.post('/Users/New', {
       headers: { 'Content-Type': 'application/json' },
-      data: { Name: NORMAL_USER, Password: NORMAL_PASS },
+      data: { Name: userName, Password: password },
     });
     // On a warm/reused container the user already exists and Users/New returns a 4xx (e.g. 400 "user already exists").
     const createdOk = created.ok();
     const alreadyExists = !createdOk && created.status() >= 400 && created.status() < 500;
     if (!createdOk && !alreadyExists) {
       // eslint-disable-next-line no-console
-      console.log(`[global-setup] Users/New -> ${created.status()} (unexpected; non-admin tests will skip)`);
+      console.log(`[global-setup] Users/New (${userName}) -> ${created.status()} (unexpected; dependent tests will skip)`);
       return null;
     }
     // eslint-disable-next-line no-console
-    console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists - authenticating existing user'})`);
+    console.log(`[global-setup] Users/New (${userName}) -> ${created.status()} (${createdOk ? 'created' : 'already exists - authenticating existing user'})`);
     const nAuth = await ctx.post('/Users/AuthenticateByName', {
       headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-      data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
+      data: { Username: userName, Pw: password },
     });
     if (!nAuth.ok()) {
       // Could not authenticate - do NOT report success silently. Log the rejection so a broken provisioning path is visible; dependent tests skip (return null) rather than run against a half-provisioned user.
       console.log(
-        `[global-setup] non-admin auth failed (Users/New was ${created.status()}): ` +
-          `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
+        `[global-setup] non-admin auth failed for ${userName} (Users/New was ${created.status()}): ` +
+          `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (dependent tests will skip)`,
       );
       return null;
     }
     const nj = (await nAuth.json()) as { AccessToken: string; User: { Id: string } };
     // eslint-disable-next-line no-console
-    console.log(`[global-setup] non-admin user ${NORMAL_USER} ready (${nj.User.Id})`);
+    console.log(`[global-setup] non-admin user ${userName} ready (${nj.User.Id})`);
 
-    // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant the Request permission (bit 32) so the user-facing Discovery/My/Request authorization branches are actually reachable.
-    await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
-    return { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
+    // Link to a mock Seerr user only when requested.
+    if (seerrHook) {
+      await seedSeerr(seerrHook.path, { jellyfinUserId: nj.User.Id, permissions: seerrHook.permissions });
+    }
+    return { token: nj.AccessToken, userId: nj.User.Id, userName };
   } catch (e) {
     // eslint-disable-next-line no-console
-    console.log(`[global-setup] non-admin user provisioning failed: ${(e as Error).message}`);
+    console.log(`[global-setup] non-admin user provisioning failed (${userName}): ${(e as Error).message}`);
     return null;
   }
 }

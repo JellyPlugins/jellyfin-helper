@@ -46,6 +46,16 @@ function renderArrInstanceRow(type, index, inst, showLibraries) {
     var instanceApiKeyId = prefix + '_key';
     h += '<label for="' + instanceApiKeyId + '">' + T('apiKey', 'API Key')
         + '</label><input type="password" id="' + instanceApiKeyId + '">';
+    var instanceSkipCertId = prefix + '_skipCert';
+    // Accept either casing from the server config so a serialization change can never silently render
+    // this security checkbox unchecked (which the next save would then persist as "validation on").
+    var skipCert = inst ? !!(inst.SkipCertificateValidation ?? inst.skipCertificateValidation) : false;
+    h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="'
+        + instanceSkipCertId + '"' + (skipCert ? ' checked' : '') + '><label for="'
+        + instanceSkipCertId + '">' + escHtml(T('arrSkipCertValidation',
+            'Skip certificate validation')) + '</label></div>';
+    h += '<div class="help-text">' + escHtml(T('arrSkipCertValidationHelp',
+        'Disables TLS certificate checks for this instance (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
     h += '<button type="button" class="action-btn btn-arr-test btnTestArr" id="'
         + prefix + '_btnTest" data-type="' + type + '" data-index="' + index
         + '" style="padding:0.3em 0.8em;font-size:0.85em;">' + mi('extension') + T(
@@ -91,11 +101,15 @@ function collectArrInstances(type) {
             if (!libsValue && rows[i].dataset.libsStash) {
                 libsValue = rows[i].dataset.libsStash;
             }
+            // The checkbox is read defensively (not part of the gate above): rows rendered before
+            // this option existed have no such element, and they must still save normally.
+            var skipCertEl = document.getElementById(prefix + '_skipCert');
             result.push({
                 Name: nameEl.value,
                 Url: urlEl.value,
                 ApiKey: keyEl.value,
-                Libraries: libsValue
+                Libraries: libsValue,
+                SkipCertificateValidation: skipCertEl ? skipCertEl.checked : false
             });
         }
     }
@@ -268,7 +282,7 @@ function removeArrInstance(type, index) {
         var prefix = type + '_' + i;
         var inputs = remaining[i].querySelectorAll('input');
         var labels = remaining[i].querySelectorAll('label');
-        var suffixes = ['_name', '_url', '_key'];
+        var suffixes = ['_name', '_url', '_key', '_skipCert'];
         for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
             var oldId = inputs[j].id;
             var newId = prefix + suffixes[j];
@@ -347,6 +361,8 @@ function testArrConnection(type, index) {
     // Name disambiguates the stored key server-side when the API key is the masked
     // sentinel and two instances share the same URL. Ignored for a real (typed) key.
     var name = nameEl ? nameEl.value : '';
+    var skipCertEl = document.getElementById(prefix + '_skipCert');
+    var skipCert = skipCertEl ? skipCertEl.checked : false;
 
     var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
@@ -368,7 +384,7 @@ function testArrConnection(type, index) {
         'Testing…');
 
     apiPost('JellyfinHelper/ArrIntegration/TestConnection',
-        {Url: url, ApiKey: apiKey, Name: name}, function (data) {
+        {Url: url, ApiKey: apiKey, Name: name, SkipCertificateValidation: skipCert}, function (data) {
             btn.disabled = false;
             if (data.Success) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
@@ -500,7 +516,7 @@ function refreshArrInstanceStatus(type, index) {
     _arrStatusReqSeq[type] = reqId;
 
     apiPost('JellyfinHelper/ArrIntegration/TestConnection',
-        {Url: inst.Url, ApiKey: inst.ApiKey, Name: inst.Name || ''}, function (data) {
+        {Url: inst.Url, ApiKey: inst.ApiKey, Name: inst.Name || '', SkipCertificateValidation: !!inst.SkipCertificateValidation}, function (data) {
             // Ignore stale responses (user picked a different instance in the
             // meantime, or a newer test superseded this one).
             if (reqId !== _arrStatusReqSeq[type]) {

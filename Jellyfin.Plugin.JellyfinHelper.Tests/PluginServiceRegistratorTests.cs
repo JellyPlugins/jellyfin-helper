@@ -13,14 +13,21 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -29,8 +36,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 /// <summary>
 ///     Tests for PluginServiceRegistrator to make sure every service the plugin depends on is registered against the DI container.
 /// </summary>
-public class PluginServiceRegistratorTests
+[Collection("ConfigOverride")]
+public class PluginServiceRegistratorTests : IDisposable
 {
+    public void Dispose()
+    {
+        // The data-path factory test initializes the Plugin singleton; always tear it down so the
+        // global state does not bleed into other tests in the collection.
+        ControllerTestFactory.TeardownPluginInstance();
+        GC.SuppressFinalize(this);
+    }
+
     /// <summary>
     ///     Registers all services against a fresh collection. Plugin.Instance may or may not exist depending on test ordering - the registrator uses the null-conditional so it tolerates either state.
     /// </summary>
@@ -200,6 +216,25 @@ public class PluginServiceRegistratorTests
     }
 
     [Fact]
+    public void RegisterServices_TraktClient_SendsUserAgent()
+    {
+        // BUG GUARD: Trakt sits behind Cloudflare, which 403s requests that carry no User-Agent. HttpClient
+        // sends none by default, so without an explicit UA every Trakt call failed with 403 regardless of a
+        // valid token/client id (all users saw an empty Discovery grid). The Trakt client must set a UA.
+        var sc = Register();
+        sc.AddLogging();
+        var provider = sc.BuildServiceProvider();
+        var factory = provider.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+
+        var trakt = factory.CreateClient("Trakt");
+
+        Assert.NotEmpty(trakt.DefaultRequestHeaders.UserAgent);
+        Assert.Contains(
+            trakt.DefaultRequestHeaders.UserAgent,
+            p => (p.Product?.Name ?? string.Empty).Contains("JellyfinHelper", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void RegisterServices_UnknownClientName_FallsBackToDefaultTimeout()
     {
         // Negative sanity check: a typo'd name doesn't accidentally match one of our registrations. Confirms our named-client registrations are actually keyed on the exact names controllers use.
@@ -251,5 +286,232 @@ public class PluginServiceRegistratorTests
         Assert.True(
             countAfterSecond > countAfterFirst,
             $"Registration count must grow when RegisterServices is invoked twice on the same collection (was {countAfterFirst}, now {countAfterSecond}).");
+    }
+
+    [Fact]
+    public void RegisterServices_WithInitializedPluginInstance_ResolvesStrategiesUsingDataFolderPath()
+    {
+        // The scoring-strategy and per-user-registry factories read Plugin.Instance.DataFolderPath to
+        // compose their on-disk weight/state paths. With no instance that branch is skipped; initializing
+        // the singleton exercises the data-path arm of each factory so resolution covers it.
+        ControllerTestFactory.InitializePluginInstance();
+        Assert.NotNull(Plugin.Instance);
+        Assert.False(string.IsNullOrEmpty(Plugin.Instance!.DataFolderPath));
+
+        var sc = Register();
+        sc.AddLogging();
+        var provider = sc.BuildServiceProvider(validateScopes: true);
+
+        Assert.NotNull(provider.GetService<LearnedScoringStrategy>());
+        Assert.NotNull(provider.GetService<NeuralScoringStrategy>());
+        Assert.NotNull(provider.GetService<EnsembleScoringStrategy>());
+        Assert.NotNull(provider.GetService<IPerUserEnsembleRegistry>());
+    }
+
+    // ResolveKeyRingDirectory - Data Protection keyring setup must never resolve against the process
+    // working directory (the reported Path.Combine pitfall) and must lock the ring down on Unix.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("relative/path")]
+    public void ResolveKeyRingDirectory_InvalidBase_ReturnsNull(string? basePath)
+    {
+        // Null/empty/whitespace/relative bases must be rejected outright - otherwise the ring would
+        // silently land in the process working directory instead of the plugin data path.
+        Assert.Null(PluginServiceRegistrator.ResolveKeyRingDirectory(basePath));
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_ValidBase_CreatesKeysSubdirectory()
+    {
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
+            Assert.NotNull(directory);
+            Assert.Equal(
+                Path.GetFullPath(Path.Join(basePath, "keys")),
+                directory!.FullName);
+            Assert.True(Directory.Exists(directory.FullName));
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_ValidBase_LocksDownPermissionsOnUnix()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            // Windows relies on ACL inheritance; there is nothing portable to assert.
+            return;
+        }
+
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            var directory = PluginServiceRegistrator.ResolveKeyRingDirectory(basePath);
+            Assert.NotNull(directory);
+            var mode = File.GetUnixFileMode(directory!.FullName);
+            const UnixFileMode ownerBits = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            const UnixFileMode otherBits = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                                           | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+            Assert.Equal(ownerBits, mode & ownerBits);
+            Assert.Equal((UnixFileMode)0, mode & otherBits);
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesSecretProtector_EphemeralWhenNoInstance()
+    {
+        // No Plugin instance means no data path: the factory must fall back to the ephemeral provider
+        // instead of throwing, because startup itself must still succeed (secrets just die with restart).
+        ControllerTestFactory.TeardownPluginInstance();
+        var sc = Register();
+        sc.AddSingleton(Mock.Of<ILogger<SecretProtector>>());
+
+        var protector = sc.BuildServiceProvider().GetRequiredService<ISecretProtector>();
+
+        Assert.NotNull(protector);
+        const string secret = "s3cret";
+        Assert.Equal(secret, protector.Unprotect(protector.Protect(secret)));
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesSecretProtector_PersistedRingWhenInstanceAvailable()
+    {
+        // With a Plugin instance the factory must back Data Protection with a keyring under the data
+        // path (not ephemeral): the keys directory is created on disk and secrets round-trip through it.
+        ControllerTestFactory.InitializePluginInstance();
+        Assert.NotNull(Plugin.Instance);
+        var dataPath = Plugin.Instance!.DataFolderPath;
+        Assert.False(string.IsNullOrEmpty(dataPath));
+
+        var sc = Register();
+        sc.AddSingleton(Mock.Of<ILogger<SecretProtector>>());
+
+        var protector = sc.BuildServiceProvider().GetRequiredService<ISecretProtector>();
+
+        Assert.NotNull(protector);
+        const string secret = "s3cret";
+        Assert.Equal(secret, protector.Unprotect(protector.Protect(secret)));
+        Assert.True(Directory.Exists(Path.Join(dataPath, "keys")));
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesOfficialTraktPluginReader_AsAbsentWithoutHostServices()
+    {
+        // Neither IPluginManager nor IApplicationPaths is registered (a host without them): the nullable
+        // GetService lookups yield null and the reader must report absent instead of throwing at startup.
+        var sc = Register();
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+        var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+        Assert.NotNull(reader);
+        Assert.False(reader.IsPresent());
+    }
+
+    [Theory]
+    [InlineData(PluginStatus.Active, true)]
+    [InlineData(PluginStatus.Disabled, false)]
+    public void RegisterServices_OfficialTraktPluginReader_ReflectsPluginStatus(PluginStatus status, bool expected)
+    {
+        // Presence means installed AND active: GetPlugin also returns disabled plugins, and sourcing
+        // through a non-running plugin would serve a stale token, so only Active counts as present.
+        var managerMock = new Mock<IPluginManager>();
+        managerMock
+            .Setup(m => m.GetPlugin(It.IsAny<Guid>(), It.IsAny<Version>()))
+            .Returns(new LocalPlugin("test-path", true, new PluginManifest { Status = status }));
+        var pathsMock = new Mock<IApplicationPaths>();
+        pathsMock.SetupGet(p => p.PluginConfigurationsPath).Returns(Path.GetTempPath());
+
+        var sc = Register();
+        sc.AddSingleton(managerMock.Object);
+        sc.AddSingleton(pathsMock.Object);
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+        var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+        Assert.Equal(expected, reader.IsPresent());
+    }
+
+    [Fact]
+    public void RegisterServices_OfficialTraktPluginReader_ReadsTokenFromComposedConfigPath()
+    {
+        // Proves the factory hands the reader <PluginConfigurationsPath>/Trakt.xml: a token seeded at
+        // that exact file must be readable through the resolved reader (not just a probe flag).
+        var userId = Guid.NewGuid();
+        var configDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(configDir);
+        try
+        {
+            File.WriteAllText(
+                Path.Join(configDir, "Trakt.xml"),
+                "<PluginConfiguration><TraktUsers><TraktUser>"
+                + "<AccessToken>seeded-tok</AccessToken>"
+                + "<RefreshToken>seeded-ref</RefreshToken>"
+                + $"<LinkedMbUserId>{userId:D}</LinkedMbUserId>"
+                + "<AccessTokenExpiration>2099-01-01T00:00:00Z</AccessTokenExpiration>"
+                + "</TraktUser></TraktUsers></PluginConfiguration>");
+            var pathsMock = new Mock<IApplicationPaths>();
+            pathsMock.SetupGet(p => p.PluginConfigurationsPath).Returns(configDir);
+
+            var sc = Register();
+            sc.AddSingleton(pathsMock.Object);
+            sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+            sc.AddSingleton(Mock.Of<ILogger<OfficialTraktPluginReader>>());
+
+            var reader = sc.BuildServiceProvider().GetRequiredService<IOfficialTraktPluginReader>();
+
+            var token = reader.TryGetToken(userId, DateTimeOffset.UtcNow);
+            Assert.NotNull(token);
+            Assert.Equal("seeded-tok", token!.AccessToken);
+        }
+        finally
+        {
+            if (Directory.Exists(configDir))
+            {
+                Directory.Delete(configDir, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ResolveKeyRingDirectory_WhenKeysPathIsAFile_ReturnsNull()
+    {
+        // Force the Create() failure branch: a plain file sitting where the "keys" subdirectory
+        // would go makes DirectoryInfo.Create throw IOException on every platform, so the method
+        // must fail closed to null rather than surface the exception into startup.
+        var basePath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(basePath);
+        var collidingFile = Path.Join(basePath, "keys");
+        File.WriteAllText(collidingFile, "not a directory");
+        try
+        {
+            Assert.Null(PluginServiceRegistrator.ResolveKeyRingDirectory(basePath));
+        }
+        finally
+        {
+            if (Directory.Exists(basePath))
+            {
+                Directory.Delete(basePath, true);
+            }
+        }
     }
 }

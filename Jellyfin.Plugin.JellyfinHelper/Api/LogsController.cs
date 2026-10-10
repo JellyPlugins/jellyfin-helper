@@ -123,6 +123,13 @@ public class LogsController : ControllerBase
             return "source parameter too long.";
         }
 
+        // The source filter is a partial match echoed into admin UI; control characters
+        // (CR/LF/NUL/tab) carry no legitimate filter value and enable log/response splitting.
+        if (source != null && source.IndexOfAny(['\r', '\n', '\0', '\t']) >= 0)
+        {
+            return "source parameter contains invalid characters.";
+        }
+
         return null;
     }
 }

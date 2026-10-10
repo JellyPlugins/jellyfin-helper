@@ -109,6 +109,24 @@ cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # Invoked via `bash` so it works regardless of the file's execute bit.
 bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 
+# --- 3b. stage the external plugins the Discovery custom tab depends on ------
+# Custom Tabs provides the .jellyfinhelper.discovery panel on the home page and
+# File Transformation injects our script; the custom-tab e2e spec needs both.
+# Latest release of both plugins, no pinning: this run is the tripwire if an
+# upstream update breaks the integration. Any staging failure aborts - the
+# external plugins are a required prerequisite, never a silent skip.
+log "Staging external plugins (latest Custom Tabs + File Transformation)"
+set +e
+bash "$SCRIPT_DIR/stage-external-plugins.sh" "$RUNTIME/config/plugins"
+stage_rc=$?
+set -e
+if [[ "$stage_rc" -eq 0 ]]; then
+  export JFH_E2E_EXTERNAL_PLUGINS=1
+else
+  echo "[run] External plugin staging FAILED (exit $stage_rc) - aborting." >&2
+  exit "$stage_rc"
+fi
+
 # Run the container as the invoking user where possible (Linux/CI); on other
 # hosts the image's default user + the 777 above keep /config writable.
 if [[ "$(uname -s)" = "Linux" ]]; then
@@ -119,7 +137,7 @@ if [[ "$(uname -s)" = "Linux" ]]; then
 fi
 
 # --- 4. bring up the stack --------------------------------------------------
-log "Starting stack (Jellyfin 12.1 + mock Arr/Seerr)"
+log "Starting stack (Jellyfin 12.2 + mock Arr/Seerr)"
 "${COMPOSE[@]}" up -d --build
 
 log "Waiting for Jellyfin to become healthy"

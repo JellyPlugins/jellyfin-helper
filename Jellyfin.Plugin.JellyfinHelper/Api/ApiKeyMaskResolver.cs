@@ -30,7 +30,8 @@ internal static class ApiKeyMaskResolver
     /// <returns>
     ///     The real API key to use. Returns the incoming key unchanged when it is not the mask; returns
     ///     the matched stored key when the mask was sent; returns an empty string when the mask was sent
-    ///     but no stored instance matches (callers must treat empty as "cannot test / do not send").
+    ///     but no stored instance matches, or the URL-only fallback is ambiguous (callers must treat empty
+    ///     as "cannot test / do not send").
     /// </returns>
     public static string ResolveArrKey(
         string? incomingKey,
@@ -46,14 +47,30 @@ internal static class ApiKeyMaskResolver
         }
 
         var list = stored as IReadOnlyList<ArrInstanceConfig> ?? stored.ToList();
-        var trimmedUrl = url?.Trim();
+        var canonicalUrl = CanonicalizeUrl(url);
 
-        // Name+URL first (exact match, handles same-URL collision), then URL-only (handles rename).
-        return (list.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), trimmedUrl, StringComparison.OrdinalIgnoreCase)
-                    && p.Name == name)
-                ?? list.FirstOrDefault(p =>
-                    string.Equals(p.Url?.Trim(), trimmedUrl, StringComparison.OrdinalIgnoreCase)))?.ApiKey
-               ?? string.Empty;
+        // Exact Name+URL match first - the only safe disambiguation when several instances share a URL.
+        var exact = list.FirstOrDefault(p =>
+            string.Equals(CanonicalizeUrl(p.Url), canonicalUrl, StringComparison.OrdinalIgnoreCase)
+            && p.Name == name);
+        if (exact is not null)
+        {
+            return exact.ApiKey ?? string.Empty;
+        }
+
+        // URL-only fallback (rename tolerance) only when it is unambiguous: exactly one stored instance
+        // shares the URL. Multiple same-URL instances with no name match would otherwise forward another
+        // instance's key upstream, so fail closed with an empty result instead.
+        var urlMatches = list.Where(p =>
+            string.Equals(CanonicalizeUrl(p.Url), canonicalUrl, StringComparison.OrdinalIgnoreCase)).ToList();
+        return urlMatches.Count == 1 ? urlMatches[0].ApiKey ?? string.Empty : string.Empty;
+    }
+
+    // A trailing slash is cosmetic ("https://host" and "https://host/" address the same instance), but a
+    // successful connection test auto-saves whatever is in the URL field, so the stored and typed forms can
+    // drift by exactly that slash. Fold it away here so the mask still resolves to the right stored key.
+    private static string CanonicalizeUrl(string? url)
+    {
+        return url?.Trim().TrimEnd('/') ?? string.Empty;
     }
 }

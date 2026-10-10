@@ -105,6 +105,46 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
+    public void CalculateStatistics_10000Files_CompletesWithin3Seconds()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var files = new List<FileSystemMetadata>(10_000);
+        for (var i = 0; i < 10_000; i++)
+        {
+            files.Add(new FileSystemMetadata
+            {
+                FullName = TestPath("media", "movies", $"Film{i:D5}.mkv"),
+                Name = $"Film{i:D5}.mkv",
+                Length = 1_000_000_000,
+                IsDirectory = false
+            });
+        }
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = _service.CalculateStatistics();
+        sw.Stop();
+
+        Assert.Single(result.Libraries);
+        Assert.Equal(10_000, result.Libraries[0].VideoFileCount);
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 3000, "Scan took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
+    [Fact]
     public void CalculateStatistics_TvShowLibrary_ClassifiesCorrectly()
     {
         var libraryPath = TestPath("media", "tv");
@@ -3612,7 +3652,7 @@ public class MetadataExtractionTests
             new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
         ]);
 
-        // AV1 4K Dolby Vision — use 3 Mbps to land in a distinct 2–4 tier
+        // AV1 4K Dolby Vision use 3 Mbps to land in a distinct 2–4 tier
         var mockItem3 = new Mock<BaseItem>();
         mockItem3.Object.Path = av1Path;
         mockItem3.Setup(i => i.GetMediaStreams()).Returns(
