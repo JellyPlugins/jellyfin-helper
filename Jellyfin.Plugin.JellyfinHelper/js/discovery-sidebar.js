@@ -839,7 +839,11 @@
                 setCachedDiscoveryResult(data);
                 renderCards(container, data);
             }).catch(function (err) {
-                if (startedUserId !== currentDiscoveryUserId()) {
+                // Same staleness contract as the success path: a mutation or account
+                // switch during the fetch makes this failure another render's problem.
+                // Without the generation check a stale 403 would re-invalidate (bumping
+                // the generation) and discard the newer in-flight result.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
                 if (!document.contains(container)) {
@@ -871,9 +875,9 @@
                 renderCards(container, data);
             })
             .catch(function (err) {
-                // An account switch during the fetch makes this failure another user's problem;
-                // drop it so we never touch the new user's cache or render stale cards.
-                if (startedUserId !== currentDiscoveryUserId()) {
+                // Same staleness contract as above: drop the failure when a mutation
+                // or account switch moved the generation on while it was in flight.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
                 renderOwnError(container, err);
