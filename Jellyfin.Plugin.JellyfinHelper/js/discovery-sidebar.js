@@ -274,7 +274,12 @@
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Narrow panels: slightly smaller tab labels so all three fit without truncation.
-            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }';
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
+            // Trakt pending slot: uncommented mini-spinner reserving roughly the tab bar's
+            // height while the silent probe runs. The tab bar replaces it on success, a
+            // 403/timeout removes it without a trace.
+            '.jfh-trakt-pending { display: flex; justify-content: center; align-items: center; min-height: 40px; margin: 0 0 1em 0; }' +
+            '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }';
         document.head.appendChild(style);
     }
 
@@ -648,6 +653,13 @@
     // Guards a second probe while one is in flight for the same user (re-mounts
     // and late resolvers otherwise fan out duplicate Trakt probes).
     var _traktProbeInFlight = false;
+    // Sequence per fired probe so a stale timeout/finally can never clobber a newer probe's state.
+    var _traktProbeSeq = 0;
+    // Delayed pending-slot reveal: fast probes (e.g. instant local 403s) never flash
+    // a spinner; only a genuinely slow probe shows one.
+    var TRAKT_PENDING_REVEAL_MS = 300;
+    // Silent probe budget: past this the tab stays single-grid and the next mount re-probes.
+    var TRAKT_PROBE_TIMEOUT_MS = 12000;
     // Background trending preload so the first tab click usually hits the cache.
     // Keyed by user; cleared on mutation via invalidateDiscoveryResult.
     var _trendingPreloadInFlight = false;
@@ -690,19 +702,35 @@
             // Render the single own-grid immediately so the tab never stays blank
             // while the probe is in flight; the probe upgrades to the tab bar below.
             renderShell(container, forceRefresh);
+            scheduleTraktPending(container, probeUserId);
             if (sameUserProbeRunning) {
                 return;
             }
             _traktProbeInFlight = true;
+            var probeSeq = ++_traktProbeSeq;
+            var probeSettled = false;
+            var probeTimer = setTimeout(function () {
+                // Stalled probe: fail closed like a transient error so the pending slot
+                // vanishes instead of spinning forever; the next mount re-probes.
+                if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
+                probeSettled = true;
+                _traktProbeInFlight = false;
+                _traktEnabled = false;
+                _traktProbeUserId = null;
+                hideTraktPending(container);
+            }, TRAKT_PROBE_TIMEOUT_MS);
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
                 .then(function (resp) {
-                    if (probeUserId !== currentDiscoveryUserId()) { return; }
+                    // Superseded probes never own shared state; the newest probe's
+                    // callbacks alone decide _traktEnabled and the probe result.
+                    if (probeSettled || probeSeq !== _traktProbeSeq || probeUserId !== currentDiscoveryUserId()) { return; }
                     _traktEnabled = true;
                     // Keep the probe payload: it is exactly what the personal tab
                     // would refetch, so the first visit renders without a second GET.
                     _traktProbeResult = { resp: resp, userId: probeUserId, generation: _discoveryGeneration };
                 })
                 .catch(function (err) {
+                    if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
                     if (err?.status === 403) {
                         resetTraktState();
                     } else {
@@ -715,13 +743,25 @@
                     }
                 })
                 .finally(function () {
-                    _traktProbeInFlight = false;
+                    probeSettled = true;
+                    clearTimeout(probeTimer);
+                    // Only the newest probe owns the in-flight flag; a stale finally must
+                    // not clear it while the replacement request is away.
+                    if (probeSeq === _traktProbeSeq) {
+                        _traktProbeInFlight = false;
+                    } else {
+                        // Superseded: the replacement probe owns state and UI from here.
+                        return;
+                    }
                     // The probe result belongs to probeUserId and to this mounted panel:
                     // drop it if the account switched or the panel detached meanwhile.
                     if (probeUserId !== currentDiscoveryUserId()) { _traktEnabled = null; return; }
                     if (!document.contains(container)) { return; }
                     // Re-render only when the shape changes (tabs now known). The own-grid
                     // rendered above stays live when Trakt is off, avoiding a duplicate fetch.
+                    // Either way the pending slot is done: the tab bar replaces it, or the
+                    // off path removes it without a trace.
+                    hideTraktPending(container);
                     if (_traktEnabled) {
                         renderShell(container, forceRefresh);
                     }
@@ -730,6 +770,29 @@
         }
 
         renderShell(container, forceRefresh);
+    }
+
+    // Schedules the uncommented pending slot reserving the tab bar's place while the
+    // silent probe runs. Delayed so fast probes never flash it; guarded so it only ever
+    // appears while a probe is genuinely outstanding and no tab bar exists yet.
+    function scheduleTraktPending(container, probeUserId) {
+        setTimeout(function () {
+            if (probeUserId !== currentDiscoveryUserId()) { return; }
+            if (!document.contains(container)) { return; }
+            if (!_traktProbeInFlight || _traktEnabled) { return; }
+            if (container.querySelector('.jfh-trakt-pending') || container.querySelector('.jfh-discovery-tabs')) { return; }
+            var row = document.createElement('div');
+            row.className = 'jfh-trakt-pending';
+            row.setAttribute('role', 'status');
+            row.innerHTML = '<span class="jfh-trakt-pending-dot" aria-hidden="true"></span>';
+            container.insertBefore(row, container.firstChild);
+        }, TRAKT_PENDING_REVEAL_MS);
+    }
+
+    function hideTraktPending(container) {
+        if (!document.contains(container)) { return; }
+        var row = container.querySelector('.jfh-trakt-pending');
+        if (row) { row.remove(); }
     }
 
     // Builds the tab bar (when Trakt is on) plus a content host, then renders the active tab into the host.
@@ -838,6 +901,9 @@
                 }
                 setCachedDiscoveryResult(data);
                 renderCards(container, data);
+                // An own render replaces the container content and may have wiped a
+                // shown pending slot; re-schedule it (no-op unless a probe is still out).
+                scheduleTraktPending(container, startedUserId);
             }).catch(function (err) {
                 // Same staleness contract as the success path: a mutation or account
                 // switch during the fetch makes this failure another render's problem.
@@ -873,6 +939,8 @@
                 }
                 setCachedDiscoveryResult(data);
                 renderCards(container, data);
+                // Same pending-slot re-schedule as the shared-fetch path above.
+                scheduleTraktPending(container, startedUserId);
             })
             .catch(function (err) {
                 // Same staleness contract as above: drop the failure when a mutation
@@ -901,6 +969,7 @@
             // A tab shell built meanwhile owns the UI; do not overwrite it.
             if (!container.querySelector('.jfh-discovery-tabs')) {
                 renderCards(container, fallback);
+                scheduleTraktPending(container, currentDiscoveryUserId());
             }
             return;
         }
@@ -919,6 +988,9 @@
         if (serverMessage) {
             showToast(getUserFriendlyErrorMessage(serverMessage));
         }
+        // Error renders replace the container content too; re-schedule the pending
+        // slot (no-op unless a probe is still genuinely outstanding).
+        scheduleTraktPending(container, currentDiscoveryUserId());
     }
 
     // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
