@@ -708,6 +708,12 @@
             }
             _traktProbeInFlight = true;
             var probeSeq = ++_traktProbeSeq;
+            // Fire-time generation: a mutation (request/dismiss) bumping the generation
+            // while the probe is away must not let the pre-mutation payload pass as fresh.
+            // Only the payload is gated by it; the enabled flag stays live so the tabs
+            // do not flicker away after every mutation (a full probe kill would re-hide
+            // them for the whole probe latency on each request/dismiss).
+            var firedGeneration = _discoveryGeneration;
             var probeSettled = false;
             var probeTimer = setTimeout(function () {
                 // Stalled probe: fail closed like a transient error so the pending slot
@@ -727,7 +733,9 @@
                     _traktEnabled = true;
                     // Keep the probe payload: it is exactly what the personal tab
                     // would refetch, so the first visit renders without a second GET.
-                    _traktProbeResult = { resp: resp, userId: probeUserId, generation: _discoveryGeneration };
+                    // Stamped with the fire-time generation so a payload that raced a
+                    // mutation is rejected by the consumer's freshness check.
+                    _traktProbeResult = { resp: resp, userId: probeUserId, generation: firedGeneration };
                 })
                 .catch(function (err) {
                     if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
