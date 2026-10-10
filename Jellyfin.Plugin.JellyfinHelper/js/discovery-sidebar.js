@@ -274,7 +274,12 @@
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Narrow panels: slightly smaller tab labels so all three fit without truncation.
-            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }';
+            '@container (max-width: 479px) { .jfh-discovery-tab { font-size: 0.8em; padding: 0.5em 0.4em; } }' +
+            // Trakt pending slot: uncommented mini-spinner reserving roughly the tab bar's
+            // height while the silent probe runs. The tab bar replaces it on success, a
+            // 403/timeout removes it without a trace.
+            '.jfh-trakt-pending { display: flex; justify-content: center; align-items: center; min-height: 40px; margin: 0 0 1em 0; }' +
+            '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }';
         document.head.appendChild(style);
     }
 
@@ -301,6 +306,9 @@
         _discoveryResultCache = null;
         _traktPersonalCache = null;
         _traktTrendingCache = null;
+        _traktProbeResult = null;
+        _trendingPreloadInFlight = false;
+        _ownFetchPromise = null;
         // Any GET already in flight predates this invalidation and must not
         // commit its (now stale) result.
         _discoveryGeneration++;
@@ -639,6 +647,28 @@
     var _activeTab = 'own';
     var _traktPersonalCache = null;
     var _traktTrendingCache = null;
+    // Probe response kept so the personal tab can render without refetching the
+    // same endpoint. Consumed once, cleared on any mutation or account switch.
+    var _traktProbeResult = null;
+    // Guards a second probe while one is in flight for the same user (re-mounts
+    // and late resolvers otherwise fan out duplicate Trakt probes).
+    var _traktProbeInFlight = false;
+    // Sequence per fired probe so a stale timeout/finally can never clobber a newer probe's state.
+    var _traktProbeSeq = 0;
+    // Delayed pending-slot reveal: fast probes (e.g. instant local 403s) never flash
+    // a spinner; only a genuinely slow probe shows one.
+    var TRAKT_PENDING_REVEAL_MS = 300;
+    // Silent probe budget: past this the tab stays single-grid and the next mount re-probes.
+    var TRAKT_PROBE_TIMEOUT_MS = 12000;
+    // Background trending preload so the first tab click usually hits the cache.
+    // Keyed by user; cleared on mutation via invalidateDiscoveryResult.
+    var _trendingPreloadInFlight = false;
+    var _trendingPreloadUserId = null;
+    // Shared own-grid fetch: concurrent mounts attach to one request instead of
+    // firing duplicate GETs (shell-first render + probe-finally re-render).
+    var _ownFetchPromise = null;
+    var _ownFetchUserId = null;
+    var _ownFetchGeneration = -1;
 
     var TAB_OWN = 'own';
     var TAB_TRAKT = 'trakt';
@@ -651,6 +681,10 @@
         _traktProbeUserId = null;
         _traktPersonalCache = null;
         _traktTrendingCache = null;
+        _traktProbeResult = null;
+        _traktProbeInFlight = false;
+        _trendingPreloadInFlight = false;
+        _trendingPreloadUserId = null;
     }
 
     function renderDiscovery(container, forceRefresh) {
@@ -658,11 +692,53 @@
         // With Trakt off the panel stays the single ensemble grid, without layout shift.
         var probeUserId = currentDiscoveryUserId();
         if (_traktEnabled === null || _traktProbeUserId !== probeUserId) {
+            // Read before resetting: a probe still in flight for THIS user must not
+            // fire twice, but an account switch always needs a fresh probe even while
+            // the previous user's request is away (its finally self-discards).
+            var sameUserProbeRunning = _traktProbeInFlight && _traktProbeUserId === probeUserId;
             _traktProbeUserId = probeUserId;
             _traktEnabled = null;
+            _traktProbeResult = null;
+            // Render the single own-grid immediately so the tab never stays blank
+            // while the probe is in flight; the probe upgrades to the tab bar below.
+            renderShell(container, forceRefresh);
+            scheduleTraktPending(container, probeUserId);
+            if (sameUserProbeRunning) {
+                return;
+            }
+            _traktProbeInFlight = true;
+            var probeSeq = ++_traktProbeSeq;
+            // Fire-time generation: a mutation (request/dismiss) bumping the generation
+            // while the probe is away must not let the pre-mutation payload pass as fresh.
+            // Only the payload is gated by it; the enabled flag stays live so the tabs
+            // do not flicker away after every mutation (a full probe kill would re-hide
+            // them for the whole probe latency on each request/dismiss).
+            var firedGeneration = _discoveryGeneration;
+            var probeSettled = false;
+            var probeTimer = setTimeout(function () {
+                // Stalled probe: fail closed like a transient error so the pending slot
+                // vanishes instead of spinning forever; the next mount re-probes.
+                if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
+                probeSettled = true;
+                _traktProbeInFlight = false;
+                _traktEnabled = false;
+                _traktProbeUserId = null;
+                hideTraktPending(container);
+            }, TRAKT_PROBE_TIMEOUT_MS);
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
-                .then(function () { _traktEnabled = true; })
+                .then(function (resp) {
+                    // Superseded probes never own shared state; the newest probe's
+                    // callbacks alone decide _traktEnabled and the probe result.
+                    if (probeSettled || probeSeq !== _traktProbeSeq || probeUserId !== currentDiscoveryUserId()) { return; }
+                    _traktEnabled = true;
+                    // Keep the probe payload: it is exactly what the personal tab
+                    // would refetch, so the first visit renders without a second GET.
+                    // Stamped with the fire-time generation so a payload that raced a
+                    // mutation is rejected by the consumer's freshness check.
+                    _traktProbeResult = { resp: resp, userId: probeUserId, generation: firedGeneration };
+                })
                 .catch(function (err) {
+                    if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
                     if (err?.status === 403) {
                         resetTraktState();
                     } else {
@@ -675,16 +751,56 @@
                     }
                 })
                 .finally(function () {
+                    probeSettled = true;
+                    clearTimeout(probeTimer);
+                    // Only the newest probe owns the in-flight flag; a stale finally must
+                    // not clear it while the replacement request is away.
+                    if (probeSeq === _traktProbeSeq) {
+                        _traktProbeInFlight = false;
+                    } else {
+                        // Superseded: the replacement probe owns state and UI from here.
+                        return;
+                    }
                     // The probe result belongs to probeUserId and to this mounted panel:
                     // drop it if the account switched or the panel detached meanwhile.
                     if (probeUserId !== currentDiscoveryUserId()) { _traktEnabled = null; return; }
                     if (!document.contains(container)) { return; }
-                    renderShell(container, forceRefresh);
+                    // Re-render only when the shape changes (tabs now known). The own-grid
+                    // rendered above stays live when Trakt is off, avoiding a duplicate fetch.
+                    // Either way the pending slot is done: the tab bar replaces it, or the
+                    // off path removes it without a trace.
+                    hideTraktPending(container);
+                    if (_traktEnabled) {
+                        renderShell(container, forceRefresh);
+                    }
                 });
             return;
         }
 
         renderShell(container, forceRefresh);
+    }
+
+    // Schedules the uncommented pending slot reserving the tab bar's place while the
+    // silent probe runs. Delayed so fast probes never flash it; guarded so it only ever
+    // appears while a probe is genuinely outstanding and no tab bar exists yet.
+    function scheduleTraktPending(container, probeUserId) {
+        setTimeout(function () {
+            if (probeUserId !== currentDiscoveryUserId()) { return; }
+            if (!document.contains(container)) { return; }
+            if (!_traktProbeInFlight || _traktEnabled) { return; }
+            if (container.querySelector('.jfh-trakt-pending') || container.querySelector('.jfh-discovery-tabs')) { return; }
+            var row = document.createElement('div');
+            row.className = 'jfh-trakt-pending';
+            row.setAttribute('role', 'status');
+            row.innerHTML = '<span class="jfh-trakt-pending-dot" aria-hidden="true"></span>';
+            container.insertBefore(row, container.firstChild);
+        }, TRAKT_PENDING_REVEAL_MS);
+    }
+
+    function hideTraktPending(container) {
+        if (!document.contains(container)) { return; }
+        var row = container.querySelector('.jfh-trakt-pending');
+        if (row) { row.remove(); }
     }
 
     // Builds the tab bar (when Trakt is on) plus a content host, then renders the active tab into the host.
@@ -714,6 +830,9 @@
         }
 
         var host = container.querySelector('.jfh-discovery-tab-host');
+        // Warm the trending pool in the background while the user reads the first
+        // tab, so opening Trending usually hits the cache instead of cold-fetching.
+        maybePreloadTrending();
         if (_activeTab === TAB_TRAKT) {
             renderTraktPersonal(host, forceRefresh);
         } else if (_activeTab === TAB_TRENDING) {
@@ -721,6 +840,33 @@
         } else {
             renderOwnTab(host, forceRefresh);
         }
+    }
+
+    function maybePreloadTrending() {
+        var userId = currentDiscoveryUserId();
+        if (!userId) { return; }
+        if (_traktEnabled !== true) { return; }
+        if (_traktTrendingCache && _traktTrendingCache.userId === userId) { return; }
+        if (_trendingPreloadInFlight && _trendingPreloadUserId === userId) { return; }
+        _trendingPreloadInFlight = true;
+        _trendingPreloadUserId = userId;
+        var startedGeneration = _discoveryGeneration;
+        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
+            .then(function (data) {
+                if (_discoveryGeneration !== startedGeneration || userId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                _traktTrendingCache = { data: data, userId: userId };
+            })
+            .catch(function () {
+                // Ignored by design: a tab click retries with a spinner, so a failed
+                // silent preload must never surface an error or clear Trakt state.
+            })
+            .finally(function () {
+                if (userId === _trendingPreloadUserId) {
+                    _trendingPreloadInFlight = false;
+                }
+            });
     }
 
     function tabButton(tab, label) {
@@ -744,41 +890,115 @@
         container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
         var startedGeneration = _discoveryGeneration;
         var startedUserId = currentDiscoveryUserId();
-        ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+        // A shell-first render plus the probe-finally upgrade can reach this path
+        // twice for the same user/generation. Attach to the in-flight request
+        // instead of firing a duplicate GET; each caller renders into its own host.
+        if (_ownFetchPromise && _ownFetchUserId === startedUserId && _ownFetchGeneration === startedGeneration) {
+            _ownFetchPromise.then(function (data) {
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!document.contains(container)) {
+                    return;
+                }
+                // The probe upgrade may have turned this container into a tab shell
+                // meanwhile; the fresh tab-host render owns the UI, so a stale
+                // own-grid result must not overwrite the tab bar.
+                if (container.querySelector('.jfh-discovery-tabs')) {
+                    return;
+                }
+                setCachedDiscoveryResult(data);
+                renderCards(container, data);
+                // An own render replaces the container content and may have wiped a
+                // shown pending slot; re-schedule it (no-op unless a probe is still out).
+                scheduleTraktPending(container, startedUserId);
+            }).catch(function (err) {
+                // Same staleness contract as the success path: a mutation or account
+                // switch during the fetch makes this failure another render's problem.
+                // Without the generation check a stale 403 would re-invalidate (bumping
+                // the generation) and discard the newer in-flight result.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                    return;
+                }
+                if (!document.contains(container)) {
+                    return;
+                }
+                renderOwnError(container, err);
+            });
+            return;
+        }
+        _ownFetchUserId = startedUserId;
+        _ownFetchGeneration = startedGeneration;
+        _ownFetchPromise = ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' });
+        _ownFetchPromise
             .then(function (data) {
                 // A mutation or account switch during the fetch makes this result
                 // stale; drop it rather than cache/render outdated or cross-user data.
                 if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
+                if (!document.contains(container)) {
+                    return;
+                }
+                // Same upgrade race as the shared-fetch path above: never let a stale
+                // own-grid overwrite a tab shell built while this request was away.
+                if (container.querySelector('.jfh-discovery-tabs')) {
+                    return;
+                }
                 setCachedDiscoveryResult(data);
                 renderCards(container, data);
+                // Same pending-slot re-schedule as the shared-fetch path above.
+                scheduleTraktPending(container, startedUserId);
             })
             .catch(function (err) {
-                // An account switch during the fetch makes this failure another user's problem;
-                // drop it so we never touch the new user's cache or render stale cards.
-                if (startedUserId !== currentDiscoveryUserId()) {
+                // Same staleness contract as above: drop the failure when a mutation
+                // or account switch moved the generation on while it was in flight.
+                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
-                var fallback = getCachedDiscoveryResult();
-                if (err?.status === 403) {
-                    invalidateDiscoveryResult();
-                } else if (fallback) {
-                    // Transient failure: rather show the last known cards than a blank page.
-                    renderCards(container, fallback);
-                    return;
-                }
-                var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
-                if (err?.status === 403) {
-                    msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
-                }
-                container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
-                // Surface a user-friendly toast for non-200 responses (never raw backend details)
-                var serverMessage = extractErrorMessage(err);
-                if (serverMessage) {
-                    showToast(getUserFriendlyErrorMessage(serverMessage));
+                renderOwnError(container, err);
+            })
+            .finally(function () {
+                if (_ownFetchUserId === startedUserId && _ownFetchGeneration === startedGeneration) {
+                    _ownFetchPromise = null;
                 }
             });
+    }
+
+    function renderOwnError(container, err) {
+        if (!document.contains(container)) {
+            return;
+        }
+        var fallback = getCachedDiscoveryResult();
+        if (err?.status === 403) {
+            invalidateDiscoveryResult();
+        } else if (fallback) {
+            // Transient failure: rather show the last known cards than a blank page.
+            // A tab shell built meanwhile owns the UI; do not overwrite it.
+            if (!container.querySelector('.jfh-discovery-tabs')) {
+                renderCards(container, fallback);
+                scheduleTraktPending(container, currentDiscoveryUserId());
+            }
+            return;
+        }
+        // Same upgrade race as the success path: state above is still cleaned,
+        // but the message must not wipe a freshly built tab bar.
+        if (container.querySelector('.jfh-discovery-tabs')) {
+            return;
+        }
+        var msg = t('discoveryLoadError', 'Could not load discovery suggestions.');
+        if (err?.status === 403) {
+            msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
+        }
+        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+        // Surface a user-friendly toast for non-200 responses (never raw backend details)
+        var serverMessage = extractErrorMessage(err);
+        if (serverMessage) {
+            showToast(getUserFriendlyErrorMessage(serverMessage));
+        }
+        // Error renders replace the container content too; re-schedule the pending
+        // slot (no-op unless a probe is still genuinely outstanding).
+        scheduleTraktPending(container, currentDiscoveryUserId());
     }
 
     // Unlike the ensemble "own" tab, the Trakt tabs serve purely from the instant cache and do not
@@ -788,6 +1008,20 @@
     function renderTraktPersonal(host, forceRefresh) {
         if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
             renderCards(host, _traktPersonalCache.data);
+            return;
+        }
+        // The shell probe already fetched this exact endpoint. Render from it
+        // instead of firing a duplicate GET on the first visit.
+        if (!forceRefresh && _traktProbeResult && _traktProbeResult.userId === currentDiscoveryUserId()
+            && _traktProbeResult.generation === _discoveryGeneration) {
+            var probed = _traktProbeResult;
+            _traktProbeResult = null;
+            if (probed.resp?.Linked !== true) {
+                renderTraktNotLinked(host);
+                return;
+            }
+            _traktPersonalCache = { data: probed.resp.Result, userId: probed.userId };
+            renderCards(host, probed.resp.Result);
             return;
         }
 
@@ -1522,14 +1756,11 @@
     }
 
     function initDiscoveryUiFull() {
-        // Discovery is active and has recommendations - full initialization. Wait for
-        // external links config (Seerr URL) before rendering to ensure the Seerr link
-        // is available on the first card render.
-        loadExternalLinksConfig().finally(function () {
-            initCustomTab();
-            initSidebar();
-            scheduleInitialMountRetries();
-        });
+        // Render immediately; the Seerr-links config loads in parallel (fired in
+        // bootstrapDiscovery) and re-renders once if it arrives late with a URL.
+        initCustomTab();
+        initSidebar();
+        scheduleInitialMountRetries();
     }
 
     function handleDiscoveryProbe(data, startedUserId) {
@@ -1546,6 +1777,9 @@
             return;
         }
         _bootstrapped = true;
+        // Seed the own-grid cache with the probe payload: it is what the first mount
+        // would fetch moments later, so the initial render is a cache hit.
+        _discoveryResultCache = { data: data, userId: startedUserId };
         initDiscoveryUiFull();
     }
 
@@ -1600,6 +1834,16 @@
             // through the signed-out gap). Every async step below re-checks it against the live user
             // so an account switch mid-flight cannot let a stale callback touch shared state or the UI.
             var startedUserId = currentDiscoveryUserId();
+            // Seerr-links config loads in parallel with strings/probe instead of gating
+            // first render. A late-arriving URL re-renders the live view once (cache-hit
+            // path, no loading flash) so cards gain their Seerr links.
+            var seerrBefore = _seerrBaseUrl;
+            loadExternalLinksConfig().finally(function () {
+                if (!seerrBefore && _seerrBaseUrl && startedUserId === currentDiscoveryUserId()
+                    && lastMountedContainer && document.contains(lastMountedContainer)) {
+                    renderDiscovery(lastMountedContainer, false);
+                }
+            });
             loadStrings(function () {
                 if (startedUserId !== currentDiscoveryUserId()) { return; }
                 probeDiscoveryAvailability(startedUserId);
