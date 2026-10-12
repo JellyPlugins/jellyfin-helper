@@ -122,7 +122,7 @@ public class RecommendationPlaylistServiceTests
 
         Assert.NotNull(captured);
         Assert.Equal(userId, captured.UserId);
-        Assert.True(captured.Public == false);
+        Assert.Equal(false, captured.Public);
         Assert.NotNull(captured.Users);
         Assert.Empty(captured.Users);
     }
