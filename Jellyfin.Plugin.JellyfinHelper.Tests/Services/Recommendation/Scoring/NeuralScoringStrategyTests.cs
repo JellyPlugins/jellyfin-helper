@@ -367,6 +367,30 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.Equal(score, explanation.FinalScore, 8);
     }
 
+    [Fact]
+    public void ScoreWithExplanation_ZeroValuedNamedFeatures_CarryNoContribution()
+    {
+        // Regression gate: the MLP attribution is an input gradient, so a zero-valued feature can
+        // still carry a nonzero attribution. The build path gates franchise/collection/popularity on
+        // their raw value, so an absent signal must surface literal 0.0 and never become dominant.
+        var strategy = new NeuralScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7,
+            CombinedCriticScore = 0.6,
+            CollaborativeScore = 0.4,
+            FranchiseAffinity = 0.0,
+            CollectionProgressionBoost = 0.0,
+            PopularityScore = 0.0
+        };
+
+        var explanation = strategy.ScoreWithExplanation(features);
+
+        Assert.Equal(0.0, explanation.FranchiseContribution);
+        Assert.Equal(0.0, explanation.CollectionProgressionContribution);
+        Assert.Equal(0.0, explanation.PopularityContribution);
+    }
+
     // Training Tests
 
     [Fact]
