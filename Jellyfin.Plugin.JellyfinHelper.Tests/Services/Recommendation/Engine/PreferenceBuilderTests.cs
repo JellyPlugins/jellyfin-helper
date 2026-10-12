@@ -1511,6 +1511,71 @@ public class PreferenceBuilderTests
     }
 
     [Fact]
+    public void BuildFranchisePreferenceVector_DuplicateTmdbCopies_CountAsOneTitle()
+    {
+        // Three library copies of the SAME film (identical TmdbId) are one franchise title, not three, so the
+        // loyalty floor must not engage; the dormant franchise keeps its pure-decayed weight.
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 555, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dup" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 555, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dup" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 555, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dup" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 999, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Recent" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // Three copies dedup to one distinct title (tmdb:555), below the 2-title threshold, so no floor.
+        Assert.True(vector["Dup"] < FranchiseLoyaltyBaseForTest,
+            $"Duplicate TMDb copies of one film are not franchise loyalty. Got {vector["Dup"]:F4}");
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_DistinctTmdbTitles_CountForLoyalty()
+    {
+        // Two DIFFERENT films (distinct TmdbIds) in one franchise are two titles, so the loyalty floor engages.
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 10, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Real" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 20, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Real" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 999, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Recent" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // 2 distinct titles -> floor = 0.4 + 0.2 * (2 - 2) = 0.4, lifting the decayed ~0.12 weight.
+        Assert.Equal(0.4, vector["Real"], 10);
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_FavoritedButUnplayedTitles_DoNotCountTowardLoyaltyFloor()
+    {
+        // Two favorited-but-never-played distinct titles still shape the weighted vector, but the loyalty floor
+        // counts only COMPLETED plays, so it must not engage. "Recent" is stacked to be the normalization max so
+        // "F" normalizes below the 0.4 base: if favorited-unplayed wrongly counted, the floor would force it to 0.4.
+        var profile = new UserWatchProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 1, IsFavorite = true, Played = false, PlayCount = 0, LastPlayedDate = null, TmdbCollectionName = "F" });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 2, IsFavorite = true, Played = false, PlayCount = 0, LastPlayedDate = null, TmdbCollectionName = "F" });
+        for (var i = 0; i < 40; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 1000 + i, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Recent" });
+        }
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // Favorited-unplayed rows are excluded from the completed-title count, so no floor: "F" keeps its
+        // normalized ~0.20 (two favorite rows = 8.0 against the stacked recent max), staying below 0.4.
+        Assert.True(vector["F"] < FranchiseLoyaltyBaseForTest,
+            $"Favorited-but-unplayed titles must not trigger the loyalty floor. Got {vector["F"]:F4}");
+    }
+
+    [Fact]
     public void BuildGenreExposureAnalysis_LowShareGenre_MarkedUnderexposed()
     {
         // >= MinWatchCountForGenreExposure rows dominated by one genre plus a single rare genre
