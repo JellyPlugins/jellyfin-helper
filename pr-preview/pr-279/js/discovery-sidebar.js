@@ -250,7 +250,11 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
-            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; text-align: center; min-width: 0; }' +
+            // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
+            // Failed) exactly the same size, so swapping the label never changes the button's height or width
+            // and the state transition doesn't flicker. The request button spans the full row (its dismiss
+            // sibling is hidden for the duration), so these labels stay single-line.
+            '.jfh-discovery-btn { flex: 1; box-sizing: border-box; min-height: 2.6em; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
