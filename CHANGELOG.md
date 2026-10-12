@@ -27,11 +27,14 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 
+- **Recommendations now follow completed franchises.** The per-user franchise preference no longer decays toward zero when the last watch is old: a franchise you have finished keeps a loyalty floor based on how many distinct entries you watched, so a brand-new entry in a series you completed years ago is surfaced again instead of being outranked by whatever you watched most recently. Scoring, ranking, and training are otherwise unchanged.
+- **Recommendation explanations are concrete, not generic.** The "Why" line now names the signal that actually drove the pick: completing a collection ("More from the … collection", or how many entries you have watched), a franchise, a matched country, writer, tag, language, release era, or genuine crowd popularity ("Popular with other viewers", kept distinct from "Highly rated"). Franchise, collection and popularity became first-class explanation signals; the remaining signals surface a concrete anchor where one exists, and the generic "Recommended for you" now only appears when no signal truly applies. Discovery suggestions use the same richer, honest reasons. This is display-only: scores, ranking, and the model are unchanged.
+
 - **Discovery Tab instant, flash-free remounts.** The last results render immediately from an in-memory copy, so returning to the tab never shows a spinner. A silent background refetch swaps in newer suggestions in place once a scheduled run (or an out-of-band Seerr request reconcile) produces them, keeping the view fresh without a loading state.
 
 ### Tests
 
-- **Unit: 6581 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, and the reader for the official Trakt plugin (hardened XML parse, read-only token, User-Agent gate, presence-gated sourcing).
+- **Unit: 6610 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, the reader for the official Trakt plugin (hardened XML parse, read-only token, User-Agent gate, presence-gated sourcing), and the recommendation franchise-loyalty floor and anchored-explanation signals (local and discovery).
 - **End-to-end: 361 tests.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and stages the official Jellyfin Trakt plugin with a seeded per-user token to prove the Helper sources personal recommendations and trending through it (the mock Trakt server enforces the production User-Agent gate). A negative custom-tab spec proves the Discovery panel stays unpopulated when user access is disabled. (Authoritative count: `cd test/e2e && npx playwright test --list`.)
 
 ### Special Thanks

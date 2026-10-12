@@ -45,6 +45,15 @@ public sealed class ScoreExplanation
     /// <summary>Gets or sets the score contribution from studio match.</summary>
     public double StudioContribution { get; set; }
 
+    /// <summary>Gets or sets the score contribution from franchise (TMDb collection) affinity.</summary>
+    public double FranchiseContribution { get; set; }
+
+    /// <summary>Gets or sets the score contribution from Jellyfin box-set collection progression.</summary>
+    public double CollectionProgressionContribution { get; set; }
+
+    /// <summary>Gets or sets the score contribution from global popularity (how many users have watched this item).</summary>
+    public double PopularityContribution { get; set; }
+
     /// <summary>Gets or sets the genre penalty multiplier applied (1.0 = no penalty).</summary>
     public double GenrePenaltyMultiplier { get; set; } = 1.0;
 
@@ -76,6 +85,9 @@ public sealed class ScoreExplanation
         var blendedInteraction = (oneMinusAlpha * InteractionContribution) + (alpha * other.InteractionContribution);
         var blendedPeople = (oneMinusAlpha * PeopleContribution) + (alpha * other.PeopleContribution);
         var blendedStudio = (oneMinusAlpha * StudioContribution) + (alpha * other.StudioContribution);
+        var blendedFranchise = (oneMinusAlpha * FranchiseContribution) + (alpha * other.FranchiseContribution);
+        var blendedCollection = (oneMinusAlpha * CollectionProgressionContribution) + (alpha * other.CollectionProgressionContribution);
+        var blendedPopularity = (oneMinusAlpha * PopularityContribution) + (alpha * other.PopularityContribution);
 
         return new ScoreExplanation
         {
@@ -89,6 +101,9 @@ public sealed class ScoreExplanation
             InteractionContribution = blendedInteraction,
             PeopleContribution = blendedPeople,
             StudioContribution = blendedStudio,
+            FranchiseContribution = blendedFranchise,
+            CollectionProgressionContribution = blendedCollection,
+            PopularityContribution = blendedPopularity,
             GenrePenaltyMultiplier = (oneMinusAlpha * GenrePenaltyMultiplier) + (alpha * other.GenrePenaltyMultiplier),
             DominantSignal = DetermineDominantSignal(
                 blendedGenre,
@@ -99,7 +114,10 @@ public sealed class ScoreExplanation
                 blendedYearProx,
                 blendedInteraction,
                 blendedPeople,
-                blendedStudio),
+                blendedStudio,
+                blendedFranchise,
+                blendedCollection,
+                blendedPopularity),
             StrategyName = StrategyName // Caller can override
         };
     }
@@ -125,6 +143,9 @@ public sealed class ScoreExplanation
             InteractionContribution = InteractionContribution * penaltyMultiplier,
             PeopleContribution = PeopleContribution * penaltyMultiplier,
             StudioContribution = StudioContribution * penaltyMultiplier,
+            FranchiseContribution = FranchiseContribution * penaltyMultiplier,
+            CollectionProgressionContribution = CollectionProgressionContribution * penaltyMultiplier,
+            PopularityContribution = PopularityContribution * penaltyMultiplier,
             GenrePenaltyMultiplier = penaltyMultiplier,
             // Scaling all contributions by the same factor cannot change which one is largest.
             // Only when the multiplier is zero do all contributions collapse to zero to "None".
@@ -145,6 +166,9 @@ public sealed class ScoreExplanation
     /// <param name="interactionContrib">Interaction terms contribution (genreÃ-rating, genreÃ-collab, genreCount, isSeries, completion).</param>
     /// <param name="peopleContrib">People similarity contribution (actors/directors).</param>
     /// <param name="studioContrib">Studio match contribution.</param>
+    /// <param name="franchiseContrib">Franchise (TMDb collection) affinity contribution.</param>
+    /// <param name="collectionContrib">Box-set collection progression contribution.</param>
+    /// <param name="popularityContrib">Global popularity contribution.</param>
     /// <returns>The name of the dominant signal.</returns>
     public static string DetermineDominantSignal(
         double genreContrib,
@@ -155,7 +179,10 @@ public sealed class ScoreExplanation
         double yearProxContrib,
         double interactionContrib = 0.0,
         double peopleContrib = 0.0,
-        double studioContrib = 0.0)
+        double studioContrib = 0.0,
+        double franchiseContrib = 0.0,
+        double collectionContrib = 0.0,
+        double popularityContrib = 0.0)
     {
         // Allocation-free comparison - this runs per candidate in the scoring hot path.
         var bestName = "Genre";
@@ -217,6 +244,27 @@ public sealed class ScoreExplanation
             bestValue = v;
         }
 
+        v = Math.Abs(franchiseContrib);
+        if (v > bestValue)
+        {
+            bestName = "Franchise";
+            bestValue = v;
+        }
+
+        v = Math.Abs(collectionContrib);
+        if (v > bestValue)
+        {
+            bestName = "CollectionProgression";
+            bestValue = v;
+        }
+
+        v = Math.Abs(popularityContrib);
+        if (v > bestValue)
+        {
+            bestName = "Popularity";
+            bestValue = v;
+        }
+
         // When every contribution is zero, no signal is dominant.
         return bestValue <= DominantSignalTolerance ? "None" : bestName;
     }
@@ -229,6 +277,6 @@ public sealed class ScoreExplanation
     {
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"[{StrategyName}] score={FinalScore:F4} (genre={GenreContribution:F3}, collab={CollaborativeContribution:F3}, rating={RatingContribution:F3}, recency={RecencyContribution:F3}, yearProx={YearProximityContribution:F3}, userRating={UserRatingContribution:F3}, interact={InteractionContribution:F3}, people={PeopleContribution:F3}, studio={StudioContribution:F3}, penalty={GenrePenaltyMultiplier:F2}) dominant={DominantSignal}");
+            $"[{StrategyName}] score={FinalScore:F4} (genre={GenreContribution:F3}, collab={CollaborativeContribution:F3}, rating={RatingContribution:F3}, recency={RecencyContribution:F3}, yearProx={YearProximityContribution:F3}, userRating={UserRatingContribution:F3}, interact={InteractionContribution:F3}, people={PeopleContribution:F3}, studio={StudioContribution:F3}, franchise={FranchiseContribution:F3}, collection={CollectionProgressionContribution:F3}, popularity={PopularityContribution:F3}, penalty={GenrePenaltyMultiplier:F2}) dominant={DominantSignal}");
     }
 }

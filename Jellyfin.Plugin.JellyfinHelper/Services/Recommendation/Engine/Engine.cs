@@ -1403,10 +1403,22 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             _pluginLog.LogDebug(LogCategory, $"Score for '{candidate.Name}': {explanation}", _logger);
         }
 
+        var anchors = BuildReasonAnchors(
+            candidate,
+            content,
+            candidateBoxSetLookup.TryGetValue(candidate.Id, out var anchorBoxSets) ? anchorBoxSets : [],
+            watchedBoxSetCounts,
+            preferredCountries,
+            preferredWriterWeights,
+            preferredInheritedTags,
+            candidateMediaLanguages.Audio,
+            userProfile);
+
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
             candidate,
             explanation,
             genrePreferences,
+            anchors,
             preferredPeople,
             preferredStudios,
             peopleLookup,
@@ -2172,6 +2184,79 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         return bestBoost;
+    }
+
+    /// <summary>
+    ///     Returns the highest watched-sibling count across the candidate's box-sets, used only as a reason anchor (not scoring). Mirrors the lookup in <see cref="ComputeCollectionProgressionBoostLive"/> without the boost formula.
+    /// </summary>
+    private static int ResolveWatchedSiblingCount(
+        List<Guid> candidateBoxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts)
+    {
+        var best = 0;
+        foreach (var boxSetId in candidateBoxSetIds)
+        {
+            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var count) && count > best)
+            {
+                best = count;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    ///     Builds the concrete anchors that let the reason resolver name a signal (collection, country, writer, tag, language, era). Pure read of already-resolved per-candidate data; no library calls.
+    /// </summary>
+    private static ReasonAnchorContext BuildReasonAnchors(
+        BaseItem candidate,
+        CandidateContentAffinity content,
+        List<Guid> candidateBoxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts,
+        IReadOnlyDictionary<string, double> preferredCountries,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        HashSet<string> preferredInheritedTags,
+        List<string> candidateAudioLanguages,
+        UserWatchProfile userProfile)
+    {
+        return new ReasonAnchorContext(
+            CollectionName: content.TmdbCollectionName,
+            WatchedSiblingCount: ResolveWatchedSiblingCount(candidateBoxSetIds, watchedBoxSetCounts),
+            MatchedCountry: FirstPreferred(content.ProductionCountries, preferredCountries),
+            MatchedWriter: FirstPreferred(content.Writers, preferredWriterWeights),
+            MatchedTag: content.InheritedTags.FirstOrDefault(preferredInheritedTags.Contains),
+            MatchedLanguage: FirstPreferredLanguage(candidateAudioLanguages, userProfile),
+            ReleaseEra: ResolveReleaseEra(candidate.ProductionYear));
+    }
+
+    /// <summary>Returns the first candidate value present in a preference-weight map, or null.</summary>
+    private static string? FirstPreferred(
+        IReadOnlyList<string> candidateValues,
+        IReadOnlyDictionary<string, double> preferred)
+    {
+        return preferred.Count == 0
+            ? null
+            : candidateValues.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && preferred.ContainsKey(v));
+    }
+
+    /// <summary>Returns the first candidate audio language present in the user's language profile, or null.</summary>
+    private static string? FirstPreferredLanguage(List<string> candidateAudioLanguages, UserWatchProfile userProfile)
+    {
+        return userProfile.LanguageProfile.Count == 0
+            ? null
+            : candidateAudioLanguages.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l) && userProfile.LanguageProfile.ContainsKey(l));
+    }
+
+    /// <summary>Formats a production year as a decade era label (e.g. "2010s"), or null when unknown.</summary>
+    private static string? ResolveReleaseEra(int? productionYear)
+    {
+        if (productionYear is not { } year || year < 1900)
+        {
+            return null;
+        }
+
+        var decade = year - (year % 10);
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{decade}s");
     }
 
     /// <summary>

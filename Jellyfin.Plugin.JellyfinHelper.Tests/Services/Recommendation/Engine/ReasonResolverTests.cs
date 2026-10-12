@@ -32,7 +32,10 @@ public class ReasonResolverTests
         double yearProx = 0.0,
         double interaction = 0.0,
         double people = 0.0,
-        double studio = 0.0)
+        double studio = 0.0,
+        double franchise = 0.0,
+        double collection = 0.0,
+        double popularity = 0.0)
         => new()
         {
             DominantSignal = dominant,
@@ -45,6 +48,9 @@ public class ReasonResolverTests
             InteractionContribution = interaction,
             PeopleContribution = people,
             StudioContribution = studio,
+            FranchiseContribution = franchise,
+            CollectionProgressionContribution = collection,
+            PopularityContribution = popularity,
             FinalScore = 0.5,
             StrategyName = "Test"
         };
@@ -510,5 +516,167 @@ public class ReasonResolverTests
         Assert.Empty(stripped.FavoriteSeriesIds);
         Assert.NotSame(profile.GenreDistribution, stripped.GenreDistribution);
         Assert.NotSame(profile.FavoriteSeriesIds, stripped.FavoriteSeriesIds);
+    }
+
+    [Fact]
+    public void Franchise_WithCollectionName_ReturnsNamedReason()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Franchise", franchise: AboveThreshold);
+        var anchors = new ReasonAnchorContext(CollectionName: "Spider-Man Collection");
+
+        var (reason, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonFranchiseNamed", key);
+        Assert.Equal("Spider-Man Collection", related);
+        Assert.Contains("Spider-Man Collection", reason);
+    }
+
+    [Fact]
+    public void Franchise_WithoutCollectionName_ReturnsGenericFranchise()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Franchise", franchise: AboveThreshold);
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonFranchise", key);
+        Assert.Null(related);
+    }
+
+    [Fact]
+    public void CollectionProgression_WithCount_ReturnsProgressReason()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "CollectionProgression", collection: AboveThreshold);
+        var anchors = new ReasonAnchorContext(WatchedSiblingCount: 4);
+
+        var (reason, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonCollectionProgress", key);
+        Assert.Equal("4", related);
+        Assert.Contains("4", reason);
+    }
+
+    [Fact]
+    public void CollectionProgression_ZeroCount_FallsThroughToDefault()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "CollectionProgression", collection: AboveThreshold);
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonDefault", key);
+    }
+
+    [Fact]
+    public void Popularity_Dominant_ReturnsPopularAmongViewers()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Popularity", popularity: AboveThreshold);
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonPopularAmongViewers", key);
+    }
+
+    [Fact]
+    public void YearProximity_WithEraAnchor_ReturnsNamedEra()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "YearProximity", yearProx: AboveThreshold);
+        var anchors = new ReasonAnchorContext(ReleaseEra: "2010s");
+
+        var (reason, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonYearEra", key);
+        Assert.Equal("2010s", related);
+        Assert.Contains("2010s", reason);
+    }
+
+    [Fact]
+    public void Interaction_WithCountryAnchor_ReturnsNamedCountry()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Interaction", interaction: AboveThreshold);
+        var anchors = new ReasonAnchorContext(MatchedCountry: "France");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonCountryNamed", key);
+        Assert.Equal("France", related);
+    }
+
+    [Fact]
+    public void Interaction_WithWriterAnchor_PrefersCountryThenWriter()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Interaction", interaction: AboveThreshold);
+        var anchors = new ReasonAnchorContext(MatchedWriter: "Christopher Nolan");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonWriterNamed", key);
+        Assert.Equal("Christopher Nolan", related);
+    }
+
+    [Fact]
+    public void Interaction_NoAnchor_ReturnsGenericInteraction()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Interaction", interaction: AboveThreshold);
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonInteraction", key);
+    }
+
+    [Fact]
+    public void ResidualAnchor_SurfacesCollectionBeforeGenericDefault()
+    {
+        // No signal clears threshold, so the dominant resolver would normally fall to reasonDefault.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "None");
+        var anchors = new ReasonAnchorContext(CollectionName: "The Lord of the Rings Collection");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonFranchiseNamed", key);
+        Assert.Equal("The Lord of the Rings Collection", related);
+    }
+
+    [Fact]
+    public void NoSignalNoAnchor_ReturnsGenericDefault()
+    {
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "None");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonDefault", key);
+    }
+
+    [Fact]
+    public void BackCompatOverload_StillResolvesDominantGenre()
+    {
+        var candidate = CreateMovie(genres: ["Action"]);
+        var explanation = Explain(dominant: "Genre", genre: AboveThreshold);
+        var genrePrefs = new Dictionary<string, double> { { "Action", 1.0 } };
+
+        var (_, key, related) = ReasonResolver.DetermineReason(candidate, explanation, genrePrefs);
+
+        Assert.Equal("reasonGenre", key);
+        Assert.Equal("Action", related);
     }
 }

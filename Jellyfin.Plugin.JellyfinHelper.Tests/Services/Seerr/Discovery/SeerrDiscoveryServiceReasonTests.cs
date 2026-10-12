@@ -238,7 +238,8 @@ public sealed class SeerrDiscoveryServiceReasonTests
             features, candidate, new List<string>(), new HashSet<string>());
 
         Assert.NotEqual("reasonTrending", reasonKey);
-        Assert.Equal("reasonPopular", reasonKey);
+        // Not trending (recency not strictly above 0.8), but the strong critic score still earns "highly rated".
+        Assert.Equal("reasonHighlyRated", reasonKey);
     }
 
     [Fact]
@@ -353,6 +354,57 @@ public sealed class SeerrDiscoveryServiceReasonTests
 
         Assert.Equal("reasonTrending", reasonKey);
         Assert.Null(relatedInfo);
+    }
+
+    // Popularity vs rating - distinct signals, no longer blended into a single reasonPopular.
+
+    [Fact]
+    public void DetermineReason_HighPopularity_ReturnsPopularAmongViewers()
+    {
+        var features = new CandidateFeatures { PopularityScore = 0.9 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonPopularAmongViewers", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_HighCriticLowPopularity_ReturnsHighlyRated()
+    {
+        var features = new CandidateFeatures { CombinedCriticScore = 0.9, PopularityScore = 0.1 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonHighlyRated", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_PopularityOutranksCriticWhenBothHigh()
+    {
+        // Popularity is checked before the critic score, so a broadly-watched title reads as crowd-popular.
+        var features = new CandidateFeatures { PopularityScore = 0.9, CombinedCriticScore = 0.9 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonPopularAmongViewers", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_NeitherPopularNorRated_ReturnsGenericPopularFallback()
+    {
+        var features = new CandidateFeatures { PopularityScore = 0.5, CombinedCriticScore = 0.5 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonPopular", reasonKey);
     }
 
     // Reflection glue

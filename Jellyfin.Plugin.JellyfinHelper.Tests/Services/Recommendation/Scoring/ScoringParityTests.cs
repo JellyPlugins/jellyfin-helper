@@ -77,6 +77,32 @@ public sealed class ScoringParityTests
         }
     }
 
+    [Fact]
+    public void Heuristic_NamedSignals_AreSeparatedFromInteraction()
+    {
+        // Franchise, collection and popularity must surface as their own named contributions (not hidden in the
+        // interaction bucket), while FinalScore stays equal to the independent Score() path. Comparing two
+        // vectors that differ ONLY in these three features proves the delta lands in the named fields, not interaction.
+        var heuristic = CreateHeuristic();
+        var baseline = new CandidateFeatures();
+        var withSignals = new CandidateFeatures
+        {
+            FranchiseAffinity = 1.0,
+            CollectionProgressionBoost = 1.0,
+            PopularityScore = 1.0
+        };
+
+        var baseExplanation = heuristic.ScoreWithExplanation(baseline);
+        var explanation = heuristic.ScoreWithExplanation(withSignals);
+
+        Assert.True(explanation.FranchiseContribution > 0.0);
+        Assert.True(explanation.CollectionProgressionContribution > 0.0);
+        Assert.True(explanation.PopularityContribution > 0.0);
+        // The three features do not feed the interaction bucket, so it is unchanged from the baseline.
+        Assert.Equal(baseExplanation.InteractionContribution, explanation.InteractionContribution, 10);
+        Assert.Equal(heuristic.Score(withSignals), explanation.FinalScore, 10);
+    }
+
     private static HeuristicScoringStrategy CreateHeuristic() =>
         // Penalty disabled so the battery compares the raw linear core on both paths.
         new(genrePenaltyFloor: 1.0);

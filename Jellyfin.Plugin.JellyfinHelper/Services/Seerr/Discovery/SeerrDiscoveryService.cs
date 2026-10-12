@@ -3064,8 +3064,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Determines the primary recommendation reason based on the candidate's feature scores.
-    ///     Priority: Person match > Genre match > Trending > Popular.
+    ///     Determines the primary recommendation reason for an external (TMDb) candidate from the signals that are
+    ///     genuinely available for it (franchise/collection/writer are not, so they are never claimed here).
+    ///     Priority: person > genre > trending (new + highly rated) > popular with viewers > highly rated.
     /// </summary>
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(
         CandidateFeatures features,
@@ -3073,12 +3074,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<string> topGenres,
         HashSet<string> preferredPeople)
     {
-        // Person-based reason: when a known actor/director matches the user's preferences
         if (features.PeopleSimilarity > 0.3 && candidate.KnownPeople is { Count: > 0 })
         {
-            // Only surface a person reason if a preferred person was actually matched.
-            // Avoids showing an arbitrary non-preferred person name due to case-mismatch edge cases.
-            var matchedPerson = candidate.KnownPeople.FirstOrDefault(p => preferredPeople.Contains(p));
+            var matchedPerson = candidate.KnownPeople.FirstOrDefault(preferredPeople.Contains);
             if (matchedPerson != null)
             {
                 return ("reasonPersonNamed", matchedPerson);
@@ -3093,6 +3091,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (features.RecencyScore > 0.8 && features.CombinedCriticScore > 0.7)
         {
             return ("reasonTrending", null);
+        }
+
+        // Popularity and critic rating are distinct signals; surface whichever genuinely dominates
+        // instead of the old blended "popular and highly rated" that fired for either.
+        if (features.PopularityScore > 0.7)
+        {
+            return ("reasonPopularAmongViewers", null);
+        }
+
+        if (features.CombinedCriticScore > 0.7)
+        {
+            return ("reasonHighlyRated", null);
         }
 
         return ("reasonPopular", null);

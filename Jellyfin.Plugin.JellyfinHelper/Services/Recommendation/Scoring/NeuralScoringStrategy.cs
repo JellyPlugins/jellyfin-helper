@@ -732,7 +732,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.IsAbandoned] +
         attr[(int)FeatureIndex.HasInteraction] +
         attr[(int)FeatureIndex.SeriesProgressionBoost] +
-        attr[(int)FeatureIndex.PopularityScore] +
         attr[(int)FeatureIndex.DayOfWeekAffinity] +
         attr[(int)FeatureIndex.HourOfDayAffinity] +
         attr[(int)FeatureIndex.IsWeekend] +
@@ -745,9 +744,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.LibraryAddedRecency] +
         attr[(int)FeatureIndex.ContentNearestNeighborScore] +
         attr[(int)FeatureIndex.LanguageAffinity] +
-        attr[(int)FeatureIndex.CollectionProgressionBoost] +
         attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
-        attr[(int)FeatureIndex.FranchiseAffinity] +
         attr[(int)FeatureIndex.ProductionLocationAffinity] +
         attr[(int)FeatureIndex.InheritedTagSimilarity] +
         attr[(int)FeatureIndex.SeriesCompletability] +
@@ -756,7 +753,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.GenreStudioIdfPrior];
 
     /// <summary>
-    ///     Builds the ScoreExplanation from the computed score and attribution. Extracted verbatim from ScoreWithExplanation; the assigned contributions are unchanged.
+    ///     Builds the ScoreExplanation from the computed score and attribution. Franchise and collection
+    ///     attributions are surfaced as named signals (not folded into the interaction bucket) so they can be
+    ///     the dominant signal; the MLP score itself is independent of this split.
     /// </summary>
     /// <param name="score">The guarded final score.</param>
     /// <param name="attr">Per-input attribution vector.</param>
@@ -775,6 +774,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             PeopleContribution = attr[(int)FeatureIndex.PeopleSimilarity],
             StudioContribution = attr[(int)FeatureIndex.StudioMatch],
             InteractionContribution = interactionContrib,
+            FranchiseContribution = attr[(int)FeatureIndex.FranchiseAffinity],
+            CollectionProgressionContribution = attr[(int)FeatureIndex.CollectionProgressionBoost],
+            PopularityContribution = attr[(int)FeatureIndex.PopularityScore],
             GenrePenaltyMultiplier = 1.0,
             DominantSignal = ScoreExplanation.DetermineDominantSignal(
                 attr[(int)FeatureIndex.GenreSimilarity],
@@ -785,7 +787,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.YearProximityScore],
                 interactionContrib,
                 attr[(int)FeatureIndex.PeopleSimilarity],
-                attr[(int)FeatureIndex.StudioMatch]),
+                attr[(int)FeatureIndex.StudioMatch],
+                attr[(int)FeatureIndex.FranchiseAffinity],
+                attr[(int)FeatureIndex.CollectionProgressionBoost],
+                attr[(int)FeatureIndex.PopularityScore]),
             StrategyName = Name
         };
 
