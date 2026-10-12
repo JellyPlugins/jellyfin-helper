@@ -691,7 +691,13 @@
     font-weight: 600;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 0.3em;
+    /* The label swaps between "Request", "Requesting…" and "Requested"; without a stable width and a
+       no-wrap guard the longest label (plus its spinner/icon) overflows the button on narrow mobile cards
+       and the button jumps size between states. min-width holds the widest state so none overflow. */
+    min-width: 9.5em;
+    white-space: nowrap;
     transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
