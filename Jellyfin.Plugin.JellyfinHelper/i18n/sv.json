@@ -463,5 +463,12 @@
   "codecShowLess": "Visa mindre",
   "explorerIncludes": "Inkluderar",
   "explorerExcludes": "Exkluderar",
-  "treeExpandCapped": "{shown} av {total} filer - expandera mappar för att se fler"
+  "treeExpandCapped": "{shown} av {total} filer - expandera mappar för att se fler",
+  "codecCardReorder": "Ändra ordning på kort",
+  "codecCardGrabbed": "Kort taget. Använd piltangenterna för att flytta, Enter för att släppa, Escape för att avbryta.",
+  "codecCardMoved": "Flyttat till position",
+  "codecCardDropped": "Kort släppt och ordning sparad.",
+  "codecCardCancelled": "Omordning avbruten.",
+  "codecCardOrderSaved": "Ordning sparad",
+  "codecCardOrderSaveFailed": "Det gick inte att spara ordningen"
 }

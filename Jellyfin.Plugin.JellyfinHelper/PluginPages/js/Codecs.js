@@ -13,6 +13,26 @@ var _activeTooltipSegmentId = null;
 // Guard: prevent duplicate document-level touchstart listener registration
 var _touchOutsideListenerAttached = false;
 
+// Canonical codec card order - MUST match CodecCardCatalog.Canonical on the server.
+var CANONICAL_CODEC_ORDER = [
+    'containers', 'resolutions', 'dynamicRanges', 'videoCodecs', 'videoAudioCodecs',
+    'videoBitrate', 'watched', 'audioLanguages', 'subtitleLanguages', 'musicAudioCodecs', 'bookFormats'
+];
+
+// Persisted card order (null = not yet loaded from config; fall back to canonical).
+var _codecCardOrder = null;
+
+// Guard: load the persisted order from config at most once per page load.
+var _codecCardOrderLoaded = false;
+
+// In-flight save guard + queued latest order (exactly one follow-up PUT after the active one).
+var _codecOrderSaving = false;
+var _codecOrderQueued = null;
+
+// Bumped on every local reorder commit. A config GET that was issued before a commit must not
+// apply its (now stale) order over the newer local one; it compares this against its snapshot.
+var _codecOrderGeneration = 0;
+
 // Timestamp of last touchend - used to suppress touch-originated click events cross-browser
 var _lastTouchEndTime = 0;
 
@@ -759,68 +779,51 @@ function fillCodecsData(data) {
         || hasVideoCodecs || hasVideoAudio || hasMusicAudio || hasBookFormats
         || hasVideoBitrate || hasAudioLanguages || hasSubtitleLanguages || hasWatched;
 
+    // One descriptor per card. Rendered in persisted order (_codecCardOrder); the drag engine reorders
+    // these by their id. hasData gates empty cards exactly as the old if-chain did.
+    var cardDescriptors = {
+        containers: { hasData: hasContainers, icon: 'inventory_2', titleKey: 'containerFormats', titleFallback: 'Container Formats',
+            body: function () { return renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats'); } },
+        resolutions: { hasData: hasResolutions, icon: 'straighten', titleKey: 'resolutions', titleFallback: 'Resolutions',
+            body: function () { return renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions'); } },
+        dynamicRanges: { hasData: hasDynamicRanges, icon: 'palette', titleKey: 'dynamicRange', titleFallback: 'Dynamic Range',
+            body: function () { return renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges'); } },
+        videoCodecs: { hasData: hasVideoCodecs, icon: 'movie', titleKey: 'videoCodecs', titleFallback: 'Video Codecs',
+            body: function () { return renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs'); } },
+        videoAudioCodecs: { hasData: hasVideoAudio, icon: 'volume_up', titleKey: 'videoAudioCodecs', titleFallback: 'Video Audio Codecs',
+            body: function () { return renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries, 'VideoAudioCodecs'); } },
+        videoBitrate: { hasData: hasVideoBitrate, icon: 'high_quality', titleKey: 'videoBitrate', titleFallback: 'Video Bitrate',
+            body: function () { return renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries, 'VideoBitrateTiers'); } },
+        watched: { hasData: hasWatched, icon: 'group', titleKey: 'watched', titleFallback: 'Watched',
+            body: function () { return renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip'); } },
+        audioLanguages: { hasData: hasAudioLanguages, icon: 'description', titleKey: 'audioLanguages', titleFallback: 'Audio Languages',
+            body: function () { return renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries, 'AudioLanguages'); } },
+        subtitleLanguages: { hasData: hasSubtitleLanguages, icon: 'edit_note', titleKey: 'subtitleLanguages', titleFallback: 'Subtitle Languages',
+            body: function () { return renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries, 'SubtitleLanguages'); } },
+        musicAudioCodecs: { hasData: hasMusicAudio, icon: 'music_note', titleKey: 'musicAudioCodecs', titleFallback: 'Music Audio Codecs',
+            body: function () { return renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries, 'MusicAudioCodecs'); } },
+        bookFormats: { hasData: hasBookFormats, icon: 'library_books', titleKey: 'bookFormats', titleFallback: 'Book Formats',
+            body: function () { return renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries, 'BookFormats'); } }
+    };
+
     var codecsHtml = '<div class="charts-row">';
-    if (hasContainers) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('inventory_2') + escHtml(T('containerFormats', 'Container Formats')) + '</h4>';
-        codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
+    orderedCodecCardIds(cardDescriptors).forEach(function (id) {
+        var d = cardDescriptors[id];
+        if (!d || !d.hasData) {
+            return;
+        }
+        var cardTitle = T(d.titleKey, d.titleFallback);
+        // Name the card in the handle label so screen-reader users can tell the 11 grips apart,
+        // instead of hearing the same "Reorder card" for every one.
+        var handleLabel = T('codecCardReorder', 'Reorder card') + ': ' + cardTitle;
+        var handle = '<span class="codec-card-handle" role="button" tabindex="0" aria-grabbed="false"'
+            + ' aria-label="' + escAttr(handleLabel) + '">'
+            + mi('drag_indicator') + '</span>';
+        codecsHtml += '<div class="chart-box" data-chart-id="' + escAttr(id) + '">'
+            + '<h4>' + handle + mi(d.icon) + escHtml(cardTitle) + '</h4>';
+        codecsHtml += d.body();
         codecsHtml += '</div>';
-    }
-    if (hasResolutions) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('straighten') + escHtml(T('resolutions', 'Resolutions')) + '</h4>';
-        codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
-        codecsHtml += '</div>';
-    }
-    if (hasDynamicRanges) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('palette') + escHtml(T('dynamicRange', 'Dynamic Range')) + '</h4>';
-        codecsHtml += renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges');
-        codecsHtml += '</div>';
-    }
-    if (hasVideoCodecs) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('movie') + escHtml(T('videoCodecs', 'Video Codecs')) + '</h4>';
-        codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
-        codecsHtml += '</div>';
-    }
-    if (hasVideoAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('volume_up') + escHtml(T('videoAudioCodecs', 'Video Audio Codecs')) + '</h4>';
-        codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries,
-            'VideoAudioCodecs');
-        codecsHtml += '</div>';
-    }
-    if (hasVideoBitrate) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('high_quality') + escHtml(T('videoBitrate', 'Video Bitrate')) + '</h4>';
-        codecsHtml += renderDonutChart(videoBitrate, videoBitrateSizes, 'videoBitrate', videoLibraries,
-            'VideoBitrateTiers');
-        codecsHtml += '</div>';
-    }
-    if (hasWatched) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('group') + escHtml(T('watched', 'Watched')) + '</h4>';
-        codecsHtml += renderDonutChart(watched, watchedSizes, 'watched', buildWatchedTooltipLibraries(videoLibraries), 'WatchedTooltip');
-        codecsHtml += '</div>';
-    }
-    if (hasAudioLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('description') + escHtml(T('audioLanguages', 'Audio Languages')) + '</h4>';
-        codecsHtml += renderDonutChart(audioLanguages, audioLanguageSizes, 'audioLanguages', videoLibraries,
-            'AudioLanguages');
-        codecsHtml += '</div>';
-    }
-    if (hasSubtitleLanguages) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('edit_note') + escHtml(T('subtitleLanguages', 'Subtitle Languages')) + '</h4>';
-        codecsHtml += renderDonutChart(subtitleLanguages, subtitleLanguageSizes, 'subtitleLanguages', videoLibraries,
-            'SubtitleLanguages');
-        codecsHtml += '</div>';
-    }
-    if (hasMusicAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('music_note') + escHtml(T('musicAudioCodecs', 'Music Audio Codecs')) + '</h4>';
-        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
-            'MusicAudioCodecs');
-        codecsHtml += '</div>';
-    }
-    if (hasBookFormats) {
-        codecsHtml += '<div class="chart-box"><h4>' + mi('library_books') + escHtml(T('bookFormats', 'Book Formats')) + '</h4>';
-        codecsHtml += renderDonutChart(bookFormats, bookFormatSizes, 'bookFormats', bookLibraries,
-            'BookFormats');
-        codecsHtml += '</div>';
-    }
+    });
     if (!hasAnyCharts) {
         codecsHtml += '<div class="chart-box"><p style="opacity:0.5;">' + escHtml(T('noData', 'No data')) + '</p></div>';
     }
@@ -834,7 +837,531 @@ function fillCodecsData(data) {
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
         attachDonutHoverTooltips();
+        attachCodecCardDragHandlers(codecsContainer);
         renderCodecsExplorer(codecsContainer);
         window.scrollTo(0, scrollY);
     }
+
+    // Lazily load the persisted card order on first render, then re-render once so the
+    // saved order takes effect (initial paint uses canonical until config arrives).
+    loadCodecCardOrderOnce();
+}
+
+// Returns the effective card order: persisted order first (known ids only), then any
+// canonical ids it omitted, so a new/unknown card still appears. Mirrors CodecCardCatalog.Normalize.
+function orderedCodecCardIds(descriptors) {
+    var seen = {};
+    var out = [];
+    var source = (_codecCardOrder && _codecCardOrder.length) ? _codecCardOrder : CANONICAL_CODEC_ORDER;
+    source.forEach(function (id) {
+        if (descriptors[id] && !seen[id]) {
+            seen[id] = true;
+            out.push(id);
+        }
+    });
+    CANONICAL_CODEC_ORDER.forEach(function (id) {
+        if (descriptors[id] && !seen[id]) {
+            seen[id] = true;
+            out.push(id);
+        }
+    });
+    return out;
+}
+
+// Loads the persisted order from the plugin config exactly once per page load. On success,
+// if the order differs from what we rendered, re-render from the cached scan data.
+function loadCodecCardOrderOnce() {
+    if (_codecCardOrderLoaded) {
+        return;
+    }
+    _codecCardOrderLoaded = true;
+    // Snapshot the local mutation generation now. If the user drops a card while this GET is still
+    // in flight, the local order is newer than the config we are about to read, so the stale GET
+    // must not overwrite it (which would leave the UI showing the old order the server has replaced).
+    var genAtRequest = _codecOrderGeneration;
+    apiGet('JellyfinHelper/Configuration', function (cfg) {
+        if (_codecOrderGeneration !== genAtRequest) {
+            return;
+        }
+        var order = cfg && cfg.CodecCardOrder;
+        if (!Array.isArray(order)) {
+            order = (cfg && cfg.codecCardOrder) || null;
+        }
+        if (Array.isArray(order) && order.length) {
+            _codecCardOrder = order.slice();
+            if (_lastCodecData) {
+                fillCodecsData(_lastCodecData);
+            }
+        }
+    }, _apiDefaultError('GET', 'JellyfinHelper/Configuration'));
+}
+
+// Persists the given order optimistically. One PUT in flight at a time; a drop during a save
+// queues the latest order and fires exactly one follow-up PUT when the active one settles.
+// feedbackEl (the card handle) gets a success/error icon via the shared auto-save indicator.
+// prevOrder is the order that was persisted before this attempt, so a failure can roll back to it
+// rather than re-rendering the rejected order (which would leave the UI and server diverged).
+function saveCodecCardOrder(order, feedbackEl, prevOrder) {
+    if (_codecOrderSaving) {
+        // Keep the oldest known-good order as the rollback target across a queued chain of saves,
+        // so a failure of the final PUT still restores a server-accepted order, not an interim one.
+        _codecOrderQueued = {
+            order: order.slice(),
+            el: feedbackEl,
+            prevOrder: (_codecOrderQueued && _codecOrderQueued.prevOrder) || prevOrder
+        };
+        return;
+    }
+    _codecOrderSaving = true;
+    apiPut('JellyfinHelper/Configuration/CodecCardOrder', { codecCardOrder: order }, function (resp) {
+        _codecOrderSaving = false;
+        var saved = resp && (resp.CodecCardOrder || resp.codecCardOrder);
+        if (Array.isArray(saved)) {
+            _codecCardOrder = saved.slice();
+        }
+        showAutoSaveIndicatorOverlay(feedbackEl, true);
+        announceCodec(T('codecCardOrderSaved', 'Card order saved.'));
+        flushQueuedCodecOrderSave();
+    }, function (xhr) {
+        _codecOrderSaving = false;
+        _apiDefaultError('PUT', 'JellyfinHelper/Configuration/CodecCardOrder')(xhr);
+        showAutoSaveIndicatorOverlay(feedbackEl, false);
+        announceCodec(T('codecCardOrderSaveFailed', 'Could not save card order.'));
+        // Roll back to the last persisted order so the UI never diverges from the server. prevOrder
+        // was captured before the optimistic DOM update, so it reflects what the server still holds.
+        _codecCardOrder = Array.isArray(prevOrder) ? prevOrder.slice() : null;
+        _codecOrderQueued = null;
+        if (_lastCodecData) {
+            fillCodecsData(_lastCodecData);
+        }
+    });
+}
+
+function flushQueuedCodecOrderSave() {
+    if (_codecOrderQueued) {
+        var next = _codecOrderQueued;
+        _codecOrderQueued = null;
+        saveCodecCardOrder(next.order, next.el, next.prevOrder);
+    }
+}
+
+// Reads the current DOM order of the cards and persists it. Captures the previously persisted
+// order first so a failed save can roll back to it instead of to the rejected order.
+function commitCodecCardOrderFromDom(chartsRow, feedbackEl) {
+    // A background rescan can detach the whole charts row mid-interaction. Reading an empty DOM then
+    // would persist [] -> the server normalizes that to the full canonical order and silently wipes
+    // the user's custom layout. Bail instead so a transient detach never destroys saved data.
+    if (!chartsRow || !document.contains(chartsRow)) {
+        return;
+    }
+    var prevOrder = Array.isArray(_codecCardOrder) ? _codecCardOrder.slice() : null;
+
+    var domIds = [];
+    chartsRow.querySelectorAll('.chart-box[data-chart-id]').forEach(function (box) {
+        if (document.contains(box)) {
+            domIds.push(box.getAttribute('data-chart-id'));
+        }
+    });
+    if (!domIds.length) {
+        return;
+    }
+
+    // The DOM only holds cards that currently have data; cards hidden this scan are absent. Rebase
+    // the move onto the last full known order so a card temporarily without data keeps its custom
+    // slot instead of being appended canonically at the end on the next save.
+    var order = reorderFullOrder(prevOrder, domIds);
+    _codecCardOrder = order.slice();
+    _codecOrderGeneration++;
+    saveCodecCardOrder(order, feedbackEl, prevOrder);
+}
+
+// Applies the relative order of the currently-visible ids (domIds) onto the last full order,
+// leaving ids absent from the DOM in their existing relative positions. The visible ids fill the
+// slots they already occupied in the full order, in their new DOM sequence; absent ids stay put.
+function reorderFullOrder(prevOrder, domIds) {
+    // Seed from the last persisted order, or the canonical order on the very first reorder, so
+    // cards hidden this scan still occupy their proper slots rather than being dropped.
+    var base = (Array.isArray(prevOrder) && prevOrder.length) ? prevOrder : CANONICAL_CODEC_ORDER;
+    if (!base.length) {
+        return domIds.slice();
+    }
+    var visible = {};
+    domIds.forEach(function (id) { visible[id] = true; });
+    var queue = domIds.slice();
+    var result = [];
+    for (var i = 0; i < base.length; i++) {
+        var id = base[i];
+        // Each slot that previously held a visible card now takes the next card from the new DOM
+        // sequence; slots for absent (data-less) cards are preserved verbatim.
+        result.push(visible[id] ? queue.shift() : id);
+    }
+    // Any visible id not already placed (e.g. a brand-new card) lands at the end in DOM order.
+    while (queue.length) {
+        var extra = queue.shift();
+        if (result.indexOf(extra) === -1) {
+            result.push(extra);
+        }
+    }
+    return result;
+}
+
+// ---- Drag engine: reorder codec cards by their header handle (pointer + touch + keyboard) ----
+
+// Touch long-press and movement thresholds.
+var CODEC_LONGPRESS_MS = 450;
+var CODEC_TOUCH_MOVE_CANCEL_PX = 10;
+var CODEC_MOUSE_LIFT_PX = 4;
+var CODEC_AUTOSCROLL_ZONE_PX = 64;
+var CODEC_AUTOSCROLL_MAX_PX_PER_FRAME = 10;
+
+function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Wires drag handles for every card inside the charts row. Idempotent: innerHTML was just
+// replaced, so handlers attach to fresh nodes each render.
+function attachCodecCardDragHandlers(container) {
+    var chartsRow = container.querySelector('.charts-row');
+    if (!chartsRow) {
+        return;
+    }
+    chartsRow.querySelectorAll('.codec-card-handle').forEach(function (handle) {
+        var card = handle.closest('.chart-box');
+        if (!card) {
+            return;
+        }
+        handle.addEventListener('pointerdown', function (e) {
+            onCodecHandlePointerDown(e, handle, card, chartsRow);
+        });
+        handle.addEventListener('keydown', function (e) {
+            onCodecHandleKeyDown(e, handle, card, chartsRow);
+        });
+        // Suppress the long-press context menu / selection callout on touch so the grip arms a
+        // drag instead of popping the browser's own menu (Android Chrome) or text selection.
+        handle.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+    });
+}
+
+// Shared live-drag state (only one card can be dragged at a time).
+var _codecDrag = null;
+
+function onCodecHandlePointerDown(e, handle, card, chartsRow) {
+    // Only a non-primary *mouse* button aborts: touch and pen can report button -1 for a normal
+    // press, so gating every pointer type on button===0 would swallow legitimate touch drags.
+    if (_codecDrag || (e.pointerType === 'mouse' && e.button !== 0)) {
+        return;
+    }
+    var isTouch = e.pointerType === 'touch';
+    var state = {
+        handle: handle, card: card, chartsRow: chartsRow,
+        startX: e.clientX, startY: e.clientY,
+        pointerId: e.pointerId, isTouch: isTouch,
+        active: false, armTimer: null, placeholder: null,
+        autoScrollRaf: 0, autoScrollSpeed: 0,
+        lastClientX: e.clientX, lastClientY: e.clientY
+    };
+
+    var move = function (ev) { onCodecDragPointerMove(ev, state); };
+    var up = function (ev) { onCodecDragPointerUp(ev, state, move, up); };
+    state.move = move;
+    state.up = up;
+
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+
+    if (isTouch) {
+        // Long-press to arm, so a normal touch still scrolls the page.
+        state.armTimer = setTimeout(function () {
+            state.armTimer = null;
+            beginCodecDrag(state);
+            if (navigator.vibrate) {
+                navigator.vibrate(10);
+            }
+        }, CODEC_LONGPRESS_MS);
+    }
+    _codecDrag = state;
+}
+
+function beginCodecDrag(state) {
+    if (state.active) {
+        return;
+    }
+    state.active = true;
+    try {
+        state.handle.setPointerCapture(state.pointerId);
+    } catch (err) {
+        // setPointerCapture can throw if the pointer already released; drag still works via window listeners.
+    }
+    var rect = state.card.getBoundingClientRect();
+    // Anchor the card to the pointer so the lifted card tracks the finger/cursor rather than
+    // sitting static in its slot (on touch the finger would otherwise cover a motionless card).
+    state.grabOffsetX = state.startX - rect.left;
+    state.grabOffsetY = state.startY - rect.top;
+    // Mirror the keyboard path: expose the active grab to assistive tech for pointer/touch too.
+    state.handle.setAttribute('aria-grabbed', 'true');
+    var placeholder = document.createElement('div');
+    placeholder.className = 'chart-box codec-drop-placeholder';
+    placeholder.style.height = rect.height + 'px';
+    state.card.parentNode.insertBefore(placeholder, state.card.nextSibling);
+    state.placeholder = placeholder;
+    state.card.classList.add('codec-dragging');
+    // Reduced motion: skip the floating lift entirely and reorder via the placeholder only, so no
+    // card flies across the screen. Otherwise fix the card's box so the transform moves it over the
+    // grid without reflowing siblings (the placeholder already holds the slot open).
+    if (!prefersReducedMotion()) {
+        state.lifted = true;
+        state.card.style.width = rect.width + 'px';
+        state.card.style.position = 'fixed';
+        state.card.style.left = '0';
+        state.card.style.top = '0';
+        state.card.style.zIndex = '1000';
+        state.card.style.pointerEvents = 'none';
+        moveCodecCardToPointer(state, state.startX, state.startY);
+    }
+}
+
+// Translate the lifted (fixed-position) card so its grab point stays under the pointer.
+function moveCodecCardToPointer(state, x, y) {
+    if (!state.card || !state.lifted) {
+        return;
+    }
+    var tx = x - state.grabOffsetX;
+    var ty = y - state.grabOffsetY;
+    state.card.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(1.01)';
+}
+
+function onCodecDragPointerMove(e, state) {
+    if (!state.active) {
+        var dx = e.clientX - state.startX;
+        var dy = e.clientY - state.startY;
+        var dist = Math.sqrt((dx * dx) + (dy * dy));
+        if (state.isTouch) {
+            // Movement before the long-press fires means the user is scrolling: cancel arming.
+            if (dist > CODEC_TOUCH_MOVE_CANCEL_PX && state.armTimer) {
+                clearTimeout(state.armTimer);
+                state.armTimer = null;
+                teardownCodecDrag(state);
+            }
+            return;
+        }
+        if (dist >= CODEC_MOUSE_LIFT_PX) {
+            beginCodecDrag(state);
+        } else {
+            return;
+        }
+    }
+
+    e.preventDefault();
+    state.lastClientX = e.clientX;
+    state.lastClientY = e.clientY;
+    moveCodecCardToPointer(state, e.clientX, e.clientY);
+    moveCodecPlaceholderTo(state, e.clientX, e.clientY);
+    updateCodecAutoScroll(state);
+}
+
+// Inserts the placeholder before the card whose center is below the pointer; appends at the end
+// when the pointer is past every card. Center comparison works for 1- and 2-column grids alike.
+function moveCodecPlaceholderTo(state, x, y) {
+    var boxes = Array.prototype.slice.call(
+        state.chartsRow.querySelectorAll('.chart-box:not(.codec-dragging):not(.codec-drop-placeholder)'));
+    var target = null;
+    for (var i = 0; i < boxes.length; i++) {
+        var r = boxes[i].getBoundingClientRect();
+        var cy = r.top + (r.height / 2);
+        var cx = r.left + (r.width / 2);
+        // Prefer the first box whose center sits after the pointer (row-major, then column).
+        if (y < cy || (Math.abs(y - cy) < r.height / 2 && x < cx)) {
+            target = boxes[i];
+            break;
+        }
+    }
+    if (target) {
+        state.chartsRow.insertBefore(state.placeholder, target);
+    } else {
+        state.chartsRow.appendChild(state.placeholder);
+    }
+}
+
+// Recomputes the auto-scroll speed from the pointer's current Y and stores it on state. A single
+// rAF loop reads that live value every frame, so moving from the bottom zone to the top reverses
+// direction instead of staying stuck on the speed captured when the loop first started.
+function updateCodecAutoScroll(state) {
+    if (prefersReducedMotion()) {
+        return;
+    }
+    var vh = window.innerHeight;
+    var y = state.lastClientY;
+    var speed = 0;
+    if (y < CODEC_AUTOSCROLL_ZONE_PX) {
+        speed = -((CODEC_AUTOSCROLL_ZONE_PX - y) / CODEC_AUTOSCROLL_ZONE_PX) * CODEC_AUTOSCROLL_MAX_PX_PER_FRAME;
+    } else if (y > vh - CODEC_AUTOSCROLL_ZONE_PX) {
+        speed = ((y - (vh - CODEC_AUTOSCROLL_ZONE_PX)) / CODEC_AUTOSCROLL_ZONE_PX) * CODEC_AUTOSCROLL_MAX_PX_PER_FRAME;
+    }
+    state.autoScrollSpeed = speed;
+    if (speed === 0 || state.autoScrollRaf) {
+        // Zero speed lets the running loop idle itself out; a live loop already reads the new speed.
+        return;
+    }
+    var step = function () {
+        if (!state.active || state.autoScrollSpeed === 0) {
+            state.autoScrollRaf = 0;
+            return;
+        }
+        window.scrollBy(0, state.autoScrollSpeed);
+        // Re-run the hit-test at the pointer's *current* X so the placeholder lands in the right
+        // column after a scroll offset, instead of the X captured at drag start.
+        moveCodecPlaceholderTo(state, state.lastClientX, state.lastClientY);
+        state.autoScrollRaf = requestAnimationFrame(step);
+    };
+    state.autoScrollRaf = requestAnimationFrame(step);
+}
+
+function onCodecDragPointerUp(e, state, move, up) {
+    if (state.armTimer) {
+        clearTimeout(state.armTimer);
+        state.armTimer = null;
+    }
+    var wasActive = state.active;
+    if (wasActive && state.placeholder) {
+        // Drop: move the card into the placeholder slot, then persist the DOM order.
+        state.chartsRow.insertBefore(state.card, state.placeholder);
+        commitCodecCardOrderFromDom(state.chartsRow, state.card);
+    }
+    // A touch drag ends with the finger over a donut segment or row; the browser then emits a
+    // compatibility click there (the lifted card had pointer-events:none). Stamp the shared
+    // touch-end timestamp the donut/row handlers guard on, so that synthetic click cannot open an
+    // unintended drill-down just because the drag happened to finish over a chart.
+    if (wasActive && state.isTouch) {
+        _lastTouchEndTime = Date.now();
+    }
+    teardownCodecDrag(state, move, up);
+}
+
+function teardownCodecDrag(state, move, up) {
+    if (state.autoScrollRaf) {
+        cancelAnimationFrame(state.autoScrollRaf);
+        state.autoScrollRaf = 0;
+    }
+    state.autoScrollSpeed = 0;
+    if (state.placeholder && state.placeholder.parentNode) {
+        state.placeholder.parentNode.removeChild(state.placeholder);
+    }
+    state.card.classList.remove('codec-dragging');
+    state.handle.setAttribute('aria-grabbed', 'false');
+    // Undo the fixed-position lift styles so the card settles back into normal grid flow.
+    state.card.style.transform = '';
+    state.card.style.position = '';
+    state.card.style.left = '';
+    state.card.style.top = '';
+    state.card.style.width = '';
+    state.card.style.zIndex = '';
+    state.card.style.pointerEvents = '';
+    try {
+        state.handle.releasePointerCapture(state.pointerId);
+    } catch (err) {
+        // No capture to release.
+    }
+    window.removeEventListener('pointermove', move || state.move, { passive: false });
+    window.removeEventListener('pointerup', up || state.up);
+    window.removeEventListener('pointercancel', up || state.up);
+    state.active = false;
+    _codecDrag = null;
+}
+
+// Keyboard reorder: linear list model. Enter/Space grabs, ArrowUp/Down moves one position,
+// Enter drops+saves, Escape cancels. Announced via the handle's aria-grabbed state.
+function onCodecHandleKeyDown(e, handle, card, chartsRow) {
+    var grabbed = handle.getAttribute('aria-grabbed') === 'true';
+    var key = e.key;
+
+    if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
+        e.preventDefault();
+        if (!grabbed) {
+            handle.setAttribute('aria-grabbed', 'true');
+            card.classList.add('codec-dragging');
+            handle.dataset.originIndex = String(indexOfCard(chartsRow, card));
+            announceCodec(T('codecCardGrabbed', 'Card grabbed. Use arrow keys to move, Enter to drop, Escape to cancel.'));
+        } else {
+            handle.setAttribute('aria-grabbed', 'false');
+            card.classList.remove('codec-dragging');
+            delete handle.dataset.originIndex;
+            commitCodecCardOrderFromDom(chartsRow, card);
+            announceCodec(T('codecCardDropped', 'Card dropped and order saved.'));
+        }
+        return;
+    }
+
+    if (!grabbed) {
+        return;
+    }
+
+    if (key === 'Escape') {
+        e.preventDefault();
+        handle.setAttribute('aria-grabbed', 'false');
+        card.classList.remove('codec-dragging');
+        // Restore the card to the slot it was grabbed from, in-place, so focus stays on this handle.
+        // A full re-render would rebuild the DOM and drop focus to <body>.
+        var origin = parseInt(handle.dataset.originIndex, 10);
+        delete handle.dataset.originIndex;
+        if (!Number.isNaN(origin)) {
+            restoreCardToIndex(chartsRow, card, origin);
+        }
+        card.querySelector('.codec-card-handle').focus();
+        announceCodec(T('codecCardCancelled', 'Reorder cancelled.'));
+        return;
+    }
+
+    if (key === 'ArrowUp' || key === 'ArrowLeft') {
+        e.preventDefault();
+        moveCardInList(chartsRow, card, -1);
+    } else if (key === 'ArrowDown' || key === 'ArrowRight') {
+        e.preventDefault();
+        moveCardInList(chartsRow, card, 1);
+    }
+}
+
+function indexOfCard(chartsRow, card) {
+    var boxes = Array.prototype.slice.call(chartsRow.querySelectorAll('.chart-box[data-chart-id]'));
+    return boxes.indexOf(card);
+}
+
+// Moves card back to targetIndex among its siblings without a re-render, so Escape can undo a
+// keyboard reorder while keeping focus on the handle.
+function restoreCardToIndex(chartsRow, card, targetIndex) {
+    var boxes = Array.prototype.slice.call(
+        chartsRow.querySelectorAll('.chart-box[data-chart-id]')).filter(function (b) { return b !== card; });
+    var ref = boxes[targetIndex] || null;
+    chartsRow.insertBefore(card, ref);
+}
+
+function moveCardInList(chartsRow, card, delta) {
+    var boxes = Array.prototype.slice.call(chartsRow.querySelectorAll('.chart-box[data-chart-id]'));
+    var idx = boxes.indexOf(card);
+    var target = idx + delta;
+    if (idx < 0 || target < 0 || target >= boxes.length) {
+        return;
+    }
+    if (delta > 0) {
+        chartsRow.insertBefore(card, boxes[target].nextSibling);
+    } else {
+        chartsRow.insertBefore(card, boxes[target]);
+    }
+    card.querySelector('.codec-card-handle').focus();
+    announceCodec(T('codecCardMoved', 'Moved to position') + ' ' + (target + 1));
+}
+
+// Lazily-created aria-live region so keyboard reorders are announced to screen readers.
+function announceCodec(message) {
+    var live = document.getElementById('codecCardLiveRegion');
+    if (!live) {
+        live = document.createElement('div');
+        live.id = 'codecCardLiveRegion';
+        live.setAttribute('aria-live', 'polite');
+        live.className = 'sr-only';
+        document.body.appendChild(live);
+    }
+    live.textContent = message;
 }

@@ -463,5 +463,12 @@
   "codecShowLess": "Afficher moins",
   "explorerIncludes": "Inclut",
   "explorerExcludes": "Exclut",
-  "treeExpandCapped": "{shown} sur {total} fichiers - dépliez les dossiers pour en voir plus"
+  "treeExpandCapped": "{shown} sur {total} fichiers - dépliez les dossiers pour en voir plus",
+  "codecCardReorder": "Réorganiser la carte",
+  "codecCardGrabbed": "Carte saisie. Utilisez les flèches pour déplacer, Entrée pour déposer, Échap pour annuler.",
+  "codecCardMoved": "Déplacée en position",
+  "codecCardDropped": "Carte déposée et ordre enregistré.",
+  "codecCardCancelled": "Réorganisation annulée.",
+  "codecCardOrderSaved": "Ordre enregistré",
+  "codecCardOrderSaveFailed": "Impossible d'enregistrer l'ordre"
 }

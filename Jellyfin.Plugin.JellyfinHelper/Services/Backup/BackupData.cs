@@ -155,6 +155,16 @@ public class BackupData
     public List<BackupArrInstance> SonarrInstances { get; init; } = [];
 
     /// <summary>
+    ///     Gets the Codecs-tab donut card order (plaintext card ids). Not a secret; always included.
+    /// </summary>
+    [JsonPropertyName("codecCardOrder")]
+    [SuppressMessage(
+        "Design",
+        "CA1002:Do not expose generic lists",
+        Justification = "Required for JSON deserialization")]
+    public List<string> CodecCardOrder { get; init; } = [];
+
+    /// <summary>
     ///     Gets or sets the Recommendations task mode.
     /// </summary>
     [JsonPropertyName("recommendationsTaskMode")]

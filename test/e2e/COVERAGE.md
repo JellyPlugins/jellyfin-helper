@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **360 tests** (API + UI) across 57 spec files
+every UI interaction. **368 tests** (API + UI) across 58 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -164,6 +164,18 @@ plugin stays Active after every call).
 - Invalid `minLevel` → 400; lowercase level accepted (OrdinalIgnoreCase); `limit` clamped; `source` >200 → 400 (200 boundary OK).
 - `Logs/Download` validates `minLevel` and serves timestamped `text/plain`.
 - Translations happy-path returns a non-empty string map for `en`/`de`.
+
+## 7g. Codec card order → `codec-card-order.api.spec.ts`
+The dedicated `PUT /Configuration/CodecCardOrder` endpoint (separate from the full config PUT so a
+reorder never races the Settings dirty-state), its strict validation + normalization, the GET
+reflecting the stored order, and the backup round-trip carrying the order as plaintext (not a secret):
+- **Valid permutation** is accepted and the same order comes back from a later GET (persisted, not echoed).
+- **Partial order** is backfilled with the missing canonical ids (first entries honored, every id present once).
+- **Empty order** is accepted and yields the canonical order.
+- **Unknown id** and **duplicate id** are each rejected with **400** (strict permutation contract).
+- A reorder **does not disturb unrelated config fields** (`Language`, `OrphanMinAgeDays` survive).
+- **Backup export/import round-trips** the order: export carries it, a diverging live order is restored on import.
+
 
 ## 7g. Backup versioning & config schema-evolution → `migration.api.spec.ts`
 - Forward-dated `backupVersion` (2) → 400 with an `errors[]` naming the unsupported version

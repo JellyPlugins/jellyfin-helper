@@ -185,7 +185,10 @@ public sealed class BackupService : IBackupService
             SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
 
             // Discovery user access
-            DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled
+            DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
+
+            // Codecs-tab card order (plaintext ids, not a secret). Normalized so the backup is always complete.
+            CodecCardOrder = CodecCardCatalog.Normalize(config.CodecCardOrder)
         };
 
         // Arr instances - API keys are included so that credentials survive a full
@@ -448,6 +451,10 @@ public sealed class BackupService : IBackupService
             // credential replacements via CredentialsChanged on the summary.
             RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
             RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
+
+            // Codecs card order (plaintext). Normalize drops anything the sanitizer missed and backfills
+            // missing ids so an old backup without this field restores the canonical layout.
+            config.CodecCardOrder = CodecCardCatalog.Normalize(backup.CodecCardOrder);
 
             // Set only after the entire mutation has been applied; if ReadAndMutate throws,
             // this flag stays false so the caller does not falsely report success.

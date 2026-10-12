@@ -463,5 +463,12 @@
   "codecShowLess": "收起",
   "explorerIncludes": "包含",
   "explorerExcludes": "不包含",
-  "treeExpandCapped": "共 {total} 个文件，显示 {shown} 个 - 展开文件夹查看更多"
+  "treeExpandCapped": "共 {total} 个文件，显示 {shown} 个 - 展开文件夹查看更多",
+  "codecCardReorder": "重新排序卡片",
+  "codecCardGrabbed": "已抓取卡片。使用方向键移动，回车键放下，Esc 键取消。",
+  "codecCardMoved": "已移动到位置",
+  "codecCardDropped": "卡片已放下，顺序已保存。",
+  "codecCardCancelled": "已取消重新排序。",
+  "codecCardOrderSaved": "顺序已保存",
+  "codecCardOrderSaveFailed": "无法保存顺序"
 }

@@ -446,4 +446,200 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("VideoBitrates", HtmlContent);
         Assert.Contains("codec-bitrate-hist", HtmlContent);
     }
+
+    [Fact]
+    public void Html_CodecCards_CarryChartIdAndHandle()
+    {
+        // Each card needs a stable id on the wrapper (the drag engine reads data-chart-id) and a
+        // keyboard-focusable handle in the header. The old markup had neither.
+        Assert.Contains("data-chart-id=\"' + escAttr(id) + '\"", HtmlContent);
+        Assert.Contains("codec-card-handle", HtmlContent);
+        Assert.Contains("role=\"button\" tabindex=\"0\" aria-grabbed=\"false\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCards_RenderFromDescriptorOrder()
+    {
+        // The if-chain was replaced by a descriptor map ordered via orderedCodecCardIds, so the
+        // persisted order can drive the layout.
+        Assert.Contains("var cardDescriptors", HtmlContent);
+        Assert.Contains("orderedCodecCardIds(cardDescriptors)", HtmlContent);
+        Assert.Contains("CANONICAL_CODEC_ORDER", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCodecDragEngineFunctions()
+    {
+        Assert.Contains("function attachCodecCardDragHandlers", HtmlContent);
+        Assert.Contains("function onCodecHandlePointerDown", HtmlContent);
+        Assert.Contains("function onCodecHandleKeyDown", HtmlContent);
+        Assert.Contains("function moveCodecPlaceholderTo", HtmlContent);
+        Assert.Contains("function updateCodecAutoScroll", HtmlContent);
+        Assert.Contains("function commitCodecCardOrderFromDom", HtmlContent);
+        Assert.Contains("function saveCodecCardOrder", HtmlContent);
+        Assert.Contains("function loadCodecCardOrderOnce", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecOrder_SavesViaDedicatedEndpoint()
+    {
+        // Reorders must hit the dedicated PUT, never the full-config PUT, to avoid racing the
+        // Settings dirty state.
+        Assert.Contains("apiPut('JellyfinHelper/Configuration/CodecCardOrder'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCodecDragCssClasses()
+    {
+        Assert.Contains("codec-dragging", HtmlContent);
+        Assert.Contains("codec-drop-placeholder", HtmlContent);
+        Assert.Contains(".codec-card-handle", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_LabelNamesTheCard()
+    {
+        // Every grip must carry the card's own title so a screen reader can tell the 11 apart,
+        // rather than announcing the same "Reorder card" for each.
+        Assert.Contains("var handleLabel = T('codecCardReorder', 'Reorder card') + ': ' + cardTitle", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_LiftsCardToFollowPointer()
+    {
+        // The dragged card must track the pointer (not sit static in its slot), reset cleanly on drop.
+        Assert.Contains("function moveCodecCardToPointer", HtmlContent);
+        Assert.Contains("state.lifted", HtmlContent);
+        Assert.Contains("state.card.style.transform = ''", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_MouseButtonGuardIsMouseOnly()
+    {
+        // Touch/pen can report button -1 for a normal press, so the non-primary-button abort is
+        // scoped to mouse; a blanket button!==0 guard would swallow legitimate touch drags.
+        Assert.Contains("e.pointerType === 'mouse' && e.button !== 0", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_SuppressesContextMenu()
+    {
+        // Long-press on Android/iOS must arm a drag, not pop the browser context menu / callout.
+        Assert.Contains("handle.addEventListener('contextmenu'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_CssHardensAgainstSelectionAndCallout()
+    {
+        Assert.Contains("-webkit-touch-callout: none", HtmlContent);
+        Assert.Matches(@"\.codec-card-handle\s*\{[^}]*user-select:\s*none", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecKeyboard_EscapeRestoresInPlaceAndRefocuses()
+    {
+        // Escape (and the error rollback) must not full-re-render: that drops focus to <body>.
+        // Instead the card is restored to its origin index in place and the handle refocused.
+        Assert.Contains("function restoreCardToIndex", HtmlContent);
+        Assert.Contains("handle.dataset.originIndex", HtmlContent);
+        Assert.Contains("card.querySelector('.codec-card-handle').focus()", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSave_AnnouncesOutcomeViaLiveRegion()
+    {
+        // The save-ok / save-failed i18n keys drive the aria-live announcement, so they are wired
+        // through T() rather than sitting dead in the locale files.
+        Assert.Contains("T('codecCardOrderSaved'", HtmlContent);
+        Assert.Contains("T('codecCardOrderSaveFailed'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSave_RollsBackToPreviousOrderOnFailure()
+    {
+        // A failed PUT must restore the previously persisted order, never re-render the rejected one.
+        Assert.Contains("function flushQueuedCodecOrderSave", HtmlContent);
+        Assert.Contains("prevOrder", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_IgnoresDetachedCardsFromRescan()
+    {
+        // A background rescan can detach dragged nodes mid-interaction; only cards still in the live
+        // document are persisted, so a stale snapshot never reaches the server.
+        Assert.Contains("document.contains(box)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DragHandleIcon_IsRegisteredInIconMap()
+    {
+        // The grip calls mi('drag_indicator'); if the icon map lacks that key, mi() returns '' and
+        // the handle renders 0px wide - invisible on desktop and untappable on touch. Assert the
+        // path is actually present in the composed map, not just that the call site exists.
+        Assert.Contains("\"drag_indicator\":\"M11 18c0 1.1", HtmlContent);
+        Assert.Contains("mi('drag_indicator')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecTouchDrop_StampsTouchEndToSuppressCompatClick()
+    {
+        // A touch drag ends over a donut/row; the browser then fires a compatibility click there.
+        // Stamping _lastTouchEndTime at drag-end makes the existing click guards swallow it, so a
+        // drop never opens an unintended drill-down.
+        Assert.Contains("_lastTouchEndTime = Date.now()", HtmlContent);
+        Assert.Contains("wasActive && state.isTouch", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_AbortsWhenChartsRowDetached()
+    {
+        // If the whole row is detached mid-drag, reading the DOM yields [] and the server would
+        // normalize that to the full canonical order, wiping the user's layout. The commit must
+        // bail on a detached row instead of persisting empty.
+        Assert.Contains("!document.contains(chartsRow)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSaveIndicator_AnchorsToCardNotHandle()
+    {
+        // The save overlay must span the card, not the ~1em handle (where it overlaps the grip).
+        // Both drop paths pass the card element as the feedback target.
+        Assert.Contains("commitCodecCardOrderFromDom(state.chartsRow, state.card)", HtmlContent);
+        Assert.Contains("commitCodecCardOrderFromDom(chartsRow, card)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_RebasesPartialDomOntoFullOrder()
+    {
+        // Cards hidden this scan are absent from the DOM; committing only visible ids would append
+        // them canonically at the end next save. The commit rebases onto the last full order so a
+        // temporarily data-less card keeps its custom slot.
+        Assert.Contains("function reorderFullOrder", HtmlContent);
+        Assert.Contains("reorderFullOrder(prevOrder, domIds)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecLoad_GuardsStaleGetWithGenerationCounter()
+    {
+        // A config GET issued before a drop must not overwrite the newer local order when it
+        // returns. The load snapshots the generation and bails if a commit bumped it meanwhile.
+        Assert.Contains("_codecOrderGeneration", HtmlContent);
+        Assert.Contains("_codecOrderGeneration !== genAtRequest", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecPointerDrag_ReflectsGrabStateToAssistiveTech()
+    {
+        // aria-grabbed was only toggled on the keyboard path; pointer/touch drags left it stale.
+        // beginCodecDrag now sets it true and teardown resets it, matching the keyboard behaviour.
+        Assert.Contains("state.handle.setAttribute('aria-grabbed', 'true')", HtmlContent);
+        Assert.Contains("state.handle.setAttribute('aria-grabbed', 'false')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_DropsDeadCardWidthField()
+    {
+        // state.cardWidth was written but never read; removing it keeps the drag state honest.
+        Assert.DoesNotContain("state.cardWidth", HtmlContent);
+    }
 }

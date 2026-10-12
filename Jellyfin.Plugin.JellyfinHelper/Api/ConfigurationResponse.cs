@@ -114,6 +114,9 @@ public sealed class ConfigurationResponse
     /// <summary>Gets the Sonarr instances with masked API keys.</summary>
     public IReadOnlyList<MaskedArrInstanceConfig> SonarrInstances { get; init; } = [];
 
+    /// <summary>Gets the Codecs-tab donut card order (plaintext card ids), normalized to the full canonical set.</summary>
+    public IReadOnlyList<string> CodecCardOrder { get; init; } = [];
+
     /// <summary>
     ///     Builds a ConfigurationResponse from a live PluginConfiguration, replacing every non-empty API key with ApiKeyMask.
     /// </summary>
@@ -174,7 +177,8 @@ public sealed class ConfigurationResponse
                     Libraries = i.Libraries,
                     SkipCertificateValidation = i.SkipCertificateValidation
                 })
-                .ToList()
+                .ToList(),
+            CodecCardOrder = CodecCardCatalog.Normalize(config.CodecCardOrder)
         };
     }
 }

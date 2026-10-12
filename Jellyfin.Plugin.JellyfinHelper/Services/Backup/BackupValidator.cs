@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -69,6 +70,18 @@ public static class BackupValidator
     internal const int MaxArrLibrariesLength = 2048;
 
     /// <summary>
+    ///     Maximum number of codec card ids accepted in a backup. Matches the settings validator cap so an
+    ///     order that passed settings validation always round-trips through backup.
+    /// </summary>
+    internal const int MaxCodecCardOrderEntries = 32;
+
+    /// <summary>
+    ///     Maximum length of a single codec card id. Matches the settings validator so an order always
+    ///     round-trips through backup.
+    /// </summary>
+    internal const int MaxCodecCardIdLength = 64;
+
+    /// <summary>
     ///     Valid language codes.
     /// </summary>
     internal static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
@@ -129,6 +142,9 @@ public static class BackupValidator
         // Arr instances validation
         ValidateArrInstances(result, backup.RadarrInstances, "RadarrInstances");
         ValidateArrInstances(result, backup.SonarrInstances, "SonarrInstances");
+
+        // Codecs card order validation
+        ValidateCodecCardOrder(result, backup.CodecCardOrder);
 
         // Historical data validation
         ValidateGrowthTimeline(result, backup.GrowthTimeline);
@@ -361,6 +377,34 @@ public static class BackupValidator
         if (path.Contains('\n', StringComparison.Ordinal) || path.Contains('\r', StringComparison.Ordinal))
         {
             result.Errors.Add($"{fieldName} contains newline characters.");
+        }
+    }
+
+    private static void ValidateCodecCardOrder(BackupValidationResult result, List<string>? order)
+    {
+        if (order == null)
+        {
+            return;
+        }
+
+        if (order.Count > MaxCodecCardOrderEntries)
+        {
+            result.Errors.Add($"CodecCardOrder has too many entries ({order.Count} > {MaxCodecCardOrderEntries}).");
+        }
+
+        for (var i = 0; i < order.Count; i++)
+        {
+            var id = order[i];
+
+            // Hard errors on dangerous/oversized content (the settings endpoint enforces the same).
+            ValidateStringField(result, id, $"CodecCardOrder[{i}]", MaxCodecCardIdLength);
+
+            // Unknown ids are a soft failure: warn and let the sanitizer drop them, so a backup from a
+            // newer/older plugin with a different card set stays importable instead of being rejected.
+            if (!string.IsNullOrWhiteSpace(id) && !CodecCardCatalog.IsKnown(id.Trim()))
+            {
+                result.Warnings.Add($"CodecCardOrder[{i}] has unknown card id '{id}'; it will be dropped on restore.");
+            }
         }
     }
 

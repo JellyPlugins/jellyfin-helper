@@ -27,6 +27,7 @@ public class PluginConfiguration : BasePluginConfiguration
     private int _traktLimit = 20;
     private List<ArrInstanceConfig> _radarrInstances = [];
     private List<ArrInstanceConfig> _sonarrInstances = [];
+    private List<string> _codecCardOrder = [];
 
     /// <summary>
     ///     Gets or sets the library names to exclude (exclude list). Comma-separated list of library names.
@@ -178,6 +179,20 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         get => _sonarrInstances;
         set => _sonarrInstances = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the Codecs-tab donut card order (plaintext card ids, not a secret).
+    ///     Empty means the canonical <see cref="CodecCardCatalog.Canonical"/> order is used.
+    /// </summary>
+    [SuppressMessage(
+        "Usage",
+        "CA1002:DoNotExposeGenericLists",
+        Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
+    public List<string> CodecCardOrder
+    {
+        get => _codecCardOrder;
+        set => _codecCardOrder = value ?? [];
     }
 
     /// <summary>
