@@ -232,11 +232,12 @@
             // Card body
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
             '.jfh-discovery-card-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            '.jfh-discovery-card-meta { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow: hidden; }' +
-            '.jfh-discovery-card-genres { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar { height: 4px; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar-track { background: transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
+            // Wrap, never clip or scroll: on a narrow 2-column mobile card year+type+rating overflowed the
+            // nowrap row and the rating tag was cut off at the edge. Wrapping drops it to the next line instead.
+            '.jfh-discovery-card-meta { display: flex; flex-wrap: wrap; gap: 0.3em; }' +
+            // Genres wrap too. A per-card horizontal scrollbar here was the unwanted "second scrollbar"; with at
+            // most two genres a single wrap is clean and needs no scroll affordance.
+            '.jfh-discovery-card-genres { display: flex; flex-wrap: wrap; gap: 0.3em; }' +
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
             '.jfh-discovery-flip-links { display: flex; gap: 0.6em; margin-bottom: 0.8em; padding-bottom: 0.6em; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }' +
             '.jfh-discovery-flip-link { display: inline-flex; align-items: center; gap: 0.3em; color: #00a4dc; text-decoration: none; font-size: 0.85em; font-weight: 500; padding: 0.3em 0.5em; border-radius: 4px; transition: background 0.2s, opacity 0.2s; opacity: 0.9; }' +
@@ -249,7 +250,11 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
-            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
+            // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
+            // Failed) exactly the same size, so swapping the label never changes the button's height or width
+            // and the state transition doesn't flicker. The request button spans the full row (its dismiss
+            // sibling is hidden for the duration), so these labels stay single-line.
+            '.jfh-discovery-btn { flex: 1; box-sizing: border-box; min-height: 2.6em; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
@@ -257,7 +262,7 @@
             '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
             '.jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: #e74c3c; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
-            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }' +
+            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
             // Toast notification
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
@@ -1165,7 +1170,9 @@
             var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
             var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
-            var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
+            // Insert a zero-width space after each slash so "actors/directors" may break after the slash
+            // ("Features actors/" fits line 1) instead of wrapping as one unbreakable token into a third line.
+            var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
@@ -1222,7 +1229,19 @@
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
+        // Collapse the sibling "Not interested" button for the duration of the request so the busy
+        // "Requesting…" label gets the full row width (matching the final "Requested" state) instead of
+        // being squeezed into half the row where its text would clip.
+        setDismissSiblingHidden(btn, true);
         fetchPermissionsAndRequest(tmdbId, mediaType, btn);
+    }
+
+    // Shows/hides the dismiss button that shares a button row with the given request button.
+    function setDismissSiblingHidden(requestBtn, hidden) {
+        var row = requestBtn.parentElement;
+        if (!row) return;
+        var dismiss = row.querySelector('.jfh-discovery-btn-dismiss');
+        if (dismiss) dismiss.style.display = hidden ? 'none' : '';
     }
 
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
@@ -1277,6 +1296,7 @@
                 btn.textContent = t('discoveryRequest', 'Request');
                 btn.classList.remove('jfh-discovery-btn-failed');
                 btn.disabled = false;
+                setDismissSiblingHidden(btn, false);
             }, 3000);
             return;
         }
@@ -1349,7 +1369,7 @@
                 item.appendChild(defaultSpan);
             }
             item.addEventListener('click', (function (sid, pid, rf) {
-                return function () { closeDiscoveryPopup(btn); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+                return function () { closeDiscoveryPopup(btn, false); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
@@ -1374,12 +1394,17 @@
         document.head.appendChild(s);
     }
 
-    function closeDiscoveryPopup(triggerBtn) {
+    // Closes the quality-profile picker. When cancelled (cancel button, Escape, or overlay click) the
+    // sibling "Not interested" button is restored, since handleRequest hid it in anticipation of a request
+    // that is no longer happening. On profile selection cancelled is false: submitRequest re-hides it, so
+    // restoring here would only flicker.
+    function closeDiscoveryPopup(triggerBtn, cancelled) {
         var el = document.getElementById('jfhDiscoveryPopup');
         if (el?._onEsc) {
             document.removeEventListener('keydown', el._onEsc);
         }
         if (el) el.remove();
+        if (cancelled !== false && triggerBtn) setDismissSiblingHidden(triggerBtn, false);
         if (triggerBtn?.focus) triggerBtn.focus();
     }
 
@@ -1446,14 +1471,14 @@
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
                 showToast(getUserFriendlyErrorMessage(result && result.Message));
-                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
+                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
             }
         }).catch(function (err) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
             showToast(getUserFriendlyErrorMessage(serverMessage));
-            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
+            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
         });
     }
 
@@ -1574,29 +1599,51 @@
         });
     }
 
+    // Adds a zero-width space (U+200B) after each slash so the browser may break a slashed compound like
+    // "actors/directors" after the slash instead of treating it as one unbreakable token. Input is already
+    // HTML-escaped; U+200B is not an HTML metacharacter, so appending it introduces no injection risk.
+    var ZERO_WIDTH_SPACE = String.fromCodePoint(0x200B);
+    function insertSlashBreaks(escapedText) {
+        return escapedText.replaceAll('/', '/' + ZERO_WIDTH_SPACE);
+    }
+
+    // Reason keys whose localized text embeds a {0} anchor (person name, genre). Fallbacks match en.json.
+    var REASON_TEMPLATES = {
+        reasonPersonNamed: 'Featuring {0}',
+        reasonGenre: 'Because you enjoy {0}'
+    };
+    // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json so a
+    // discovery card still shows a reason when the /Translations fetch failed and _strings is empty.
+    var REASON_PHRASES = {
+        reasonTrending: 'Trending - new and highly rated',
+        reasonPopular: 'Popular and highly rated',
+        reasonHighlyRated: 'Highly rated',
+        reasonPopularAmongViewers: 'Popular with other viewers',
+        reasonDefault: 'Recommended for you'
+    };
+
     // Translate reason key to localized human-readable text.
     // Backend DetermineReason produces: reasonPersonNamed, reasonGenre, reasonTrending, reasonPopular
     function formatReason(reasonKey, reason, relatedInfo) {
         if (!reasonKey && !reason) return '';
         var key = reasonKey || '';
-        // Try i18n lookup first (keys match en.json: reasonPopular, reasonGenre, reasonTrending, etc.)
-        if (key === 'reasonPersonNamed' && relatedInfo) {
-            var personTpl = t('reasonPersonNamed', 'Featuring {0}');
-            return personTpl.replace('{0}', relatedInfo);
+        if (relatedInfo && REASON_TEMPLATES[key]) {
+            return t(key, REASON_TEMPLATES[key]).replace('{0}', relatedInfo);
         }
-        if (key === 'reasonGenre' && relatedInfo) {
-            var genreTpl = t('reasonGenre', 'Because you enjoy {0}');
-            return genreTpl.replace('{0}', relatedInfo);
+        if (REASON_PHRASES[key]) {
+            return t(key, REASON_PHRASES[key]);
         }
-        if (key === 'reasonTrending') return t('reasonTrending', 'Trending now');
-        if (key === 'reasonPopular') return t('reasonPopular', 'Popular and highly rated');
-        if (key === 'reasonHighlyRated') return t('reasonHighlyRated', 'Highly rated');
-        // If we have a known i18n key, try it
+        // Any other known i18n key: substitute the anchor when present.
         if (key && _strings && _strings[key]) {
             var val = _strings[key];
             return relatedInfo ? val.replace('{0}', relatedInfo) : val;
         }
-        // Fallback: if reason looks like a raw key (starts with "reason"), hide it
+        return formatRawReasonFallback(reason);
+    }
+
+    // Fallback for a reason that arrived as raw "reasonKey: anchor" text instead of a resolved key.
+    // Re-dispatches through formatReason so it localizes; a bare "reason*" token with no anchor is hidden.
+    function formatRawReasonFallback(reason) {
         if (reason && reason.startsWith('reason')) {
             var parts = reason.split(': ');
             if (parts.length === 2) {
