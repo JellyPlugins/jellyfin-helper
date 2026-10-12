@@ -106,6 +106,28 @@ public class RecommendationPlaylistServiceTests
     }
 
     [Fact]
+    public async Task UpdatePlaylists_CreatesPrivatePlaylistsPerUser()
+    {
+        var userId = Guid.NewGuid();
+        var results = new List<RecommendationResult> { CreateResult(userId, "Alice", 3) };
+
+        PlaylistCreationRequest? captured = null;
+        SetupPlaylistQuery();
+        _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
+            .Callback<PlaylistCreationRequest>(req => captured = req)
+            .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+
+        var sut = CreateSut();
+        await sut.UpdatePlaylistsForAllUsersAsync(results, CancellationToken.None);
+
+        Assert.NotNull(captured);
+        Assert.Equal(userId, captured.UserId);
+        Assert.True(captured.Public == false);
+        Assert.NotNull(captured.Users);
+        Assert.Empty(captured.Users);
+    }
+
+    [Fact]
     public async Task UpdatePlaylists_SkipsUsersWithNoRecommendations()
     {
         var results = new List<RecommendationResult>
