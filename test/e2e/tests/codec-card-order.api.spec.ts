@@ -56,7 +56,7 @@ test('partial order is backfilled with the missing canonical ids', async () => {
   // First two honored, every canonical id still present exactly once.
   expect(stored.slice(0, 2)).toEqual(['bookFormats', 'containers']);
   expect([...stored].sort()).toEqual([...CANONICAL].sort());
-  expect(stored.length).toBe(CANONICAL.length);
+  expect(stored).toHaveLength(CANONICAL.length);
 });
 
 test('empty order is accepted and yields the canonical order', async () => {
@@ -76,18 +76,34 @@ test('duplicate id is rejected with 400', async () => {
 });
 
 test('a reorder does not disturb unrelated config fields', async () => {
-  // Seed an unrelated field via the full config PUT, then reorder, then confirm the field survived
-  // (the dedicated endpoint must not touch anything but the order).
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ Language: 'de', OrphanMinAgeDays: 7 }),
-  });
+  // Seed two unrelated fields via the full config PUT, reorder, then confirm they survived (the
+  // dedicated endpoint must touch nothing but the order). The full PUT applies DTO defaults to
+  // omitted fields, so we read the current config, change only the two probe fields, and restore
+  // the original in finally - the single-worker runner shares mutable server state across suites.
+  const read = await ctx.get(p('Configuration'));
+  expect(read.ok(), `read configuration: ${read.status()}`).toBeTruthy();
+  const original = (await read.json()) as Record<string, unknown>;
 
-  await putOrder([...CANONICAL].reverse());
+  try {
+    const seed = await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ ...original, Language: 'de', OrphanMinAgeDays: 7 }),
+    });
+    expect(seed.ok(), `configuration seed failed: ${seed.status()}`).toBeTruthy();
 
-  const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
-  expect(cfg.Language).toBe('de');
-  expect(cfg.OrphanMinAgeDays).toBe(7);
+    const reorder = await putOrder([...CANONICAL].reverse());
+    expect(reorder.ok(), `reorder failed: ${reorder.status()}`).toBeTruthy();
+
+    const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
+    expect(cfg.Language).toBe('de');
+    expect(cfg.OrphanMinAgeDays).toBe(7);
+  } finally {
+    const restore = await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify(original),
+    });
+    expect(restore.ok(), `configuration restore failed: ${restore.status()}`).toBeTruthy();
+  }
 });
 
 test('backup export/import round-trips the card order', async () => {

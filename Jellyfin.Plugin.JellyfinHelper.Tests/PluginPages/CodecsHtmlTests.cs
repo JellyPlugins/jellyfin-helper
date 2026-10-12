@@ -642,4 +642,48 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         // state.cardWidth was written but never read; removing it keeps the drag state honest.
         Assert.DoesNotContain("state.cardWidth", HtmlContent);
     }
+
+    [Fact]
+    public void Html_CodecDrop_SettlesCardIntoFlowBeforeInsert()
+    {
+        // The card must leave its fixed-position lift before being moved to the new slot, otherwise
+        // it shows for a frame as a fixed element at the new DOM position (reads as the card
+        // vanishing). The settle call precedes the DOM move in the drop path.
+        Assert.Contains("function settleCardIntoFlow", HtmlContent);
+        // In onCodecDragPointerUp the settle happens before the card is placed at the placeholder.
+        var dropSettleAt = HtmlContent.IndexOf("settleCardIntoFlow(state);", StringComparison.Ordinal);
+        var insertAt = HtmlContent.IndexOf("state.placeholder.before(state.card)", StringComparison.Ordinal);
+        Assert.True(dropSettleAt >= 0 && insertAt >= 0 && dropSettleAt < insertAt);
+    }
+
+    [Fact]
+    public void Html_CodecSave_ShowsCornerBadgeNotHandleOverlay()
+    {
+        // Save feedback is a dedicated top-right corner badge on the card, not the shared overlay
+        // anchored to the ~1em handle (where it overlapped the grip).
+        Assert.Contains("function showCodecSaveBadge", HtmlContent);
+        Assert.Contains("showCodecSaveBadge(feedbackEl, true)", HtmlContent);
+        Assert.Contains("showCodecSaveBadge(feedbackEl, false)", HtmlContent);
+        Assert.DoesNotContain("showAutoSaveIndicatorOverlay(feedbackEl", HtmlContent);
+        // The badge anchors to the enclosing card and renders in its corner.
+        Assert.Contains("feedbackEl.closest('.chart-box')", HtmlContent);
+        Assert.Contains("codec-save-badge", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSaveBadge_AnchorsToCardCorner()
+    {
+        // The card is the positioning context and the badge sits in its top-right corner.
+        Assert.Matches(@"\.chart-box\s*\{[^}]*position:\s*relative", HtmlContent);
+        Assert.Matches(@"\.codec-save-badge\s*\{[^}]*position:\s*absolute", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecPlaceholder_UsesNearestCardHitTest()
+    {
+        // The placeholder follows the card nearest the pointer (euclidean), not a row-major
+        // first-match that snaps between columns at every center line.
+        Assert.Contains("nearestDist", HtmlContent);
+        Assert.Contains("(dx * dx) + (dy * dy)", HtmlContent);
+    }
 }

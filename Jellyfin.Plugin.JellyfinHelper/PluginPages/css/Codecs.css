@@ -20,6 +20,8 @@
     text-align: center;
     min-width: 0;
     overflow: visible;
+    /* Anchor for the top-right reorder save badge. */
+    position: relative;
 }
 
 .chart-box h4 {
@@ -1294,8 +1296,49 @@
     box-shadow: none;
 }
 
+/* Save confirmation badge: a round chip in the card's top-right corner that fades in on a
+   successful reorder save (red on failure), then fades out. Non-interactive. */
+.codec-save-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 1.5em;
+    height: 1.5em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--color-success, #2ecc71);
+    color: #fff;
+    font-size: 0.9em;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    z-index: 5;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.codec-save-badge--error {
+    background: var(--color-danger, #e74c3c);
+}
+
+.codec-save-badge--visible {
+    opacity: 1;
+    transform: scale(1);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .chart-box.codec-dragging {
+        transform: none;
+    }
+
+    .codec-save-badge {
+        transition: opacity 0.18s ease;
+        transform: none;
+    }
+
+    .codec-save-badge--visible {
         transform: none;
     }
 }
