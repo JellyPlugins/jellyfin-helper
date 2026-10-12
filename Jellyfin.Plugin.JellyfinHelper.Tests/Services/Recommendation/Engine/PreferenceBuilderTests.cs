@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class PreferenceBuilderTests
 {
+    // Mirror of PreferenceBuilder.FranchiseLoyaltyBase, duplicated here because the production constant is private.
+    private const double FranchiseLoyaltyBaseForTest = 0.4;
+
     [Fact]
     public void BuildGenrePreferenceVector_TemporalDecay_RecentItemsWeighMore()
     {
@@ -1400,6 +1403,111 @@ public class PreferenceBuilderTests
         // The non-favorite used the decayed 365-day fallback, not 1.0, so it must be far below the favorite.
         Assert.True(vector["Fav"] > vector["Old"],
             $"Favorite no-date row (temporal 1.0) must outrank non-favorite no-date row (365-day decay). Got Fav={vector["Fav"]:F4}, Old={vector["Old"]:F4}");
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_DormantCompletedFranchise_LiftedByLoyaltyFloor()
+    {
+        // A completionist watched three Spider-Man titles two years ago, plus a single DC title last week.
+        // Pure decay would normalize Spider-Man toward zero against the recent DC watch; the loyalty floor
+        // must keep the fully-watched franchise recommendable.
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Spider-Man" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Spider-Man" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Spider-Man" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-7), TmdbCollectionName = "DC" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // 3 distinct titles -> floor = 0.4 + 0.2 * (3 - 2) = 0.6.
+        Assert.Equal(0.6, vector["Spider-Man"], 10);
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_ActiveFranchise_StillOutranksDormantCompleted()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dormant" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dormant" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Active" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Active" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // The loyalty ceiling (0.9) stays below the active franchise's normalized 1.0.
+        Assert.Equal(1.0, vector["Active"], 10);
+        Assert.True(vector["Active"] > vector["Dormant"],
+            $"A currently-active franchise must still outrank a dormant-but-completed one. Got Active={vector["Active"]:F4}, Dormant={vector["Dormant"]:F4}");
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_SingleTitleFranchise_FloorNotApplied()
+    {
+        // One title per franchise: no demonstrated loyalty, so weights stay pure-decay (byte-identical to pre-floor).
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-7), TmdbCollectionName = "Recent" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Dormant" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        Assert.Equal(1.0, vector["Recent"], 10);
+        // 365-day half-life over 730 days -> ~0.25 after normalization against the recent max; well below any floor.
+        Assert.True(vector["Dormant"] < FranchiseLoyaltyBaseForTest,
+            $"A single-title dormant franchise must keep its decayed weight, not the loyalty floor. Got {vector["Dormant"]:F4}");
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_RewatchesOfSameTitle_DoNotCountAsLoyalty()
+    {
+        var sharedId = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = sharedId, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Solo" },
+                new WatchedItemInfo { ItemId = sharedId, Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Solo" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-7), TmdbCollectionName = "Recent" }
+            ]
+        };
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        // Two rows but the same ItemId -> one distinct title, so the loyalty floor must not engage and the
+        // dormant franchise keeps its decayed weight (well below the 0.4 base floor two distinct titles would grant).
+        Assert.True(vector["Solo"] < FranchiseLoyaltyBaseForTest,
+            $"Rewatching a single title is not franchise loyalty. Got {vector["Solo"]:F4}");
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_LoyaltyFloorCapsAtCeiling()
+    {
+        // Ten distinct dormant titles would compute 0.4 + 0.2 * 8 = 2.0 uncapped; the ceiling must clamp it to 0.9.
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 10; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-730), TmdbCollectionName = "Huge" });
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), TmdbCollectionName = "Active" });
+
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+
+        Assert.Equal(0.9, vector["Huge"], 10);
     }
 
     [Fact]
