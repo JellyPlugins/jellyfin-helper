@@ -1369,7 +1369,7 @@
                 item.appendChild(defaultSpan);
             }
             item.addEventListener('click', (function (sid, pid, rf) {
-                return function () { closeDiscoveryPopup(btn); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+                return function () { closeDiscoveryPopup(btn, false); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
@@ -1394,12 +1394,17 @@
         document.head.appendChild(s);
     }
 
-    function closeDiscoveryPopup(triggerBtn) {
+    // Closes the quality-profile picker. When cancelled (cancel button, Escape, or overlay click) the
+    // sibling "Not interested" button is restored, since handleRequest hid it in anticipation of a request
+    // that is no longer happening. On profile selection cancelled is false: submitRequest re-hides it, so
+    // restoring here would only flicker.
+    function closeDiscoveryPopup(triggerBtn, cancelled) {
         var el = document.getElementById('jfhDiscoveryPopup');
         if (el?._onEsc) {
             document.removeEventListener('keydown', el._onEsc);
         }
         if (el) el.remove();
+        if (cancelled !== false && triggerBtn) setDismissSiblingHidden(triggerBtn, false);
         if (triggerBtn?.focus) triggerBtn.focus();
     }
 
@@ -1597,33 +1602,45 @@
     // Adds a zero-width space (U+200B) after each slash so the browser may break a slashed compound like
     // "actors/directors" after the slash instead of treating it as one unbreakable token. Input is already
     // HTML-escaped; U+200B is not an HTML metacharacter, so appending it introduces no injection risk.
-    var ZERO_WIDTH_SPACE = String.fromCharCode(0x200B);
+    var ZERO_WIDTH_SPACE = String.fromCodePoint(0x200B);
     function insertSlashBreaks(escapedText) {
         return escapedText.replaceAll('/', '/' + ZERO_WIDTH_SPACE);
     }
 
+    // Reason keys whose localized text embeds a {0} anchor (person name, genre). Fallbacks match en.json.
+    var REASON_TEMPLATES = {
+        reasonPersonNamed: 'Featuring {0}',
+        reasonGenre: 'Because you enjoy {0}'
+    };
+    // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json.
+    var REASON_PHRASES = {
+        reasonTrending: 'Trending now',
+        reasonPopular: 'Popular and highly rated',
+        reasonHighlyRated: 'Highly rated'
+    };
+
     // Translate reason key to localized human-readable text.
     // Backend DetermineReason produces: reasonPersonNamed, reasonGenre, reasonTrending, reasonPopular
-    function formatReason(reasonKey, reason, relatedInfo) {        if (!reasonKey && !reason) return '';
+    function formatReason(reasonKey, reason, relatedInfo) {
+        if (!reasonKey && !reason) return '';
         var key = reasonKey || '';
-        // Try i18n lookup first (keys match en.json: reasonPopular, reasonGenre, reasonTrending, etc.)
-        if (key === 'reasonPersonNamed' && relatedInfo) {
-            var personTpl = t('reasonPersonNamed', 'Featuring {0}');
-            return personTpl.replace('{0}', relatedInfo);
+        if (relatedInfo && REASON_TEMPLATES[key]) {
+            return t(key, REASON_TEMPLATES[key]).replace('{0}', relatedInfo);
         }
-        if (key === 'reasonGenre' && relatedInfo) {
-            var genreTpl = t('reasonGenre', 'Because you enjoy {0}');
-            return genreTpl.replace('{0}', relatedInfo);
+        if (REASON_PHRASES[key]) {
+            return t(key, REASON_PHRASES[key]);
         }
-        if (key === 'reasonTrending') return t('reasonTrending', 'Trending now');
-        if (key === 'reasonPopular') return t('reasonPopular', 'Popular and highly rated');
-        if (key === 'reasonHighlyRated') return t('reasonHighlyRated', 'Highly rated');
-        // If we have a known i18n key, try it
+        // Any other known i18n key: substitute the anchor when present.
         if (key && _strings && _strings[key]) {
             var val = _strings[key];
             return relatedInfo ? val.replace('{0}', relatedInfo) : val;
         }
-        // Fallback: if reason looks like a raw key (starts with "reason"), hide it
+        return formatRawReasonFallback(reason);
+    }
+
+    // Fallback for a reason that arrived as raw "reasonKey: anchor" text instead of a resolved key.
+    // Re-dispatches through formatReason so it localizes; a bare "reason*" token with no anchor is hidden.
+    function formatRawReasonFallback(reason) {
         if (reason && reason.startsWith('reason')) {
             var parts = reason.split(': ');
             if (parts.length === 2) {
