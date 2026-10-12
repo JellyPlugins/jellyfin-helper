@@ -238,8 +238,47 @@ public sealed class ScoreExplanationTests
         Assert.Contains("interact=", str);
         Assert.Contains("people=", str);
         Assert.Contains("studio=", str);
+        Assert.Contains("franchise=", str);
+        Assert.Contains("collection=", str);
+        Assert.Contains("popularity=", str);
         Assert.Contains("penalty=", str);
         Assert.Contains("dominant=Genre", str);
+    }
+
+    [Theory]
+    [InlineData(0.9, 0.0, 0.0, "Franchise")]
+    [InlineData(0.0, 0.9, 0.0, "CollectionProgression")]
+    [InlineData(0.0, 0.0, 0.9, "Popularity")]
+    public void DetermineDominantSignal_NamedExplanationSignals_Win(
+        double franchise, double collection, double popularity, string expected) =>
+        Assert.Equal(
+            expected,
+            ScoreExplanation.DetermineDominantSignal(
+                0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, franchise, collection, popularity));
+
+    [Fact]
+    public void Blend_CarriesFranchiseCollectionAndPopularity()
+    {
+        var a = CreateExplanation(0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, franchise: 0.8, collection: 0.6, popularity: 0.4);
+        var b = CreateExplanation(0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, franchise: 0.2, collection: 0.0, popularity: 0.0);
+
+        var result = a.Blend(b, 0.5);
+
+        Assert.Equal(0.5, result.FranchiseContribution, 10);
+        Assert.Equal(0.3, result.CollectionProgressionContribution, 10);
+        Assert.Equal(0.2, result.PopularityContribution, 10);
+    }
+
+    [Fact]
+    public void WithPenalty_ScalesFranchiseCollectionAndPopularity()
+    {
+        var explanation = CreateExplanation(0.8, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, franchise: 0.8, collection: 0.6, popularity: 0.4);
+
+        var result = explanation.WithPenalty(0.5);
+
+        Assert.Equal(0.4, result.FranchiseContribution, 10);
+        Assert.Equal(0.3, result.CollectionProgressionContribution, 10);
+        Assert.Equal(0.2, result.PopularityContribution, 10);
     }
 
     // Helpers
@@ -254,7 +293,10 @@ public sealed class ScoreExplanationTests
         double userRating,
         double interaction,
         double people,
-        double studio)
+        double studio,
+        double franchise = 0.0,
+        double collection = 0.0,
+        double popularity = 0.0)
     {
         return new ScoreExplanation
         {
@@ -267,7 +309,10 @@ public sealed class ScoreExplanationTests
             UserRatingContribution = userRating,
             InteractionContribution = interaction,
             PeopleContribution = people,
-            StudioContribution = studio
+            StudioContribution = studio,
+            FranchiseContribution = franchise,
+            CollectionProgressionContribution = collection,
+            PopularityContribution = popularity
         };
     }
 }

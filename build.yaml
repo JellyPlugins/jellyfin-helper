@@ -21,8 +21,10 @@ changelog: |-
   - End-to-end tests now run the real Custom Tabs and File Transformation plugins and repeatedly navigate in and out of the Discovery tab to prove it never goes blank
   - Radarr/Sonarr instances behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect via a per-instance "Skip certificate validation" checkbox in Settings (connection tests, comparison, and discovery exclusions honor it; validation stays on everywhere else)
   - Free Trakt accounts can now use Trakt discovery through the official Trakt plugin without hitting Trakt's one-app-per-account limit: when the official plugin is installed, the Helper sources your personal recommendations through its connection instead of registering a second app
+  - Recommendations now follow completed franchises: a series you finished years ago is surfaced again when a new entry arrives, instead of being outranked by whatever you watched most recently
+  - Recommendation explanations are now concrete: the "Why" line names what actually drove the pick (completing a collection, a franchise, a matched writer/country/era, or genuine crowd popularity) instead of a vague "Recommended for you". Discovery suggestions keep their person/genre/trending/popularity reasons, now with an honest fallback instead of claiming "Popular and highly rated" for a title that is neither
   - Hardening: API keys, the log filter, and backup credentials now reject hidden control characters that could cause errors or log tampering; odd-charset responses are read safely; and restoring a backup that disables TLS validation now warns you first
-  - Tested by 6581 unit tests (expanded security, hardening, and performance coverage) and 361 end-to-end tests
+  - Tested by 6634 unit tests (expanded security, hardening, and performance coverage) and 361 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
   - Special thanks to @TheColin21 (https://github.com/TheColin21) for testing and donation ❤️
   - Special thanks to Daniel for his donation ❤️

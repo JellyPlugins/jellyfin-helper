@@ -109,6 +109,12 @@ internal static class ScoringHelper
         var peopleContrib = GetContribution(vector, weights, FeatureIndex.PeopleSimilarity);
         var studioContrib = GetContribution(vector, weights, FeatureIndex.StudioMatch);
 
+        // Surfaced as named signals so the UI can explain "complete the collection" instead of a generic reason.
+        // Pulled out of the interaction bucket below; the final-score sum is unchanged because they are added back.
+        var franchiseContrib = GetContribution(vector, weights, FeatureIndex.FranchiseAffinity);
+        var collectionContrib = GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost);
+        var popularityContrib = GetContribution(vector, weights, FeatureIndex.PopularityScore);
+
         // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend, tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,.
         var interactionSum =
             GetContribution(vector, weights, FeatureIndex.GenreCountNormalized) +
@@ -119,7 +125,6 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.IsAbandoned) +
             GetContribution(vector, weights, FeatureIndex.HasInteraction) +
             GetContribution(vector, weights, FeatureIndex.SeriesProgressionBoost) +
-            GetContribution(vector, weights, FeatureIndex.PopularityScore) +
             GetContribution(vector, weights, FeatureIndex.DayOfWeekAffinity) +
             GetContribution(vector, weights, FeatureIndex.HourOfDayAffinity) +
             GetContribution(vector, weights, FeatureIndex.IsWeekend) +
@@ -132,9 +137,7 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.LibraryAddedRecency) +
             GetContribution(vector, weights, FeatureIndex.ContentNearestNeighborScore) +
             GetContribution(vector, weights, FeatureIndex.LanguageAffinity) +
-            GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost) +
             GetContribution(vector, weights, FeatureIndex.SubtitleLanguageAffinity) +
-            GetContribution(vector, weights, FeatureIndex.FranchiseAffinity) +
             GetContribution(vector, weights, FeatureIndex.ProductionLocationAffinity) +
             GetContribution(vector, weights, FeatureIndex.InheritedTagSimilarity) +
             GetContribution(vector, weights, FeatureIndex.SeriesCompletability) +
@@ -143,9 +146,11 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.GenreStudioIdfPrior);
         var interactionContrib = double.IsFinite(interactionSum) ? interactionSum : 0.0;
 
-        // Compute FinalScore from the sum of contributions + bias instead of re-calling ComputeRawScore.
+        // Franchise, collection and popularity are summed into the final score exactly as before, but kept out of
+        // the interaction bucket so they can be the dominant signal and drive a concrete recommendation reason.
         var contributionSum = genreContrib + collabContrib + ratingContrib + recencyContrib +
-            yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib;
+            yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib +
+            franchiseContrib + collectionContrib + popularityContrib;
         var rawScore = GuardScore(contributionSum + bias);
         var score = Math.Clamp(rawScore, 0.0, 1.0);
 
@@ -161,9 +166,12 @@ internal static class ScoringHelper
             InteractionContribution = interactionContrib,
             PeopleContribution = peopleContrib,
             StudioContribution = studioContrib,
+            FranchiseContribution = franchiseContrib,
+            CollectionProgressionContribution = collectionContrib,
+            PopularityContribution = popularityContrib,
             GenrePenaltyMultiplier = 1.0, // No penalty in individual strategies - applied in Ensemble
             DominantSignal = ScoreExplanation.DetermineDominantSignal(
-                genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib, interactionContrib, peopleContrib, studioContrib),
+                genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib, interactionContrib, peopleContrib, studioContrib, franchiseContrib, collectionContrib, popularityContrib),
             StrategyName = strategyName
         };
     }

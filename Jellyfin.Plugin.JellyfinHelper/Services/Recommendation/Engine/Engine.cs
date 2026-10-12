@@ -35,6 +35,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     private const string LogCategory = "Recommendations";
 
+    // Language affinity returns this when there is no stream data or no profile match; a reason anchor must exceed it to claim a language match.
+    private const double NeutralLanguageAffinity = 0.5;
+
     private readonly ILibraryManager _libraryManager;
     private readonly IPluginConfigurationService _configService;
     private readonly ILogger<Engine> _logger;
@@ -1403,14 +1406,29 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             _pluginLog.LogDebug(LogCategory, $"Score for '{candidate.Name}': {explanation}", _logger);
         }
 
+        var anchors = BuildReasonAnchors(
+            candidate,
+            features,
+            content,
+            candidateBoxSetLookup.TryGetValue(candidate.Id, out var anchorBoxSets) ? anchorBoxSets : [],
+            watchedBoxSetCounts,
+            new ReasonAnchorSources(
+                preferredCountries,
+                preferredWriterWeights,
+                preferredInheritedTags,
+                candidateMediaLanguages.Audio,
+                userProfile));
+
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
             candidate,
             explanation,
             genrePreferences,
-            preferredPeople,
-            preferredStudios,
-            peopleLookup,
-            preferredPeopleWeights);
+            anchors,
+            new ReasonResolver.ReasonPeopleContext(
+                preferredPeople,
+                preferredStudios,
+                peopleLookup,
+                preferredPeopleWeights));
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -2175,6 +2193,96 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
+    ///     Returns the highest watched-sibling count across the candidate's box-sets, used only as a reason anchor (not scoring). The boost in <see cref="ComputeCollectionProgressionBoostLive"/> is monotonic non-decreasing in the count, so the max-count box-set is always a max-boost box-set: the displayed count can never come from a different box-set than the one that drove the score. The count intentionally includes played, started, and favorited siblings (so the reason says "explored", not "watched"), and is a lower bound because only box-sets present in the candidate lookup are counted.
+    /// </summary>
+    private static int ResolveWatchedSiblingCount(
+        List<Guid> candidateBoxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts)
+    {
+        var best = 0;
+        foreach (var boxSetId in candidateBoxSetIds)
+        {
+            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var count) && count > best)
+            {
+                best = count;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    ///     Builds the concrete anchors that let the reason resolver name a signal (collection, country, writer, tag, language, era). Each named anchor is populated only when its own feature fired positively, so the resolver never claims a signal that did not contribute to the score. Pure read of already-resolved per-candidate data; no library calls.
+    /// </summary>
+    private static ReasonAnchorContext BuildReasonAnchors(
+        BaseItem candidate,
+        CandidateFeatures features,
+        CandidateContentAffinity content,
+        List<Guid> candidateBoxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts,
+        ReasonAnchorSources sources)
+    {
+        return new ReasonAnchorContext(
+            CollectionName: features.FranchiseAffinity > 0.0 ? content.TmdbCollectionName : null,
+            WatchedSiblingCount: ResolveWatchedSiblingCount(candidateBoxSetIds, watchedBoxSetCounts),
+            MatchedCountry: features.ProductionLocationAffinity > 0.0
+                ? FirstPreferred(content.ProductionCountries, sources.PreferredCountries)
+                : null,
+            MatchedWriter: features.WriterAffinity > 0.0
+                ? FirstPreferred(content.Writers, sources.PreferredWriterWeights)
+                : null,
+            MatchedTag: features.InheritedTagSimilarity > 0.0
+                ? content.InheritedTags.FirstOrDefault(sources.PreferredInheritedTags.Contains)
+                : null,
+            MatchedLanguage: features.LanguageAffinity > NeutralLanguageAffinity
+                ? FirstPreferredLanguage(sources.CandidateAudioLanguages, sources.UserProfile)
+                : null,
+            ReleaseEra: ResolveReleaseEra(candidate.ProductionYear));
+    }
+
+    /// <summary>Returns the first candidate value present in a preference-weight map, or null.</summary>
+    private static string? FirstPreferred(
+        IReadOnlyList<string> candidateValues,
+        IReadOnlyDictionary<string, double> preferred)
+    {
+        return preferred.Count == 0
+            ? null
+            : candidateValues.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && preferred.ContainsKey(v));
+    }
+
+    /// <summary>Returns the first candidate audio language at the user's primary or preferred tier, or null.</summary>
+    /// <param name="candidateAudioLanguages">The candidate's audio language codes.</param>
+    /// <param name="userProfile">The user's watch profile supplying primary and preferred language tiers.</param>
+    /// <returns>The first candidate language at the primary or preferred tier, or <c>null</c>.</returns>
+    internal static string? FirstPreferredLanguage(List<string> candidateAudioLanguages, UserWatchProfile userProfile)
+    {
+        if (userProfile.LanguageProfile.Count == 0)
+        {
+            return null;
+        }
+
+        // The language anchor only shows when LanguageAffinity > 0.5, which is reached solely by the primary
+        // (1.0) and preferred (0.85) tiers. A merely in-profile language sits at 0.3 and must not be named, or
+        // the anchor would advertise a language that did not drive the score.
+        return candidateAudioLanguages.FirstOrDefault(l =>
+            !string.IsNullOrWhiteSpace(l)
+            && (string.Equals(l, userProfile.PrimaryLanguage, StringComparison.OrdinalIgnoreCase)
+                || userProfile.PreferredLanguages.Contains(l)));
+    }
+
+    /// <summary>Formats a production year as a decade era label (e.g. "2010s"), or null when unknown.</summary>
+    private static string? ResolveReleaseEra(int? productionYear)
+    {
+        if (productionYear is not { } year || year < 1900)
+        {
+            return null;
+        }
+
+        var decade = year - (year % 10);
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{decade}s");
+    }
+
+    /// <summary>
     ///     Updates "Requested + Watched" status in the discovery feedback store.
     /// </summary>
     /// <param name="cancellationToken">Token for cooperative cancellation.</param>
@@ -2603,4 +2711,22 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         DateTime CreatedAtUtc,
         Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup,
         IReadOnlyDictionary<string, double>? GenreStudioIdf);
+
+    /// <summary>
+    ///     Preference sources needed to resolve concrete reason anchors, bundled to keep the anchor builder's
+    ///     signature small. The user-side fields (countries, writer weights, inherited tags, profile) are built
+    ///     once per user before the candidate loop; <see cref="ReasonAnchorSources.CandidateAudioLanguages"/> is
+    ///     per-candidate, so this record is constructed once per candidate.
+    /// </summary>
+    /// <param name="PreferredCountries">The user's normalized production-country preference map.</param>
+    /// <param name="PreferredWriterWeights">The user's writer preference weights.</param>
+    /// <param name="PreferredInheritedTags">The user's preferred inherited tags.</param>
+    /// <param name="CandidateAudioLanguages">The candidate's resolved audio languages.</param>
+    /// <param name="UserProfile">The user's watch profile (for the language profile).</param>
+    private sealed record ReasonAnchorSources(
+        IReadOnlyDictionary<string, double> PreferredCountries,
+        IReadOnlyDictionary<string, double> PreferredWriterWeights,
+        HashSet<string> PreferredInheritedTags,
+        List<string> CandidateAudioLanguages,
+        UserWatchProfile UserProfile);
 }

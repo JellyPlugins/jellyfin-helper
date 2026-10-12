@@ -365,6 +365,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── GenreExposureRampTests.cs              # Cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
+│       │   ├── ReasonAnchorContextTests.cs            # Default + explicit construction of the reason anchors
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
 │       │   ├── TemporalFeaturesTests.cs               # Day-of-week / hour-of-day / weekend affinity
 │       │   ├── TrainingServiceTests.cs                # Process-wide TrainGate; tests serialised via ConfigOverride collection
@@ -560,6 +561,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
+│   │   │   ├── ReasonAnchorContext.cs # Concrete anchors (collection/country/writer/tag/era) for reasons
 │   │   │   ├── SimilarityComputer.cs # Genre/people/tag similarity
 │   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
 │   │   │   ├── ContentAffinityResolver.cs # Shared library-free resolvers for content-affinity source data

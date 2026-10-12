@@ -37,6 +37,24 @@ internal static class PreferenceBuilder
     /// </summary>
     private const double PlayCountLog1pCeiling = 2.0;
 
+    /// <summary>
+    ///     Minimum distinct watched titles in one franchise before the loyalty floor engages. A single title is an
+    ///     isolated watch, not demonstrated loyalty, so one-title franchises keep pure decay behaviour.
+    /// </summary>
+    private const int FranchiseLoyaltyMinTitles = 2;
+
+    /// <summary>Loyalty floor granted at the first qualifying title (the second distinct title in a franchise).</summary>
+    private const double FranchiseLoyaltyBase = 0.4;
+
+    /// <summary>Additional loyalty floor stacked per distinct title beyond the second.</summary>
+    private const double FranchiseLoyaltyPerTitle = 0.2;
+
+    /// <summary>
+    ///     Upper bound of the loyalty floor, kept below 1.0 so a currently-active franchise (decayed weight near the
+    ///     normalized max) always outranks a dormant-but-completed one.
+    /// </summary>
+    private const double FranchiseLoyaltyCeiling = 0.9;
+
     /// <summary>Decay constant derived from half-life: ln(2) / halfLife.</summary>
     private static readonly double GenreDecayConstant = Math.Log(2.0) / EngineConstants.GenreDecayHalfLifeDays;
 
@@ -607,7 +625,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Builds a max-normalized franchise preference map (TMDb collection name -> weight in [0,1]) from the user's watched/favorited movies.
+    ///     Builds a max-normalized franchise preference map (TMDb collection name -> weight in [0,1]) from the user's watched/favorited movies, with a decay-free loyalty floor so completed franchises stay recommendable long after the last watch.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive franchise -> normalized-weight map (empty when no signal).</returns>
@@ -618,6 +636,12 @@ internal static class PreferenceBuilder
         {
             return vector;
         }
+
+        // Distinct COMPLETED titles per franchise, counted without temporal decay: a completionist who finished a
+        // franchise years ago must keep franchise affinity even after the decayed weight normalizes toward zero.
+        // Loyalty is demonstrated by actually finishing titles, so favorited-but-unplayed rows do not count here
+        // (they still shape the weighted vector above). Dedup by TMDb id so two library copies of one movie count once.
+        var distinctTitles = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in profile.WatchedItems)
         {
@@ -630,10 +654,66 @@ internal static class PreferenceBuilder
             var weight = ComputePreferenceRowWeight(item);
             vector.TryGetValue(item.TmdbCollectionName, out var current);
             vector[item.TmdbCollectionName] = current + weight;
+
+            if (!IsEpisodeCompletedForProgression(item))
+            {
+                continue;
+            }
+
+            if (!distinctTitles.TryGetValue(item.TmdbCollectionName, out var ids))
+            {
+                ids = new HashSet<string>(StringComparer.Ordinal);
+                distinctTitles[item.TmdbCollectionName] = ids;
+            }
+
+            ids.Add(DistinctTitleKey(item));
         }
 
         NormalizeByMax(vector);
+        ApplyFranchiseLoyaltyFloor(vector, distinctTitles);
         return vector;
+    }
+
+    /// <summary>
+    ///     Stable per-title identity for franchise loyalty: the TMDb id when present (so duplicate library copies of
+    ///     one film collapse to a single title), else the Jellyfin item id as a fallback.
+    /// </summary>
+    private static string DistinctTitleKey(WatchedItemInfo item)
+    {
+        return item.TmdbId > 0
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tmdb:{item.TmdbId}")
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"item:{item.ItemId}");
+    }
+
+    /// <summary>
+    ///     Lifts each franchise weight to at least its loyalty floor, derived from the decay-free distinct watched
+    ///     title count. Monotonic upward only: franchises below the engagement threshold and single-title franchises
+    ///     are left untouched, so non-loyalty behaviour stays byte-identical.
+    /// </summary>
+    /// <param name="vector">The already max-normalized franchise weight map, mutated in place.</param>
+    /// <param name="distinctTitles">Distinct completed watched titles per franchise.</param>
+    private static void ApplyFranchiseLoyaltyFloor(
+        Dictionary<string, double> vector,
+        Dictionary<string, HashSet<string>> distinctTitles)
+    {
+        foreach (var (franchise, ids) in distinctTitles)
+        {
+            var titleCount = ids.Count;
+            if (titleCount < FranchiseLoyaltyMinTitles)
+            {
+                continue;
+            }
+
+            var floor = Math.Min(
+                FranchiseLoyaltyCeiling,
+                FranchiseLoyaltyBase + (FranchiseLoyaltyPerTitle * (titleCount - FranchiseLoyaltyMinTitles)));
+
+            vector.TryGetValue(franchise, out var current);
+            if (floor > current)
+            {
+                vector[franchise] = floor;
+            }
+        }
     }
 
     /// <summary>
