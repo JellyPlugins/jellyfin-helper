@@ -126,6 +126,9 @@
     font-size: 0.85em;
     color: rgba(255, 255, 255, 0.7);
     margin-bottom: 0.4em;
+    /* "actors/directors" is one unbreakable token without this, so on narrow cards it jumps to its own
+       line and inflates the card height. Allow breaking inside slashed/compound tokens. */
+    overflow-wrap: anywhere;
 }
 
 .recs-reason-label {
@@ -552,6 +555,19 @@
     .recs-profile-compact-stats {
         gap: 0.6em;
     }
+
+    /* The rank gutter and card padding eat horizontal room the meta tags need; trimming them lets the
+       last tag (type/year, and the rating tag on discovery cards) sit inside the card instead of being
+       clipped at the edge. The body already has min-width:0 so it absorbs the slack. */
+    .recs-item {
+        gap: 0.6em;
+        padding: 0.75em 0.75em;
+    }
+
+    .recs-item-rank {
+        min-width: 1.6em;
+        font-size: 1.1em;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -652,6 +668,7 @@
     font-size: 0.85em;
     color: rgba(255, 255, 255, 0.7);
     margin-bottom: 0.4em;
+    overflow-wrap: anywhere;
 }
 
 /* noinspection CssUnusedSymbol */
