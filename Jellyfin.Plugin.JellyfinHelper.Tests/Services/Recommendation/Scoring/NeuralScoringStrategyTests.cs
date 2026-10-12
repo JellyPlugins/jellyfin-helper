@@ -373,7 +373,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // Regression gate: the MLP attribution is an input gradient, so a zero-valued feature can
         // still carry a nonzero attribution. The build path gates franchise/collection/popularity on
         // their raw value, so an absent signal must surface literal 0.0 and never become dominant.
-        var strategy = new NeuralScoringStrategy();
+        using var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
