@@ -96,9 +96,9 @@ internal static class ReasonResolver
             && anchors.WatchedSiblingCount > 0)
         {
             // The count reflects collection entries the user has interacted with (played, started, or favorited),
-            // not strictly completed, so the wording stays "started" rather than claiming a finished watch.
+            // not strictly completed or even started, so the wording stays "explored" to cover favorites too.
             var count = anchors.WatchedSiblingCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return ($"You've started {count} from this collection", "reasonCollectionProgress", count);
+            return ($"You've explored {count} from this collection", "reasonCollectionProgress", count);
         }
 
         if (string.Equals(dominant, "Franchise", StringComparison.OrdinalIgnoreCase)
@@ -308,7 +308,7 @@ internal static class ReasonResolver
             || explanation.StudioContribution <= EngineConstants.ReasonScoreThreshold)
         {
             // Last concrete fallback before the generic default: an anchor the dominant signal did not consume.
-            return ResolveResidualAnchorReason(anchors);
+            return ResolveResidualAnchorReason(explanation, anchors);
         }
 
         if (matchedStudio is not null)
@@ -323,9 +323,14 @@ internal static class ReasonResolver
     ///     Surfaces any concrete anchor (collection, country, writer, tag) before degrading to "Recommended for you", so a candidate with a real signal never shows the generic default.
     /// </summary>
     private static (string Reason, string ReasonKey, string? RelatedItem) ResolveResidualAnchorReason(
+        ScoreExplanation explanation,
         ReasonAnchorContext anchors)
     {
-        if (!string.IsNullOrWhiteSpace(anchors.CollectionName))
+        // A collection name alone is not evidence of franchise preference; only surface the franchise reason
+        // when the franchise signal itself cleared the threshold. Otherwise a candidate with mere collection
+        // metadata (or even a negative franchise contribution) would be mislabeled "More from the … collection".
+        if (!string.IsNullOrWhiteSpace(anchors.CollectionName)
+            && explanation.FranchiseContribution > EngineConstants.ReasonScoreThreshold)
         {
             return ($"More from the {anchors.CollectionName} collection", "reasonFranchiseNamed", anchors.CollectionName);
         }

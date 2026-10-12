@@ -664,7 +664,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         // Live blended path (12-arg DetermineDominantSignal): a maxed franchise affinity with every other
         // signal neutralized must surface as the dominant signal. Before the fix the blended result only
         // passed 9 args, so franchise could never win on the ScoreWithExplanation path.
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures
         {
             FranchiseAffinity = 1.0,
@@ -684,7 +684,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithExplanation_CollectionProgressionDominates_LivePathSurfacesCollection()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures
         {
             CollectionProgressionBoost = 1.0,
@@ -706,7 +706,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         // Popularity has the smallest default weight, so every other signal must be fully zeroed (including the
         // 0.5-defaulting features) for its contribution to be the unique maximum on the live blended path.
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures
         {
             PopularityScore = 1.0,

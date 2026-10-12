@@ -641,11 +641,12 @@ public class ReasonResolverTests
     }
 
     [Fact]
-    public void ResidualAnchor_SurfacesCollectionBeforeGenericDefault()
+    public void ResidualAnchor_WithFranchiseEvidence_SurfacesCollectionBeforeGenericDefault()
     {
-        // No signal clears threshold, so the dominant resolver would normally fall to reasonDefault.
+        // No signal is dominant, but the franchise contribution still clears the threshold, so the collection
+        // name is legitimate franchise evidence and must surface before degrading to the generic default.
         var candidate = CreateMovie();
-        var explanation = Explain(dominant: "None");
+        var explanation = Explain(dominant: "None", franchise: AboveThreshold);
         var anchors = new ReasonAnchorContext(CollectionName: "The Lord of the Rings Collection");
 
         var (_, key, related) = ReasonResolver.DetermineReason(
@@ -653,6 +654,21 @@ public class ReasonResolverTests
 
         Assert.Equal("reasonFranchiseNamed", key);
         Assert.Equal("The Lord of the Rings Collection", related);
+    }
+
+    [Fact]
+    public void ResidualAnchor_CollectionNameWithoutFranchiseEvidence_DoesNotInferFranchise()
+    {
+        // A collection name alone is not franchise preference. With no franchise contribution, the resolver must
+        // not label the candidate "More from the … collection" and should fall through to the generic default.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "None");
+        var anchors = new ReasonAnchorContext(CollectionName: "The Lord of the Rings Collection");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonDefault", key);
     }
 
     [Fact]
