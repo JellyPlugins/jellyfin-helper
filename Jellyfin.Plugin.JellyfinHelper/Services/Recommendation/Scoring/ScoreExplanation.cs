@@ -184,6 +184,10 @@ public sealed class ScoreExplanation
         double collectionContrib = 0.0,
         double popularityContrib = 0.0)
     {
+        // Dominance is ranked by magnitude (Math.Abs): a strongly negative contribution is still the signal that
+        // moved the score most, which is the correct "what drove this" answer for diagnostics. A negative driver
+        // must not become a positive-sounding reason, so the reason resolver re-checks the sign (contribution
+        // must exceed a strictly-positive floor) before naming any dominant signal.
         // Allocation-free comparison - this runs per candidate in the scoring hot path.
         var bestName = "Genre";
         var bestValue = Math.Abs(genreContrib);

@@ -2713,8 +2713,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IReadOnlyDictionary<string, double>? GenreStudioIdf);
 
     /// <summary>
-    ///     User-side preference sources needed to resolve concrete reason anchors, bundled to keep the
-    ///     anchor builder's signature small. All fields are per-user, built once before the candidate loop.
+    ///     Preference sources needed to resolve concrete reason anchors, bundled to keep the anchor builder's
+    ///     signature small. The user-side fields (countries, writer weights, inherited tags, profile) are built
+    ///     once per user before the candidate loop; <see cref="ReasonAnchorSources.CandidateAudioLanguages"/> is
+    ///     per-candidate, so this record is constructed once per candidate.
     /// </summary>
     /// <param name="PreferredCountries">The user's normalized production-country preference map.</param>
     /// <param name="PreferredWriterWeights">The user's writer preference weights.</param>

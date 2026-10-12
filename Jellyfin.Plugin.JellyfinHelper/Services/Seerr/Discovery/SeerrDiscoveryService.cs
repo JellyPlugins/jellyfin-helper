@@ -108,6 +108,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>TMDb genre ID for Kids TV.</summary>
     private const int TmdbGenreTvKids = 10762;
 
+    /// <summary>Minimum people-similarity before a Discovery suggestion is attributed to a matched person.</summary>
+    private const double ReasonPeopleThreshold = 0.3;
+
+    /// <summary>Minimum genre-similarity before a Discovery suggestion is attributed to a genre.</summary>
+    private const double ReasonGenreThreshold = 0.7;
+
+    /// <summary>Minimum recency before a Discovery suggestion can be called "trending" (paired with the critic threshold).</summary>
+    private const double ReasonRecencyThreshold = 0.8;
+
+    /// <summary>Minimum popularity before a Discovery suggestion is attributed to crowd popularity.</summary>
+    private const double ReasonPopularityThreshold = 0.7;
+
+    /// <summary>Minimum combined critic score before a Discovery suggestion is attributed to critical acclaim.</summary>
+    private const double ReasonCriticThreshold = 0.7;
+
     private const string LogCategory = "SeerrDiscovery";
 
     private const string PluginInstanceUnavailableMessage = "Plugin instance is not available; skipping.";
@@ -3074,7 +3089,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<string> topGenres,
         HashSet<string> preferredPeople)
     {
-        if (features.PeopleSimilarity > 0.3 && candidate.KnownPeople is { Count: > 0 })
+        if (features.PeopleSimilarity > ReasonPeopleThreshold && candidate.KnownPeople is { Count: > 0 })
         {
             var matchedPerson = candidate.KnownPeople.FirstOrDefault(preferredPeople.Contains);
             if (matchedPerson != null)
@@ -3083,29 +3098,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        if (features.GenreSimilarity > 0.7 && topGenres.Count > 0)
+        if (features.GenreSimilarity > ReasonGenreThreshold && topGenres.Count > 0)
         {
             return ("reasonGenre", topGenres[0]);
         }
 
-        if (features.RecencyScore > 0.8 && features.CombinedCriticScore > 0.7)
+        if (features.RecencyScore > ReasonRecencyThreshold && features.CombinedCriticScore > ReasonCriticThreshold)
         {
             return ("reasonTrending", null);
         }
 
-        // Popularity and critic rating are distinct signals; surface whichever genuinely dominates
-        // instead of the old blended "popular and highly rated" that fired for either.
-        if (features.PopularityScore > 0.7)
+        // Popularity and critic rating are distinct signals. Popularity is checked first by design: when a title
+        // is both widely watched and well reviewed, "popular with other viewers" is the more relatable headline
+        // and critical acclaim is the secondary note, so popularity dominates the single-line reason.
+        if (features.PopularityScore > ReasonPopularityThreshold)
         {
             return ("reasonPopularAmongViewers", null);
         }
 
-        if (features.CombinedCriticScore > 0.7)
+        if (features.CombinedCriticScore > ReasonCriticThreshold)
         {
             return ("reasonHighlyRated", null);
         }
 
-        return ("reasonPopular", null);
+        // No signal cleared its threshold: stay honest with a generic reason instead of claiming the candidate
+        // is "popular and highly rated" when it is neither.
+        return ("reasonDefault", null);
     }
 
     /// <summary>
