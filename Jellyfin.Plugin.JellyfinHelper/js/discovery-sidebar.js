@@ -232,11 +232,12 @@
             // Card body
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
             '.jfh-discovery-card-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            '.jfh-discovery-card-meta { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow: hidden; }' +
-            '.jfh-discovery-card-genres { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; scrollbar-color: var(--color-primary-scrollbar, rgba(0,164,220,0.4)) transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar { height: 4px; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar-track { background: transparent; }' +
-            '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
+            // Wrap, never clip or scroll: on a narrow 2-column mobile card year+type+rating overflowed the
+            // nowrap row and the rating tag was cut off at the edge. Wrapping drops it to the next line instead.
+            '.jfh-discovery-card-meta { display: flex; flex-wrap: wrap; gap: 0.3em; }' +
+            // Genres wrap too. A per-card horizontal scrollbar here was the unwanted "second scrollbar"; with at
+            // most two genres a single wrap is clean and needs no scroll affordance.
+            '.jfh-discovery-card-genres { display: flex; flex-wrap: wrap; gap: 0.3em; }' +
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
             '.jfh-discovery-flip-links { display: flex; gap: 0.6em; margin-bottom: 0.8em; padding-bottom: 0.6em; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }' +
             '.jfh-discovery-flip-link { display: inline-flex; align-items: center; gap: 0.3em; color: #00a4dc; text-decoration: none; font-size: 0.85em; font-weight: 500; padding: 0.3em 0.5em; border-radius: 4px; transition: background 0.2s, opacity 0.2s; opacity: 0.9; }' +
@@ -249,7 +250,7 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
-            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
+            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
@@ -1222,7 +1223,19 @@
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
+        // Collapse the sibling "Not interested" button for the duration of the request so the busy
+        // "Requesting…" label gets the full row width (matching the final "Requested" state) instead of
+        // being squeezed into half the row where its text would clip.
+        setDismissSiblingHidden(btn, true);
         fetchPermissionsAndRequest(tmdbId, mediaType, btn);
+    }
+
+    // Shows/hides the dismiss button that shares a button row with the given request button.
+    function setDismissSiblingHidden(requestBtn, hidden) {
+        var row = requestBtn.parentElement;
+        if (!row) return;
+        var dismiss = row.querySelector('.jfh-discovery-btn-dismiss');
+        if (dismiss) dismiss.style.display = hidden ? 'none' : '';
     }
 
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
@@ -1277,6 +1290,7 @@
                 btn.textContent = t('discoveryRequest', 'Request');
                 btn.classList.remove('jfh-discovery-btn-failed');
                 btn.disabled = false;
+                setDismissSiblingHidden(btn, false);
             }, 3000);
             return;
         }
@@ -1446,14 +1460,14 @@
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
                 showToast(getUserFriendlyErrorMessage(result && result.Message));
-                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
+                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
             }
         }).catch(function (err) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
             showToast(getUserFriendlyErrorMessage(serverMessage));
-            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
+            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
         });
     }
 
