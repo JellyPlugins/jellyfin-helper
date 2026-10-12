@@ -590,7 +590,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             result.YearProximityContribution,
             result.InteractionContribution,
             result.PeopleContribution,
-            result.StudioContribution);
+            result.StudioContribution,
+            result.FranchiseContribution,
+            result.CollectionProgressionContribution,
+            result.PopularityContribution);
 
         return result;
     }

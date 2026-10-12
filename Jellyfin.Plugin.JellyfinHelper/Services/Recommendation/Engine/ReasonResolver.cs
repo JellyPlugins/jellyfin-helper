@@ -41,10 +41,7 @@ internal static class ReasonResolver
             explanation,
             genrePreferences,
             default,
-            preferredPeople,
-            preferredStudios,
-            peopleLookup,
-            preferredPeopleWeights);
+            new ReasonPeopleContext(preferredPeople, preferredStudios, peopleLookup, preferredPeopleWeights));
 
     /// <summary>
     ///     Determines the most relevant human-readable reason, preferring concrete, anchored signals (franchise, collection progression, named country/writer/tag/era) over abstract ones, and falling back to the dominant single signal.
@@ -53,27 +50,21 @@ internal static class ReasonResolver
     /// <param name="explanation">The score explanation from the strategy.</param>
     /// <param name="genrePreferences">The user's genre preference vector.</param>
     /// <param name="anchors">Concrete anchors resolved by the caller (collection name, watched-sibling count, matched country/writer/tag, era).</param>
-    /// <param name="preferredPeople">Optional set of preferred people names for concrete person reasons.</param>
-    /// <param name="preferredStudios">Optional set of preferred studio names for concrete studio reasons.</param>
-    /// <param name="peopleLookup">Optional pre-built people lookup (item ID to person names) for resolving concrete person names on candidates.</param>
-    /// <param name="preferredPeopleWeights">Optional per-name weights; when supplied the reason surfaces the highest-weighted matching person.</param>
+    /// <param name="people">The people/studio preference sources used to surface concrete names.</param>
     /// <returns>A tuple of reason text, i18n key, and optional related item name.</returns>
     internal static (string Reason, string ReasonKey, string? RelatedItem) DetermineReason(
         BaseItem candidate,
         ScoreExplanation explanation,
         Dictionary<string, double> genrePreferences,
         ReasonAnchorContext anchors,
-        HashSet<string>? preferredPeople = null,
-        HashSet<string>? preferredStudios = null,
-        Dictionary<Guid, HashSet<string>>? peopleLookup = null,
-        IReadOnlyDictionary<string, double>? preferredPeopleWeights = null)
+        ReasonPeopleContext people = default)
     {
         var dominant = explanation.DominantSignal;
 
         // Resolve concrete names for richer reasons
         var topGenre = ResolveTopGenre(candidate, genrePreferences);
-        var matchedPerson = ResolveMatchedPerson(candidate, preferredPeople, peopleLookup, preferredPeopleWeights);
-        var matchedStudio = ResolveMatchedStudio(candidate, preferredStudios);
+        var matchedPerson = ResolveMatchedPerson(candidate, people.PreferredPeople, people.PeopleLookup, people.PreferredPeopleWeights);
+        var matchedStudio = ResolveMatchedStudio(candidate, people.PreferredStudios);
 
         // These provide more specific "why" than single-signal reasons.
         var combination = ResolveCombinationReason(explanation, topGenre, matchedPerson);
@@ -104,8 +95,10 @@ internal static class ReasonResolver
             && explanation.CollectionProgressionContribution > EngineConstants.ReasonScoreThreshold
             && anchors.WatchedSiblingCount > 0)
         {
+            // The count reflects collection entries the user has interacted with (played, started, or favorited),
+            // not strictly completed, so the wording stays "started" rather than claiming a finished watch.
             var count = anchors.WatchedSiblingCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return ($"You have watched {count} from this collection", "reasonCollectionProgress", count);
+            return ($"You've started {count} from this collection", "reasonCollectionProgress", count);
         }
 
         if (string.Equals(dominant, "Franchise", StringComparison.OrdinalIgnoreCase)
@@ -203,58 +196,62 @@ internal static class ReasonResolver
         string? topGenre,
         ReasonAnchorContext anchors)
     {
-        if (string.Equals(dominant, "Collaborative", StringComparison.OrdinalIgnoreCase)
-            && explanation.CollaborativeContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "Collaborative", explanation.CollaborativeContribution))
         {
             return ("Popular with similar viewers", "reasonCollaborative", null);
         }
 
-        if (string.Equals(dominant, "Popularity", StringComparison.OrdinalIgnoreCase)
-            && explanation.PopularityContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "Popularity", explanation.PopularityContribution))
         {
             return ("Popular with other viewers", "reasonPopularAmongViewers", null);
         }
 
-        if (string.Equals(dominant, "Genre", StringComparison.OrdinalIgnoreCase)
-            && explanation.GenreContribution > EngineConstants.ReasonScoreThreshold
-            && topGenre is not null)
+        if (IsDominant(dominant, "Genre", explanation.GenreContribution) && topGenre is not null)
         {
             return ($"Because you enjoy {topGenre}", "reasonGenre", topGenre);
         }
 
-        if (string.Equals(dominant, "Rating", StringComparison.OrdinalIgnoreCase)
-            && explanation.RatingContribution > EngineConstants.HighRatingThreshold)
+        if (IsDominant(dominant, "Rating", explanation.RatingContribution, EngineConstants.HighRatingThreshold))
         {
             return ("Highly rated", "reasonHighlyRated", null);
         }
 
-        if (string.Equals(dominant, "UserRating", StringComparison.OrdinalIgnoreCase)
-            && explanation.UserRatingContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "UserRating", explanation.UserRatingContribution))
         {
             return ("Matches your personal ratings", "reasonUserRating", null);
         }
 
-        if (string.Equals(dominant, "Recency", StringComparison.OrdinalIgnoreCase)
-            && explanation.RecencyContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "Recency", explanation.RecencyContribution))
         {
             return ("Recently released", "reasonRecent", null);
         }
 
-        if (string.Equals(dominant, "YearProximity", StringComparison.OrdinalIgnoreCase)
-            && explanation.YearProximityContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "YearProximity", explanation.YearProximityContribution))
         {
             return string.IsNullOrWhiteSpace(anchors.ReleaseEra)
                 ? ("Matches the era of content you enjoy", "reasonYearProximity", null)
                 : ($"From the {anchors.ReleaseEra} you enjoy", "reasonYearEra", anchors.ReleaseEra);
         }
 
-        if (string.Equals(dominant, "Interaction", StringComparison.OrdinalIgnoreCase)
-            && explanation.InteractionContribution > EngineConstants.ReasonScoreThreshold)
+        if (IsDominant(dominant, "Interaction", explanation.InteractionContribution))
         {
             return ResolveInteractionAnchorReason(anchors);
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Returns true when <paramref name="dominant"/> names <paramref name="signalName"/> and its contribution clears the threshold. Collapses the repeated name-equals-and-above-threshold test so the dispatch chain stays flat.
+    /// </summary>
+    private static bool IsDominant(
+        string? dominant,
+        string signalName,
+        double contribution,
+        double threshold = EngineConstants.ReasonScoreThreshold)
+    {
+        return string.Equals(dominant, signalName, StringComparison.OrdinalIgnoreCase)
+            && contribution > threshold;
     }
 
     /// <summary>
@@ -473,4 +470,18 @@ internal static class ReasonResolver
             WatchedItems = []
         };
     }
+
+    /// <summary>
+    ///     People/studio preference sources used to surface concrete names in a reason. Bundled so the public
+    ///     entry point stays within the parameter budget; all members are optional and default to no data.
+    /// </summary>
+    /// <param name="PreferredPeople">Preferred people names for concrete person reasons.</param>
+    /// <param name="PreferredStudios">Preferred studio names for concrete studio reasons.</param>
+    /// <param name="PeopleLookup">Pre-built people lookup (item id to person names) for resolving names on candidates.</param>
+    /// <param name="PreferredPeopleWeights">Per-name weights; when supplied the reason surfaces the highest-weighted matching person.</param>
+    internal readonly record struct ReasonPeopleContext(
+        HashSet<string>? PreferredPeople = null,
+        HashSet<string>? PreferredStudios = null,
+        Dictionary<Guid, HashSet<string>>? PeopleLookup = null,
+        IReadOnlyDictionary<string, double>? PreferredPeopleWeights = null);
 }

@@ -637,9 +637,11 @@ internal static class PreferenceBuilder
             return vector;
         }
 
-        // Distinct watched titles per franchise, counted without temporal decay: a completionist who finished a
+        // Distinct COMPLETED titles per franchise, counted without temporal decay: a completionist who finished a
         // franchise years ago must keep franchise affinity even after the decayed weight normalizes toward zero.
-        var distinctTitles = new Dictionary<string, HashSet<Guid>>(StringComparer.OrdinalIgnoreCase);
+        // Loyalty is demonstrated by actually finishing titles, so favorited-but-unplayed rows do not count here
+        // (they still shape the weighted vector above). Dedup by TMDb id so two library copies of one movie count once.
+        var distinctTitles = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in profile.WatchedItems)
         {
@@ -653,13 +655,18 @@ internal static class PreferenceBuilder
             vector.TryGetValue(item.TmdbCollectionName, out var current);
             vector[item.TmdbCollectionName] = current + weight;
 
+            if (!IsEpisodeCompletedForProgression(item))
+            {
+                continue;
+            }
+
             if (!distinctTitles.TryGetValue(item.TmdbCollectionName, out var ids))
             {
-                ids = [];
+                ids = new HashSet<string>(StringComparer.Ordinal);
                 distinctTitles[item.TmdbCollectionName] = ids;
             }
 
-            ids.Add(item.ItemId);
+            ids.Add(DistinctTitleKey(item));
         }
 
         NormalizeByMax(vector);
@@ -668,15 +675,26 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
+    ///     Stable per-title identity for franchise loyalty: the TMDb id when present (so duplicate library copies of
+    ///     one film collapse to a single title), else the Jellyfin item id as a fallback.
+    /// </summary>
+    private static string DistinctTitleKey(WatchedItemInfo item)
+    {
+        return item.TmdbId > 0
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tmdb:{item.TmdbId}")
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"item:{item.ItemId}");
+    }
+
+    /// <summary>
     ///     Lifts each franchise weight to at least its loyalty floor, derived from the decay-free distinct watched
     ///     title count. Monotonic upward only: franchises below the engagement threshold and single-title franchises
     ///     are left untouched, so non-loyalty behaviour stays byte-identical.
     /// </summary>
     /// <param name="vector">The already max-normalized franchise weight map, mutated in place.</param>
-    /// <param name="distinctTitles">Distinct watched item ids per franchise.</param>
+    /// <param name="distinctTitles">Distinct completed watched titles per franchise.</param>
     private static void ApplyFranchiseLoyaltyFloor(
         Dictionary<string, double> vector,
-        Dictionary<string, HashSet<Guid>> distinctTitles)
+        Dictionary<string, HashSet<string>> distinctTitles)
     {
         foreach (var (franchise, ids) in distinctTitles)
         {

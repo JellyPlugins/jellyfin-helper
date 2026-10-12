@@ -35,6 +35,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     private const string LogCategory = "Recommendations";
 
+    // Language affinity returns this when there is no stream data or no profile match; a reason anchor must exceed it to claim a language match.
+    private const double NeutralLanguageAffinity = 0.5;
+
     private readonly ILibraryManager _libraryManager;
     private readonly IPluginConfigurationService _configService;
     private readonly ILogger<Engine> _logger;
@@ -1405,24 +1408,27 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         var anchors = BuildReasonAnchors(
             candidate,
+            features,
             content,
             candidateBoxSetLookup.TryGetValue(candidate.Id, out var anchorBoxSets) ? anchorBoxSets : [],
             watchedBoxSetCounts,
-            preferredCountries,
-            preferredWriterWeights,
-            preferredInheritedTags,
-            candidateMediaLanguages.Audio,
-            userProfile);
+            new ReasonAnchorSources(
+                preferredCountries,
+                preferredWriterWeights,
+                preferredInheritedTags,
+                candidateMediaLanguages.Audio,
+                userProfile));
 
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
             candidate,
             explanation,
             genrePreferences,
             anchors,
-            preferredPeople,
-            preferredStudios,
-            peopleLookup,
-            preferredPeopleWeights);
+            new ReasonResolver.ReasonPeopleContext(
+                preferredPeople,
+                preferredStudios,
+                peopleLookup,
+                preferredPeopleWeights));
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -2206,26 +2212,31 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Builds the concrete anchors that let the reason resolver name a signal (collection, country, writer, tag, language, era). Pure read of already-resolved per-candidate data; no library calls.
+    ///     Builds the concrete anchors that let the reason resolver name a signal (collection, country, writer, tag, language, era). Each named anchor is populated only when its own feature fired positively, so the resolver never claims a signal that did not contribute to the score. Pure read of already-resolved per-candidate data; no library calls.
     /// </summary>
     private static ReasonAnchorContext BuildReasonAnchors(
         BaseItem candidate,
+        CandidateFeatures features,
         CandidateContentAffinity content,
         List<Guid> candidateBoxSetIds,
         Dictionary<Guid, int> watchedBoxSetCounts,
-        IReadOnlyDictionary<string, double> preferredCountries,
-        IReadOnlyDictionary<string, double> preferredWriterWeights,
-        HashSet<string> preferredInheritedTags,
-        List<string> candidateAudioLanguages,
-        UserWatchProfile userProfile)
+        ReasonAnchorSources sources)
     {
         return new ReasonAnchorContext(
-            CollectionName: content.TmdbCollectionName,
+            CollectionName: features.FranchiseAffinity > 0.0 ? content.TmdbCollectionName : null,
             WatchedSiblingCount: ResolveWatchedSiblingCount(candidateBoxSetIds, watchedBoxSetCounts),
-            MatchedCountry: FirstPreferred(content.ProductionCountries, preferredCountries),
-            MatchedWriter: FirstPreferred(content.Writers, preferredWriterWeights),
-            MatchedTag: content.InheritedTags.FirstOrDefault(preferredInheritedTags.Contains),
-            MatchedLanguage: FirstPreferredLanguage(candidateAudioLanguages, userProfile),
+            MatchedCountry: features.ProductionLocationAffinity > 0.0
+                ? FirstPreferred(content.ProductionCountries, sources.PreferredCountries)
+                : null,
+            MatchedWriter: features.WriterAffinity > 0.0
+                ? FirstPreferred(content.Writers, sources.PreferredWriterWeights)
+                : null,
+            MatchedTag: features.InheritedTagSimilarity > 0.0
+                ? content.InheritedTags.FirstOrDefault(sources.PreferredInheritedTags.Contains)
+                : null,
+            MatchedLanguage: features.LanguageAffinity > NeutralLanguageAffinity
+                ? FirstPreferredLanguage(sources.CandidateAudioLanguages, sources.UserProfile)
+                : null,
             ReleaseEra: ResolveReleaseEra(candidate.ProductionYear));
     }
 
@@ -2688,4 +2699,20 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         DateTime CreatedAtUtc,
         Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup,
         IReadOnlyDictionary<string, double>? GenreStudioIdf);
+
+    /// <summary>
+    ///     User-side preference sources needed to resolve concrete reason anchors, bundled to keep the
+    ///     anchor builder's signature small. All fields are per-user, built once before the candidate loop.
+    /// </summary>
+    /// <param name="PreferredCountries">The user's normalized production-country preference map.</param>
+    /// <param name="PreferredWriterWeights">The user's writer preference weights.</param>
+    /// <param name="PreferredInheritedTags">The user's preferred inherited tags.</param>
+    /// <param name="CandidateAudioLanguages">The candidate's resolved audio languages.</param>
+    /// <param name="UserProfile">The user's watch profile (for the language profile).</param>
+    private sealed record ReasonAnchorSources(
+        IReadOnlyDictionary<string, double> PreferredCountries,
+        IReadOnlyDictionary<string, double> PreferredWriterWeights,
+        HashSet<string> PreferredInheritedTags,
+        List<string> CandidateAudioLanguages,
+        UserWatchProfile UserProfile);
 }
