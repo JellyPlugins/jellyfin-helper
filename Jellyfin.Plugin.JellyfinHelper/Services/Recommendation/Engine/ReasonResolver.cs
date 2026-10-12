@@ -312,7 +312,7 @@ internal static class ReasonResolver
             || explanation.StudioContribution <= EngineConstants.ReasonScoreThreshold)
         {
             // Last concrete fallback before the generic default: an anchor the dominant signal did not consume.
-            return ResolveResidualAnchorReason(explanation, anchors);
+            return ResolveResidualAnchorReason(explanation, dominant, anchors);
         }
 
         if (matchedStudio is not null)
@@ -328,6 +328,7 @@ internal static class ReasonResolver
     /// </summary>
     private static (string Reason, string ReasonKey, string? RelatedItem) ResolveResidualAnchorReason(
         ScoreExplanation explanation,
+        string? dominant,
         ReasonAnchorContext anchors)
     {
         // A collection name alone is not evidence of franchise preference; only surface the franchise reason
@@ -339,10 +340,14 @@ internal static class ReasonResolver
             return ($"More from the {anchors.CollectionName} collection", "reasonFranchiseNamed", anchors.CollectionName);
         }
 
-        if (!string.IsNullOrWhiteSpace(anchors.MatchedCountry)
-            || !string.IsNullOrWhiteSpace(anchors.MatchedWriter)
-            || !string.IsNullOrWhiteSpace(anchors.MatchedTag)
-            || !string.IsNullOrWhiteSpace(anchors.MatchedLanguage))
+        // Country/writer/tag/language anchors belong to the Interaction bucket; only name one when Interaction
+        // actually dominated. Surfacing them under any other dominant signal would state a reason that
+        // contradicts what drove the pick.
+        if (string.Equals(dominant, "Interaction", StringComparison.OrdinalIgnoreCase)
+            && (!string.IsNullOrWhiteSpace(anchors.MatchedCountry)
+                || !string.IsNullOrWhiteSpace(anchors.MatchedWriter)
+                || !string.IsNullOrWhiteSpace(anchors.MatchedTag)
+                || !string.IsNullOrWhiteSpace(anchors.MatchedLanguage)))
         {
             return ResolveInteractionAnchorReason(anchors);
         }

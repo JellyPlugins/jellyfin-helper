@@ -2193,7 +2193,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Returns the highest watched-sibling count across the candidate's box-sets, used only as a reason anchor (not scoring). Mirrors the lookup in <see cref="ComputeCollectionProgressionBoostLive"/> without the boost formula.
+    ///     Returns the highest watched-sibling count across the candidate's box-sets, used only as a reason anchor (not scoring). The boost in <see cref="ComputeCollectionProgressionBoostLive"/> is monotonic non-decreasing in the count, so the max-count box-set is always a max-boost box-set: the displayed count can never come from a different box-set than the one that drove the score. The count intentionally includes played, started, and favorited siblings (so the reason says "explored", not "watched"), and is a lower bound because only box-sets present in the candidate lookup are counted.
     /// </summary>
     private static int ResolveWatchedSiblingCount(
         List<Guid> candidateBoxSetIds,
@@ -2250,12 +2250,24 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             : candidateValues.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v) && preferred.ContainsKey(v));
     }
 
-    /// <summary>Returns the first candidate audio language present in the user's language profile, or null.</summary>
-    private static string? FirstPreferredLanguage(List<string> candidateAudioLanguages, UserWatchProfile userProfile)
+    /// <summary>Returns the first candidate audio language at the user's primary or preferred tier, or null.</summary>
+    /// <param name="candidateAudioLanguages">The candidate's audio language codes.</param>
+    /// <param name="userProfile">The user's watch profile supplying primary and preferred language tiers.</param>
+    /// <returns>The first candidate language at the primary or preferred tier, or <c>null</c>.</returns>
+    internal static string? FirstPreferredLanguage(List<string> candidateAudioLanguages, UserWatchProfile userProfile)
     {
-        return userProfile.LanguageProfile.Count == 0
-            ? null
-            : candidateAudioLanguages.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l) && userProfile.LanguageProfile.ContainsKey(l));
+        if (userProfile.LanguageProfile.Count == 0)
+        {
+            return null;
+        }
+
+        // The language anchor only shows when LanguageAffinity > 0.5, which is reached solely by the primary
+        // (1.0) and preferred (0.85) tiers. A merely in-profile language sits at 0.3 and must not be named, or
+        // the anchor would advertise a language that did not drive the score.
+        return candidateAudioLanguages.FirstOrDefault(l =>
+            !string.IsNullOrWhiteSpace(l)
+            && (string.Equals(l, userProfile.PrimaryLanguage, StringComparison.OrdinalIgnoreCase)
+                || userProfile.PreferredLanguages.Contains(l)));
     }
 
     /// <summary>Formats a production year as a decade era label (e.g. "2010s"), or null when unknown.</summary>

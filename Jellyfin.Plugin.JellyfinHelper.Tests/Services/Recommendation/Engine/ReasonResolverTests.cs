@@ -845,4 +845,51 @@ public class ReasonResolverTests
 
         Assert.Equal("reasonGenreAndPerson", key);
     }
+
+    [Fact]
+    public void ResidualAnchor_CountryWithInteractionDominant_SurfacesCountry()
+    {
+        // The country/writer/tag/language anchors live in the Interaction bucket, so an Interaction-dominant pick
+        // must still name them. This is the legitimate path the residual gate preserves.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Interaction", interaction: AboveThreshold);
+        var anchors = new ReasonAnchorContext(MatchedCountry: "France");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonCountryNamed", key);
+        Assert.Equal("France", related);
+    }
+
+    [Fact]
+    public void ResidualAnchor_CountryWithNonInteractionDominant_DoesNotContradictDominant()
+    {
+        // A Studio-dominant pick whose studio contribution never cleared the threshold falls through to the
+        // residual path, but a country anchor belongs to the Interaction bucket. Naming it here would state a
+        // reason that contradicts the Studio signal that actually drove the pick, so the resolver must fall back.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Studio", studio: 0.0);
+        var anchors = new ReasonAnchorContext(MatchedCountry: "France");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonDefault", key);
+    }
+
+    [Fact]
+    public void ResidualAnchor_WriterWithNonInteractionDominant_FallsToDefault()
+    {
+        // Same contradiction guard as the country case: a writer anchor under a non-Interaction dominant signal
+        // must not be surfaced, so a Studio-dominant residual fall-through degrades to the generic default.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Studio", studio: 0.0);
+        var anchors = new ReasonAnchorContext(MatchedWriter: "Nolan");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonDefault", key);
+    }
 }
