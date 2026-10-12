@@ -1612,11 +1612,14 @@
         reasonPersonNamed: 'Featuring {0}',
         reasonGenre: 'Because you enjoy {0}'
     };
-    // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json.
+    // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json so a
+    // discovery card still shows a reason when the /Translations fetch failed and _strings is empty.
     var REASON_PHRASES = {
-        reasonTrending: 'Trending now',
+        reasonTrending: 'Trending - new and highly rated',
         reasonPopular: 'Popular and highly rated',
-        reasonHighlyRated: 'Highly rated'
+        reasonHighlyRated: 'Highly rated',
+        reasonPopularAmongViewers: 'Popular with other viewers',
+        reasonDefault: 'Recommended for you'
     };
 
     // Translate reason key to localized human-readable text.
