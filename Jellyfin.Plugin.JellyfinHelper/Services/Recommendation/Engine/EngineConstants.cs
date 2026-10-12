@@ -31,6 +31,16 @@ internal static class EngineConstants
     internal const double ReasonScoreThreshold = 0.05;
 
     /// <summary>
+    ///     Floor for reasons gated on the already-elected dominant signal rather than an absolute contribution.
+    ///     The strategy's <c>DominantSignal</c> is the weight-independent "strongest signal", so a signal whose
+    ///     own default weight sits below <see cref="ReasonScoreThreshold"/> (Franchise 0.040, CollectionProgression
+    ///     0.045, Popularity 0.005) can still be the dominant driver and must stay reason-eligible. A strictly
+    ///     positive contribution is required so a negative (score-suppressing) attribution never surfaces a
+    ///     positive-sounding reason.
+    /// </summary>
+    internal const double DominantReasonFloor = 0.0;
+
+    /// <summary>
     ///     Minimum weighted rating contribution before "Highly rated" reason is shown. Rating weights are typically 0.08-0.10, so a threshold of 0.04 requires the normalised community rating to be at least ~0.5 (i.e.
     /// </summary>
     internal const double HighRatingThreshold = 0.04;

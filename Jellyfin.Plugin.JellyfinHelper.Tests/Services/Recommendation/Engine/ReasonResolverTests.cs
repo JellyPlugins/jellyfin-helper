@@ -13,6 +13,8 @@ public class ReasonResolverTests
 {
     private const double AboveThreshold = 0.20;
 
+    private const double LowContribution = 0.03;  // below the old 0.05 ReasonScoreThreshold; the A fix must still surface these dominant-signal reasons
+
     private static Movie CreateMovie(Guid? id = null, string[]? genres = null, string[]? studios = null)
         => new()
         {
@@ -694,5 +696,153 @@ public class ReasonResolverTests
 
         Assert.Equal("reasonGenre", key);
         Assert.Equal("Action", related);
+    }
+
+    [Fact]
+    public void Franchise_DominantWithLowContribution_SurfacesNamedFranchise()
+    {
+        // Franchise's real default weight (0.040) means its contribution can never reach the old 0.05 threshold,
+        // so a realistic low value must still surface once Franchise is the elected dominant signal.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Franchise", franchise: LowContribution);
+        var anchors = new ReasonAnchorContext(CollectionName: "Spider-Man Collection");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonFranchiseNamed", key);
+        Assert.Equal("Spider-Man Collection", related);
+    }
+
+    [Fact]
+    public void CollectionProgression_DominantWithLowContribution_SurfacesProgress()
+    {
+        // Collection's real default weight (0.045) keeps its contribution below the old 0.05 threshold, so the
+        // progress reason must surface on the dominant signal alone.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "CollectionProgression", collection: LowContribution);
+        var anchors = new ReasonAnchorContext(WatchedSiblingCount: 4);
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.Equal("reasonCollectionProgress", key);
+        Assert.Equal("4", related);
+    }
+
+    [Fact]
+    public void Popularity_DominantWithLowContribution_SurfacesPopular()
+    {
+        // Popularity's real default weight (0.005) puts its contribution far below the old 0.05 threshold, so the
+        // reason was dead code until gating moved to the dominant signal.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Popularity", popularity: LowContribution);
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext));
+
+        Assert.Equal("reasonPopularAmongViewers", key);
+    }
+
+    [Fact]
+    public void Franchise_DominantWithZeroContribution_DoesNotSurfaceFranchise()
+    {
+        // The floor is strictly positive, so a zero contribution must not surface a franchise reason even when
+        // Franchise is nominally dominant and a collection name is present.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Franchise", franchise: 0.0);
+        var anchors = new ReasonAnchorContext(CollectionName: "Spider-Man Collection");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.NotEqual("reasonFranchiseNamed", key);
+        Assert.NotEqual("reasonFranchise", key);
+    }
+
+    [Fact]
+    public void Franchise_DominantWithNegativeContribution_DoesNotSurfaceFranchise()
+    {
+        // A negative contribution is anti-evidence and must never surface a positive franchise reason.
+        var candidate = CreateMovie();
+        var explanation = Explain(dominant: "Franchise", franchise: -0.10);
+        var anchors = new ReasonAnchorContext(CollectionName: "Spider-Man Collection");
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, new Dictionary<string, double>(), anchors);
+
+        Assert.NotEqual("reasonFranchiseNamed", key);
+        Assert.NotEqual("reasonFranchise", key);
+    }
+
+    [Fact]
+    public void FranchiseDominant_WithCompetingGenrePeople_PrefersFranchiseOverCombination()
+    {
+        // Anchored franchise now resolves before the genre+people combination, so a dominant Franchise pick must
+        // not be masked by a strong competing genre+people combo.
+        var id = Guid.NewGuid();
+        var candidate = CreateMovie(id, genres: ["Action"]);
+        var explanation = Explain(
+            dominant: "Franchise", franchise: LowContribution, genre: AboveThreshold, people: AboveThreshold);
+        var genrePrefs = new Dictionary<string, double> { { "Action", 1.0 } };
+        var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice" };
+        var peopleLookup = new Dictionary<Guid, HashSet<string>>
+        {
+            [id] = new(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" }
+        };
+        var people = new ReasonResolver.ReasonPeopleContext(preferredPeople, PeopleLookup: peopleLookup);
+        var anchors = new ReasonAnchorContext(CollectionName: "Spider-Man Collection");
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, genrePrefs, anchors, people);
+
+        Assert.Equal("reasonFranchiseNamed", key);
+        Assert.Equal("Spider-Man Collection", related);
+    }
+
+    [Fact]
+    public void CollectionProgressionDominant_WithCompetingGenrePeople_PrefersCollection()
+    {
+        // A dominant CollectionProgression pick must win over a competing genre+people combination too.
+        var id = Guid.NewGuid();
+        var candidate = CreateMovie(id, genres: ["Action"]);
+        var explanation = Explain(
+            dominant: "CollectionProgression", collection: LowContribution, genre: AboveThreshold, people: AboveThreshold);
+        var genrePrefs = new Dictionary<string, double> { { "Action", 1.0 } };
+        var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice" };
+        var peopleLookup = new Dictionary<Guid, HashSet<string>>
+        {
+            [id] = new(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" }
+        };
+        var people = new ReasonResolver.ReasonPeopleContext(preferredPeople, PeopleLookup: peopleLookup);
+        var anchors = new ReasonAnchorContext(WatchedSiblingCount: 3);
+
+        var (_, key, related) = ReasonResolver.DetermineReason(
+            candidate, explanation, genrePrefs, anchors, people);
+
+        Assert.Equal("reasonCollectionProgress", key);
+        Assert.Equal("3", related);
+    }
+
+    [Fact]
+    public void GenreDominant_WithGenrePeople_StillReturnsCombination()
+    {
+        // When no franchise/collection anchor is dominant, the genre+people combination must still win, confirming
+        // the anchored-first reorder did not break the normal combination path.
+        var id = Guid.NewGuid();
+        var candidate = CreateMovie(id, genres: ["Action"]);
+        var explanation = Explain(dominant: "Genre", genre: AboveThreshold, people: AboveThreshold);
+        var genrePrefs = new Dictionary<string, double> { { "Action", 1.0 } };
+        var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice" };
+        var peopleLookup = new Dictionary<Guid, HashSet<string>>
+        {
+            [id] = new(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" }
+        };
+        var people = new ReasonResolver.ReasonPeopleContext(preferredPeople, PeopleLookup: peopleLookup);
+
+        var (_, key, _) = ReasonResolver.DetermineReason(
+            candidate, explanation, genrePrefs, default(ReasonAnchorContext), people);
+
+        Assert.Equal("reasonGenreAndPerson", key);
     }
 }

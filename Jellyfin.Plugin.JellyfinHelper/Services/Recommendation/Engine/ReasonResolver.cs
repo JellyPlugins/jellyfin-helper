@@ -66,18 +66,22 @@ internal static class ReasonResolver
         var matchedPerson = ResolveMatchedPerson(candidate, people.PreferredPeople, people.PeopleLookup, people.PreferredPeopleWeights);
         var matchedStudio = ResolveMatchedStudio(candidate, people.PreferredStudios);
 
-        // These provide more specific "why" than single-signal reasons.
-        var combination = ResolveCombinationReason(explanation, topGenre, matchedPerson);
-        if (combination is not null)
-        {
-            return combination.Value;
-        }
-
-        // Anchored collection/franchise reasons: the strongest "complete the set" signals for a new library addition.
+        // Anchored franchise/collection reasons first: when the strategy already elected one of these as the
+        // dominant signal, it is the strongest "complete the set" driver and must not be masked by a two-signal
+        // combination below. These signals carry low default weights, so they are gated on the dominant signal
+        // (not the absolute ReasonScoreThreshold, which their contribution can never reach).
         var anchored = ResolveAnchoredReason(explanation, dominant, anchors);
         if (anchored is not null)
         {
             return anchored.Value;
+        }
+
+        // Two-signal combinations (genre+people, genre+collab, recency+rating) give a more specific "why" than a
+        // single abstract signal, so they win over the remaining single-signal reasons below.
+        var combination = ResolveCombinationReason(explanation, topGenre, matchedPerson);
+        if (combination is not null)
+        {
+            return combination.Value;
         }
 
         return ResolveDominantSignalReason(explanation, dominant, topGenre, matchedPerson, matchedStudio, anchors);
@@ -92,7 +96,7 @@ internal static class ReasonResolver
         ReasonAnchorContext anchors)
     {
         if (string.Equals(dominant, "CollectionProgression", StringComparison.OrdinalIgnoreCase)
-            && explanation.CollectionProgressionContribution > EngineConstants.ReasonScoreThreshold
+            && explanation.CollectionProgressionContribution > EngineConstants.DominantReasonFloor
             && anchors.WatchedSiblingCount > 0)
         {
             // The count reflects collection entries the user has interacted with (played, started, or favorited),
@@ -102,7 +106,7 @@ internal static class ReasonResolver
         }
 
         if (string.Equals(dominant, "Franchise", StringComparison.OrdinalIgnoreCase)
-            && explanation.FranchiseContribution > EngineConstants.ReasonScoreThreshold)
+            && explanation.FranchiseContribution > EngineConstants.DominantReasonFloor)
         {
             return string.IsNullOrWhiteSpace(anchors.CollectionName)
                 ? ("From a franchise you follow", "reasonFranchise", null)
@@ -201,7 +205,7 @@ internal static class ReasonResolver
             return ("Popular with similar viewers", "reasonCollaborative", null);
         }
 
-        if (IsDominant(dominant, "Popularity", explanation.PopularityContribution))
+        if (IsDominant(dominant, "Popularity", explanation.PopularityContribution, EngineConstants.DominantReasonFloor))
         {
             return ("Popular with other viewers", "reasonPopularAmongViewers", null);
         }
