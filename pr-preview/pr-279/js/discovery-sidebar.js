@@ -262,7 +262,7 @@
             '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
             '.jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: #e74c3c; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
-            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }' +
+            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
             // Toast notification
             '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
             '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
@@ -1170,7 +1170,9 @@
             var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
             var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
             var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
-            var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
+            // Insert a zero-width space after each slash so "actors/directors" may break after the slash
+            // ("Features actors/" fits line 1) instead of wrapping as one unbreakable token into a third line.
+            var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
@@ -1592,10 +1594,17 @@
         });
     }
 
+    // Adds a zero-width space (U+200B) after each slash so the browser may break a slashed compound like
+    // "actors/directors" after the slash instead of treating it as one unbreakable token. Input is already
+    // HTML-escaped; U+200B is not an HTML metacharacter, so appending it introduces no injection risk.
+    var ZERO_WIDTH_SPACE = String.fromCharCode(0x200B);
+    function insertSlashBreaks(escapedText) {
+        return escapedText.replaceAll('/', '/' + ZERO_WIDTH_SPACE);
+    }
+
     // Translate reason key to localized human-readable text.
     // Backend DetermineReason produces: reasonPersonNamed, reasonGenre, reasonTrending, reasonPopular
-    function formatReason(reasonKey, reason, relatedInfo) {
-        if (!reasonKey && !reason) return '';
+    function formatReason(reasonKey, reason, relatedInfo) {        if (!reasonKey && !reason) return '';
         var key = reasonKey || '';
         // Try i18n lookup first (keys match en.json: reasonPopular, reasonGenre, reasonTrending, etc.)
         if (key === 'reasonPersonNamed' && relatedInfo) {
