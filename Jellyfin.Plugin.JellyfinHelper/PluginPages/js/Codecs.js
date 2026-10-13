@@ -1108,8 +1108,19 @@ function onCodecHandlePointerDown(e, handle, card, chartsRow) {
             onCodecDragPointerUp(ev, state);
         }
     };
+    // Browser scrolling is driven by touchmove, not pointermove: the preventDefault in
+    // onCodecDragPointerMove cannot stop a scroll takeover (which arrives as pointercancel and tears
+    // the active drag down mid-gesture). Once armed, every touchmove is consumed so the page can no
+    // longer pan, pull-to-refresh, or cancel under the finger - vertically dragged cards survive.
+    // Before arming nothing is consumed, so a plain touch starting on the grip still scrolls.
+    state.touchMove = function (ev) {
+        if (state.active && ev.cancelable) {
+            ev.preventDefault();
+        }
+    };
 
     window.addEventListener('pointermove', state.move, { passive: false });
+    window.addEventListener('touchmove', state.touchMove, { passive: false });
     window.addEventListener('pointerup', state.up);
     window.addEventListener('pointercancel', state.up);
 
@@ -1149,8 +1160,10 @@ function beginCodecDrag(state) {
         tryPointerCapture(state.handle, state.pointerId, false);
         state.handle.setAttribute('aria-grabbed', 'true');
         // Once armed, lock scrolling: the handle is touch-action: pan-y so a plain touch can still
-        // scroll before arming, but during an active drag the page must not pan under the finger
-        // (that is what made a long hold "save where the card already lay").
+        // scroll before arming, but during an active drag the page must not pan under the finger.
+        // touch-action is read by the browser at gesture start, so flipping it here alone cannot stop
+        // an in-progress scroll - the window touchmove guard above (preventDefault while active) is
+        // the actual lock; this flip is only an extra signal for gestures starting afterwards.
         state.handle.style.touchAction = 'none';
 
         var rect = state.card.getBoundingClientRect();
@@ -1219,11 +1232,12 @@ function forceReflow(el) {
     return el.offsetWidth;
 }
 
-// Reorders the hidden source card to the slot the dragged clone's CENTRE occupies in reading order.
-// The target slot is a pure function of the clone centre vs each card's RESTING centre (settled and
-// measured once), never live overlap against mid-FLIP rects - so it is monotonic and cannot oscillate.
-// Works for any column count. The clone is card-sized, so its centre reaching a neighbour's centre
-// means it already overlaps it heavily - the swap feels immediate, not sluggish.
+// Reorders the hidden source card to the collapsed-frame slot the POINTER occupies in reading order.
+// The slot is a pure function of the pointer and the OTHER cards' resting geometry, so the same
+// pointer always yields the same slot: no oscillation by construction, for any column count.
+// Pointer-based (not clone-centre-based), so the grab position never shifts the thresholds and slot
+// boundaries sit at gaps and row midlines - where jitter only toggles adjacent slots (live-follow) -
+// instead of on card centres, where a near-total overlap like in the bug report still counted as stay.
 function reorderCodecCardTo(state, x, y) {
     var chartsRow = state.chartsRow;
     var all = Array.prototype.slice.call(chartsRow.querySelectorAll('.chart-box[data-chart-id]'));
@@ -1236,18 +1250,11 @@ function reorderCodecCardTo(state, x, y) {
     settleCodecFlip(all.filter(function (b) { return b !== state.card; }));
     forceReflow(chartsRow);
 
-    var dragRect = state.clone
-        ? state.clone.getBoundingClientRect()
-        : { left: x - 20, right: x + 20, top: y - 20, bottom: y + 20 };
-    var dragCx = (dragRect.left + dragRect.right) / 2;
-    var dragCy = (dragRect.top + dragRect.bottom) / 2;
-
-    // Rest band: while the clone centre still sits within the source's OWN visible slot, do nothing.
-    // Measured with the source in flow (its real slot). This keeps a stationary or barely-nudged drag
-    // a true no-op - the reorder only begins once the clone centre genuinely leaves the home cell -
-    // so rest never sits on a knife edge and a plain grab cannot jump.
+    // Rest band: pointer still inside the source's OWN visible slot means no-op. The whole cell counts,
+    // not a centre knife-edge, so a stationary or barely-nudged grab can never jump. Pointer-based, so
+    // grabbing the handle or the card middle behaves identically.
     var home = state.card.getBoundingClientRect();
-    if (dragCx >= home.left && dragCx <= home.right && dragCy >= home.top && dragCy <= home.bottom) {
+    if (x >= home.left && x <= home.right && y >= home.top && y <= home.bottom) {
         return;
     }
 
@@ -1256,11 +1263,10 @@ function reorderCodecCardTo(state, x, y) {
     // when the source changes row, and the resting frame shifts under the clone point. That coupling
     // is what let the index ping-pong (e.g. 2<->4) across a mixed-height seam once per pointermove.
     //
-    // To make the decision a PURE function of the clone centre and the OTHER cards, measure the
-    // siblings with the source removed from flow (display:none). The clone is position:fixed, so it is
-    // unaffected; only the siblings reflow, into the exact layout they will have AFTER the move. The
-    // index computed in that frame cannot depend on the source slot, so it cannot oscillate by
-    // construction. display is restored immediately; the collapsed frame is never painted (we read
+    // To make the decision a PURE function of the pointer and the OTHER cards, measure the
+    // siblings with the source removed from flow (display:none). Grid order of the others never changes
+    // no matter where the source sits, so this frame - and the slot found in it - cannot depend on the
+    // source slot. display is restored immediately; the collapsed frame is never painted (we read
     // synchronously before yielding to the renderer), so nothing the user sees flashes.
     var without = all.filter(function (b) { return b !== state.card; });
 
@@ -1269,21 +1275,75 @@ function reorderCodecCardTo(state, x, y) {
     forceReflow(chartsRow);
     var cards = without.map(function (b) {
         var r = b.getBoundingClientRect();
-        return { el: b, cx: r.left + (r.width / 2), cy: r.top + (r.height / 2), h: r.height };
+        return { el: b, left: r.left, right: r.right, top: r.top, bottom: r.bottom, cx: r.left + (r.width / 2) };
     });
     state.card.style.display = prevDisplay;
 
-    // Target index = how many siblings sit before the clone centre in reading order, compared against
-    // each sibling's true CENTRE (no bias). A biased line would be a uniform +offset, not a direction-
-    // aware early trigger, so it just shifted every landing one slot toward the end - wrong. Row band
-    // = each sibling's own half-height so a taller row's full extent counts as same-row.
-    var targetIndex = 0;
-    for (const c of cards) {
-        var rowTol = c.h / 2;
-        var sameRow = Math.abs(dragCy - c.cy) < rowTol;
-        var isBefore = (dragCy > c.cy + rowTol) || (sameRow && dragCx > c.cx);
-        if (isBefore) {
-            targetIndex++;
+    // Group the collapsed siblings into rows by top edge; DOM order already runs left to right.
+    var rows = [];
+    cards.forEach(function (c) {
+        var found = null;
+        for (var ri = 0; ri < rows.length; ri++) {
+            if (Math.abs(rows[ri].top - c.top) < 1) {
+                found = rows[ri];
+                break;
+            }
+        }
+        if (!found) {
+            found = { top: c.top, bottom: c.bottom, cards: [] };
+            rows.push(found);
+        }
+        found.cards.push(c);
+        if (c.bottom > found.bottom) {
+            found.bottom = c.bottom;
+        }
+    });
+    rows.sort(function (a, b) { return a.top - b.top; });
+    var cols = 0;
+    rows.forEach(function (row) {
+        row.cards.sort(function (a, b) { return a.left - b.left; });
+        if (row.cards.length > cols) {
+            cols = row.cards.length;
+        }
+    });
+
+    // Past either end of the grid the slot is unambiguous: first cell or append. Otherwise the row
+    // whose band holds the pointer (row midlines split the gaps) and the nearest card inside it, so a
+    // half-overlapped neighbour already yields instead of only a passed centre. A short last row has
+    // no right-hand cell, so a pointer past its end appends instead of landing on its only card.
+    var targetIndex;
+    if (y < rows[0].top) {
+        targetIndex = 0;
+    } else if (y > rows[rows.length - 1].bottom) {
+        targetIndex = without.length;
+    } else {
+        var rowIdx = 0;
+        for (var m = 0; m < rows.length - 1; m++) {
+            if (y > (rows[m].bottom + rows[m + 1].top) / 2) {
+                rowIdx = m + 1;
+            } else {
+                break;
+            }
+        }
+        var targetRow = rows[rowIdx];
+        var base = 0;
+        for (var bi = 0; bi < rowIdx; bi++) {
+            base += rows[bi].cards.length;
+        }
+        var last = targetRow.cards[targetRow.cards.length - 1];
+        if (rowIdx === rows.length - 1 && targetRow.cards.length < cols && x > last.right) {
+            targetIndex = without.length;
+        } else {
+            var best = 0;
+            var bestDist = Math.abs(x - targetRow.cards[0].cx);
+            for (var ci = 1; ci < targetRow.cards.length; ci++) {
+                var dist = Math.abs(x - targetRow.cards[ci].cx);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = ci;
+                }
+            }
+            targetIndex = base + best;
         }
     }
 
@@ -1428,6 +1488,7 @@ function teardownCodecDrag(state) {
     state.handle.style.touchAction = '';
     tryPointerCapture(state.handle, state.pointerId, true);
     window.removeEventListener('pointermove', state.move, { passive: false });
+    window.removeEventListener('touchmove', state.touchMove);
     window.removeEventListener('pointerup', state.up);
     window.removeEventListener('pointercancel', state.up);
     state.active = false;

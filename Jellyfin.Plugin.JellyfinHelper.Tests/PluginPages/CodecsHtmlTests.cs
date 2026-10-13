@@ -751,12 +751,12 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_CodecHitTest_IsHistoryFree()
     {
-        // The target slot is counted in the "without" frame - siblings measured with the source taken
-        // out of flow (display:none on the source only; the clone is position:fixed and unaffected).
-        // That frame does not depend on where the source currently sits, so the index is a pure
-        // function of the clone centre and cannot ping-pong across a mixed-height seam.
-        Assert.Contains("state.clone.getBoundingClientRect()", HtmlContent);
-        Assert.Contains("var targetIndex = 0", HtmlContent);
+        // The target slot is mapped in the "without" frame - siblings measured with the source taken
+        // out of flow (display:none on the source only). Grid order of the others never changes no
+        // matter where the source sits, so the slot is a pure function of the pointer and cannot
+        // ping-pong across a mixed-height seam.
+        Assert.Contains("var without = all.filter", HtmlContent);
+        Assert.Contains("targetIndex = without.length", HtmlContent);
         Assert.Contains("state.card.style.display = 'none'", HtmlContent);
         Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
         // No history dependency: the per-direction bias branch (ti < currentIndex) is gone.
@@ -775,22 +775,28 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CodecHitTest_ComparesAgainstCardCentreNoBias()
+    public void Html_CodecHitTest_MapsPointerToSlotViaRowMidlinesAndNearestColumn()
     {
-        // The "before" test uses each sibling's true centre (dragCx > c.cx), NOT a shifted line. A
-        // uniform bias (cx - 0.3w) is not a direction-aware early trigger - it just offsets every
-        // landing one slot toward the end, so the clone over slot k lands at k+1. Guard against that.
-        Assert.Contains("sameRow && dragCx > c.cx)", HtmlContent);
+        // The slot comes from the pointer, not a card centre: the row whose band holds the pointer
+        // (row midlines split the gaps) and the nearest card inside it. A centre rule ("past cx")
+        // keeps a near-totally overlapped neighbour as stay - exactly the reported bug. Guard both
+        // the old centre comparison and the uniform bias line that shifted every landing one slot
+        // toward the end.
+        Assert.Contains("(rows[m].bottom + rows[m + 1].top) / 2", HtmlContent);
+        Assert.Contains("Math.abs(x - ", HtmlContent);
+        Assert.DoesNotContain("dragCx", HtmlContent);
         Assert.DoesNotContain("c.cx - (c.w", HtmlContent);
     }
 
     [Fact]
     public void Html_CodecHitTest_RestBandKeepsHomeSlotAStableNoOp()
     {
-        // While the clone centre is still inside the source's own visible slot, the reorder is a
+        // While the pointer is still inside the source's own visible slot, the reorder is a
         // no-op - so a stationary or barely-nudged grab never jumps, and rest is not on a knife edge.
+        // Pointer-based (not clone-centre-based), so the grab position cannot shift the thresholds.
         Assert.Contains("var home = state.card.getBoundingClientRect()", HtmlContent);
-        Assert.Contains("dragCx >= home.left && dragCx <= home.right", HtmlContent);
+        Assert.Contains("x >= home.left && x <= home.right", HtmlContent);
+        Assert.Contains("y >= home.top && y <= home.bottom", HtmlContent);
     }
 
     [Fact]
@@ -810,5 +816,18 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         Assert.Matches(@"\.codec-card-handle\s*\{[^}]*touch-action:\s*pan-y", HtmlContent);
         Assert.Contains("state.handle.style.touchAction = 'none'", HtmlContent);
         Assert.Contains("state.handle.style.touchAction = ''", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_ConsumesTouchMoveOnlyWhileActive()
+    {
+        // pointermove preventDefault cannot stop a browser scroll takeover (which arrives as
+        // pointercancel and tears an armed drag down mid-gesture, including vertical legs). A
+        // non-passive window touchmove guard consumes the gesture only once armed, so the page can
+        // no longer pan, pull-to-refresh, or cancel under the finger - while a pre-arm touch still
+        // scrolls normally. Without passive:false the preventDefault would be ignored by Chrome.
+        Assert.Contains("window.addEventListener('touchmove', state.touchMove, { passive: false })", HtmlContent);
+        Assert.Contains("window.removeEventListener('touchmove', state.touchMove)", HtmlContent);
+        Assert.Contains("if (state.active && ev.cancelable)", HtmlContent);
     }
 }
