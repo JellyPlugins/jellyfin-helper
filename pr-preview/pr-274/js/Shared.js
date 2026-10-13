@@ -888,6 +888,11 @@ function apiPostRaw(path, rawBody, contentType, onSuccess, onError) {
     );
 }
 
+/** Sentinel for apiGetOptional: marks a 204 answer down the flattened chain so onSuccess runs
+ * only on parsed JSON, never on undefined. Object identity can never collide with a body, not even
+ * a literal JSON null. Module-private (used only below, so not in the shared eslint globals). */
+var apiNoContentSentinel = {};
+
 /** * Perform a GET request where 204 No Content is a valid (expected) response. * Uses the native fetch API so we can inspect the HTTP status code. */
 function apiGetOptional(path, onSuccess, onNoContent, onError) {
     if (!onSuccess) console.warn('apiGetOptional: no onSuccess handler for', path);
@@ -898,7 +903,7 @@ function apiGetOptional(path, onSuccess, onNoContent, onError) {
     }).then(function (response) {
         if (response.status === 204) {
             if (onNoContent) onNoContent();
-            return;
+            return apiNoContentSentinel;
         }
         if (!response.ok) {
             // Attach the HTTP status so describeApiError can classify it (e.g. 401/403
@@ -907,8 +912,11 @@ function apiGetOptional(path, onSuccess, onNoContent, onError) {
             httpErr.status = response.status;
             throw httpErr;
         }
-        return response.json().then(onSuccess || function () {
-        });
+        return response.json();
+    }).then(function (data) {
+        if (data !== apiNoContentSentinel && onSuccess) {
+            onSuccess(data);
+        }
     }).catch(errHandler);
 }
 
