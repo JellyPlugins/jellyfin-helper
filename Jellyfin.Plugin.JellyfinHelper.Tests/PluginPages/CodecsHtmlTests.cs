@@ -635,7 +635,9 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         // (which has no touch support) nor a library.
         Assert.Contains("function onCodecHandlePointerDown", HtmlContent);
         Assert.Contains("function beginCodecDrag", HtmlContent);
-        Assert.Contains("setPointerCapture(state.pointerId)", HtmlContent);
+        // Pointer capture is taken (best-effort, via the shared helper) so stray events route to the handle.
+        Assert.Contains("function tryPointerCapture", HtmlContent);
+        Assert.Contains("tryPointerCapture(state.handle, state.pointerId", HtmlContent);
         // Touch arms on long-press so a plain swipe still scrolls the page.
         Assert.Contains("CODEC_LONGPRESS_MS", HtmlContent);
     }
