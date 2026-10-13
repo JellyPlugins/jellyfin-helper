@@ -322,4 +322,87 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         Assert.True(baseline.Directories.ContainsKey("/media/movies/movie_08000"));
         Assert.True(baseline.Directories.ContainsKey("/media/movies/movie_11999"));
     }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void BuildIncrementalEntries_20000Directories_CompletesWithin5Seconds()
+    {
+        var now = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        var baseline = new GrowthTimelineBaseline { FirstScanTimestamp = now.AddYears(-1) };
+        var currentDirs = new List<GrowthTimelineService.DirectoryEntry>();
+        var random = new Random(42);
+
+        for (var i = 0; i < 20_000; i++)
+        {
+            var path = $"/media/movies/movie_{i:D5}";
+            var createdUtc = now.AddDays(-random.Next(0, 365));
+            var size = (long)random.Next(500_000_000, 2_000_000_000);
+
+            currentDirs.Add(new GrowthTimelineService.DirectoryEntry
+            {
+                Path = path,
+                CreatedUtc = createdUtc,
+                Size = size,
+                Count = 1
+            });
+
+            if (i % 5 != 0)
+            {
+                baseline.Directories[path] = new BaselineDirectoryEntry
+                {
+                    CreatedUtc = createdUtc,
+                    Size = size,
+                    Count = 1
+                };
+            }
+        }
+
+        var sw = Stopwatch.StartNew();
+        var result = TimelineAggregator.BuildIncrementalEntries(currentDirs, baseline, now);
+        sw.Stop();
+
+        output.WriteLine($"BuildIncrementalEntries: 20k dirs → {result.Count} entries in {sw.ElapsedMilliseconds}ms");
+        AssertPerfLimit(sw, 5000);
+        Assert.NotEmpty(result);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void BuildCumulativeTimeline_100000Entries_CompletesWithin5Seconds()
+    {
+        var now = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        var earliest = now.AddYears(-5);
+        var entries = new List<GrowthTimelineService.FileEntry>();
+        var random = new Random(42);
+
+        for (var i = 0; i < 100_000; i++)
+        {
+            var daysOffset = random.Next(0, (int)(now - earliest).TotalDays);
+            entries.Add(new GrowthTimelineService.FileEntry
+            {
+                CreatedUtc = earliest.AddDays(daysOffset),
+                Size = random.Next(1_000_000, int.MaxValue),
+                CountDelta = 1
+            });
+        }
+
+        entries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
+        var granularity = TimelineAggregator.DetermineGranularity(earliest, now);
+
+        var sw = Stopwatch.StartNew();
+        var result = TimelineAggregator.BuildCumulativeTimeline(entries, earliest, now, granularity);
+        sw.Stop();
+
+        output.WriteLine($"BuildCumulativeTimeline: 100k entries → {result.Count} points in {sw.ElapsedMilliseconds}ms");
+        AssertPerfLimit(sw, 5000);
+        Assert.NotEmpty(result);
+    }
+
+    private static void AssertPerfLimit(Stopwatch sw, long maxMilliseconds)
+    {
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < maxMilliseconds, $"Took {sw.ElapsedMilliseconds}ms, expected < {maxMilliseconds}ms");
+        }
+    }
 }

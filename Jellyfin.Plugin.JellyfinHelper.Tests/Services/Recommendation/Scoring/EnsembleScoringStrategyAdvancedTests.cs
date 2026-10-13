@@ -657,4 +657,69 @@ public sealed class EnsembleScoringStrategyAdvancedTests
             ensemble.EffectiveSigmoidMidpoint,
             6);
     }
+
+    [Fact]
+    public void ScoreWithExplanation_FranchiseDominates_LivePathSurfacesFranchise()
+    {
+        // Live blended path (12-arg DetermineDominantSignal): a maxed franchise affinity with every other
+        // signal neutralized must surface as the dominant signal. Before the fix the blended result only
+        // passed 9 args, so franchise could never win on the ScoreWithExplanation path.
+        using var ensemble = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            FranchiseAffinity = 1.0,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0,
+            LanguageAffinity = 0.0,
+            SubtitleLanguageAffinity = 0.0,
+            SeriesCompletability = 0.0,
+            LibraryAddedRecency = 0.0
+        };
+
+        var explanation = ensemble.ScoreWithExplanation(features);
+
+        Assert.Equal("Franchise", explanation.DominantSignal);
+    }
+
+    [Fact]
+    public void ScoreWithExplanation_CollectionProgressionDominates_LivePathSurfacesCollection()
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            CollectionProgressionBoost = 1.0,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0,
+            LanguageAffinity = 0.0,
+            SubtitleLanguageAffinity = 0.0,
+            SeriesCompletability = 0.0,
+            LibraryAddedRecency = 0.0
+        };
+
+        var explanation = ensemble.ScoreWithExplanation(features);
+
+        Assert.Equal("CollectionProgression", explanation.DominantSignal);
+    }
+
+    [Fact]
+    public void ScoreWithExplanation_PopularityDominates_LivePathSurfacesPopularity()
+    {
+        // Popularity has the smallest default weight, so every other signal must be fully zeroed (including the
+        // 0.5-defaulting features) for its contribution to be the unique maximum on the live blended path.
+        using var ensemble = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            PopularityScore = 1.0,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0,
+            LanguageAffinity = 0.0,
+            SubtitleLanguageAffinity = 0.0,
+            SeriesCompletability = 0.0,
+            LibraryAddedRecency = 0.0
+        };
+
+        var explanation = ensemble.ScoreWithExplanation(features);
+
+        Assert.Equal("Popularity", explanation.DominantSignal);
+    }
 }

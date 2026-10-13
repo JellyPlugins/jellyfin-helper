@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.JellyfinHelper.Configuration;
+﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -26,6 +26,7 @@ public class HelperCleanupTaskTests
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
     private readonly Mock<IRecommendationPlaylistService> _playlistServiceMock;
+    private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService> _traktDiscoveryMock;
     private readonly HelperCleanupTask _task;
     private PluginConfiguration _config;
 
@@ -87,12 +88,7 @@ public class HelperCleanupTaskTests
         var linkRepairServiceMock = new Mock<ILinkRepairService>();
         _seerrServiceMock = new Mock<ISeerrIntegrationService>();
         _seerrServiceMock
-            .Setup(s => s.CleanupExpiredRequestsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<int>(),
-                It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()))
+            .Setup(s => s.CleanupExpiredRequestsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SeerrCleanupResult());
 
         var userActivityInsightsMock = new Mock<IUserActivityInsightsService>();
@@ -108,6 +104,7 @@ public class HelperCleanupTaskTests
         _playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
         _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
+        _traktDiscoveryMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>();
 
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
@@ -122,12 +119,14 @@ public class HelperCleanupTaskTests
             trashServiceMock.Object,
             linkRepairServiceMock.Object,
             _seerrServiceMock.Object,
+            TestMockFactory.CreateSecretProtector(),
             userActivityInsightsMock.Object,
             userActivityCacheMock.Object,
             recsEngineMock.Object,
             recsCacheMock.Object,
             _playlistServiceMock.Object,
-            _seerrDiscoveryServiceMock.Object);
+            _seerrDiscoveryServiceMock.Object,
+            _traktDiscoveryMock.Object);
     }
 
     [Fact]
@@ -450,6 +449,48 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_TraktDryRun_LogsSkippedWithoutRefreshing()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.DryRun,
+            TraktSourcingEnabled = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Task started (Dry Run). Skipping Trakt refresh.", LogLevel.Information);
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TraktActivated_RefreshesCachesOnce()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Activate,
+            TraktSourcingEnabled = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Refreshing Trakt discovery caches...", LogLevel.Information);
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_SeerrDeactivated_SkipsEvenIfConfigured()
     {
         _config = new PluginConfiguration
@@ -490,6 +531,29 @@ public class HelperCleanupTaskTests
         VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
         VerifyLogContains("Task finished.", LogLevel.Information);
         VerifySeerrCalledWith("http://localhost:5055", "test-key", 365, false);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SeerrSkipCertValidation_ForwardsFlag()
+    {
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Activate,
+            SeerrUrl = "http://localhost:5055",
+            SeerrApiKey = "test-key",
+            SeerrCleanupAgeDays = 365,
+            SeerrSkipCertificateValidation = true
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        _seerrServiceMock.Verify(
+            s => s.CleanupExpiredRequestsAsync("http://localhost:5055", "test-key", 365, false, true, It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -538,16 +602,14 @@ public class HelperCleanupTaskTests
     private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)
     {
         _seerrServiceMock.Verify(
-            s => s.CleanupExpiredRequestsAsync(url, apiKey, ageDays, dryRun, It.IsAny<CancellationToken>()),
+            s => s.CleanupExpiredRequestsAsync(url, apiKey, ageDays, dryRun, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
     private void VerifySeerrNeverCalled()
     {
         _seerrServiceMock.Verify(
-            s => s.CleanupExpiredRequestsAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()),
+            s => s.CleanupExpiredRequestsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

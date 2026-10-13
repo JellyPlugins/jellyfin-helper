@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.1.0] - 2026-10-13
+
+### Added
+
+- **Trakt discovery through the official Trakt plugin (no second app).** On a free Trakt account only one connected app is allowed per account, so the Helper sources each user's personal recommendations by reading the official Jellyfin Trakt plugin's existing per-user token (strictly read-only. It never refreshes or writes the token back) and calling Trakt under the official plugin's app, so Trakt only ever sees one app. The Helper has no own Trakt app: without the official plugin there is nothing to source from. A new "Enable Trakt discovery" switch (shown only while the official plugin is detected) is the admin's global off-switch: when off, the Helper sources no Trakt recommendations even while the official plugin is installed.
+- **Secrets encrypted at rest with Data Protection.** All stored credentials (Seerr and Arr API keys, migrated transparently) are now encrypted on disk via ASP.NET Core Data Protection with a data-path keyring, never written or logged in plain text. Backups keep secrets portable and re-encrypt them on restore; the on-the-wire mask behavior is unchanged.
+- **Optional TLS certificate bypass per Arr instance.** Radarr/Sonarr servers behind a reverse proxy with a private CA, self-signed, or IP certificate can now connect: each instance has a "Skip certificate validation" checkbox in Settings. It applies to connection tests, library comparison, and discovery exclusions; validation stays enabled everywhere else, failed tests name the certificate cause in the server log, and a warning is logged whenever a test runs with validation disabled.
+- **Reorder the Codecs tab cards.** The donut cards on the Codecs tab can now be rearranged to taste by dragging a card's header handle (long-press on touch, with edge auto-scroll), or by keyboard (focus a handle, Enter to grab, arrow keys to move, Enter to drop, Escape to cancel). The chosen order saves instantly and survives a refresh, a restart, and a plugin update, and is carried in backup export/import.
+
+### Fixed
+
+- **Discovery custom tab no longer goes blank on Jellyfin 12.** Navigating away from the Seerr Discovery tab and back could leave it empty on the Jellyfin 12 Modern layout. It now renders reliably every time, with no blank frame.
+- **Sidebar "Seerr Discovery" link opens the tab on the Modern layout.** The sidebar link could fail to open the tab on Jellyfin 12 (both the top header and the narrow-screen menu); it now opens correctly there, while the classic 10.x layout keeps working.
+- **Clearer Arr connection-test error after a URL change.** Testing an Arr instance whose URL was edited since its key was saved left the key field holding the hidden placeholder, which could not resolve to the stored key. The test now returns an actionable "re-enter the API key" message instead of a generic connection failure, and never forwards the placeholder upstream.
+- **Recommendation playlists are always private.** Playlist sync now sets visibility explicitly instead of relying on the server default, so each user's recommendations stay visible to that user only.
+
+### Security
+
+- **Control-character injection rejected at the edge.** API keys (Arr instances), the log-viewer source filter, and backup-file credentials (Arr keys) are now rejected when they contain CR, LF, tab, or NUL. These characters carry no legitimate value and otherwise reach the outbound HTTP header layer (an uncaught 500) or enable log/response splitting in the admin UI. Now a clean client-input error instead.
+- **UTF-7 responses neutralized.** Seerr/Arr HTTP responses declaring a `utf-7` charset are decoded as UTF-8 instead, closing a vector that can smuggle markup past downstream filters.
+- **Backup restore warns on TLS bypass.** Restoring a backup that enables "skip certificate validation" (Seerr or any Arr instance) now surfaces an explicit warning, so an inherited insecure setting is a deliberate choice, not a silent one.
+
+### Improved
+
+- **Recommendations now follow completed franchises.** The per-user franchise preference no longer decays toward zero when the last watch is old: a franchise you have finished keeps a loyalty floor based on how many distinct entries you watched, so a brand-new entry in a series you completed years ago is surfaced again instead of being outranked by whatever you watched most recently. Scoring, ranking, and training are otherwise unchanged.
+- **Recommendation explanations are concrete, not generic.** The "Why" line now names the signal that actually drove the pick: completing a collection ("More from the … collection", or how many entries you have explored), a franchise, a matched country, writer, tag, language, release era, or genuine crowd popularity ("Popular with other viewers", kept distinct from "Highly rated"). Franchise, collection and popularity became first-class explanation signals; the remaining signals surface a concrete anchor where one exists, and the generic "Recommended for you" now only appears when no signal truly applies. Discovery suggestions keep their own person/genre/trending/popularity reasons, now with an honest "Recommended for you" fallback instead of claiming "Popular and highly rated" for a title that is neither. This is display-only: scores, ranking, and the model are unchanged.
+
+- **Discovery Tab instant, flash-free remounts.** The last results render immediately from an in-memory copy, so returning to the tab never shows a spinner. A silent background refetch swaps in newer suggestions in place once a scheduled run (or an out-of-band Seerr request reconcile) produces them, keeping the view fresh without a loading state.
+
+### Tests
+
+- **Unit: 6720 total.** Expanded hardening and safety coverage this release: SSRF-guard, secret-protector, backup-validator, and folder-browser path-traversal suites, plus performance suites for backup and growth-timeline aggregation, the reader for the official Trakt plugin (hardened XML parse, read-only token, User-Agent gate, presence-gated sourcing), the recommendation franchise-loyalty floor and anchored-explanation signals (local and discovery), and the Codecs card-order feature (canonical catalog normalization, config round-trip, the dedicated validate/PUT endpoint, and backup sanitize/validate/restore).
+- **End-to-end: 368 tests.** The suite stages the real Custom Tabs and File Transformation plugins and drives the home-page Discovery tab through repeated navigation, and stages the official Jellyfin Trakt plugin with a seeded per-user token to prove the Helper sources personal recommendations and trending through it (the mock Trakt server enforces the production User-Agent gate). A negative custom-tab spec proves the Discovery panel stays unpopulated when user access is disabled. A new codec card-order spec drives the dedicated endpoint end to end: permutation persistence, partial-order backfill, empty→canonical, 400s on unknown/duplicate ids, and a backup export/import round-trip of the order. (Authoritative count: `cd test/e2e && npx playwright test --list`.)
+
+### Special Thanks
+
+- Special thanks to [@TheColin21](https://github.com/TheColin21) for testing and donation ❤️
+- Special thanks to Daniel for his donation ❤️
+- Special thanks to [@baervers23](https://github.com/baervers23) for great input and ideas ❤️
+
 ## [3.0.0.4] - 2026-09-26
 
 ### Added

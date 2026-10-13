@@ -27,4 +27,12 @@ public class ArrInstanceConfig
     ///     existing ExcludedLibraries field.
     /// </summary>
     public string Libraries { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether TLS certificate validation is skipped for this instance.
+    ///     Needed for servers behind a reverse proxy with a private CA, self-signed, or IP certificate.
+    ///     Only enable on networks you trust: without validation anyone intercepting the connection can read
+    ///     the API key. Defaults to false (validated).
+    /// </summary>
+    public bool SkipCertificateValidation { get; set; }
 }

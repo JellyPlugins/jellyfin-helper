@@ -20,6 +20,8 @@
     text-align: center;
     min-width: 0;
     overflow: visible;
+    /* Anchor for the top-right reorder save badge. */
+    position: relative;
 }
 
 .chart-box h4 {
@@ -1233,5 +1235,121 @@
     /* noinspection CssUnusedSymbol */
     .codec-bitrate-bar {
         opacity: 0.85;
+    }
+}
+
+/* ---- Codec card drag-to-reorder ---- */
+
+/* Screen-reader-only live region for keyboard reorder announcements. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* The grip. Idle state is visually quiet; only cursor + focus ring hint at interactivity. */
+.codec-card-handle {
+    display: inline-flex;
+    align-items: center;
+    cursor: grab;
+    /* pan-y keeps vertical page scrolling working when a touch merely passes over the grip; the
+       long-press arms the drag and JS then preventDefaults, so a real drag still suppresses scroll.
+       touch-action:none here would swallow scrolling for any touch starting on the handle. */
+    touch-action: pan-y;
+    /* Long-press on touch must arm a drag, not select the header text or pop the iOS callout. */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    opacity: 0.45;
+    border-radius: var(--radius-sm, 4px);
+    line-height: 1;
+}
+
+.codec-card-handle:hover {
+    opacity: 0.8;
+}
+
+.codec-card-handle:active {
+    cursor: grabbing;
+}
+
+.codec-card-handle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    opacity: 1;
+}
+
+/* Keyboard-grabbed card (Enter to grab). Pointer/touch drags use the classes below. */
+.chart-box.codec-dragging {
+    opacity: 0.9;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    transform: scale(1.01);
+}
+
+/* Source card during a pointer/touch drag: hidden in place so the grid keeps its exact slot and
+   track sizes (nothing collapses), while the fixed clone below is the visible drag image. */
+.chart-box.codec-dragging-source {
+    visibility: hidden;
+}
+
+/* The floating clone that follows the pointer/finger. Fixed to the viewport, above everything,
+   and transparent to hit-testing so the card underneath still receives the reorder math. */
+.chart-box.codec-drag-clone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    margin: 0;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0.95;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    will-change: transform;
+}
+
+/* Save confirmation icon: a plain check_circle (Settings/Logs style, no chip background) in the
+   card's top-right corner. */
+.codec-save-icon {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    color: var(--color-success, #2ecc71);
+    font-size: 1.1em;
+    line-height: 1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 5;
+}
+
+.codec-save-icon--error {
+    color: var(--color-danger, #e74c3c);
+}
+
+.codec-save-icon--visible {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chart-box.codec-dragging {
+        transform: none;
+    }
+
+    .codec-save-icon {
+        transition: none;
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    /* noinspection CssUnusedSymbol */
+    .chart-box.codec-dragging,
+    /* noinspection CssUnusedSymbol */
+    .chart-box.codec-drag-clone {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
     }
 }

@@ -16,4 +16,7 @@ public sealed class MaskedArrInstanceConfig
 
     /// <summary>Gets the comma-separated assigned library names (empty means automatic root-folder matching).</summary>
     public string Libraries { get; init; } = string.Empty;
+
+    /// <summary>Gets a value indicating whether TLS certificate validation is skipped for this instance.</summary>
+    public bool SkipCertificateValidation { get; init; }
 }

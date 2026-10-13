@@ -23,8 +23,11 @@ public class PluginConfiguration : BasePluginConfiguration
     private double _ensembleGenrePenaltyFloor = 0.10;
     private int _seerrCleanupAgeDays = 365;
     private int _trashRetentionDays = 30;
+    private int _traktTimeoutSeconds = 30;
+    private int _traktLimit = 20;
     private List<ArrInstanceConfig> _radarrInstances = [];
     private List<ArrInstanceConfig> _sonarrInstances = [];
+    private List<string> _codecCardOrder = [];
 
     /// <summary>
     ///     Gets or sets the library names to exclude (exclude list). Comma-separated list of library names.
@@ -89,9 +92,44 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
+    ///     Gets or sets a value indicating whether TLS certificate validation is skipped for the Seerr instance.
+    ///     Needed when Seerr sits behind a reverse proxy with a private CA, self-signed, or IP certificate.
+    ///     Only enable on networks you trust: without validation anyone intercepting the connection can read
+    ///     the API key. Defaults to false (validated).
+    /// </summary>
+    public bool SeerrSkipCertificateValidation { get; set; }
+
+    /// <summary>
     ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     public bool DiscoveryUserAccessEnabled { get; set; }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled. User-facing toggle shown
+    ///     only when the official Trakt plugin is detected (the sole Trakt source): when off, the Helper sources
+    ///     no Trakt recommendations. Default false so Trakt is opt-in.
+    /// </summary>
+    public bool TraktSourcingEnabled { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Trakt HTTP request timeout in seconds. Default 30. Valid range 5-60; out-of-range
+    ///     values are clamped.
+    /// </summary>
+    public int TraktTimeoutSeconds
+    {
+        get => _traktTimeoutSeconds;
+        set => _traktTimeoutSeconds = ClampAndReport(nameof(TraktTimeoutSeconds), value, 5, 60);
+    }
+
+    /// <summary>
+    ///     Gets or sets the number of Trakt items fetched per list. Default 20. Valid range 1-40; out-of-range
+    ///     values are clamped.
+    /// </summary>
+    public int TraktLimit
+    {
+        get => _traktLimit;
+        set => _traktLimit = ClampAndReport(nameof(TraktLimit), value, 1, 40);
+    }
 
     /// <summary>
     ///     Gets or sets the configuration version for migration tracking.
@@ -141,6 +179,20 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         get => _sonarrInstances;
         set => _sonarrInstances = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the Codecs-tab donut card order (plaintext card ids, not a secret).
+    ///     Empty means the canonical <see cref="CodecCardCatalog.Canonical"/> order is used.
+    /// </summary>
+    [SuppressMessage(
+        "Usage",
+        "CA1002:DoNotExposeGenericLists",
+        Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
+    public List<string> CodecCardOrder
+    {
+        get => _codecCardOrder;
+        set => _codecCardOrder = value ?? [];
     }
 
     /// <summary>

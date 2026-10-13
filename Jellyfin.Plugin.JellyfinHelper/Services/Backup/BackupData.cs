@@ -122,6 +122,13 @@ public class BackupData
     public string SeerrApiKey { get; set; } = string.Empty;
 
     /// <summary>
+    ///     Gets or sets whether TLS certificate validation is skipped for Seerr. Null means the field was
+    ///     absent in the backup (older plugin version), so the live value is left unchanged on restore.
+    /// </summary>
+    [JsonPropertyName("seerrSkipCertificateValidation")]
+    public bool? SeerrSkipCertificateValidation { get; set; }
+
+    /// <summary>
     ///     Gets or sets the Seerr cleanup age threshold in days. null means the field was absent in the backup (e.g.
     /// </summary>
     [JsonPropertyName("seerrCleanupAgeDays")]
@@ -146,6 +153,16 @@ public class BackupData
         "CA1002:Do not expose generic lists",
         Justification = "Required for JSON deserialization")]
     public List<BackupArrInstance> SonarrInstances { get; init; } = [];
+
+    /// <summary>
+    ///     Gets the Codecs-tab donut card order (plaintext card ids). Not a secret; always included.
+    /// </summary>
+    [JsonPropertyName("codecCardOrder")]
+    [SuppressMessage(
+        "Design",
+        "CA1002:Do not expose generic lists",
+        Justification = "Required for JSON deserialization")]
+    public List<string> CodecCardOrder { get; init; } = [];
 
     /// <summary>
     ///     Gets or sets the Recommendations task mode.

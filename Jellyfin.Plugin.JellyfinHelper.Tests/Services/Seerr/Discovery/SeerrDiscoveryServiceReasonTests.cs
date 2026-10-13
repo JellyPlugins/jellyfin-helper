@@ -40,7 +40,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
         var (reasonKey, _) = InvokeDetermineReason(features, candidate, topGenres, preferredPeople);
 
         Assert.NotEqual("reasonPersonNamed", reasonKey);
-        Assert.Equal("reasonPopular", reasonKey);
+        Assert.Equal("reasonDefault", reasonKey);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
         var (reasonKey, _) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
 
         Assert.NotEqual("reasonGenre", reasonKey);
-        Assert.Equal("reasonPopular", reasonKey);
+        Assert.Equal("reasonDefault", reasonKey);
     }
 
     [Fact]
@@ -238,7 +238,8 @@ public sealed class SeerrDiscoveryServiceReasonTests
             features, candidate, new List<string>(), new HashSet<string>());
 
         Assert.NotEqual("reasonTrending", reasonKey);
-        Assert.Equal("reasonPopular", reasonKey);
+        // Not trending (recency not strictly above 0.8), but the strong critic score still earns "highly rated".
+        Assert.Equal("reasonHighlyRated", reasonKey);
     }
 
     [Fact]
@@ -264,7 +265,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
             features, candidate, new List<string>(), new HashSet<string>());
 
         Assert.NotEqual("reasonTrending", reasonKey);
-        Assert.Equal("reasonPopular", reasonKey);
+        Assert.Equal("reasonDefault", reasonKey);
     }
 
     [Fact]
@@ -302,16 +303,16 @@ public sealed class SeerrDiscoveryServiceReasonTests
     }
 
     [Fact]
-    public void DetermineReason_AllSignalsNeutral_ReturnsPopular()
+    public void DetermineReason_AllSignalsNeutral_ReturnsDefault()
     {
-        // Fallback: default-constructed features must resolve to reasonPopular with no hint.
+        // Fallback: default-constructed features must resolve to reasonDefault with no hint.
         var features = new CandidateFeatures();
         var candidate = new TmdbDiscoverItem();
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(
             features, candidate, new List<string>(), new HashSet<string>());
 
-        Assert.Equal("reasonPopular", reasonKey);
+        Assert.Equal("reasonDefault", reasonKey);
         Assert.Null(relatedInfo);
     }
 
@@ -352,6 +353,73 @@ public sealed class SeerrDiscoveryServiceReasonTests
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
 
         Assert.Equal("reasonTrending", reasonKey);
+        Assert.Null(relatedInfo);
+    }
+
+    // Popularity vs rating - distinct signals, no longer blended into a single reasonPopular.
+
+    [Fact]
+    public void DetermineReason_HighPopularity_ReturnsPopularAmongViewers()
+    {
+        var features = new CandidateFeatures { PopularityScore = 0.9 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonPopularAmongViewers", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_HighCriticLowPopularity_ReturnsHighlyRated()
+    {
+        var features = new CandidateFeatures { CombinedCriticScore = 0.9, PopularityScore = 0.1 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonHighlyRated", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_PopularityOutranksCriticWhenBothHigh()
+    {
+        // Popularity is checked before the critic score, so a broadly-watched title reads as crowd-popular.
+        var features = new CandidateFeatures { PopularityScore = 0.9, CombinedCriticScore = 0.9 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonPopularAmongViewers", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_NeitherPopularNorRated_ReturnsGenericDefault()
+    {
+        // Sub-threshold popularity and critic scores must fall through to the honest default, not claim popularity.
+        var features = new CandidateFeatures { PopularityScore = 0.5, CombinedCriticScore = 0.5 };
+        var candidate = new TmdbDiscoverItem();
+
+        var (reasonKey, _) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonDefault", reasonKey);
+    }
+
+    [Fact]
+    public void DetermineReason_NoSignalClearsThreshold_ReturnsHonestDefault()
+    {
+        // Regression guard: when no branch gate is cleared (sub-threshold popularity/critic, empty genres/people, no cast),
+        // the final fallback must be the honest "recommended for you" default, never a false popularity claim.
+        var features = new CandidateFeatures { PopularityScore = 0.5, CombinedCriticScore = 0.5 };
+        var candidate = new TmdbDiscoverItem { KnownPeople = null };
+
+        var (reasonKey, relatedInfo) = InvokeDetermineReason(
+            features, candidate, new List<string>(), new HashSet<string>());
+
+        Assert.Equal("reasonDefault", reasonKey);
         Assert.Null(relatedInfo);
     }
 

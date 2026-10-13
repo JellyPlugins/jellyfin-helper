@@ -19,4 +19,10 @@ public class ArrTestConnectionRequest
     ///     Gets the API key. May be the masked sentinel (ApiKeyMask) when the client is testing an already-stored key without changing it; in that case the real key is resolved server-side from the persisted configuration and the mask is never forwarded.
     /// </summary>
     public string? ApiKey { get; init; }
+
+    /// <summary>
+    ///     Gets a value indicating whether TLS certificate validation is skipped for this test (mirrors the per-instance setting).
+    ///     Nullable so an absent field is distinguishable from an explicit false; absent means false.
+    /// </summary>
+    public bool? SkipCertificateValidation { get; init; }
 }

@@ -126,4 +126,19 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public List<string>? KnownPeople { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Trakt URL slug, carried through from external candidates so recommendations can
+    ///     link to the canonical trakt.tv page. Never serialized: it is internal pipeline state.
+    /// </summary>
+    [JsonIgnore]
+    public string? TraktSlug { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the source-assigned rank (0-based, lower is better) carried through from external
+    ///     candidates so a rank-based pipeline can order by the source's own ranking instead of local score.
+    ///     Never serialized: it is internal pipeline state.
+    /// </summary>
+    [JsonIgnore]
+    public int? SourceRank { get; set; }
 }

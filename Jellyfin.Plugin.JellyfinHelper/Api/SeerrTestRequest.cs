@@ -14,4 +14,10 @@ public class SeerrTestRequest
     ///     Gets or sets the Seerr API key.
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether TLS certificate validation is skipped for this test.
+    ///     Nullable so an absent field is distinguishable from an explicit false; absent means false.
+    /// </summary>
+    public bool? SkipCertificateValidation { get; set; }
 }

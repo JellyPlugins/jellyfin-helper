@@ -30,6 +30,26 @@ public class UserActivityInsightsServiceTests
     public void CalculateCompletion_ReturnsExpectedPercent(long position, long runtime, bool played, double expected)
         => Assert.Equal(expected, UserActivityInsightsService.CalculateCompletion(position, runtime, played: played), 1);
 
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void CalculateCompletion_50000Events_CompletesWithin2Seconds()
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sum = 0.0;
+        for (var i = 0; i < 50_000; i++)
+        {
+            sum += UserActivityInsightsService.CalculateCompletion(i % 1000, 1000, played: i % 7 == 0);
+        }
+
+        sw.Stop();
+
+        Assert.True(double.IsFinite(sum));
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 2000, "Calc took too long: " + sw.ElapsedMilliseconds + "ms");
+        }
+    }
+
     // These lock in observable behavior so internal fetch-path swaps
     // (e.g. batch user-data on Jellyfin 12+) can be verified against the same suite.
 

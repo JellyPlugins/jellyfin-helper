@@ -203,7 +203,12 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 Name = playlistName,
                 UserId = result.UserId,
                 ItemIdList = itemIds,
-                MediaType = MediaType.Unknown // Mixed content (movies + series)
+                MediaType = MediaType.Unknown, // Mixed content (movies + series)
+
+                // Explicitly private: without this the visibility falls back to the server
+                // default, which was public on some Jellyfin versions and made every user see every playlist.
+                Users = [],
+                Public = false,
             };
 
             // Create the new playlist BEFORE removing old ones so the user is never left

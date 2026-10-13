@@ -695,4 +695,131 @@ public class ConfigurationRequestValidatorTests
         Assert.NotNull(error);
         Assert.Contains("CR, LF, tab, or NUL", error);
     }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("key\r\nX-Injected: 1")]
+    [InlineData("key\nnewline")]
+    [InlineData("key\twith-tab")]
+    [InlineData("key\0nul")]
+    public void Validate_ReturnsError_WhenArrApiKeyContainsControlCharacters(string apiKey)
+    {
+        // A CRLF/tab/NUL key would throw at the outbound HTTP header layer (500). Rejected as input error.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://r:7878", ApiKey = apiKey },
+            },
+        };
+
+        var error = ConfigurationRequestValidator.Validate(req);
+
+        Assert.NotNull(error);
+        Assert.Contains("API key must not contain", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_ReturnsError_WhenSonarrApiKeyContainsCrlf()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SonarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "S1", Url = "http://s:8989", ApiKey = "abc\r\ndef" },
+            },
+        };
+
+        var error = ConfigurationRequestValidator.Validate(req);
+
+        Assert.NotNull(error);
+        Assert.Contains("API key must not contain", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void Validate_ReturnsNull_WhenArrApiKeyIsNormal()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://r:7878", ApiKey = "0123456789abcdef0123456789abcdef" },
+            },
+        };
+
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("trash\0evil")]
+    [InlineData("trash\nnewline")]
+    [InlineData("trash\ttab")]
+    public void Validate_ReturnsError_WhenTrashPathContainsControlCharacters(string trashPath)
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            UseTrash = true,
+            TrashFolderPath = trashPath,
+        };
+
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrApiKeyTooLong()
+    {
+        // An over-length key would be unrestorable through backup, so the length guard rejects it.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = new string('a', 513),
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("512", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenExcludedLibrariesTooLong()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            ExcludedLibraries = new string('L', 1001),
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("ExcludedLibraries", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenArrInstanceApiKeyTooLong()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            RadarrInstances = new List<ArrInstanceConfig>
+            {
+                new() { Name = "R1", Url = "http://radarr.local", ApiKey = new string('a', 513) },
+            },
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("API key must be 512 characters or fewer", error, StringComparison.Ordinal);
+    }
 }

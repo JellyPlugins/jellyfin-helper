@@ -22,7 +22,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Jellyfin Server 12.1.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
+- [Jellyfin Server 12.2.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
 - Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
 
@@ -126,6 +126,42 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/README.md`](test/e2e/README.md) for architecture and
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
+#### Discovery custom-tab coverage (external plugins)
+
+The Discovery home-page tab needs the third-party **Custom Tabs** and **File
+Transformation** plugins. `scripts/stage-external-plugins.sh` downloads each
+plugin's **latest release** (resolved via the GitHub API, newest `Release-12.*`
+asset) and stages its DLLs + a generated `meta.json` into the config volume
+alongside the plugin. `global-setup` then registers a `Seerr Discovery` custom
+tab and enables the user-access toggle, and the `ui-setup` Playwright project
+(`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies that
+config before the ui specs, because the `api` project runs first and overwrites
+it. The one-shot `ui-setup` is still not enough on its own: ui specs that run
+before `discovery-customtab` (`arr*`, `interactions`, `recommendations`) save
+the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
+`discovery-customtab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
+(via the shared `ensureDiscoveryConfigured`) and polls `/Discovery/My` until it
+stops 403ing. Turning a trampled-access setup race into a loud failure instead
+of a silent mount timeout.
+
+**No version pinning. Always latest, by design.** CI and the nightly run resolve
+the newest published release of both Custom Tabs and File Transformation on every
+run. This is intentional: Jellyfin Helper must stay compatible with the latest of
+each, and the nightly is the tripwire. If an upstream update breaks the custom-tab
+integration, that surfaces as a red `discovery-customtab` spec so it can be fixed,
+rather than being masked by a frozen pin. Do not add `*_RELEASE` / `*_ASSET` pins to
+the workflows. The only non-pinning knob is a token to lift the GitHub API rate limit:
+
+```bash
+# Latest is always used; GITHUB_TOKEN only raises the unauthenticated API rate limit.
+GITHUB_TOKEN=... bash test/e2e/scripts/run.sh
+```
+
+When a release asset cannot be resolved, `run.sh` aborts the run: the external
+plugins are a hard prerequisite. The `JFH_E2E_EXTERNAL_PLUGINS` guard only makes
+`discovery-customtab.ui.spec.ts` skip when Playwright runs directly without staging.
+
+
 ### Test Structure
 
 Tests mirror the source structure:
@@ -142,6 +178,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── BackupControllerExtendedTests.cs               # Malformed JSON → 400, null body, chunk-loop MaxSize defence, whitespace-only body
 │   ├── BackupControllerErrorHandlingTests.cs          # Service-layer failures surfaced as the right status codes (mocked IBackupService)
 │   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → fixed-length mask sentinel, empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
+│   ├── ConfigurationControllerCodecCardOrderTests.cs  # PUT /Configuration/CodecCardOrder: GET normalized order, null body / unknown / duplicate / >32 → 400, empty → canonical
+│   ├── ConfigurationRequestValidatorCodecCardOrderTests.cs  # ValidateCodecCardOrder branches: null/empty valid, unknown, duplicate, >32, >64-char, blank entry
 │   ├── ConfigurationResponseTests.cs                 # ConfigurationResponse.FromConfig + MaskedArrInstanceConfig: masking, field pass-through, real key never in response
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # Seerr users/services, request submission, filter logic, feedback-store error paths
@@ -152,13 +190,18 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── RecommendationControllerTests.cs
 │   ├── RecommendationControllerDiagnosticsTests.cs      # GET /Recommendations/Diagnostics/Ensemble: 200 populated DTO, Available=false on null, 503 when deactivated
 │   ├── TrashControllerTests.cs
+│   ├── TraktOfficialPluginControllerTests.cs           # OfficialPluginStatus mirrors the reader's presence probe (true/false)
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
+│   ├── UserDiscoveryControllerTraktTests.cs          # Trakt read endpoints: official-plugin-absent/master-switch 403 gates, linked/not-linked envelope, mid-fetch link lapse, authentication requirement
+│   ├── TraktDiscoveryDtoTests.cs                     # Trakt linked/unlinked envelope DTO: defaults, result carriage, JSON round-trip
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
+│   ├── CodecCardCatalogTests.cs    # Canonical order + Normalize (dedupe, drop unknown, append missing) + IsKnown
+│   ├── PluginConfigurationCodecCardOrderTests.cs  # CodecCardOrder null-guard, default empty, XmlSerializer round-trip, legacy XML
 │   └── TaskModeTests.cs
 ├── PluginPages/                   # HTML composition tests
 │   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html + README
@@ -206,6 +249,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── BackupSanitizerArrInstancesTests.cs         # Arr-instance credential redaction across multiple configured instances
 │   │   ├── BackupValidatorSecurityTests.cs             # SECURITY: trash-path null-byte/newline injection and script-pattern guards
 │   │   ├── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
+│   │   ├── BackupCodecCardOrderTests.cs                # Codec order: sanitize drops unknown/oversized/dup + cap, validate warns-on-unknown/errors-on->64, no-field clean, Create→Restore round-trip, CredentialsChanged untouched
 │   │   └── BackupValidatorTests.cs                     # SeerrCleanupAgeDays range (null=absent, 0=immediate, negative=error, >Max=error); CreatedAt timezone warnings (Unspecified emits warning, Utc/Local silent)
 │   ├── Cleanup/                   # Cleanup task tests
 │   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
@@ -239,6 +283,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Link/                      # Link repair tests
 │   │   └── SymlinkHelperTests.cs           # Real-filesystem integration; graceful skip without privileges; meta-test ensures Linux CI runs the branch
 │   ├── PluginLog/                 # Plugin log tests
+│   ├── Security/                  # Secret protection tests
+│   │   └── SecretProtectorTests.cs                     # Roundtrip, idempotency, legacy plaintext passthrough (lazy migration), empty handling, fail-closed on undecryptable blob
 │   ├── Seerr/                     # Seerr integration tests
 │   │   ├── SeerrIntegrationServiceTests.cs             # Connection/cleanup contract; FormatException guard: non-ASCII/spaced API keys must not throw
 │   │   ├── SeerrIntegrationServiceErrorHandlingTests.cs # Cancellation-vs-timeout paths, null-results fail-closed, CRLF header-injection guard
@@ -269,6 +315,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
 │   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
+│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # ScoreExternalCandidatesAsync seam: config/profile/empty guards, candidate mapping + filtering, source-rank ordering, relaxed quality floors, own-rec exclusion, feature-reason preservation
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
@@ -288,6 +335,15 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsServiceTraversalTests.cs  # Directory-walk over a real tree with a scripted IFileSystem for sizes/timestamps
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
+│   ├── Trakt/                     # Trakt discovery source tests
+│   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
+│   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
+│   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
+│   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
+│   │   ├── TraktPersonalSourceServiceTests.cs # Source lifecycle: official-token resolve, null-config guards, cheap link check, warm population, no own app
+│   │   └── External/                      # Official-Trakt-plugin reader tests
+│   │       ├── OfficialTraktPluginReaderTests.cs # Presence probe never throws; read-only token lookup matches on user id; skips expired/empty tokens; LOCAL-time expiry handling; namespace-agnostic parse; fails closed on missing/malformed/XXE/oversize config; dedupes linked users; leaves file unchanged
+│   │       └── OfficialTraktPluginGuidsTests.cs # Pins the foreign plugin id (4fe3201e-…) + config file name (Trakt.xml) so a silent change to either is caught
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -314,6 +370,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── GenreExposureRampTests.cs              # Cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
+│       │   ├── ReasonAnchorContextTests.cs            # Default + explicit construction of the reason anchors
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
 │       │   ├── TemporalFeaturesTests.cs               # Day-of-week / hour-of-day / weekend affinity
 │       │   ├── TrainingServiceTests.cs                # Process-wide TrainGate; tests serialised via ConfigOverride collection
@@ -420,10 +477,13 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
 │   ├── ApiKeyMaskResolver.cs            # Shared logic for the ApiKeyMask sentinel: IsMask(candidate) + ResolveArrKey(incoming, url, name, stored). Used by the save path (ConfigurationController) AND the stateless Test-Connection endpoints (ArrIntegrationController/SeerrController) so a masked key echoed back is resolved to the real stored key server-side and the mask is never forwarded upstream. Unresolvable mask → empty string (caller must not test).
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
+│   ├── TraktOfficialPluginController.cs # Admin-only GET /JellyfinHelper/Trakt/OfficialPluginStatus: reports whether the official Trakt plugin is present (shares the route prefix with TraktController; each admin Trakt concern has exactly one controller)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
+│   ├── OfficialTraktPluginStatusResponse.cs # Admin-only GET /Trakt/OfficialPluginStatus payload: Present flag so the config page can relax the own-client-id requirement
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
@@ -444,8 +504,11 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LibraryListResponse.cs           # GET /Configuration/Libraries response: list of LibraryEntry
 │   ├── LibraryPathEntry.cs              # Library name + filesystem path entry (used in FolderBrowserResponse)
 │   ├── LogLevelResponse.cs              # PUT /Configuration/LogLevel response: message + active log level
+│   ├── CodecCardOrderUpdateRequest.cs   # PUT /Configuration/CodecCardOrder request: desired card id order
+│   ├── CodecCardOrderResponse.cs        # PUT /Configuration/CodecCardOrder response: message + stored normalized order
 │   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
 │   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
+│   ├── TraktDiscoveryResponse.cs        # GET /Discovery/My/Trakt envelope: Linked flag + optional scored Result
 │   ├── TrashAccessEntry.cs              # Per-path access result entry (used in TrashAccessResponse)
 │   ├── TrashAccessResponse.cs           # POST /Trash/CheckAccess response: allAccessible flag + results
 │   ├── TrashConfigResponse.cs           # GET /Trash/Contents response: useTrash, retentionDays, libraries
@@ -461,6 +524,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
 │   ├── ClampReportEntry.cs      # Record for reporting clamped config values at startup
 │   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
+│   ├── CodecCardCatalog.cs      # Canonical Codecs-tab card ids + shared order normalization (dedupe, drop unknown, append missing)
 │   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
 ├── Services/
 │   ├── Activity/                    # User watch activity tracking
@@ -505,6 +569,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
+│   │   │   ├── ReasonAnchorContext.cs # Concrete anchors (collection/country/writer/tag/era) for reasons
 │   │   │   ├── SimilarityComputer.cs # Genre/people/tag similarity
 │   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
 │   │   │   ├── ContentAffinityResolver.cs # Shared library-free resolvers for content-affinity source data
@@ -562,6 +627,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) - self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
 │   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
 │   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
+│   ├── Security/                # Secrets at rest (Data Protection)
+│   │   ├── ISecretProtector.cs      # Protect/Unprotect/IsProtected contract; DP:: prefix marks ciphertext so legacy plaintext is read as-is and lazily re-encrypted on next save
+│   │   └── SecretProtector.cs       # Data Protection impl: DataPath keyring (not machine bound), idempotent Protect, fail-closed Unprotect on undecryptable blobs
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
 │   │   ├── ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
 │   │   ├── SeerrIntegrationService.cs
@@ -577,6 +645,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
 │   │       ├── DiscoveryResult.cs        # Per-user result container
 │   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
+│   │       ├── ExternalDiscoveryCandidate.cs # Public candidate shape fed to ScoreExternalCandidatesAsync by the Trakt source (tmdbId/mediaType/genres/rating/poster/sourceRank)
 │   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
 │   │       ├── SeerrUserPage.cs         # Paginated user list response
 │   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
@@ -608,6 +677,23 @@ Jellyfin.Plugin.JellyfinHelper/
 │       ├── LibraryInsightsService.cs   # Aggregates growth data into per-library insights
 │       ├── LibraryInsightsResult.cs    # Insights result DTO
 │       └── LibraryInsightEntry.cs      # Per-library insight entry
+│   ├── Trakt/                   # Trakt discovery source (official Jellyfin Trakt plugin, read-only)
+│   │   ├── TraktApi.cs              # Shared Trakt API base URL (env-overridable for e2e, defaults to api.trakt.tv)
+│   │   ├── ITraktDiscoveryService.cs # Personal (official-plugin token) + global trending (official client id) contract; both scored through the shared seam
+│   │   ├── TraktDiscoveryService.cs # Fetch personal + trending, map to candidates, score via ScoreExternalCandidatesAsync, per-user + global cache, RefreshAll warms linked users
+│   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (official-token resolve, cheap link check, warm ids)
+│   │   ├── TraktPersonalSourceService.cs  # Resolves the official plugin token as read-only source; owns all resolution rules so the discovery service stays within its constructor budget
+│   │   ├── TraktPersonalSource.cs         # Resolved source value (official client id + bearer)
+│   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
+│   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
+│   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
+│   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)
+│   │   ├── TraktTrendingItem.cs     # Trending wrapper (watchers + nested movie or show)
+│   │   └── External/                # Coupling to the OFFICIAL Jellyfin Trakt plugin, confined to one place
+│   │       ├── IOfficialTraktPluginReader.cs # Presence probe + read-only per-user token lookup contract
+│   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic, whitespace-packing-safe); TryGetToken matches on LinkedMbUserId, GetLinkedUserIds enumerates all usable users (for pre-warming); honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed
+│   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access token + expiry; no refresh token held); never references the foreign assembly
+│   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs
@@ -651,6 +737,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaExtensionsTests.cs` - Tests MediaExtensions video/subtitle/image/audio/nfo sets, codec map, and language codes
 - `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
+- `InsecureNamedClientTlsTests.cs` - Live TLS proof: insecure named clients complete a handshake with an untrusted loopback cert while strict clients reject it
 - `PluginTests.cs`
 - `PluginResolveRealPathTests.cs`
 
@@ -679,11 +766,14 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RecommendationControllerDiagnosticsTests.cs`
 - `ResponseDtoTests.cs`
 - `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
+- `TraktOfficialPluginControllerTests.cs` - Tests TraktOfficialPluginController OfficialPluginStatus mirrors the reader's presence probe
 - `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
+- `TraktDiscoveryDtoTests.cs` - Tests Trakt discovery DTOs (linked/unlinked envelope, JSON round-trips)
 - `TrashControllerTests.cs`
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`
 - `UserDiscoveryControllerSubmitTests.cs`
+- `UserDiscoveryControllerTraktTests.cs`
 - `UserDiscoveryControllerTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Configuration/`
@@ -968,6 +1058,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RequestResult.cs`
 - `SeerrController.cs`
 - `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection
+- `TraktOfficialPluginController.cs` - Admin-only GET OfficialPluginStatus under the same route prefix; reports official-plugin presence
 - `SeerrUrlResponse.cs`
 - `TranslationsController.cs`
 - `TrashAccessEntry.cs`
@@ -1448,7 +1539,7 @@ The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs du
 
 ### File Ordering
 
-`ComposeConfigPage` has no ordering arrays of its own — it concatenates whatever
+`ComposeConfigPage` has no ordering arrays of its own. It concatenates whatever
 list of files MSBuild passes in. The canonical order is defined by the `CssModule`
 and `JsModule` `ItemGroup`s in `Jellyfin.Plugin.JellyfinHelper.csproj`:
 
@@ -1464,7 +1555,7 @@ Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` — the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` - the module files themselves are unwrapped.
 
 ### Adding a New Tab
 

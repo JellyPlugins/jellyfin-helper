@@ -35,6 +35,11 @@ internal static class ParentalRatingHelper
     };
 
     /// <summary>
+    ///     Max parental rating at or above which users are treated as unrestricted (no filtering applied).
+    /// </summary>
+    internal const int UnrestrictedThreshold = 141;
+
+    /// <summary>
     ///     Determines whether a candidate item should be excluded based on parental rating constraints.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
@@ -46,7 +51,7 @@ internal static class ParentalRatingHelper
     /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
     internal static bool ShouldExclude(TmdbDiscoverItem candidate, int? maxParentalRating)
     {
-        if (!maxParentalRating.HasValue || maxParentalRating.Value >= 141)
+        if (!maxParentalRating.HasValue || maxParentalRating.Value >= UnrestrictedThreshold)
         {
             return false;
         }

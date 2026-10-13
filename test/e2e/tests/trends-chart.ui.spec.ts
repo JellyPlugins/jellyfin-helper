@@ -185,3 +185,37 @@ test.describe('trend chart touch gestures', () => {
     await assertNoLabelOverlap(page);
   });
 });
+
+// Regression guard for the discovery-sidebar.js context gate: the script is
+// injected into index.html on every SPA route, but it must only probe
+// /Discovery/My on the user-facing home context - never on the admin dashboard /
+// plugin-config page, where no Discovery tab can appear. A stray probe there is
+// wasted traffic and, when the feature is disabled, a 403 the browser logs as a
+// console error (which previously tripped the zero-error assertions above).
+test.describe('discovery sidebar context gating', () => {
+  test('does not probe /Discovery/My on the plugin config page', async ({ page }) => {
+    const probes: string[] = [];
+    page.on('request', (req) => {
+      const url = req.url();
+      // Match the DATA probe (/Discovery/My[?...]) but NOT the injected script
+      // asset (/Discovery/My/script?v=...), which loads on every page by design.
+      if (/\/JellyfinHelper\/Discovery\/My(\?|$)/.test(url)) {
+        probes.push(url);
+      }
+    });
+
+    await openDashboard(page);
+    // Synchronize on the trends tab settling instead of a fixed wait: its content
+    // renders only after the page scripts (including the injected bootstrap and its
+    // waitForApi polling) have run, so by then a broken gate would already have fired
+    // a probe and the empty-probes assertion below is meaningful.
+    await switchTab(page, 'trends');
+    // Wait for either readiness state with a real assertion: a swallowed Promise.race would let the
+    // empty-probes check below run before the trends tab actually settled, passing without proof.
+    await expect(
+      page.locator('.trend-chart').or(page.locator('#trendChartContainer .trend-empty')),
+    ).toBeVisible({ timeout: 15_000 });
+
+    expect(probes, `unexpected Discovery/My probe on the config page:\n${probes.join('\n')}`).toHaveLength(0);
+  });
+});

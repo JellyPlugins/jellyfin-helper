@@ -606,7 +606,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             var interactionContrib = ComputeInteractionContribution(attr);
 
-            return BuildScoreExplanation(score, attr, interactionContrib);
+            return BuildScoreExplanation(score, attr, interactionContrib, features);
         }
         finally
         {
@@ -732,7 +732,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.IsAbandoned] +
         attr[(int)FeatureIndex.HasInteraction] +
         attr[(int)FeatureIndex.SeriesProgressionBoost] +
-        attr[(int)FeatureIndex.PopularityScore] +
         attr[(int)FeatureIndex.DayOfWeekAffinity] +
         attr[(int)FeatureIndex.HourOfDayAffinity] +
         attr[(int)FeatureIndex.IsWeekend] +
@@ -745,9 +744,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.LibraryAddedRecency] +
         attr[(int)FeatureIndex.ContentNearestNeighborScore] +
         attr[(int)FeatureIndex.LanguageAffinity] +
-        attr[(int)FeatureIndex.CollectionProgressionBoost] +
         attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
-        attr[(int)FeatureIndex.FranchiseAffinity] +
         attr[(int)FeatureIndex.ProductionLocationAffinity] +
         attr[(int)FeatureIndex.InheritedTagSimilarity] +
         attr[(int)FeatureIndex.SeriesCompletability] +
@@ -756,14 +753,35 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         attr[(int)FeatureIndex.GenreStudioIdfPrior];
 
     /// <summary>
-    ///     Builds the ScoreExplanation from the computed score and attribution. Extracted verbatim from ScoreWithExplanation; the assigned contributions are unchanged.
+    ///     Builds the ScoreExplanation from the computed score and attribution. Franchise and collection
+    ///     attributions are surfaced as named signals (not folded into the interaction bucket) so they can be
+    ///     the dominant signal; the MLP score itself is independent of this split.
     /// </summary>
     /// <param name="score">The guarded final score.</param>
     /// <param name="attr">Per-input attribution vector.</param>
     /// <param name="interactionContrib">The combined interaction contribution.</param>
+    /// <param name="features">The raw candidate feature values, used to gate the named attributions.</param>
     /// <returns>The populated score explanation.</returns>
-    private ScoreExplanation BuildScoreExplanation(double score, double[] attr, double interactionContrib) =>
-        new()
+    private ScoreExplanation BuildScoreExplanation(
+        double score,
+        double[] attr,
+        double interactionContrib,
+        CandidateFeatures features)
+    {
+        // Attribution is an input gradient, not a weighted contribution, so a zero-valued feature can still carry
+        // a positive attribution. Gate the three named signals on their raw value so an absent franchise, collection,
+        // or popularity signal can never become dominant and surface a reason for a feature that did not fire.
+        var franchiseContribution = features.FranchiseAffinity > 0.0
+            ? attr[(int)FeatureIndex.FranchiseAffinity]
+            : 0.0;
+        var collectionContribution = features.CollectionProgressionBoost > 0.0
+            ? attr[(int)FeatureIndex.CollectionProgressionBoost]
+            : 0.0;
+        var popularityContribution = features.PopularityScore > 0.0
+            ? attr[(int)FeatureIndex.PopularityScore]
+            : 0.0;
+
+        return new ScoreExplanation
         {
             FinalScore = score,
             GenreContribution = attr[(int)FeatureIndex.GenreSimilarity],
@@ -775,6 +793,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             PeopleContribution = attr[(int)FeatureIndex.PeopleSimilarity],
             StudioContribution = attr[(int)FeatureIndex.StudioMatch],
             InteractionContribution = interactionContrib,
+            FranchiseContribution = franchiseContribution,
+            CollectionProgressionContribution = collectionContribution,
+            PopularityContribution = popularityContribution,
             GenrePenaltyMultiplier = 1.0,
             DominantSignal = ScoreExplanation.DetermineDominantSignal(
                 attr[(int)FeatureIndex.GenreSimilarity],
@@ -785,9 +806,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.YearProximityScore],
                 interactionContrib,
                 attr[(int)FeatureIndex.PeopleSimilarity],
-                attr[(int)FeatureIndex.StudioMatch]),
+                attr[(int)FeatureIndex.StudioMatch],
+                franchiseContribution,
+                collectionContribution,
+                popularityContribution),
             StrategyName = Name
         };
+    }
 
     /// <summary>
     ///     Trains the MLP via backpropagation with Adam optimizer.
@@ -1387,9 +1412,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var g = (outErr * h4Act[k]) + (L2Lambda * _weightsH4O[k]);
             _mWH4O![k] = (AdamBeta1 * _mWH4O[k]) + ((1 - AdamBeta1) * g);
             _vWH4O![k] = (AdamBeta2 * _vWH4O[k]) + ((1 - AdamBeta2) * g * g);
-            _weightsH4O[k] -= DefaultLearningRate * (_mWH4O[k] / bc1) /
-                              (Math.Sqrt(_vWH4O[k] / bc2) + AdamEpsilon);
-            _weightsH4O[k] = Math.Clamp(_weightsH4O[k], -WeightClamp, WeightClamp);
+            var updated = _weightsH4O[k] - (DefaultLearningRate * (_mWH4O[k] / bc1) /
+                              (Math.Sqrt(_vWH4O[k] / bc2) + AdamEpsilon));
+            _weightsH4O[k] = Math.Clamp(updated, -WeightClamp, WeightClamp);
         }
 
         ApplyAdamBiasStep(ref _mBO, ref _vBO, ref _biasOutput, outErr, bc1, bc2);
@@ -1404,9 +1429,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 var g = (h4Err[k] * h3Act[j]) + (L2Lambda * _weightsH3H4[p]);
                 _mWH3H4![p] = (AdamBeta1 * _mWH3H4[p]) + ((1 - AdamBeta1) * g);
                 _vWH3H4![p] = (AdamBeta2 * _vWH3H4[p]) + ((1 - AdamBeta2) * g * g);
-                _weightsH3H4[p] -= DefaultLearningRate * (_mWH3H4[p] / bc1) /
-                                   (Math.Sqrt(_vWH3H4[p] / bc2) + AdamEpsilon);
-                _weightsH3H4[p] = Math.Clamp(_weightsH3H4[p], -WeightClamp, WeightClamp);
+                var updated = _weightsH3H4[p] - (DefaultLearningRate * (_mWH3H4[p] / bc1) /
+                                   (Math.Sqrt(_vWH3H4[p] / bc2) + AdamEpsilon));
+                _weightsH3H4[p] = Math.Clamp(updated, -WeightClamp, WeightClamp);
             }
 
             ApplyAdamBiasStep(ref _mBH4![k], ref _vBH4![k], ref _biasH4[k], h4Err[k], bc1, bc2);
@@ -1422,9 +1447,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 var g = (h3Err[k] * h2Act[j]) + (L2Lambda * _weightsH2H3[p]);
                 _mWH2H3![p] = (AdamBeta1 * _mWH2H3[p]) + ((1 - AdamBeta1) * g);
                 _vWH2H3![p] = (AdamBeta2 * _vWH2H3[p]) + ((1 - AdamBeta2) * g * g);
-                _weightsH2H3[p] -= DefaultLearningRate * (_mWH2H3[p] / bc1) /
-                                   (Math.Sqrt(_vWH2H3[p] / bc2) + AdamEpsilon);
-                _weightsH2H3[p] = Math.Clamp(_weightsH2H3[p], -WeightClamp, WeightClamp);
+                var updated = _weightsH2H3[p] - (DefaultLearningRate * (_mWH2H3[p] / bc1) /
+                                   (Math.Sqrt(_vWH2H3[p] / bc2) + AdamEpsilon));
+                _weightsH2H3[p] = Math.Clamp(updated, -WeightClamp, WeightClamp);
             }
 
             ApplyAdamBiasStep(ref _mBH3![k], ref _vBH3![k], ref _biasH3[k], h3Err[k], bc1, bc2);
@@ -1440,9 +1465,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 var g = (h2Err[k] * h1Act[j]) + (L2Lambda * _weightsH1H2[p]);
                 _mWH1H2![p] = (AdamBeta1 * _mWH1H2[p]) + ((1 - AdamBeta1) * g);
                 _vWH1H2![p] = (AdamBeta2 * _vWH1H2[p]) + ((1 - AdamBeta2) * g * g);
-                _weightsH1H2[p] -= DefaultLearningRate * (_mWH1H2[p] / bc1) /
-                                   (Math.Sqrt(_vWH1H2[p] / bc2) + AdamEpsilon);
-                _weightsH1H2[p] = Math.Clamp(_weightsH1H2[p], -WeightClamp, WeightClamp);
+                var updated = _weightsH1H2[p] - (DefaultLearningRate * (_mWH1H2[p] / bc1) /
+                                   (Math.Sqrt(_vWH1H2[p] / bc2) + AdamEpsilon));
+                _weightsH1H2[p] = Math.Clamp(updated, -WeightClamp, WeightClamp);
             }
 
             ApplyAdamBiasStep(ref _mBH2![k], ref _vBH2![k], ref _biasH2[k], h2Err[k], bc1, bc2);
@@ -1458,9 +1483,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 var g = (h1Err[j] * vec[i]) + (L2Lambda * _weightsIH[p]);
                 _mWIH![p] = (AdamBeta1 * _mWIH[p]) + ((1 - AdamBeta1) * g);
                 _vWIH![p] = (AdamBeta2 * _vWIH[p]) + ((1 - AdamBeta2) * g * g);
-                _weightsIH[p] -= DefaultLearningRate * (_mWIH[p] / bc1) /
-                                 (Math.Sqrt(_vWIH[p] / bc2) + AdamEpsilon);
-                _weightsIH[p] = Math.Clamp(_weightsIH[p], -WeightClamp, WeightClamp);
+                var updated = _weightsIH[p] - (DefaultLearningRate * (_mWIH[p] / bc1) /
+                                 (Math.Sqrt(_vWIH[p] / bc2) + AdamEpsilon));
+                _weightsIH[p] = Math.Clamp(updated, -WeightClamp, WeightClamp);
             }
 
             ApplyAdamBiasStep(ref _mBH1![j], ref _vBH1![j], ref _biasH1[j], h1Err[j], bc1, bc2);

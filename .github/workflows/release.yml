@@ -199,8 +199,12 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       run: |
         mkdir package
-        cp publish/*.dll package/
-        cp publish/logo.png package/ 2>/dev/null || cp media/logo.png package/
+        # Ship the ENTIRE publish output, matching the PR test-build package 1:1.
+        # Copying only *.dll silently dropped transitive deps / deps.json and made
+        # Jellyfin mark the plugin "Malfunctioned"; the PR install test only
+        # validates the release if both package the same files.
+        cp -r publish/. package/
+        cp media/logo.png package/ 2>/dev/null || true
         TARGET_ABI=$(jq -er '.[0].versions[0].targetAbi' manifest.json)
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")
         jq -n \
@@ -309,7 +313,7 @@ jobs:
 
     - name: Download build artifact
       if: env.TAG_EXISTS == 'false'
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
 

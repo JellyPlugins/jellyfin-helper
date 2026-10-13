@@ -1,4 +1,6 @@
-using System.Net;
+﻿using System.Net;
+using System.Security.Authentication;
+using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -11,11 +13,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Arr;
 
 public class ArrIntegrationServiceTests
 {
-    private static ArrIntegrationService CreateService(HttpMessageHandler handler)
+    private static ArrIntegrationService CreateService(HttpMessageHandler handler, string clientName = "ArrIntegration")
     {
         var httpClient = new HttpClient(handler);
         var factoryMock = new Mock<IHttpClientFactory>();
-        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient(clientName)).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
         return new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
     }
@@ -36,6 +38,22 @@ public class ArrIntegrationServiceTests
     private static Mock<HttpMessageHandler> CreateMockHandler(HttpStatusCode statusCode, string content)
     {
         return TestMockFactory.CreateHttpMessageHandler(statusCode, content);
+    }
+
+    private static Mock<HttpMessageHandler> CreateCapturingHandler(string json, List<Uri?> seenUris)
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((request, _) => seenUris.Add(request.RequestUri))
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+        return handler;
     }
 
     [Fact]
@@ -264,7 +282,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(mockHandler.Object);
 
         await Assert.ThrowsAsync<TaskCanceledException>(() =>
-            service.TestConnectionAsync("http://localhost:7878", "testapikey", cts.Token));
+            service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -581,7 +599,7 @@ public class ArrIntegrationServiceTests
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+            service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", cancellationToken: CancellationToken.None));
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -591,7 +609,7 @@ public class ArrIntegrationServiceTests
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.GetRadarrMoviesAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+            service.GetRadarrMoviesAsync("http://radarr.local", "key\r\nX-Injected: evil", cancellationToken: CancellationToken.None));
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -601,7 +619,7 @@ public class ArrIntegrationServiceTests
         var handler = new Mock<HttpMessageHandler>();
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", CancellationToken.None));
+            service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", cancellationToken: CancellationToken.None));
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -616,7 +634,7 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
-        await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        await service.TestConnectionAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
         // After the call, the client must NOT be disposed - reuse it to verify.
         var ex = Record.Exception(() => httpClient.BaseAddress);
@@ -633,7 +651,7 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
-        await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        await service.GetRadarrMoviesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
         var ex = Record.Exception(() => httpClient.BaseAddress);
         Assert.Null(ex);
@@ -649,7 +667,7 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
-        await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        await service.GetSonarrSeriesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
         var ex = Record.Exception(() => httpClient.BaseAddress);
         Assert.Null(ex);
@@ -668,7 +686,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, _) = await service.TestConnectionAsync(url, "apikey", CancellationToken.None);
+        var (success, _) = await service.TestConnectionAsync(url, "apikey", cancellationToken: CancellationToken.None);
 
         Assert.False(success);
     }
@@ -681,7 +699,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var result = await service.GetRadarrMoviesAsync(url, "apikey", CancellationToken.None);
+        var result = await service.GetRadarrMoviesAsync(url, "apikey", cancellationToken: CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -694,7 +712,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var result = await service.GetSonarrSeriesAsync(url, "apikey", CancellationToken.None);
+        var result = await service.GetSonarrSeriesAsync(url, "apikey", cancellationToken: CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -719,7 +737,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.False(success);
         Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
     }
@@ -744,7 +762,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -768,7 +786,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -804,7 +822,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.False(success);
         Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
     }
@@ -825,7 +843,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -845,7 +863,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -925,6 +943,128 @@ public class ArrIntegrationServiceTests
         Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task TestConnection_SkipValidation_UsesInsecureClient()
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{\"appName\":\"Radarr\",\"version\":\"5.0\"}");
+        using var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        var (success, _) = await service.TestConnectionAsync("https://arr.local", "apikey", true, CancellationToken.None);
+
+        Assert.True(success);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_DefaultValidation_UsesStrictClient()
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{\"appName\":\"Radarr\",\"version\":\"5.0\"}");
+        using var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        var (success, _) = await service.TestConnectionAsync("https://arr.local", "apikey", cancellationToken: CancellationToken.None);
+
+        Assert.True(success);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Never);
+    }
+
+    [Fact]
+    public async Task TestConnection_CertificateError_ReturnsCertHint()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "The SSL connection could not be established.",
+                new AuthenticationException("PartialChain")));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key");
+
+        Assert.False(success);
+        Assert.Contains("Skip certificate validation", message);
+    }
+
+    [Fact]
+    public async Task TestConnection_CertificateError_WhenSkipped_DoesNotSuggestEnabling()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "The SSL connection could not be established.",
+                new AuthenticationException("PartialChain")));
+
+        var service = CreateService(handler.Object, "ArrIntegrationInsecure");
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key", true, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.DoesNotContain("enable 'Skip certificate validation'", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetRadarrMovies_MixedSkipFlags_RoutesEachInstanceToItsOwnClient()
+    {
+        // Two instances behind one service: a validated one and a self-signed one.
+        // Each request must travel on its own named client with no cross-talk.
+        var strictUris = new List<Uri?>();
+        var insecureUris = new List<Uri?>();
+        using var strictClient = new HttpClient(CreateCapturingHandler(
+            """[{"title":"Strict Movie","year":2001,"tmdbId":1,"hasFile":true,"path":"/movies/Strict"}]""",
+            strictUris).Object);
+        using var insecureClient = new HttpClient(CreateCapturingHandler(
+            """[{"title":"Insecure Movie","year":2002,"tmdbId":2,"hasFile":false,"path":"/movies/Insecure"}]""",
+            insecureUris).Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(strictClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(insecureClient);
+        var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
+
+        var strictMovies = await service.GetRadarrMoviesAsync("https://strict.local:7878", "key1", false, CancellationToken.None);
+        var insecureMovies = await service.GetRadarrMoviesAsync("https://selfsigned.local:7878", "key2", true, CancellationToken.None);
+
+        Assert.NotNull(strictMovies);
+        Assert.NotNull(insecureMovies);
+        Assert.Equal("Strict Movie", strictMovies[0].Title);
+        Assert.Equal("Insecure Movie", insecureMovies[0].Title);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.Once);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Once);
+        Assert.Equal("strict.local", Assert.Single(strictUris)?.Host);
+        Assert.Equal("selfsigned.local", Assert.Single(insecureUris)?.Host);
+    }
+
+    [Fact]
+    public async Task TestConnection_NonCertError_KeepsGenericMessage()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key");
+
+        Assert.False(success);
+        Assert.DoesNotContain("certificate", message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // TaskCanceledException derives from OperationCanceledException, so with an already-canceled token the `when (cancellationToken.IsCancellationRequested)` filter rethrows instead of returning null (which is reserved for HttpClient.Timeout).
 
     [Fact]
@@ -945,7 +1085,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(mockHandler.Object);
 
         await Assert.ThrowsAsync<TaskCanceledException>(() =>
-            service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cts.Token));
+            service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -966,7 +1106,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(mockHandler.Object);
 
         await Assert.ThrowsAsync<TaskCanceledException>(() =>
-            service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cts.Token));
+            service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cancellationToken: cts.Token));
     }
 
     // A folder present only in the Jellyfin set (no matching Sonarr series) must land under
@@ -1185,7 +1325,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(mockHandler.Object);
 
         await Assert.ThrowsAsync<TaskCanceledException>(() =>
-            service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cts.Token));
+            service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: cts.Token));
     }
 
     [Fact]
@@ -1195,7 +1335,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(handler.Object);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.GetRootFoldersAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+            service.GetRootFoldersAsync("http://radarr.local", "key\r\nX-Injected: evil", cancellationToken: CancellationToken.None));
         Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1207,7 +1347,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var result = await service.GetRootFoldersAsync(url, "apikey", CancellationToken.None);
+        var result = await service.GetRootFoldersAsync(url, "apikey", cancellationToken: CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -1358,5 +1498,94 @@ public class ArrIntegrationServiceTests
         var matchedForTv = ArrIntegrationService.MatchLibrariesToRootFolders(roots, libraries, "tvshows");
         Assert.Single(matchedForTv);
         Assert.Contains("Anime Series", matchedForTv);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestConnection_DefaultUsesStrictClient()
+    {
+        var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
+        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.AtLeastOnce);
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public async Task TestConnection_ExplicitOptInUsesInsecureClient()
+    {
+        var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"appName":"Radarr","version":"1.0"}""");
+        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri("http://localhost/") };
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://localhost:7878", "key", skipCertificateValidation: true);
+
+        factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void CompareRadarr_10000Entries_CompletesWithin1Second()
+    {
+        var movies = new List<ArrMovie>();
+        var jellyfinNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < 10_000; i++)
+        {
+            var folder = $"Movie {i} (2020)";
+            movies.Add(new ArrMovie { Title = $"Movie {i}", Year = 2020, HasFile = true, Path = "/data/" + folder });
+            if (i % 2 == 0)
+            {
+                jellyfinNames.Add(folder);
+            }
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinNames);
+        sw.Stop();
+
+        Assert.Equal(5000, result.InBoth.Count);
+        AssertPerfLimit(sw, 1000);
+    }
+
+    private static void AssertPerfLimit(System.Diagnostics.Stopwatch sw, long maxMilliseconds)
+    {
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < maxMilliseconds, $"Took {sw.ElapsedMilliseconds}ms, expected < {maxMilliseconds}ms");
+        }
+    }
+
+    [Fact]
+    public async Task TestConnection_ServerRedirects_ReturnsActionableMessageWithTarget()
+    {
+        // A 3xx is never auto-followed (SSRF/MITM hardening); the test must explain the redirect and point
+        // at the resolved target instead of surfacing a generic "connection failed".
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var resp = new HttpResponseMessage(HttpStatusCode.MovedPermanently);
+                resp.Headers.Location = new Uri("https://radarr.truenas1.local/api/v3/system/status");
+                return resp;
+            });
+        var service = CreateService(handler.Object);
+
+        var (success, message) = await service.TestConnectionAsync("https://radarr.truenas1.local", "apikey", cancellationToken: CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("redirect", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("radarr.truenas1.local", message, StringComparison.OrdinalIgnoreCase);
     }
 }

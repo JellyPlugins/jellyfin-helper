@@ -6,6 +6,15 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # Skip only generated or truly non-reviewable files.
+  path_filters:
+    - "!**/*.md"
+    - "!**/PluginPages/configPage.html"
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!**/node_modules/**"
+    - "!docs/**"
+    - "!manifest.json"
   auto_review:
     enabled: true
     drafts: false

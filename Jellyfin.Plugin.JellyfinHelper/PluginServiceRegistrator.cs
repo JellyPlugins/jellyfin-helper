@@ -17,12 +17,14 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -44,6 +46,19 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         static HttpMessageHandler NoRedirectHandler() =>
             new SocketsHttpHandler { AllowAutoRedirect = false };
 
+        // Same hardening as the strict client, except TLS certificate validation: opt-in per Arr
+        // instance (or single Seerr connection) for reverse proxies with a private CA, self-signed, or
+        // IP certificate. Only the insecure named clients use this handler; every default path keeps
+        // full validation.
+#pragma warning disable S4830 // Justification: intentional admin opt-in bypass, never the default; strict client unchanged.
+        static HttpMessageHandler NoRedirectInsecureHandler() =>
+            new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+            };
+#pragma warning restore S4830
+
         void AddHardenedClient(string name, TimeSpan timeout) =>
             serviceCollection.AddHttpClient(name, client =>
             {
@@ -52,8 +67,72 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
 
         AddHardenedClient("ArrIntegration", TimeSpan.FromSeconds(15));
+        serviceCollection.AddHttpClient("ArrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
         AddHardenedClient("SeerrIntegration", TimeSpan.FromSeconds(30));
         AddHardenedClient("SeerrDiscovery", TimeSpan.FromSeconds(30));
+        serviceCollection.AddHttpClient("SeerrIntegrationInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
+        serviceCollection.AddHttpClient("SeerrDiscoveryInsecure", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectInsecureHandler);
+
+        // Trakt timeout is admin-configurable (already clamped by the config setter). The delegate runs on
+        // every CreateClient, so a saved change applies to the next request without a restart; falls back to
+        // the default when the plugin instance is not yet available during early DI construction.
+        serviceCollection.AddHttpClient("Trakt", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(Plugin.Instance?.Configuration?.TraktTimeoutSeconds ?? 30);
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+            // Trakt sits behind Cloudflare, which 403s requests that carry no User-Agent. HttpClient sends none
+            // by default, so every Trakt call failed with 403 regardless of a valid token/client id. Send an
+            // explicit identifying UA so Cloudflare lets the request through.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                $"JellyfinHelper/{Plugin.Instance?.Version?.ToString() ?? "3.0"} (+https://github.com/JellyPlugins/jellyfin-helper)");
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
+
+        // The provider stays private to this plugin so keyrings can neither affect nor be affected by
+        // Jellyfin's or other plugins' providers. Ring files are unencrypted at rest on Linux, locked
+        // down to the service account (0700) - same trust boundary as Jellyfin's own config and database.
+        serviceCollection.AddSingleton<ISecretProtector>(sp =>
+        {
+            // Resolved lazily: Jellyfin 12.2 runs RegisterServices before plugin instances exist, so
+            // Plugin.Instance is null during eager DI construction and would force the ephemeral provider
+            // (secrets unreadable after restart). The factory runs on first resolution, by which point the
+            // data path is available.
+            var keyRingDirectory = ResolveKeyRingDirectory(Plugin.Instance?.DataFolderPath);
+            var logger = sp.GetRequiredService<ILogger<SecretProtector>>();
+            if (keyRingDirectory is null)
+            {
+                // No persisted ring means secrets die with the restart. Startup itself must still succeed.
+                logger.LogWarning(
+                    "[DataProtection] No usable keyring directory under the plugin data path - encrypted secrets will not survive restarts until this is fixed.");
+            }
+
+            IDataProtectionProvider provider = keyRingDirectory is null
+                ? new EphemeralDataProtectionProvider()
+                : DataProtectionProvider.Create(
+                    keyRingDirectory,
+                    builder => builder.SetApplicationName("Jellyfin.Plugin.JellyfinHelper"));
+
+            return new SecretProtector(provider, logger);
+        });
+
+        serviceCollection.AddSingleton<Services.Trakt.External.IOfficialTraktPluginReader>(CreateOfficialTraktPluginReader);
+
+        serviceCollection.AddSingleton<Services.Trakt.TraktCacheService>();
+        serviceCollection.AddSingleton<Services.Trakt.ITraktPersonalSourceService>(sp =>
+            new Services.Trakt.TraktPersonalSourceService(
+                sp.GetRequiredService<Services.Trakt.External.IOfficialTraktPluginReader>()));
+        serviceCollection.AddSingleton<Services.Trakt.ITraktDiscoveryService, Services.Trakt.TraktDiscoveryService>();
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();
@@ -165,5 +244,98 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         // Re-run the Discovery sidebar injection at server startup (after DI is built and the web root is mounted).
         serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
+    }
+
+    /// <summary>
+    ///     Builds the reader for the OFFICIAL Trakt plugin's persisted config so the Helper can source
+    ///     recommendations through its single app on a free Trakt account (one connected app per account).
+    ///     Host services are resolved lazily and nullably: a Jellyfin without IPluginManager/IApplicationPaths
+    ///     must not break DI, it must simply report the official plugin as absent so the Helper surfaces Trakt
+    ///     as unavailable. Extracted from <see cref="RegisterServices"/> to keep that method's complexity
+    ///     within budget.
+    /// </summary>
+    /// <param name="serviceProvider">The service provider to resolve host and plugin services from.</param>
+    /// <returns>The configured reader.</returns>
+    private static Services.Trakt.External.OfficialTraktPluginReader CreateOfficialTraktPluginReader(IServiceProvider serviceProvider)
+    {
+        var pluginManager = serviceProvider.GetService<MediaBrowser.Common.Plugins.IPluginManager>();
+        var appPaths = serviceProvider.GetService<MediaBrowser.Common.Configuration.IApplicationPaths>();
+        var configurationsPath = appPaths?.PluginConfigurationsPath;
+
+        // Only hand the reader a fully-qualified path. A relative/empty value would make File.Exists resolve
+        // against the process CWD (not the config dir), so treat it as "no config" and let the reader report
+        // the plugin absent rather than probing an unexpected location.
+        var configPath = !string.IsNullOrEmpty(configurationsPath) && Path.IsPathFullyQualified(configurationsPath)
+            ? Path.Join(configurationsPath, Services.Trakt.External.OfficialTraktPluginGuids.ConfigFileName)
+            : null;
+
+        // Presence means installed AND active: GetPlugin returns disabled, malfunctioned, or superseded
+        // plugins too, and sourcing through a plugin that is not running would serve a stale token.
+        bool IsPresent() =>
+            pluginManager?.GetPlugin(Services.Trakt.External.OfficialTraktPluginGuids.PluginId) is { } plugin
+            && plugin.Manifest.Status == MediaBrowser.Model.Plugins.PluginStatus.Active;
+
+        return new Services.Trakt.External.OfficialTraktPluginReader(
+            IsPresent,
+            configPath,
+            serviceProvider.GetRequiredService<IPluginLogService>(),
+            serviceProvider.GetRequiredService<ILogger<Services.Trakt.External.OfficialTraktPluginReader>>());
+    }
+
+    /// <summary>
+    ///     Resolves the Data Protection keyring directory under the plugin data path, creating it when needed.
+    ///     Path.Join never discards the base path, and a relative base is rejected outright so the ring can
+    ///     never land in the process working directory.
+    /// </summary>
+    /// <param name="dataFolderPath">The plugin data path, or null when the plugin instance is unavailable.</param>
+    /// <returns>The ready keyring directory, or null when no usable directory could be resolved.</returns>
+    internal static DirectoryInfo? ResolveKeyRingDirectory(string? dataFolderPath)
+    {
+        const string keyRingSubdirectory = "keys";
+        if (string.IsNullOrWhiteSpace(dataFolderPath) || !Path.IsPathFullyQualified(dataFolderPath))
+        {
+            return null;
+        }
+
+        DirectoryInfo directory;
+        try
+        {
+            directory = new DirectoryInfo(Path.Join(dataFolderPath, keyRingSubdirectory));
+            directory.Create();
+        }
+        catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or System.Security.SecurityException)
+        {
+            return null;
+        }
+
+        // Best effort: lock the ring down to the service account. A failure here must not fail startup
+        // AND must not discard the ring: the directory is already created and writable, so returning null
+        // would needlessly drop to ephemeral keys and lose every secret on restart over a cosmetic
+        // permission-tightening failure. Owner-only mode is defense-in-depth on top of the data path's
+        // existing trust boundary (same as Jellyfin's own config/database), so proceeding without it is safe.
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                File.SetUnixFileMode(
+                    directory.FullName,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            catch (Exception ex) when (ex is IOException
+                                            or UnauthorizedAccessException
+                                            or ArgumentException
+                                            or NotSupportedException
+                                            or PlatformNotSupportedException)
+            {
+                // Swallowed by design: keep the usable ring (see comment above). The failure is a
+                // permission-tightening miss, not a loss of the directory itself.
+            }
+        }
+
+        return directory;
     }
 }

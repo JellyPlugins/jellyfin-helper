@@ -78,6 +78,28 @@ public class ConfigurationUpdateRequest
     public string SeerrApiKey { get; init; } = string.Empty;
 
     /// <summary>
+    ///     Gets a value indicating whether TLS certificate validation is skipped for the Seerr instance.
+    ///     Nullable so an absent field is distinguishable from an explicit false; absent means false.
+    /// </summary>
+    public bool? SeerrSkipCertificateValidation { get; init; }
+
+    /// <summary>
+    ///     Gets a value indicating whether Trakt sourcing is enabled (user-facing toggle). Null when the client
+    ///     omits it (partial PUT) so the stored value is preserved; a non-null value is persisted verbatim.
+    /// </summary>
+    public bool? TraktSourcingEnabled { get; init; }
+
+    /// <summary>
+    ///     Gets the Trakt HTTP request timeout in seconds. Nullable so older clients do not reset it.
+    /// </summary>
+    public int? TraktTimeoutSeconds { get; init; }
+
+    /// <summary>
+    ///     Gets the number of Trakt items fetched per list. Nullable so older clients do not reset it.
+    /// </summary>
+    public int? TraktLimit { get; init; }
+
+    /// <summary>
     ///     Gets a value indicating whether to use a trash folder instead of permanently deleting files.
     /// </summary>
     public bool UseTrash { get; init; }

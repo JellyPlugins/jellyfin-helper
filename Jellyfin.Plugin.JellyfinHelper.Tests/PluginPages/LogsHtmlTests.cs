@@ -275,6 +275,19 @@ public partial class LogsHtmlTests : ConfigPageTestBase
         Assert.Contains("id=\"logsLevelFilter\" style=\"width:auto\"", HtmlContent);
     }
 
+    [Fact]
+    public void Html_LevelFilter_KeepsWidthWhileSaveCheckShows()
+    {
+        // The save-check overlay flips appearance to none: on a native-appearance select that drops
+        // the OS arrow gutter and the width:auto box visibly shrinks until the icon fades. A
+        // permanently custom arrow (same 1.3em/right-0.5em metrics as the overlay icon) reserves the
+        // gutter up front, so the image swap changes no geometry.
+        var css = WhitespaceRegex().Replace(HtmlContent, " ");
+        Assert.Contains(".logs-toolbar select { -webkit-appearance: none;", css);
+        Assert.Contains("padding-right: 2.2em;", css);
+        Assert.Contains("background-position: right 0.5em center; background-size: 1.3em;", css);
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 }

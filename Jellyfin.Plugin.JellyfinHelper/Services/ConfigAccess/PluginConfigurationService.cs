@@ -112,7 +112,7 @@ public class PluginConfigurationService : IPluginConfigurationService
                 return;
             }
 
-            // Mutation and serialization must be atomic: Jellyfin 12.1 serializes the
+            // Mutation and serialization must be atomic: Jellyfin 12 serializes the
             // live Configuration object without a snapshot, so a concurrent mutation
             // during SaveConfiguration would persist mixed state. Holding the lock
             // across the save (including retries) guarantees one consistent snapshot;

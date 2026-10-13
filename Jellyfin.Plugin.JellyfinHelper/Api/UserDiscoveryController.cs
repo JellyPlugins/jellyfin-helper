@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -28,6 +29,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public sealed class UserDiscoveryController : ControllerBase
 {
     private const string DiscoveryAccessDisabledMessage = "Discovery user access is disabled by the administrator.";
+    private const string TraktDisabledMessage = "Trakt is not enabled by the administrator.";
     private const string MovieMediaType = "movie";
     private const string RadarrServiceType = "radarr";
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
@@ -48,6 +50,8 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginConfigurationService _configurationService;
+    private readonly ITraktDiscoveryService _traktDiscovery;
+    private readonly Services.Trakt.External.IOfficialTraktPluginReader _officialTraktPlugin;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -58,6 +62,8 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="configurationService">The plugin configuration service.</param>
     /// <param name="memoryCache">The memory cache used for per-user rate limiting.</param>
+    /// <param name="traktDiscovery">The Trakt discovery service (personal + trending).</param>
+    /// <param name="officialTraktPlugin">Reader reporting whether the official Trakt plugin can source Trakt.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
@@ -65,6 +71,8 @@ public sealed class UserDiscoveryController : ControllerBase
         IDiscoveryFeedbackStore feedbackStore,
         IPluginConfigurationService configurationService,
         IMemoryCache memoryCache,
+        ITraktDiscoveryService traktDiscovery,
+        Services.Trakt.External.IOfficialTraktPluginReader officialTraktPlugin,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
@@ -72,6 +80,8 @@ public sealed class UserDiscoveryController : ControllerBase
         _feedbackStore = feedbackStore;
         _configurationService = configurationService;
         _memoryCache = memoryCache;
+        _traktDiscovery = traktDiscovery;
+        _officialTraktPlugin = officialTraktPlugin;
         _logger = logger;
     }
 
@@ -588,6 +598,99 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Returns the current user's personal Trakt recommendations, scored for them. When the user has not
+    ///     linked Trakt in the official plugin the response is {Linked:false} so the UI shows the not-linked
+    ///     message; otherwise it is a DiscoveryResult. 403 when Trakt is disabled by the admin.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A link-status envelope or a scored discovery result.</returns>
+    [HttpGet("Trakt")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<TraktDiscoveryResponse>> GetMyTrakt(CancellationToken cancellationToken)
+    {
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        // Link state is resolved by the discovery service from the official Trakt plugin's token, so a
+        // linked user is reported linked and fetched instead of being shown the not-linked message. Without
+        // a usable token the fetch is skipped.
+        var linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
+        var result = linked
+            ? await _traktDiscovery.GetPersonalAsync(userId.Value, cancellationToken).ConfigureAwait(false)
+            : null;
+        if (linked && result is null)
+        {
+            // The link lapsed mid-fetch (token went away between the calls); report the current state
+            // so the UI shows the not-linked message instead of an empty grid.
+            linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
+        }
+
+        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = CapToVisible(result) });
+    }
+
+    /// <summary>
+    ///     Returns the global Trakt trending list, scored for the current user. 403 when Trakt is disabled.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The scored trending result, or an empty result when none survive.</returns>
+    [HttpGet("Trakt/Trending")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<DiscoveryResult?>> GetMyTraktTrending(CancellationToken cancellationToken)
+    {
+        var accessError = CheckTraktAccess();
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await _traktDiscovery.GetTrendingAsync(userId.Value, cancellationToken).ConfigureAwait(false);
+        return Ok(CapToVisible(result));
+    }
+
+    /// <summary>
+    ///     Caps a Trakt discovery result to the same visible count as the "For you" tab
+    ///     (<see cref="ISeerrDiscoveryService.MaxVisiblePerUser"/>). The Trakt services return the full scored
+    ///     pool (two lists at the Trakt limit each) and already drop requested/dismissed items via
+    ///     FilterConsumedItems, so capping here mirrors GetMyDiscoveryResults: the user sees at most N, and when
+    ///     one is requested or dismissed the next pool item takes its slot on the following load. The pool stays
+    ///     uncapped in the Trakt cache so that backfill has something to promote.
+    /// </summary>
+    /// <param name="result">The scored Trakt result, or null when nothing was sourced.</param>
+    /// <returns>The result with its recommendations capped, or null when the input was null.</returns>
+    private DiscoveryResult? CapToVisible(DiscoveryResult? result)
+    {
+        if (result is null || result.Recommendations.Count <= _discovery.MaxVisiblePerUser)
+        {
+            return result;
+        }
+
+        return new DiscoveryResult
+        {
+            UserId = result.UserId,
+            UserName = result.UserName,
+            Recommendations = result.Recommendations.Take(_discovery.MaxVisiblePerUser).ToList(),
+            GeneratedAt = result.GeneratedAt,
+        };
+    }
+
+    /// <summary>
     ///     Resets all per-user rate-limit state. Called from Plugin's constructor on every plugin load and from OnUninstalling so stale entries from a previous plugin load do not leak into a subsequent reload.
     /// </summary>
     internal static void ClearRateLimitState()
@@ -613,6 +716,42 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <returns>The fully-qualified, namespaced reconciliation-throttle cache key.</returns>
     internal static string BuildReconcileKey(Guid jellyfinUserId) =>
         $"JellyfinHelper:discovery:reconcile:{_rateLimitGeneration}:{jellyfinUserId:N}";
+
+    /// <summary>
+    ///     Checks whether Trakt can be sourced for the user-facing read endpoints: the master
+    ///     <see cref="Configuration.PluginConfiguration.TraktSourcingEnabled"/> switch is on AND the official
+    ///     Trakt plugin is present (the only Trakt source. The Helper has no own Trakt app). A stored
+    ///     opt-in outlives an uninstalled official plugin (the settings row hides, the gate stays shut),
+    ///     so reinstalling resumes without reconfiguration.
+    /// </summary>
+    private bool IsTraktEnabled()
+    {
+        var config = _configurationService.GetConfiguration();
+        return config.TraktSourcingEnabled && _officialTraktPlugin.IsPresent();
+    }
+
+    /// <summary>
+    ///     Combined gate for the user-facing Trakt READ endpoints. Trakt tabs are a feature of the Discovery
+    ///     sidebar, so they require BOTH that the admin granted user-level discovery access AND that Trakt is
+    ///     sourceable. Returns a 403 <see cref="ObjectResult"/> to short-circuit with, or <c>null</c> when access
+    ///     is allowed. The 403 contract is what the sidebar probes to decide whether to render the Trakt tabs.
+    /// </summary>
+    private ObjectResult? CheckTraktAccess() => CheckTraktAccessCore(IsTraktEnabled());
+
+    private ObjectResult? CheckTraktAccessCore(bool traktAvailable)
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
+        }
+
+        if (!traktAvailable)
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = TraktDisabledMessage });
+        }
+
+        return null;
+    }
 
     /// <summary>
     ///     Reconstructs SeerrServiceInfo objects directly from the pre-evaluated AllowedQualityProfile list without requiring a second Seerr API call.

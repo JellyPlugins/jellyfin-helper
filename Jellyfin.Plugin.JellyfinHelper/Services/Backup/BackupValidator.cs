@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -46,14 +47,17 @@ public static class BackupValidator
     internal const int MaxStringLength = 1000;
 
     /// <summary>
-    ///     Maximum string length for URL fields.
+    ///     Maximum string length for URL fields. Matches the settings validator's 2048-character URL limit so
+    ///     a configuration that passed settings validation can always be exported and restored without being
+    ///     rejected here.
     /// </summary>
-    internal const int MaxUrlLength = 500;
+    internal const int MaxUrlLength = 2048;
 
     /// <summary>
-    ///     Maximum string length for API key fields.
+    ///     Maximum string length for API key fields. Matches the settings validator's API-key limit so a saved
+    ///     key always round-trips through backup intact (no rejection, no silent truncation).
     /// </summary>
-    internal const int MaxApiKeyLength = 200;
+    internal const int MaxApiKeyLength = 512;
 
     /// <summary>
     ///     Maximum string length for instance name fields.
@@ -64,6 +68,18 @@ public static class BackupValidator
     ///     Maximum string length for the per-instance library assignment field.
     /// </summary>
     internal const int MaxArrLibrariesLength = 2048;
+
+    /// <summary>
+    ///     Maximum number of codec card ids accepted in a backup. Matches the settings validator cap so an
+    ///     order that passed settings validation always round-trips through backup.
+    /// </summary>
+    internal const int MaxCodecCardOrderEntries = 32;
+
+    /// <summary>
+    ///     Maximum length of a single codec card id. Matches the settings validator so an order always
+    ///     round-trips through backup.
+    /// </summary>
+    internal const int MaxCodecCardIdLength = 64;
 
     /// <summary>
     ///     Valid language codes.
@@ -127,6 +143,9 @@ public static class BackupValidator
         ValidateArrInstances(result, backup.RadarrInstances, "RadarrInstances");
         ValidateArrInstances(result, backup.SonarrInstances, "SonarrInstances");
 
+        // Codecs card order validation
+        ValidateCodecCardOrder(result, backup.CodecCardOrder);
+
         // Historical data validation
         ValidateGrowthTimeline(result, backup.GrowthTimeline);
         ValidateGrowthBaseline(result, backup.GrowthBaseline);
@@ -184,6 +203,11 @@ public static class BackupValidator
         ValidateStringField(result, backup.SeerrUrl, "SeerrUrl", MaxUrlLength);
         ValidateStringField(result, backup.SeerrApiKey, "SeerrApiKey", MaxApiKeyLength);
         ValidateStringField(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", MaxStringLength);
+
+        if (backup.SeerrSkipCertificateValidation == true)
+        {
+            result.Warnings.Add("Backup enables TLS certificate validation bypass for Seerr. Verify this is intended before restoring.");
+        }
 
         if (!string.IsNullOrEmpty(backup.SeerrUrl) &&
             (!Uri.TryCreate(backup.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
@@ -356,6 +380,34 @@ public static class BackupValidator
         }
     }
 
+    private static void ValidateCodecCardOrder(BackupValidationResult result, List<string>? order)
+    {
+        if (order == null)
+        {
+            return;
+        }
+
+        if (order.Count > MaxCodecCardOrderEntries)
+        {
+            result.Errors.Add($"CodecCardOrder has too many entries ({order.Count} > {MaxCodecCardOrderEntries}).");
+        }
+
+        for (var i = 0; i < order.Count; i++)
+        {
+            var id = order[i];
+
+            // Hard errors on dangerous/oversized content (the settings endpoint enforces the same).
+            ValidateStringField(result, id, $"CodecCardOrder[{i}]", MaxCodecCardIdLength);
+
+            // Unknown ids are a soft failure: warn and let the sanitizer drop them, so a backup from a
+            // newer/older plugin with a different card set stays importable instead of being rejected.
+            if (!string.IsNullOrWhiteSpace(id) && !CodecCardCatalog.IsKnown(id.Trim()))
+            {
+                result.Warnings.Add($"CodecCardOrder[{i}] has unknown card id '{id}'; it will be dropped on restore.");
+            }
+        }
+    }
+
     private static void ValidateArrInstances(
         BackupValidationResult result,
         List<BackupArrInstance>? instances,
@@ -380,31 +432,44 @@ public static class BackupValidator
                 continue;
             }
 
-            var prefix = $"{fieldName}[{i}]";
+            ValidateArrInstance(result, instance, $"{fieldName}[{i}]");
+        }
+    }
 
-            ValidateStringField(result, instance.Name, $"{prefix}.Name", MaxInstanceNameLength);
-            ValidateStringField(result, instance.Url, $"{prefix}.Url", MaxUrlLength);
-            ValidateStringField(result, instance.ApiKey, $"{prefix}.ApiKey", MaxApiKeyLength);
-            ValidateStringField(result, instance.Libraries, $"{prefix}.Libraries", MaxArrLibrariesLength);
+    private static void ValidateArrInstance(BackupValidationResult result, BackupArrInstance instance, string prefix)
+    {
+        ValidateStringField(result, instance.Name, $"{prefix}.Name", MaxInstanceNameLength);
+        ValidateStringField(result, instance.Url, $"{prefix}.Url", MaxUrlLength);
+        ValidateStringField(result, instance.ApiKey, $"{prefix}.ApiKey", MaxApiKeyLength);
+        ValidateStringField(result, instance.Libraries, $"{prefix}.Libraries", MaxArrLibrariesLength);
 
-            // The sanitizer only truncates Libraries; reject control characters here to match
-            // ConfigurationRequestValidator so a crafted backup cannot persist them on restore.
-            if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
-            {
-                result.Errors.Add($"{prefix}.Libraries contains invalid control characters.");
-            }
+        // The sanitizer only truncates Libraries; reject control characters here to match
+        // ConfigurationRequestValidator so a crafted backup cannot persist them on restore.
+        if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
+        {
+            result.Errors.Add($"{prefix}.Libraries contains invalid control characters.");
+        }
 
-            // Validate URL format
-            if (string.IsNullOrEmpty(instance.Url))
-            {
-                continue;
-            }
+        if (instance.ApiKey != null && ContainsControlCharacters(instance.ApiKey))
+        {
+            result.Errors.Add($"{prefix}.ApiKey contains invalid control characters.");
+        }
 
-            if (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                result.Errors.Add($"{prefix}.Url is not a valid HTTP/HTTPS URL: '{instance.Url}'.");
-            }
+        if (instance.SkipCertificateValidation == true)
+        {
+            result.Warnings.Add($"{prefix} enables TLS certificate validation bypass. Verify this is intended before restoring.");
+        }
+
+        // Validate URL format
+        if (string.IsNullOrEmpty(instance.Url))
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            result.Errors.Add($"{prefix}.Url is not a valid HTTP/HTTPS URL: '{instance.Url}'.");
         }
     }
 
@@ -514,6 +579,14 @@ public static class BackupValidator
     internal static bool ContainsNullBytes(string value)
     {
         return value.Contains('\0', StringComparison.Ordinal);
+    }
+
+    internal static bool ContainsControlCharacters(string value)
+    {
+        return value.Contains('\r', StringComparison.Ordinal)
+            || value.Contains('\n', StringComparison.Ordinal)
+            || value.Contains('\t', StringComparison.Ordinal)
+            || value.Contains('\0', StringComparison.Ordinal);
     }
 
     internal static bool ContainsScriptInjection(string value)

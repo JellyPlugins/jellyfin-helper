@@ -186,4 +186,80 @@ public sealed class EngineLanguageAffinityTests
             affinity > 0.5,
             $"A primary-language subtitle match must score above the 0.5 neutral value; got {affinity}.");
     }
+
+    // FirstPreferredLanguage - the language anchor must only name a >0.5-tier language (primary 1.0 or preferred 0.85).
+
+    [Fact]
+    public void FirstPreferredLanguage_PreferredTierLanguage_IsNamed()
+    {
+        // "en" has ChosenCount > 0, placing it in the preferred (0.85) tier, so the anchor is allowed to name it.
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 5, ForcedCount = 0 } }
+            }
+        };
+
+        var result = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .FirstPreferredLanguage(["en"], profile);
+
+        Assert.Equal("en", result);
+    }
+
+    [Fact]
+    public void FirstPreferredLanguage_PrimaryTierLanguage_IsNamed()
+    {
+        // "ja" has the highest WeightedScore, making it the primary (1.0) tier, so it is a valid anchor language.
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "ja", new LanguageProfileEntry { ChosenCount = 20, ForcedCount = 0 } },
+                { "en", new LanguageProfileEntry { ChosenCount = 2, ForcedCount = 0 } }
+            }
+        };
+
+        var result = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .FirstPreferredLanguage(["ja"], profile);
+
+        Assert.Equal("ja", result);
+    }
+
+    [Fact]
+    public void FirstPreferredLanguage_OnlyLowTierInProfile_ReturnsNull()
+    {
+        // BUG GUARD (H): "de" is tolerated only (ChosenCount 0, ForcedCount 1 -> WeightedScore 0.25), so it is
+        // neither preferred nor primary - "en" outranks it on WeightedScore. The pre-fix code named any language
+        // merely present in the profile (0.3 tier), advertising a language that never drove LanguageAffinity above
+        // the 0.5 neutral floor; the anchor must now stay silent and return null.
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>
+            {
+                { "en", new LanguageProfileEntry { ChosenCount = 10, ForcedCount = 0 } },
+                { "de", new LanguageProfileEntry { ChosenCount = 0, ForcedCount = 1 } }
+            }
+        };
+
+        var result = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .FirstPreferredLanguage(["de"], profile);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FirstPreferredLanguage_EmptyProfile_ReturnsNull()
+    {
+        // Cold-start users have no language profile, so no language can clear the primary/preferred bar.
+        var profile = new UserWatchProfile
+        {
+            LanguageProfile = new Dictionary<string, LanguageProfileEntry>()
+        };
+
+        var result = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine
+            .FirstPreferredLanguage(["en"], profile);
+
+        Assert.Null(result);
+    }
 }

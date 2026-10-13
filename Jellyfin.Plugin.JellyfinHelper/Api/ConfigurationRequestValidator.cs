@@ -18,6 +18,21 @@ public static class ConfigurationRequestValidator
     /// <summary>Maximum number of Arr instances per type (Radarr / Sonarr).</summary>
     private const int MaxArrInstances = 3;
 
+    /// <summary>Maximum URL length. Matches BackupValidator.MaxUrlLength so a saved URL always round-trips through backup.</summary>
+    private const int MaxUrlLength = 2048;
+
+    /// <summary>Maximum API-key / secret length. Matches BackupValidator.MaxApiKeyLength so a saved key is never rejected or truncated by backup.</summary>
+    private const int MaxApiKeyLength = 512;
+
+    /// <summary>Maximum length of the comma-separated ExcludedLibraries field, matching the generic backup string limit.</summary>
+    private const int MaxExcludedLibrariesLength = 1000;
+
+    /// <summary>Maximum number of codec card ids accepted in one order update (room for future charts).</summary>
+    private const int MaxCodecCardOrderEntries = 32;
+
+    /// <summary>Maximum length of a single codec card id. Matches BackupValidator so an order always round-trips through backup.</summary>
+    private const int MaxCodecCardIdLength = 64;
+
     /// <summary>Returns <c>true</c> when <paramref name="language"/> is in the plugin's supported locale list.</summary>
     /// <param name="language">The language code to check (e.g. "en", "de").</param>
     /// <returns><c>true</c> if supported; <c>false</c> otherwise.</returns>
@@ -55,6 +70,13 @@ public static class ConfigurationRequestValidator
             return $"Maximum {MaxArrInstances} Sonarr instances allowed.";
         }
 
+        // Bound the comma-separated excluded-libraries string so it round-trips through backup (which caps
+        // it) and cannot grow the stored config without limit.
+        if (request.ExcludedLibraries.Length > MaxExcludedLibrariesLength)
+        {
+            return $"ExcludedLibraries must be {MaxExcludedLibrariesLength} characters or fewer.";
+        }
+
         // Seerr settings validation
         var seerrError = ValidateSeerrSettings(request);
         if (seerrError != null)
@@ -78,6 +100,62 @@ public static class ConfigurationRequestValidator
     }
 
     /// <summary>
+    ///     Validates a Codecs-tab card order. The endpoint is strict: it expects a true permutation of
+    ///     known ids from the frontend, so unknown ids and duplicates are errors rather than silently
+    ///     dropped (the lenient drop happens only in the backup path).
+    /// </summary>
+    /// <param name="order">The requested card order (card ids), or <c>null</c>.</param>
+    /// <returns>An error message string, or <c>null</c> when the order is valid. A null or empty order is valid (means canonical).</returns>
+    public static string? ValidateCodecCardOrder(IReadOnlyList<string>? order)
+    {
+        if (order is null || order.Count == 0)
+        {
+            return null;
+        }
+
+        if (order.Count > MaxCodecCardOrderEntries)
+        {
+            return $"CodecCardOrder must contain {MaxCodecCardOrderEntries} entries or fewer.";
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in order)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return "CodecCardOrder entries must not be empty.";
+            }
+
+            var id = raw.Trim();
+            if (id.Length > MaxCodecCardIdLength)
+            {
+                return $"CodecCardOrder entries must be {MaxCodecCardIdLength} characters or fewer.";
+            }
+
+            if (!CodecCardCatalog.IsKnown(id))
+            {
+                return $"Unknown codec card id '{SanitizeForMessage(id)}'.";
+            }
+
+            if (!seen.Add(id))
+            {
+                return $"Duplicate codec card id '{SanitizeForMessage(id)}'.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Strips control characters (newlines, tabs, etc.) from a user-supplied token before it is
+    ///     echoed into an error message or the plugin log, so a crafted id cannot forge log lines.
+    /// </summary>
+    /// <param name="value">The raw token.</param>
+    /// <returns>The token with control characters removed.</returns>
+    private static string SanitizeForMessage(string value)
+        => new(value.Where(c => !char.IsControl(c)).ToArray());
+
+    /// <summary>
     ///     Validates the Seerr-related fields (cleanup age, URL length/format, and the API-key requirement), enforcing the range checks only when a Seerr URL is actually configured.
     /// </summary>
     /// <param name="request">The configuration update request to validate.</param>
@@ -92,9 +170,9 @@ public static class ConfigurationRequestValidator
         }
 
         // Validate Seerr URL if provided
-        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && request.SeerrUrl.Length > 2048)
+        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && request.SeerrUrl.Length > MaxUrlLength)
         {
-            return "Seerr URL must be 2048 characters or fewer.";
+            return $"Seerr URL must be {MaxUrlLength} characters or fewer.";
         }
 
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) &&
@@ -108,6 +186,13 @@ public static class ConfigurationRequestValidator
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && string.IsNullOrWhiteSpace(request.SeerrApiKey))
         {
             return "Seerr API key is required when a Seerr URL is configured.";
+        }
+
+        // Cap the key length so a saved value always round-trips through backup (which rejects over-long
+        // keys) instead of becoming unrestorable after it is persisted.
+        if (!string.IsNullOrEmpty(request.SeerrApiKey) && request.SeerrApiKey.Length > MaxApiKeyLength)
+        {
+            return $"Seerr API key must be {MaxApiKeyLength} characters or fewer.";
         }
 
         // A key containing CR/LF/tab/NUL is a client input error, not a connection failure: it would
@@ -319,6 +404,12 @@ public static class ConfigurationRequestValidator
             return urlError;
         }
 
+        var apiKeyError = ValidateArrInstanceApiKey(instance, typeName, index);
+        if (apiKeyError != null)
+        {
+            return apiKeyError;
+        }
+
         // If URL is set, API key must also be set
         if (string.IsNullOrWhiteSpace(instance.Url) || !string.IsNullOrWhiteSpace(instance.ApiKey))
         {
@@ -373,6 +464,25 @@ public static class ConfigurationRequestValidator
         if (instance.Libraries != null && instance.Libraries.Any(char.IsControl))
         {
             return $"{typeName} instance '{DescribeInstance(instance, index)}' library assignment contains invalid characters.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateArrInstanceApiKey(ArrInstanceConfig instance, string typeName, int index)
+    {
+        // Cap the key length so a saved instance always round-trips through backup (which rejects over-long
+        // keys) rather than becoming unrestorable once persisted.
+        if (!string.IsNullOrEmpty(instance.ApiKey) && instance.ApiKey.Length > MaxApiKeyLength)
+        {
+            return $"{typeName} instance '{DescribeInstance(instance, index)}' API key must be {MaxApiKeyLength} characters or fewer.";
+        }
+
+        // A key containing CR/LF/tab/NUL would reach the outbound HTTP header layer and throw an
+        // uncaught ArgumentException (HTTP 500). Reject it here as a client input error instead.
+        if (!string.IsNullOrEmpty(instance.ApiKey) && ContainsControlCharacters(instance.ApiKey))
+        {
+            return $"{typeName} instance '{DescribeInstance(instance, index)}' API key must not contain CR, LF, tab, or NUL characters.";
         }
 
         return null;

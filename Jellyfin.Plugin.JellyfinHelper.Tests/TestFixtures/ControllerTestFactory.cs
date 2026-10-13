@@ -37,7 +37,7 @@ public static class ControllerTestFactory
         var configServiceMock = new Mock<IPluginConfigurationService>();
         configServiceMock.Setup(c => c.GetConfiguration()).Returns(configuration ?? new PluginConfiguration());
         configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object, Mock.Of<IGrowthTimelineService>());
+        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object, Mock.Of<IGrowthTimelineService>(), TestMockFactory.CreateSecretProtector());
 
         var controller = new BackupController(
             backupService,
@@ -86,7 +86,8 @@ public static class ControllerTestFactory
             arrService,
             pluginLog,
             new Mock<ILogger<ArrIntegrationController>>().Object,
-            configHelperMock.Object);
+            configHelperMock.Object,
+            TestMockFactory.CreateSecretProtector());
 
         return (controller, libraryManagerMock, fileSystemMock, httpClientFactoryMock, configHelperMock);
     }

@@ -91,7 +91,8 @@ public class TrashService : ITrashService
 
             // TOCTOU mitigation: ResolveCollision found a free path, but between that check and Directory.Move another process could claim the same path.
             const int MoveRetries = 3;
-            for (var moveAttempt = 0; ; moveAttempt++)
+            var moveAttempt = 0;
+            while (true)
             {
                 try
                 {
@@ -102,6 +103,8 @@ public class TrashService : ITrashService
                     moveAttempt < MoveRetries &&
                     DestinationExists(trashItemPath))
                 {
+                    moveAttempt++;
+
                     // Reuse the collision resolver so the retry path shares one naming strategy. EnsurePathLength truncates the name from the END, which on a deep trash directory with a tight budget would cut the trailing GUID and let two retries collapse to the identical path.
                     trashItemPath = ResolveCollision(
                         Path.Join(trashBasePath, $"{timestamp}_{dirName}_{Guid.NewGuid():N}"));

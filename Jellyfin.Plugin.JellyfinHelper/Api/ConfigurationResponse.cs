@@ -42,11 +42,23 @@ public sealed class ConfigurationResponse
     /// <summary>Gets the Seerr instance URL.</summary>
     public string SeerrUrl { get; init; } = string.Empty;
 
+    /// <summary>Gets a value indicating whether TLS certificate validation is skipped for Seerr.</summary>
+    public bool SeerrSkipCertificateValidation { get; init; }
+
     /// <summary>
     ///     Gets the Seerr API key placeholder.
     ///     Returns <see cref="ApiKeyMask"/> when a key is configured, empty string otherwise.
     /// </summary>
     public string SeerrApiKey { get; init; } = string.Empty;
+
+    /// <summary>Gets a value indicating whether Trakt sourcing is enabled (user-facing toggle).</summary>
+    public bool TraktSourcingEnabled { get; init; }
+
+    /// <summary>Gets the Trakt HTTP request timeout in seconds.</summary>
+    public int TraktTimeoutSeconds { get; init; }
+
+    /// <summary>Gets the number of Trakt items fetched per list.</summary>
+    public int TraktLimit { get; init; }
 
     /// <summary>Gets a value indicating whether trash is enabled.</summary>
     public bool UseTrash { get; init; }
@@ -102,6 +114,9 @@ public sealed class ConfigurationResponse
     /// <summary>Gets the Sonarr instances with masked API keys.</summary>
     public IReadOnlyList<MaskedArrInstanceConfig> SonarrInstances { get; init; } = [];
 
+    /// <summary>Gets the Codecs-tab donut card order (plaintext card ids), normalized to the full canonical set.</summary>
+    public IReadOnlyList<string> CodecCardOrder { get; init; } = [];
+
     /// <summary>
     ///     Builds a ConfigurationResponse from a live PluginConfiguration, replacing every non-empty API key with ApiKeyMask.
     /// </summary>
@@ -122,7 +137,11 @@ public sealed class ConfigurationResponse
             SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
             SeerrUrl = config.SeerrUrl,
+            SeerrSkipCertificateValidation = config.SeerrSkipCertificateValidation,
             SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
+            TraktSourcingEnabled = config.TraktSourcingEnabled,
+            TraktTimeoutSeconds = config.TraktTimeoutSeconds,
+            TraktLimit = config.TraktLimit,
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,
@@ -145,7 +164,8 @@ public sealed class ConfigurationResponse
                     Name = i.Name,
                     Url = i.Url,
                     ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ApiKeyMask,
-                    Libraries = i.Libraries
+                    Libraries = i.Libraries,
+                    SkipCertificateValidation = i.SkipCertificateValidation
                 })
                 .ToList(),
             SonarrInstances = config.SonarrInstances
@@ -154,9 +174,11 @@ public sealed class ConfigurationResponse
                     Name = i.Name,
                     Url = i.Url,
                     ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ApiKeyMask,
-                    Libraries = i.Libraries
+                    Libraries = i.Libraries,
+                    SkipCertificateValidation = i.SkipCertificateValidation
                 })
-                .ToList()
+                .ToList(),
+            CodecCardOrder = CodecCardCatalog.Normalize(config.CodecCardOrder)
         };
     }
 }

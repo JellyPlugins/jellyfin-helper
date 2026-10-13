@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -18,14 +18,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 /// <summary>
 ///     Tests for ConfigurationController. All tests use mocked IPluginConfigurationService - no Plugin.Instance singleton is required, which eliminates flaky behaviour caused by shared static state during parallel test execution.
 /// </summary>
-public class ConfigurationControllerTests
+public class ConfigurationControllerTests : IDisposable
 {
     private readonly Mock<IArrIntegrationService> _arrServiceMock;
     private readonly PluginConfiguration _config;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
     private readonly ConfigurationController _controller;
+    private readonly EnsembleScoringStrategy _ensemble = new();
     private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
+    private readonly Jellyfin.Plugin.JellyfinHelper.Services.Security.ISecretProtector _secretProtector;
 
     public ConfigurationControllerTests()
     {
@@ -37,16 +39,17 @@ public class ConfigurationControllerTests
         _pluginLogMock = new Mock<IPluginLogService>();
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
         _seerrServiceMock = new Mock<ISeerrIntegrationService>();
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
         var configHelperMock = new Mock<ICleanupConfigHelper>();
         configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
         var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        _secretProtector = TestMockFactory.CreateSecretProtector();
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
             _pluginLogMock.Object,
@@ -55,7 +58,14 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            _ensemble,
+            _secretProtector);
+    }
+
+    public void Dispose()
+    {
+        _ensemble.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     [Fact]
@@ -257,13 +267,33 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
+    public async Task UpdateConfiguration_ArrSkipCertValidation_SurvivesRebuild()
+    {
+        // RebuildArrInstances must copy the flag onto the stored instance, or the
+        // setting silently drops on every save.
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "R1", Url = "https://r1:7878", ApiKey = "key1", SkipCertificateValidation = true }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Single(_config.RadarrInstances);
+        Assert.True(_config.RadarrInstances[0].SkipCertificateValidation);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_UnreachableArr_SavesButReturnsWarnings()
     {
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "key1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "key1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Radarr v5.0"));
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r2:7878", "key2", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r2:7878", "key2", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "Connection refused"));
 
         var request = new ConfigurationUpdateRequest
@@ -405,7 +435,8 @@ public class ConfigurationControllerTests
     {
         // BUG GUARD: the GET endpoint must NEVER return plain-text API keys. Any non-empty key must be replaced with the mask constant; only truly empty keys (not yet configured) should come back as empty string.
         _config.SeerrApiKey = "real-seerr-secret";
-        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
+        _config.SeerrSkipCertificateValidation = true;
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key", SkipCertificateValidation = true });
         _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
 
         var result = _controller.GetConfiguration();
@@ -416,6 +447,10 @@ public class ConfigurationControllerTests
         Assert.Equal(ConfigurationResponse.ApiKeyMask, response.RadarrInstances[0].ApiKey);
         // Empty key stays empty - mask is only for keys that are set
         Assert.Equal(string.Empty, response.SonarrInstances[0].ApiKey);
+        // The TLS bypass flags must survive masking so the UI renders the saved state.
+        Assert.True(response.SeerrSkipCertificateValidation);
+        Assert.True(response.RadarrInstances[0].SkipCertificateValidation);
+        Assert.False(response.SonarrInstances[0].SkipCertificateValidation);
 
         // Also assert the live config was NOT mutated
         Assert.Equal("real-seerr-secret", _config.SeerrApiKey);
@@ -479,7 +514,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            _ensemble,
+            TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -524,7 +560,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            _ensemble,
+            TestMockFactory.CreateSecretProtector());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -541,7 +578,7 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_UnreachableSonarr_ReturnsWarning()
     {
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://s1:8989", "sk1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://s1:8989", "sk1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "timeout"));
 
         var request = new ConfigurationUpdateRequest
@@ -561,7 +598,7 @@ public class ConfigurationControllerTests
         // BUG GUARD: instances added without a name must still surface a meaningful label
         // ("Radarr #1", "Radarr #2" etc), not a blank string in the warning.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "refused"));
 
         var request = new ConfigurationUpdateRequest
@@ -591,7 +628,7 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -600,7 +637,7 @@ public class ConfigurationControllerTests
     {
         // Contract: HttpRequestException / TimeoutException must be caught and reported as a warning - the config save must NOT fail because of unreachable Arr instances.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("network down"));
 
         var request = new ConfigurationUpdateRequest
@@ -623,13 +660,14 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_SeerrConfigured_HappyPath_NoWarnings()
     {
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Seerr v1.33"));
 
         var request = new ConfigurationUpdateRequest
         {
             SeerrUrl = "  https://seerr.example.com  ",
             SeerrApiKey = "  seerr-key  ",
+            SeerrSkipCertificateValidation = true,
             SeerrCleanupAgeDays = 30
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
@@ -637,16 +675,70 @@ public class ConfigurationControllerTests
         var json = JsonSerializer.Serialize(ok.Value);
         // No Seerr warnings should appear
         Assert.DoesNotContain("Seerr instance", json, StringComparison.Ordinal);
-        // Values were trimmed before persistence
+        // Values were trimmed before persistence; the key is stored encrypted and decrypts back trimmed.
         Assert.Equal("https://seerr.example.com", _config.SeerrUrl);
-        Assert.Equal("seerr-key", _config.SeerrApiKey);
+        Assert.Equal("seerr-key", _secretProtector.Unprotect(_config.SeerrApiKey));
+        Assert.True(_config.SeerrSkipCertificateValidation);
+        // The save-path test must honor the incoming flag, not the stored default.
+        _seerrServiceMock.Verify(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_AbsentSeerrSkipCertValidation_PreservesStoredValue()
+    {
+        // A client (older UI or API caller) that omits SeerrSkipCertificateValidation must not
+        // reset the stored flag to false and re-enable validation on a working private-CA setup.
+        _config.SeerrSkipCertificateValidation = true;
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Seerr v1.33"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "seerr-key",
+            SeerrSkipCertificateValidation = null,
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.SeerrSkipCertificateValidation);
+        // The connection test falls back to the persisted value when the request omits the field.
+        _seerrServiceMock.Verify(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ExplicitFalseSeerrSkipCertValidation_OverridesStoredTrue()
+    {
+        // An explicit false is a deliberate choice and must win over a stored true; the absent-guard
+        // only preserves the stored value when the field is null.
+        _config.SeerrSkipCertificateValidation = true;
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Seerr v1.33"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "seerr-key",
+            SeerrSkipCertificateValidation = false,
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.SeerrSkipCertificateValidation);
+        _seerrServiceMock.Verify(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", false, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     public async Task UpdateConfiguration_SeerrUnreachable_ReturnsWarning()
     {
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, "invalid api key"));
 
         var request = new ConfigurationUpdateRequest
@@ -668,7 +760,7 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_SeerrTestThrows_ExceptionSurfacesAsWarning()
     {
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new TimeoutException("dns timeout"));
 
         var request = new ConfigurationUpdateRequest
@@ -697,7 +789,7 @@ public class ConfigurationControllerTests
         };
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         _seerrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -731,7 +823,8 @@ public class ConfigurationControllerTests
             _configServiceMock.Object,
             _seerrServiceMock.Object,
             libraryManagerMock.Object,
-            new EnsembleScoringStrategy());
+            _ensemble,
+            TestMockFactory.CreateSecretProtector());
     }
 
     [Fact]
@@ -787,7 +880,7 @@ public class ConfigurationControllerTests
         // (above 3650 or the disabled-only 0) with 400, NOT silently clamp. The disable state is
         // signalled by clearing SeerrUrl, not by setting cleanupAge=0.
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
 
         var request = new ConfigurationUpdateRequest
@@ -1041,7 +1134,7 @@ public class ConfigurationControllerTests
 
         // Live config must not have been mutated by the masking
         Assert.Equal("real-seerr-secret", _config.SeerrApiKey);
-        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1097,7 +1190,30 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Equal("brand-new-key", _config.SeerrApiKey);
+        // Stored at rest encrypted; it must decrypt back to the submitted key.
+        Assert.Equal("brand-new-key", _secretProtector.Unprotect(_config.SeerrApiKey));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrApiKey_IsEncryptedAtRest()
+    {
+        // Regression guard: the persisted value must NOT be the plaintext key. A migration that silently
+        // stored plaintext would still pass the Unprotect round-trip assertions, so assert ciphertext here.
+        _config.SeerrUrl = "https://seerr.example.com";
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "plaintext-should-not-persist",
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.NotEqual("plaintext-should-not-persist", _config.SeerrApiKey);
+        Assert.True(_secretProtector.IsProtected(_config.SeerrApiKey));
+        Assert.Equal("plaintext-should-not-persist", _secretProtector.Unprotect(_config.SeerrApiKey));
     }
 
     [Fact]
@@ -1128,7 +1244,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("original-radarr-secret", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("original-radarr-secret", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1159,7 +1275,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.SonarrInstances);
-        Assert.Equal("original-sonarr-secret", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("original-sonarr-secret", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1189,7 +1305,7 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Equal("brand-new-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("brand-new-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1213,8 +1329,8 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        Assert.Equal("key-r1", _config.RadarrInstances[0].ApiKey);
-        Assert.Equal("key-r2", _config.RadarrInstances[1].ApiKey);
+        Assert.Equal("key-r1", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        Assert.Equal("key-r2", _secretProtector.Unprotect(_config.RadarrInstances[1].ApiKey));
     }
 
     // Model-binding diagnostics (invalid ModelState / null request body) are exercised in ModelBindingLogFilterTests.
@@ -1257,7 +1373,7 @@ public class ConfigurationControllerTests
 
         Assert.IsType<OkObjectResult>(result);
         _seerrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.Equal("real-stored-key", _config.SeerrApiKey);
     }
@@ -1283,9 +1399,9 @@ public class ConfigurationControllerTests
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), ConfigurationResponse.ApiKeyMask, It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
-        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-radarr-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1309,8 +1425,8 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.RadarrInstances.Count);
-        Assert.Equal("key-B", _config.RadarrInstances[0].ApiKey);
-        Assert.Equal("key-A", _config.RadarrInstances[1].ApiKey);
+        Assert.Equal("key-B", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        Assert.Equal("key-A", _secretProtector.Unprotect(_config.RadarrInstances[1].ApiKey));
     }
 
     [Fact]
@@ -1333,7 +1449,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key-kept", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key-kept", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1356,8 +1472,8 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Equal(2, _config.SonarrInstances.Count);
-        Assert.Equal("key-Y", _config.SonarrInstances[0].ApiKey);
-        Assert.Equal("key-X", _config.SonarrInstances[1].ApiKey);
+        Assert.Equal("key-Y", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
+        Assert.Equal("key-X", _secretProtector.Unprotect(_config.SonarrInstances[1].ApiKey));
     }
 
     /// <summary>
@@ -1392,7 +1508,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("real-secret-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("real-secret-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
         Assert.Equal("Primary Radarr", _config.RadarrInstances[0].Name);
     }
 
@@ -1427,7 +1543,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
 
         Assert.Single(_config.SonarrInstances);
-        Assert.Equal("sonarr-secret-key", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("sonarr-secret-key", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
         Assert.Equal("Primary Sonarr", _config.SonarrInstances[0].Name);
     }
 
@@ -1463,7 +1579,7 @@ public class ConfigurationControllerTests
 
         Assert.Single(_config.RadarrInstances);
         // No prior instance at http://new:7878, so the sentinel resolves to empty string.
-        Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
+        Assert.Equal(string.Empty, _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     // Two Radarr instances share the same URL but have different names.
@@ -1489,8 +1605,8 @@ public class ConfigurationControllerTests
         Assert.Equal(2, _config.RadarrInstances.Count);
         var primary = _config.RadarrInstances.First(i => i.Name == "Primary");
         var secondary = _config.RadarrInstances.First(i => i.Name == "Secondary");
-        Assert.Equal("key-primary", primary.ApiKey);
-        Assert.Equal("key-secondary", secondary.ApiKey);
+        Assert.Equal("key-primary", _secretProtector.Unprotect(primary.ApiKey));
+        Assert.Equal("key-secondary", _secretProtector.Unprotect(secondary.ApiKey));
     }
 
     [Fact]
@@ -1516,10 +1632,10 @@ public class ConfigurationControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
         _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _seerrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -1534,7 +1650,7 @@ public class ConfigurationControllerTests
 
         Assert.IsType<OkObjectResult>(result);
         _arrServiceMock.Verify(
-            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
             Times.Never);
         _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.AtLeastOnce);
     }
@@ -1578,7 +1694,7 @@ public class ConfigurationControllerTests
         // When the caller cancels via the token, the Seerr test must stop silently -
         // no warning surfaced or logged - unlike the network-error path which DOES warn.
         _seerrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
         var request = new ConfigurationUpdateRequest
@@ -1596,7 +1712,7 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
         Assert.DoesNotContain(payload.Warnings, w => w.Contains("Seerr", StringComparison.Ordinal));
-        Assert.Equal("real-key", _config.SeerrApiKey);
+        Assert.Equal("real-key", _secretProtector.Unprotect(_config.SeerrApiKey));
     }
 
     [Fact]
@@ -1605,7 +1721,7 @@ public class ConfigurationControllerTests
         // Token cancellation during an Arr test must return early without adding a warning,
         // contrasting the HttpRequestException path that surfaces a reachability warning.
         _arrServiceMock
-            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
         var request = new ConfigurationUpdateRequest
@@ -1625,7 +1741,7 @@ public class ConfigurationControllerTests
         var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
         Assert.Empty(payload.Warnings);
         Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key1", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key1", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
     }
 
     [Fact]
@@ -1661,6 +1777,7 @@ public class ConfigurationControllerTests
             _seerrServiceMock.Object,
             new Mock<MediaBrowser.Controller.Library.ILibraryManager>().Object,
             ensemble,
+            TestMockFactory.CreateSecretProtector(),
             registryMock.Object);
 
         var request = new ConfigurationUpdateRequest { EnsembleAlphaMin = 0.3, EnsembleAlphaMax = 0.7 };
@@ -1750,5 +1867,33 @@ public class ConfigurationControllerTests
                  || w.Contains("escapes", StringComparison.Ordinal));
         Assert.True(_config.UseTrash);
         Assert.Equal(".jellyfin-trash", _config.TrashFolderPath);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktSourcingEnabled_PersistedVerbatim()
+    {
+        // The master switch is user-facing: a non-null value is stored as-is.
+        _config.TraktSourcingEnabled = true;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { TraktSourcingEnabled = false }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(_config.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TraktSourcingEnabledOmitted_PreservesStoredValue()
+    {
+        // A partial PUT (client without the Trakt card) omits the field; the stored value must survive.
+        // Seed true: it is the non-default, so the test actually proves preservation (seeding false would
+        // pass even if the field were overwritten with the default).
+        _config.TraktSourcingEnabled = true;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.TraktSourcingEnabled);
     }
 }

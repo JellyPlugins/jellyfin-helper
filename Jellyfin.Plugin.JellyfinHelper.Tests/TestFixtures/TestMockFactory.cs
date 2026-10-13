@@ -4,13 +4,16 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Moq.Protected;
 
@@ -97,6 +100,15 @@ public static class TestMockFactory
     /// <summary>Creates a new <see cref="Mock{IHttpClientFactory}"/>.</summary>
     /// <returns></returns>
     public static Mock<IHttpClientFactory> CreateHttpClientFactory() => new();
+
+    /// <summary>
+    ///     Creates a real <see cref="SecretProtector"/> over an ephemeral keyring. Plaintext test keys pass
+    ///     through Unprotect unchanged (the lazy-migration contract), so tests set and read secrets exactly as
+    ///     before while still exercising the real protect/unprotect code path.
+    /// </summary>
+    /// <returns>A functioning secret protector with an in-memory keyring.</returns>
+    public static ISecretProtector CreateSecretProtector()
+        => new SecretProtector(new EphemeralDataProtectionProvider(), NullLogger<SecretProtector>.Instance);
 
     /// <summary>Creates a new <see cref="IMemoryCache"/> instance.</summary>
     /// <returns></returns>

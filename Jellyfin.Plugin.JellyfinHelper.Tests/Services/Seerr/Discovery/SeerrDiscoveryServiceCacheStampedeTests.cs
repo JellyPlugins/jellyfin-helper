@@ -112,6 +112,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             _cache,
             feedbackStore.Object,
             pluginLog.Object,
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

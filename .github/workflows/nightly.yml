@@ -105,7 +105,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
@@ -119,6 +119,10 @@ jobs:
           # Require the non-admin fixture in CI so authorization / user-facing
           # tests fail loudly instead of silently skipping if provisioning breaks.
           E2E_REQUIRE_NORMAL_USER: "1"
+          # stage-external-plugins.sh resolves the LATEST Custom Tabs / File
+          # Transformation release via the GitHub API; the token lifts the
+          # unauthenticated rate limit so resolution doesn't flake.
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload Playwright report
         if: always()

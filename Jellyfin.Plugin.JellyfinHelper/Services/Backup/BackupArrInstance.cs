@@ -30,4 +30,12 @@ public class BackupArrInstance
     /// </summary>
     [JsonPropertyName("libraries")]
     public string Libraries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether TLS certificate validation is skipped for this instance.
+    /// Nullable so an older backup that omits the field is distinguishable from an explicit false and
+    /// can fall back to the live instance value on restore instead of silently re-enabling validation.
+    /// </summary>
+    [JsonPropertyName("skipCertificateValidation")]
+    public bool? SkipCertificateValidation { get; set; }
 }
