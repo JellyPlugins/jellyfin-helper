@@ -463,5 +463,12 @@
   "codecShowLess": "Daha az göster",
   "explorerIncludes": "İçerir",
   "explorerExcludes": "İçermez",
-  "treeExpandCapped": "{total} dosyadan {shown} gösteriliyor - daha fazlası için klasörleri genişletin"
+  "treeExpandCapped": "{total} dosyadan {shown} gösteriliyor - daha fazlası için klasörleri genişletin",
+  "codecCardReorder": "Kartı yeniden sırala",
+  "codecCardGrabbed": "Kart tutuldu. Taşımak için ok tuşlarını, bırakmak için Enter'ı, iptal için Escape'i kullanın.",
+  "codecCardMoved": "Şu konuma taşındı",
+  "codecCardDropped": "Kart bırakıldı ve sıralama kaydedildi.",
+  "codecCardCancelled": "Yeniden sıralama iptal edildi.",
+  "codecCardOrderSaved": "Sıralama kaydedildi",
+  "codecCardOrderSaveFailed": "Sıralama kaydedilemedi"
 }
