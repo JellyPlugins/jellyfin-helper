@@ -40,6 +40,21 @@
     color-scheme: light dark;
 }
 
+/* Permanently custom-styled arrow (same metrics as .settings-form select): the save-check overlay
+   swaps only the background image, so with the arrow gutter always reserved the select never
+   changes width while the check shows. A native-appearance select would lose its OS arrow gutter
+   under the overlay's appearance:none and visibly shrink until the icon fades. */
+.logs-toolbar select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding-right: 2.2em;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(255,255,255,0.8)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5em center;
+    background-size: 1.3em;
+}
+
 .logs-toolbar select option {
     background: #2b2b2b;
     color: #e0e0e0;
@@ -50,6 +65,10 @@
     .logs-toolbar input {
         background: rgba(0, 0, 0, 0.05);
         border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    .logs-toolbar select {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(0,0,0,0.6)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
     }
 
     .logs-toolbar select option {
