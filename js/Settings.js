@@ -25,9 +25,9 @@ function isSeerrConfigured(url, key) {
 // Refresh the Discovery access wrapper UI state based on current form values.
 // Extracted to avoid duplicated DOM manipulation in multiple event handlers.
 function refreshDiscoveryAccessState() {
-    var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
+    var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
+    var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
     var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
@@ -383,7 +383,7 @@ function rebuildUI() {
 }
 
 
-function loadSettings() {
+function loadSettings(onDone) {
     var form = document.getElementById('settingsForm');
     if (!form) return;
     // Reset save-band state on every (re)load so the band stays hidden until the
@@ -515,6 +515,10 @@ function loadSettings() {
         h += '</div>';
         h += '<div style="margin-top:0.6em;font-size:0.9em;">' + escHtml(T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?')) + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →')) + '</a></div>';
         h += '</div></div>';
+
+        // Only shown when the official Trakt plugin is present (loadTraktOfficialStatus unhides it); default off.
+        h += '<div class="checkbox-row" id="traktSourcingRow" style="display:none;margin-top:0.2em;"><input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === true ? ' checked' : '') + '><label for="cfgTraktSourcingEnabled">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label></div>';
+        h += '<div class="help-text" id="traktSourcingHint" style="display:none;">' + escHtml(T('traktSourcingHint', 'Sources Trakt recommendations through the official Trakt plugin.')) + '</div>';
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
@@ -554,6 +558,8 @@ function loadSettings() {
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
         h += '<input type="password" id="cfgSeerrApiKey">';
+        h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + ((cfg.SeerrSkipCertificateValidation ?? cfg.seerrSkipCertificateValidation) ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
@@ -626,6 +632,7 @@ function loadSettings() {
         attachAddHandlers();
         attachBackupHandlers();
         attachSeerrHandlers();
+        loadTraktOfficialStatus();
         attachDiscoveryCopyHandler();
         attachTaskDescHandlers();
         attachAutoSaveHandlers();
@@ -656,6 +663,10 @@ function loadSettings() {
 
         // Take snapshot after settings are fully rendered (synchronous - all values are set above)
         takeSettingsSnapshot();
+
+        // Signal completion so callers that must run AFTER the form re-renders (scroll restore,
+        // post-render indicators) chain off this instead of racing a fixed timeout against the async load.
+        if (typeof onDone === 'function') { onDone(); }
     }, function () {
         form.innerHTML = '<div class="error-msg">' + escHtml(T('settingsLoadError', 'Failed to load settings.')) + '</div>';
     });
@@ -678,12 +689,15 @@ function buildSettingsPayload() {
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
         RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode')?.value ?? 'Deactivate',
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
-        SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
-        SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
+        SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
+        SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
+        SeerrSkipCertificateValidation: document.getElementById('cfgSeerrSkipCert') ? document.getElementById('cfgSeerrSkipCert').checked : false,
+        // null when the checkbox is absent (no official plugin) so a partial PUT preserves the stored value.
+        TraktSourcingEnabled: document.getElementById('cfgTraktSourcingEnabled') ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
-            var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-            var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            var url = document.getElementById('cfgSeerrUrl')?.value || '';
+            var key = document.getElementById('cfgSeerrApiKey')?.value || '';
             return (modeEl && isSeerrConfigured(url, key)) ? modeEl.value : 'Deactivate';
         })(),
         SeerrCleanupAgeDays: (function () {
@@ -703,9 +717,9 @@ function buildSettingsPayload() {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
             if (!checkbox || !checkbox.checked) return false;
             // Force false when prerequisites are not met (Recommendations must be active + Seerr configured). This prevents stale "true" from being persisted when the admin disables recommendations or clears Seerr config while the checkbox was previously enabled.
-            var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
+            var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
+            var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
             return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang')?.value ?? 'en',
@@ -1187,8 +1201,10 @@ function attachSeerrHandlers() {
     if (!btn) return;
     var _seerrTimer = null;
     btn.addEventListener('click', function () {
-        var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-        var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+        var url = document.getElementById('cfgSeerrUrl')?.value || '';
+        var key = document.getElementById('cfgSeerrApiKey')?.value || '';
+        var skipCertEl = document.getElementById('cfgSeerrSkipCert');
+        var skipCert = skipCertEl ? skipCertEl.checked : false;
         var originalHtml = mi('extension') + T('testConnection', 'Test Connection');
 
         if (_seerrTimer) {
@@ -1202,7 +1218,7 @@ function attachSeerrHandlers() {
         }
         btn.disabled = true;
         btn.innerHTML = '<span class="btn-spinner"></span>' + escHtml(T('testing', 'Testing…'));
-        apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key}, function (res) {
+        apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key, SkipCertificateValidation: skipCert}, function (res) {
             btn.disabled = false;
             // Jellyfin 12 serializes controller DTOs in PascalCase (Success/Message);
             // Jellyfin 10.x used camelCase. Accept both.
@@ -1224,6 +1240,24 @@ function attachSeerrHandlers() {
             btn.disabled = false;
             _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
+    });
+}
+
+/**
+ * Probe the admin-only official-plugin status endpoint and reveal the Trakt sourcing checkbox only when the
+ * official Trakt plugin is present (Trakt discovery is sourced exclusively through it).
+ */
+function loadTraktOfficialStatus() {
+    var row = document.getElementById('traktSourcingRow');
+    var hint = document.getElementById('traktSourcingHint');
+    if (!row) return;
+    apiGet('JellyfinHelper/Trakt/OfficialPluginStatus', function (res) {
+        var present = !!(res && (res.Present || res.present));
+        row.style.display = present ? '' : 'none';
+        if (hint) hint.style.display = present ? '' : 'none';
+    }, function () {
+        row.style.display = 'none';
+        if (hint) hint.style.display = 'none';
     });
 }
 
@@ -1391,14 +1425,27 @@ function attachAutoSaveHandlers() {
         });
     }
 
-    // Discovery user access toggle - auto-save on change
+    // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
+    // sourcing row (revealed only when the official Trakt plugin is present) appears/disappears live
+    // instead of waiting for the next tab load. loadSettings re-fetches config, so the row reflects
+    // the just-saved state.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {
+            var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
+            var savedScroll = scrollContainer.scrollTop;
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
+                onSuccess: function () {
+                    // Restore scroll + show the indicator only AFTER loadSettings has re-rendered the
+                    // form, so neither acts on the stale/destroyed DOM the async reload replaces.
+                    loadSettings(function () {
+                        scrollContainer.scrollTop = savedScroll;
+                        var newEl = document.getElementById('cfgDiscoveryUserAccess');
+                        if (newEl) showInlineCheckboxIndicator(newEl, true);
+                    });
+                },
                 onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
             });
         });
