@@ -314,6 +314,10 @@ public partial class SharedHtmlTests : ConfigPageTestBase
         Assert.Matches(
             new Regex(@"function\s+apiGetOptional[\s\S]*?response\.status\s*===\s*204"),
             HtmlContent);
+        // Flat chain, no nested promise: the 204 path resolves a sentinel so the shared success
+        // step never calls onSuccess with undefined (which a naive flatten would do).
+        Assert.Contains("apiNoContentSentinel", HtmlContent);
+        Assert.Contains("data !== apiNoContentSentinel && onSuccess", HtmlContent);
     }
 
     [Fact]
