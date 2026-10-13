@@ -1312,9 +1312,36 @@
     will-change: transform;
 }
 
+/* Save confirmation icon: a plain check_circle (Settings/Logs style, no chip background) in the
+   card's top-right corner. */
+.codec-save-icon {
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    color: var(--color-success, #2ecc71);
+    font-size: 1.1em;
+    line-height: 1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 5;
+}
+
+.codec-save-icon--error {
+    color: var(--color-danger, #e74c3c);
+}
+
+.codec-save-icon--visible {
+    opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .chart-box.codec-dragging {
         transform: none;
+    }
+
+    .codec-save-icon {
+        transition: none;
     }
 }
 

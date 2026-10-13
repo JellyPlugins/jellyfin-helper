@@ -682,15 +682,16 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CodecSave_UsesSharedIndicatorForConsistency()
+    public void Html_CodecSave_ShowsIsolatedCornerIconThatCannotBreakGrid()
     {
-        // Save feedback reuses the same plain green check_circle as Settings/Logs
-        // (showAutoSaveIndicatorOverlay) rather than a bespoke badge, so it is visually consistent.
+        // Save feedback is a plain green check_circle (Settings/Logs look) rendered as an
+        // absolutely-positioned icon INSIDE the card.
         Assert.Contains("function showCodecSaveFeedback", HtmlContent);
-        Assert.Contains("showAutoSaveIndicatorOverlay(target, success)", HtmlContent);
-        // The old bespoke circular badge is gone.
+        Assert.Contains("codec-save-icon", HtmlContent);
+        Assert.DoesNotContain("showAutoSaveIndicatorOverlay(target", HtmlContent);
         Assert.DoesNotContain("showCodecSaveBadge", HtmlContent);
-        Assert.DoesNotContain("codec-save-badge", HtmlContent);
+        // The icon is absolutely positioned so it never participates in grid layout.
+        Assert.Matches(@"\.codec-save-icon\s*\{[^}]*position:\s*absolute", HtmlContent);
     }
 
     [Fact]

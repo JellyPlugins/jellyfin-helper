@@ -940,17 +940,34 @@ function saveCodecCardOrder(order, feedbackEl, prevOrder) {
     });
 }
 
-// Shows the shared save checkmark (same plain green check_circle as Settings/Logs) on the reordered
-// card, so save feedback is visually consistent across the plugin. Anchors to the enclosing
-// .chart-box; falls back to the charts row if the card cannot be resolved.
+// Shows a brief save checkmark on the reordered card. A plain green check_circle (red error icon on
+// failure) matching the Settings/Logs look, rendered as an absolutely-positioned icon INSIDE the
+// card so it can never disturb the grid.
 function showCodecSaveFeedback(feedbackEl, success) {
-    var target = feedbackEl?.closest ? feedbackEl.closest('.chart-box') : null;
-    if (!target) {
-        target = document.querySelector('#codecsContent .charts-row');
+    var card = feedbackEl?.closest ? feedbackEl.closest('.chart-box') : null;
+    if (!card) {
+        return;
     }
-    if (target) {
-        showAutoSaveIndicatorOverlay(target, success);
+    var ok = success !== false;
+    var icon = card.querySelector('.codec-save-icon');
+    if (!icon) {
+        icon = document.createElement('span');
+        icon.className = 'codec-save-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        card.appendChild(icon);
     }
+    icon.classList.toggle('codec-save-icon--error', !ok);
+    icon.innerHTML = mi(ok ? 'check_circle' : 'error');
+    icon.classList.add('codec-save-icon--visible');
+
+    // Guard against a stale fade clearing a fresher icon when saves land back-to-back.
+    var guard = (Number.parseInt(icon.dataset.guard || '0', 10)) + 1;
+    icon.dataset.guard = String(guard);
+    setTimeout(function () {
+        if (icon.dataset.guard === String(guard)) {
+            icon.classList.remove('codec-save-icon--visible');
+        }
+    }, ok ? 2000 : 3000);
 }
 
 function flushQueuedCodecOrderSave() {
@@ -1232,8 +1249,11 @@ function reorderCodecCardTo(state, x, y) {
     }
 
     var ref = after ? nearest.nextElementSibling : nearest;
-    // No-op if the card already sits where it would land - avoids thrashing the grid every frame.
-    if (ref === state.card || (after && nearest === state.card)) {
+    // If ref is already the dragged card's next
+    // sibling, insertBefore(card, ref) would NOT move the card, but running the reorder anyway makes
+    // the neighbouring card animate across the dragged card's still-present (visibility:hidden) slot
+    // on sub-pixel pointer jitter.
+    if (ref === state.card || ref === state.card.nextElementSibling) {
         return;
     }
 
