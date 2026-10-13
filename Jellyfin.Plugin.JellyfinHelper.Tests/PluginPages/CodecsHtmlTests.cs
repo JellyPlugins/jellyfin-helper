@@ -771,7 +771,7 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         // resting layout rather than a transform mid-interpolation (which fed the old oscillation).
         Assert.Contains("function settleCodecFlip", HtmlContent);
         Assert.Contains("settleCodecFlip(all.filter(", HtmlContent);
-        Assert.Contains("void chartsRow.offsetWidth", HtmlContent);
+        Assert.Contains("forceReflow(chartsRow)", HtmlContent);
     }
 
     [Fact]
