@@ -883,9 +883,9 @@ function loadCodecCardOrderOnce() {
         if (_codecOrderGeneration !== genAtRequest) {
             return;
         }
-        var order = cfg && cfg.CodecCardOrder;
+        var order = cfg?.CodecCardOrder;
         if (!Array.isArray(order)) {
-            order = (cfg && cfg.codecCardOrder) || null;
+            order = cfg?.codecCardOrder || null;
         }
         if (Array.isArray(order) && order.length) {
             _codecCardOrder = order.slice();
@@ -896,9 +896,43 @@ function loadCodecCardOrderOnce() {
     }, _apiDefaultError('GET', 'JellyfinHelper/Configuration'));
 }
 
+// Shows a small success/error badge in the card's top-right corner after a reorder save, then fades
+// it out. feedbackEl may be the card or any element inside it; the badge always anchors to the
+// enclosing .chart-box (which is position:relative in CSS). A per-card guard prevents a stale fade
+// from clearing a fresher badge when saves land back-to-back.
+function showCodecSaveBadge(feedbackEl, success) {
+    var card = feedbackEl?.closest ? feedbackEl.closest('.chart-box') : null;
+    if (!card) {
+        return;
+    }
+    var ok = success !== false;
+    var badge = card.querySelector('.codec-save-badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'codec-save-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        card.appendChild(badge);
+    }
+    badge.classList.toggle('codec-save-badge--error', !ok);
+    badge.innerHTML = mi(ok ? 'check_circle' : 'error');
+    // Restart the fade: force reflow so re-adding the visible class re-triggers the transition.
+    badge.classList.remove('codec-save-badge--visible');
+    void badge.offsetWidth;
+    badge.classList.add('codec-save-badge--visible');
+
+    var guard = (Number.parseInt(badge.dataset.guard || '0', 10)) + 1;
+    badge.dataset.guard = String(guard);
+    setTimeout(function () {
+        if (badge.dataset.guard !== String(guard)) {
+            return;
+        }
+        badge.classList.remove('codec-save-badge--visible');
+    }, ok ? 2000 : 3000);
+}
+
 // Persists the given order optimistically. One PUT in flight at a time; a drop during a save
 // queues the latest order and fires exactly one follow-up PUT when the active one settles.
-// feedbackEl (the card handle) gets a success/error icon via the shared auto-save indicator.
+// feedbackEl is the dropped card; its enclosing .chart-box shows a corner save badge.
 // prevOrder is the order that was persisted before this attempt, so a failure can roll back to it
 // rather than re-rendering the rejected order (which would leave the UI and server diverged).
 function saveCodecCardOrder(order, feedbackEl, prevOrder) {
@@ -915,17 +949,17 @@ function saveCodecCardOrder(order, feedbackEl, prevOrder) {
     _codecOrderSaving = true;
     apiPut('JellyfinHelper/Configuration/CodecCardOrder', { codecCardOrder: order }, function (resp) {
         _codecOrderSaving = false;
-        var saved = resp && (resp.CodecCardOrder || resp.codecCardOrder);
+        var saved = resp?.CodecCardOrder || resp?.codecCardOrder;
         if (Array.isArray(saved)) {
             _codecCardOrder = saved.slice();
         }
-        showAutoSaveIndicatorOverlay(feedbackEl, true);
+        showCodecSaveBadge(feedbackEl, true);
         announceCodec(T('codecCardOrderSaved', 'Card order saved.'));
         flushQueuedCodecOrderSave();
     }, function (xhr) {
         _codecOrderSaving = false;
         _apiDefaultError('PUT', 'JellyfinHelper/Configuration/CodecCardOrder')(xhr);
-        showAutoSaveIndicatorOverlay(feedbackEl, false);
+        showCodecSaveBadge(feedbackEl, false);
         announceCodec(T('codecCardOrderSaveFailed', 'Could not save card order.'));
         // Roll back to the last persisted order so the UI never diverges from the server. prevOrder
         // was captured before the optimistic DOM update, so it reflects what the server still holds.
@@ -959,7 +993,7 @@ function commitCodecCardOrderFromDom(chartsRow, feedbackEl) {
     var domIds = [];
     chartsRow.querySelectorAll('.chart-box[data-chart-id]').forEach(function (box) {
         if (document.contains(box)) {
-            domIds.push(box.getAttribute('data-chart-id'));
+            domIds.push(box.dataset.chartId);
         }
     });
     if (!domIds.length) {
@@ -989,8 +1023,7 @@ function reorderFullOrder(prevOrder, domIds) {
     domIds.forEach(function (id) { visible[id] = true; });
     var queue = domIds.slice();
     var result = [];
-    for (var i = 0; i < base.length; i++) {
-        var id = base[i];
+    for (const id of base) {
         // Each slot that previously held a visible card now takes the next card from the new DOM
         // sequence; slots for absent (data-less) cards are preserved verbatim.
         result.push(visible[id] ? queue.shift() : id);
@@ -998,7 +1031,7 @@ function reorderFullOrder(prevOrder, domIds) {
     // Any visible id not already placed (e.g. a brand-new card) lands at the end in DOM order.
     while (queue.length) {
         var extra = queue.shift();
-        if (result.indexOf(extra) === -1) {
+        if (!result.includes(extra)) {
             result.push(extra);
         }
     }
@@ -1105,7 +1138,7 @@ function beginCodecDrag(state) {
     var placeholder = document.createElement('div');
     placeholder.className = 'chart-box codec-drop-placeholder';
     placeholder.style.height = rect.height + 'px';
-    state.card.parentNode.insertBefore(placeholder, state.card.nextSibling);
+    state.card.after(placeholder);
     state.placeholder = placeholder;
     state.card.classList.add('codec-dragging');
     // Reduced motion: skip the floating lift entirely and reorder via the placeholder only, so no
@@ -1137,7 +1170,7 @@ function onCodecDragPointerMove(e, state) {
     if (!state.active) {
         var dx = e.clientX - state.startX;
         var dy = e.clientY - state.startY;
-        var dist = Math.sqrt((dx * dx) + (dy * dy));
+        var dist = Math.hypot(dx, dy);
         if (state.isTouch) {
             // Movement before the long-press fires means the user is scrolling: cancel arming.
             if (dist > CODEC_TOUCH_MOVE_CANCEL_PX && state.armTimer) {
@@ -1162,26 +1195,47 @@ function onCodecDragPointerMove(e, state) {
     updateCodecAutoScroll(state);
 }
 
-// Inserts the placeholder before the card whose center is below the pointer; appends at the end
-// when the pointer is past every card. Center comparison works for 1- and 2-column grids alike.
+// Places the placeholder next to the card nearest the pointer. Instead of a row-major first-match
+// (which snaps between columns the instant the pointer crosses a center line), it picks the box
+// whose center is closest to the pointer, then drops before or after it based on which side the
+// pointer is on. This feels stable in a multi-column grid and keeps the placeholder near the finger.
 function moveCodecPlaceholderTo(state, x, y) {
     var boxes = Array.prototype.slice.call(
         state.chartsRow.querySelectorAll('.chart-box:not(.codec-dragging):not(.codec-drop-placeholder)'));
-    var target = null;
-    for (var i = 0; i < boxes.length; i++) {
-        var r = boxes[i].getBoundingClientRect();
-        var cy = r.top + (r.height / 2);
+    if (!boxes.length) {
+        state.chartsRow.appendChild(state.placeholder);
+        return;
+    }
+
+    var nearest = null;
+    var nearestDist = Infinity;
+    var nearestRect = null;
+    for (const box of boxes) {
+        var r = box.getBoundingClientRect();
         var cx = r.left + (r.width / 2);
-        // Prefer the first box whose center sits after the pointer (row-major, then column).
-        if (y < cy || (Math.abs(y - cy) < r.height / 2 && x < cx)) {
-            target = boxes[i];
-            break;
+        var cy = r.top + (r.height / 2);
+        var dx = x - cx;
+        var dy = y - cy;
+        var dist = (dx * dx) + (dy * dy);
+        if (dist < nearestDist) {
+            nearestDist = dist;
+            nearest = box;
+            nearestRect = r;
         }
     }
-    if (target) {
-        state.chartsRow.insertBefore(state.placeholder, target);
+
+    // Decide which side of the nearest card the pointer favours. Compare on the dominant axis of the
+    // card's own layout: in a single column the vertical position decides; in a grid, horizontal
+    // position within the same row decides, falling back to vertical across rows.
+    var midX = nearestRect.left + (nearestRect.width / 2);
+    var midY = nearestRect.top + (nearestRect.height / 2);
+    var sameRow = y >= nearestRect.top && y <= nearestRect.bottom;
+    var after = sameRow ? (x > midX) : (y > midY);
+
+    if (after) {
+        nearest.after(state.placeholder);
     } else {
-        state.chartsRow.appendChild(state.placeholder);
+        nearest.before(state.placeholder);
     }
 }
 
@@ -1226,8 +1280,11 @@ function onCodecDragPointerUp(e, state, move, up) {
     }
     var wasActive = state.active;
     if (wasActive && state.placeholder) {
-        // Drop: move the card into the placeholder slot, then persist the DOM order.
-        state.chartsRow.insertBefore(state.card, state.placeholder);
+        // Drop. Settle the card out of its fixed-position lift *before* moving it to the new slot,
+        // so it never shows for a frame as a fixed element sitting at the new DOM position (which
+        // read as the card briefly vanishing). Order: unlift -> insert into flow -> persist.
+        settleCardIntoFlow(state);
+        state.placeholder.before(state.card);
         commitCodecCardOrderFromDom(state.chartsRow, state.card);
     }
     // A touch drag ends with the finger over a donut segment or row; the browser then emits a
@@ -1240,18 +1297,14 @@ function onCodecDragPointerUp(e, state, move, up) {
     teardownCodecDrag(state, move, up);
 }
 
-function teardownCodecDrag(state, move, up) {
-    if (state.autoScrollRaf) {
-        cancelAnimationFrame(state.autoScrollRaf);
-        state.autoScrollRaf = 0;
+// Clears the fixed-position lift styles so the card returns to normal grid flow. Called both on
+// drop (before the DOM insert, to avoid a fixed-at-new-slot flash) and on teardown (for cancels).
+// Idempotent: clearing already-empty inline styles is a no-op.
+function settleCardIntoFlow(state) {
+    if (!state.card) {
+        return;
     }
-    state.autoScrollSpeed = 0;
-    if (state.placeholder && state.placeholder.parentNode) {
-        state.placeholder.parentNode.removeChild(state.placeholder);
-    }
-    state.card.classList.remove('codec-dragging');
-    state.handle.setAttribute('aria-grabbed', 'false');
-    // Undo the fixed-position lift styles so the card settles back into normal grid flow.
+    state.lifted = false;
     state.card.style.transform = '';
     state.card.style.position = '';
     state.card.style.left = '';
@@ -1259,6 +1312,22 @@ function teardownCodecDrag(state, move, up) {
     state.card.style.width = '';
     state.card.style.zIndex = '';
     state.card.style.pointerEvents = '';
+}
+
+function teardownCodecDrag(state, move, up) {
+    if (state.autoScrollRaf) {
+        cancelAnimationFrame(state.autoScrollRaf);
+        state.autoScrollRaf = 0;
+    }
+    state.autoScrollSpeed = 0;
+    if (state.placeholder) {
+        state.placeholder.remove();
+    }
+    state.card.classList.remove('codec-dragging');
+    state.handle.setAttribute('aria-grabbed', 'false');
+    // Idempotent: the drop path already settled the card into flow before the DOM insert; a cancel
+    // (no drop) still needs the reset here.
+    settleCardIntoFlow(state);
     try {
         state.handle.releasePointerCapture(state.pointerId);
     } catch (err) {
@@ -1304,7 +1373,7 @@ function onCodecHandleKeyDown(e, handle, card, chartsRow) {
         card.classList.remove('codec-dragging');
         // Restore the card to the slot it was grabbed from, in-place, so focus stays on this handle.
         // A full re-render would rebuild the DOM and drop focus to <body>.
-        var origin = parseInt(handle.dataset.originIndex, 10);
+        var origin = Number.parseInt(handle.dataset.originIndex, 10);
         delete handle.dataset.originIndex;
         if (!Number.isNaN(origin)) {
             restoreCardToIndex(chartsRow, card, origin);
@@ -1334,7 +1403,11 @@ function restoreCardToIndex(chartsRow, card, targetIndex) {
     var boxes = Array.prototype.slice.call(
         chartsRow.querySelectorAll('.chart-box[data-chart-id]')).filter(function (b) { return b !== card; });
     var ref = boxes[targetIndex] || null;
-    chartsRow.insertBefore(card, ref);
+    if (ref) {
+        ref.before(card);
+    } else {
+        chartsRow.appendChild(card);
+    }
 }
 
 function moveCardInList(chartsRow, card, delta) {
@@ -1345,9 +1418,9 @@ function moveCardInList(chartsRow, card, delta) {
         return;
     }
     if (delta > 0) {
-        chartsRow.insertBefore(card, boxes[target].nextSibling);
+        boxes[target].after(card);
     } else {
-        chartsRow.insertBefore(card, boxes[target]);
+        boxes[target].before(card);
     }
     card.querySelector('.codec-card-handle').focus();
     announceCodec(T('codecCardMoved', 'Moved to position') + ' ' + (target + 1));
