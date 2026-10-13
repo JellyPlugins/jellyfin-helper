@@ -1133,6 +1133,23 @@ function onCodecHandlePointerDown(e, handle, card, chartsRow) {
     _codecDrag = state;
 }
 
+// Pointer capture is best-effort: setPointerCapture/releasePointerCapture throw if the pointer was
+// already released (e.g. a lightning-fast tap). Capture only routes stray events to the handle; the
+// window-level listeners drive the drag regardless.
+function tryPointerCapture(handle, pointerId, release) {
+    try {
+        if (release) {
+            handle.releasePointerCapture(pointerId);
+        } else {
+            handle.setPointerCapture(pointerId);
+        }
+    } catch (ignored) {
+        // Expected when the pointer is already gone; the drag still works via window listeners.
+        return false;
+    }
+    return true;
+}
+
 // Promotes an armed press into an active drag: hides the real card (keeping its grid slot) and
 // spawns a fixed clone that follows the pointer. Any failure still tears the drag down, so a throw
 // can never strand the card hidden with a dead _codecDrag blocking all future drags.
@@ -1142,11 +1159,7 @@ function beginCodecDrag(state) {
     }
     state.active = true;
     try {
-        try {
-            state.handle.setPointerCapture(state.pointerId);
-        } catch (err) {
-            // Pointer may have already released; the window listeners still drive the drag.
-        }
+        tryPointerCapture(state.handle, state.pointerId, false);
         state.handle.setAttribute('aria-grabbed', 'true');
 
         var rect = state.card.getBoundingClientRect();
