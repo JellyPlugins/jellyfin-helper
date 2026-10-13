@@ -1213,6 +1213,12 @@ function onCodecDragPointerMove(e, state) {
     updateCodecAutoScroll(state);
 }
 
+// Reads a layout property to force a synchronous reflow, so the next getBoundingClientRect sees the
+// resting layout rather than a pending style change. The read is the point; the value is unused.
+function forceReflow(el) {
+    return el.offsetWidth;
+}
+
 // Reorders the hidden source card to the slot the dragged clone's CENTRE occupies in reading order.
 // The target slot is a pure function of the clone centre vs each card's RESTING centre (settled and
 // measured once), never live overlap against mid-FLIP rects - so it is monotonic and cannot oscillate.
@@ -1228,7 +1234,7 @@ function reorderCodecCardTo(state, x, y) {
     // Settle any in-flight FLIP and force one reflow so the rects below are the resting layout, not a
     // transform mid-interpolation - this is what breaks the measure-while-animating feedback loop.
     settleCodecFlip(all.filter(function (b) { return b !== state.card; }));
-    void chartsRow.offsetWidth;
+    forceReflow(chartsRow);
 
     var dragRect = state.clone
         ? state.clone.getBoundingClientRect()
@@ -1260,7 +1266,7 @@ function reorderCodecCardTo(state, x, y) {
 
     var prevDisplay = state.card.style.display;
     state.card.style.display = 'none';
-    void chartsRow.offsetWidth;
+    forceReflow(chartsRow);
     var cards = without.map(function (b) {
         var r = b.getBoundingClientRect();
         return { el: b, cx: r.left + (r.width / 2), cy: r.top + (r.height / 2), h: r.height };
@@ -1272,8 +1278,7 @@ function reorderCodecCardTo(state, x, y) {
     // aware early trigger, so it just shifted every landing one slot toward the end - wrong. Row band
     // = each sibling's own half-height so a taller row's full extent counts as same-row.
     var targetIndex = 0;
-    for (var ti = 0; ti < cards.length; ti++) {
-        var c = cards[ti];
+    for (const c of cards) {
         var rowTol = c.h / 2;
         var sameRow = Math.abs(dragCy - c.cy) < rowTol;
         var isBefore = (dragCy > c.cy + rowTol) || (sameRow && dragCx > c.cx);
