@@ -1,6 +1,6 @@
 # Jellyfin Helper - End-to-End Test Harness
 
-Full end-to-end tests that run the plugin inside a **real Jellyfin 12.1
+Full end-to-end tests that run the plugin inside a **real Jellyfin 12.2
 server** in Docker, drive it exactly the way a human would (settings, tasks,
 backup/restore, every dashboard tab), and assert it all works, including
 hardening / edge-case behaviour.
