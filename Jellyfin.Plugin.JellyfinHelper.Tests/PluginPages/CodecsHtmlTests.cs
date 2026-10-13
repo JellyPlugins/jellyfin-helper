@@ -446,4 +446,398 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("VideoBitrates", HtmlContent);
         Assert.Contains("codec-bitrate-hist", HtmlContent);
     }
+
+    [Fact]
+    public void Html_CodecCards_CarryChartIdAndHandle()
+    {
+        // Each card needs a stable id on the wrapper (the drag engine reads data-chart-id) and a
+        // keyboard-focusable handle in the header. The old markup had neither.
+        Assert.Contains("data-chart-id=\"' + escAttr(id) + '\"", HtmlContent);
+        Assert.Contains("codec-card-handle", HtmlContent);
+        Assert.Contains("role=\"button\" tabindex=\"0\" aria-grabbed=\"false\"", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCards_RenderFromDescriptorOrder()
+    {
+        // The if-chain was replaced by a descriptor map ordered via orderedCodecCardIds, so the
+        // persisted order can drive the layout.
+        Assert.Contains("var cardDescriptors", HtmlContent);
+        Assert.Contains("orderedCodecCardIds(cardDescriptors)", HtmlContent);
+        Assert.Contains("CANONICAL_CODEC_ORDER", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCodecDragEngineFunctions()
+    {
+        Assert.Contains("function attachCodecCardDragHandlers", HtmlContent);
+        Assert.Contains("function onCodecHandlePointerDown", HtmlContent);
+        Assert.Contains("function onCodecHandleKeyDown", HtmlContent);
+        Assert.Contains("function reorderCodecCardTo", HtmlContent);
+        Assert.Contains("function updateCodecAutoScroll", HtmlContent);
+        Assert.Contains("function commitCodecCardOrderFromDom", HtmlContent);
+        Assert.Contains("function saveCodecCardOrder", HtmlContent);
+        Assert.Contains("function loadCodecCardOrderOnce", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecOrder_SavesViaDedicatedEndpoint()
+    {
+        // Reorders must hit the dedicated PUT, never the full-config PUT, to avoid racing the
+        // Settings dirty state.
+        Assert.Contains("apiPut('JellyfinHelper/Configuration/CodecCardOrder'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCodecDragCssClasses()
+    {
+        Assert.Contains("codec-dragging", HtmlContent);
+        Assert.Contains("codec-dragging-source", HtmlContent);
+        Assert.Contains("codec-drag-clone", HtmlContent);
+        Assert.Contains(".codec-card-handle", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_LabelNamesTheCard()
+    {
+        // Every grip must carry the card's own title so a screen reader can tell the 11 apart,
+        // rather than announcing the same "Reorder card" for each.
+        Assert.Contains("var handleLabel = T('codecCardReorder', 'Reorder card') + ': ' + cardTitle", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_FollowsPointerViaFixedClone()
+    {
+        // The visible drag image is a fixed-position clone that tracks the pointer; the real card
+        // stays hidden in its grid slot. The clone is created and removed cleanly.
+        Assert.Contains("function moveCodecCloneToPointer", HtmlContent);
+        Assert.Contains("state.card.cloneNode(true)", HtmlContent);
+        Assert.Contains("state.clone.remove()", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_MouseButtonGuardIsMouseOnly()
+    {
+        // Touch/pen can report button -1 for a normal press, so the non-primary-button abort is
+        // scoped to mouse; a blanket button!==0 guard would swallow legitimate touch drags.
+        Assert.Contains("e.pointerType === 'mouse' && e.button !== 0", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_SuppressesContextMenu()
+    {
+        // Long-press on Android/iOS must arm a drag, not pop the browser context menu / callout.
+        Assert.Contains("handle.addEventListener('contextmenu'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHandle_CssHardensAgainstSelectionAndCallout()
+    {
+        Assert.Contains("-webkit-touch-callout: none", HtmlContent);
+        Assert.Matches(@"\.codec-card-handle\s*\{[^}]*user-select:\s*none", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecKeyboard_DropCommitsOnlyAfterRealMove()
+    {
+        // Like the pointer path (state.moved), a keyboard drop must not PUT when the card never left
+        // its origin: grab-then-immediate-drop compares against originIndex and stays silent on save.
+        Assert.Contains("handle.dataset.originIndex", HtmlContent);
+        Assert.Contains("indexOfCard(chartsRow, card) !== originIdx", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecKeyboard_EscapeRestoresInPlaceAndRefocuses()
+    {
+        // Escape (and the error rollback) must not full-re-render: that drops focus to <body>.
+        // Instead the card is restored to its origin index in place and the handle refocused.
+        Assert.Contains("function restoreCardToIndex", HtmlContent);
+        Assert.Contains("handle.dataset.originIndex", HtmlContent);
+        Assert.Contains("card.querySelector('.codec-card-handle').focus()", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSave_AnnouncesOutcomeViaLiveRegion()
+    {
+        // The save-ok / save-failed i18n keys drive the aria-live announcement, so they are wired
+        // through T() rather than sitting dead in the locale files.
+        Assert.Contains("T('codecCardOrderSaved'", HtmlContent);
+        Assert.Contains("T('codecCardOrderSaveFailed'", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSave_RollsBackToPreviousOrderOnFailure()
+    {
+        // A failed PUT must restore the previously persisted order, never re-render the rejected one.
+        Assert.Contains("function flushQueuedCodecOrderSave", HtmlContent);
+        Assert.Contains("prevOrder", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_IgnoresDetachedCardsFromRescan()
+    {
+        // A background rescan can detach dragged nodes mid-interaction; only cards still in the live
+        // document are persisted, so a stale snapshot never reaches the server.
+        Assert.Contains("document.contains(box)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_DragHandleIcon_IsRegisteredInIconMap()
+    {
+        // The grip calls mi('drag_indicator'); if the icon map lacks that key, mi() returns '' and
+        // the handle renders 0px wide - invisible on desktop and untappable on touch. Assert the
+        // path is actually present in the composed map, not just that the call site exists.
+        Assert.Contains("\"drag_indicator\":\"M11 18c0 1.1", HtmlContent);
+        Assert.Contains("mi('drag_indicator')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecTouchDrop_StampsTouchEndToSuppressCompatClick()
+    {
+        // A touch drag ends over a donut/row; the browser then fires a compatibility click there.
+        // Stamping _lastTouchEndTime at drop makes the existing click guards swallow it, so a drop
+        // never opens an unintended drill-down.
+        Assert.Contains("_lastTouchEndTime = Date.now()", HtmlContent);
+        Assert.Contains("if (state.isTouch)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_AbortsWhenChartsRowDetached()
+    {
+        // If the whole row is detached mid-drag, reading the DOM yields [] and the server would
+        // normalize that to the full canonical order, wiping the user's layout. The commit must
+        // bail on a detached row instead of persisting empty.
+        Assert.Contains("!document.contains(chartsRow)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecCommit_RebasesPartialDomOntoFullOrder()
+    {
+        // Cards hidden this scan are absent from the DOM; committing only visible ids would append
+        // them canonically at the end next save. The commit rebases onto the last full order so a
+        // temporarily data-less card keeps its custom slot.
+        Assert.Contains("function reorderFullOrder", HtmlContent);
+        Assert.Contains("reorderFullOrder(prevOrder, domIds)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecLoad_GuardsStaleGetWithGenerationCounter()
+    {
+        // A config GET issued before a drop must not overwrite the newer local order when it
+        // returns. The load snapshots the generation and bails if a commit bumped it meanwhile.
+        Assert.Contains("_codecOrderGeneration", HtmlContent);
+        Assert.Contains("_codecOrderGeneration !== genAtRequest", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_HasNoExternalLibraryDependency()
+    {
+        // The reorder engine is entirely in-house: no SortableJS (or other vendored drag lib) is
+        // pulled in. Guards against a regression that reintroduces an external dependency.
+        Assert.DoesNotContain("Sortable", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_UsesInHousePointerEngine()
+    {
+        // Pointer/touch dragging is driven by our own Pointer Events engine, not native HTML5 DnD
+        // (which has no touch support) nor a library.
+        Assert.Contains("function onCodecHandlePointerDown", HtmlContent);
+        Assert.Contains("function beginCodecDrag", HtmlContent);
+        // Pointer capture is taken (best-effort, via the shared helper) so stray events route to the handle.
+        Assert.Contains("function tryPointerCapture", HtmlContent);
+        Assert.Contains("tryPointerCapture(state.handle, state.pointerId", HtmlContent);
+        // Touch arms on long-press so a plain swipe still scrolls the page.
+        Assert.Contains("CODEC_LONGPRESS_MS", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_KeepsGridSlotViaHiddenSourceAndFixedClone()
+    {
+        // The source card stays in the grid but is hidden (so the grid never loses a cell and
+        // cannot collapse/flicker), while a fixed clone is the visible drag image.
+        Assert.Contains("codec-dragging-source", HtmlContent);
+        Assert.Contains("codec-drag-clone", HtmlContent);
+        Assert.Matches(@"\.codec-dragging-source\s*\{[^}]*visibility:\s*hidden", HtmlContent);
+        Assert.Matches(@"\.codec-drag-clone\s*\{[^}]*position:\s*fixed", HtmlContent);
+        // The clone must not intercept the hit-test for the card beneath it.
+        Assert.Matches(@"\.codec-drag-clone\s*\{[^}]*pointer-events:\s*none", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_AnimatesSiblingsWithFlip()
+    {
+        // Sibling cards glide to their new slots via the FLIP technique (snapshot, invert, play),
+        // so reordering is smooth rather than a jarring jump.
+        Assert.Contains("function flipCodecReorder", HtmlContent);
+        Assert.Contains("getBoundingClientRect", HtmlContent);
+        Assert.Contains("CODEC_FLIP_MS", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecPointerDrag_ReflectsGrabStateToAssistiveTech()
+    {
+        // Pointer/touch drags toggle aria-grabbed in step with the keyboard path.
+        Assert.Contains("state.handle.setAttribute('aria-grabbed', 'true')", HtmlContent);
+        Assert.Contains("state.handle.setAttribute('aria-grabbed', 'false')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecSave_ShowsIsolatedCornerIconThatCannotBreakGrid()
+    {
+        // Save feedback is a plain green check_circle (Settings/Logs look) rendered as an
+        // absolutely-positioned icon INSIDE the card.
+        Assert.Contains("function showCodecSaveFeedback", HtmlContent);
+        Assert.Contains("codec-save-icon", HtmlContent);
+        Assert.DoesNotContain("showAutoSaveIndicatorOverlay(target", HtmlContent);
+        Assert.DoesNotContain("showCodecSaveBadge", HtmlContent);
+        // The icon is absolutely positioned so it never participates in grid layout.
+        Assert.Matches(@"\.codec-save-icon\s*\{[^}]*position:\s*absolute", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_FiltersWindowListenersByPointerId()
+    {
+        // A second finger on mobile must not drive or end the active drag: the window move/up
+        // handlers early-return unless the event's pointerId matches the drag's.
+        Assert.Contains("ev.pointerId === state.pointerId", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_ResetsOnBackgroundRerender()
+    {
+        // A rescan that re-renders the tab mid-drag must tear the drag down first, or the fixed clone
+        // (parented to body) would stay stuck on screen and _codecDrag would block future drags.
+        Assert.Contains("function resetCodecDragForRerender", HtmlContent);
+        Assert.Contains("resetCodecDragForRerender()", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_HandleAllowsVerticalScrollBeforeArming()
+    {
+        // The grip uses touch-action: pan-y (not none) so a plain touch starting on it can still
+        // scroll the page vertically; only an armed long-press drag suppresses scroll via JS.
+        Assert.Matches(@"\.codec-card-handle\s*\{[^}]*touch-action:\s*pan-y", HtmlContent);
+        Assert.DoesNotContain("touch-action: none", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_BeginIsTeardownSafeOnThrow()
+    {
+        // If beginCodecDrag throws after hiding the source card, teardown must still run, or the card
+        // stays invisible and _codecDrag stays set, deadlocking all future drags. The begin body is
+        // wrapped so its catch tears down.
+        var beginAt = HtmlContent.IndexOf("function beginCodecDrag", StringComparison.Ordinal);
+        var moveAt = HtmlContent.IndexOf("function moveCodecCloneToPointer", StringComparison.Ordinal);
+        Assert.True(beginAt >= 0 && moveAt > beginAt);
+        var beginBody = HtmlContent.Substring(beginAt, moveAt - beginAt);
+        Assert.Contains("teardownCodecDrag(state)", beginBody);
+        Assert.Contains("catch", beginBody);
+    }
+
+    [Fact]
+    public void Html_CodecFlip_GuardsAgainstOverlappingRuns()
+    {
+        // A fast drag fires many reorders/sec; each FLIP run must settle any in-flight glide and
+        // cancel its cleanup timer before measuring, or transforms compound into jitter.
+        Assert.Contains("_codecFlipTimer", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecAutoScroll_RunsUnderReducedMotion()
+    {
+        // Auto-scroll is navigation (reaching off-screen cards), not decoration, so it must NOT be
+        // gated behind prefers-reduced-motion - only the FLIP glide is.
+        var flipAt = HtmlContent.IndexOf("function flipCodecReorder", StringComparison.Ordinal);
+        var autoAt = HtmlContent.IndexOf("function updateCodecAutoScroll", StringComparison.Ordinal);
+        var reducedInFlip = HtmlContent.IndexOf("prefersReducedMotion()", flipAt, StringComparison.Ordinal);
+        Assert.True(reducedInFlip > flipAt && reducedInFlip < autoAt, "FLIP should gate on reduced-motion");
+        // updateCodecAutoScroll body must not early-return on reduced motion.
+        var autoBody = HtmlContent.Substring(autoAt, HtmlContent.IndexOf("function onCodecDragPointerUp", StringComparison.Ordinal) - autoAt);
+        Assert.DoesNotContain("prefersReducedMotion", autoBody);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_IsHistoryFree()
+    {
+        // The target slot is mapped in the "without" frame - siblings measured with the source taken
+        // out of flow (display:none on the source only). Grid order of the others never changes no
+        // matter where the source sits, so the slot is a pure function of the pointer and cannot
+        // ping-pong across a mixed-height seam.
+        Assert.Contains("var without = all.filter", HtmlContent);
+        Assert.Contains("var targetIndex = findSlotIndex(rows, without.length, x, y)", HtmlContent);
+        Assert.Contains("rows.at(-1)", HtmlContent);
+        Assert.Contains("state.card.style.display = 'none'", HtmlContent);
+        Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
+        // No history dependency: the per-direction bias branch (ti < currentIndex) is gone.
+        Assert.DoesNotContain("ti < currentIndex", HtmlContent);
+        Assert.DoesNotContain("CODEC_SWAP_OVERLAP", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_SettlesFlipBeforeMeasuring()
+    {
+        // In-flight FLIP glides are settled and a reflow forced before measuring, so rects are the
+        // resting layout rather than a transform mid-interpolation (which fed the old oscillation).
+        Assert.Contains("function settleCodecFlip", HtmlContent);
+        Assert.Contains("settleCodecFlip(all.filter(", HtmlContent);
+        Assert.Contains("forceReflow(chartsRow)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_MapsPointerToSlotViaRowMidlinesAndNearestColumn()
+    {
+        // The slot comes from the pointer, not a card centre: the row whose band holds the pointer
+        // (row midlines split the gaps) and the nearest card inside it. A centre rule ("past cx")
+        // keeps a near-totally overlapped neighbour as stay - exactly the reported bug. Guard both
+        // the old centre comparison and the uniform bias line that shifted every landing one slot
+        // toward the end.
+        Assert.Contains("(rows[m].bottom + rows[m + 1].top) / 2", HtmlContent);
+        Assert.Contains("Math.abs(x - ", HtmlContent);
+        Assert.DoesNotContain("dragCx", HtmlContent);
+        Assert.DoesNotContain("c.cx - (c.w", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_RestBandKeepsHomeSlotAStableNoOp()
+    {
+        // While the pointer is still inside the source's own visible slot, the reorder is a
+        // no-op - so a stationary or barely-nudged grab never jumps, and rest is not on a knife edge.
+        // Pointer-based (not clone-centre-based), so the grab position cannot shift the thresholds.
+        Assert.Contains("var home = state.card.getBoundingClientRect()", HtmlContent);
+        Assert.Contains("x >= home.left && x <= home.right", HtmlContent);
+        Assert.Contains("y >= home.top && y <= home.bottom", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrop_DoesNotSaveWithoutRealMove()
+    {
+        // A long-press that armed but never dragged (too-long hold with no travel) must leave the
+        // order untouched - no commit, no "saved where it already was". Only a real reorder commits.
+        Assert.Contains("state.moved = true", HtmlContent);
+        Assert.Contains("if (state.moved)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_LocksScrollOnlyWhileActive()
+    {
+        // The grip is touch-action: pan-y so a plain touch still scrolls; once a drag arms, scrolling
+        // is locked (touch-action: none) so the page cannot pan under the finger mid-drag, then reset.
+        Assert.Matches(@"\.codec-card-handle\s*\{[^}]*touch-action:\s*pan-y", HtmlContent);
+        Assert.Contains("state.handle.style.touchAction = 'none'", HtmlContent);
+        Assert.Contains("state.handle.style.touchAction = ''", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_ConsumesTouchMoveOnlyWhileActive()
+    {
+        // pointermove preventDefault cannot stop a browser scroll takeover (which arrives as
+        // pointercancel and tears an armed drag down mid-gesture, including vertical legs). A
+        // non-passive window touchmove guard consumes the gesture only once armed, so the page can
+        // no longer pan, pull-to-refresh, or cancel under the finger - while a pre-arm touch still
+        // scrolls normally. Without passive:false the preventDefault would be ignored by Chrome.
+        Assert.Contains("window.addEventListener('touchmove', state.touchMove, { passive: false })", HtmlContent);
+        Assert.Contains("window.removeEventListener('touchmove', state.touchMove)", HtmlContent);
+        Assert.Contains("if (state.active && ev.cancelable)", HtmlContent);
+    }
 }

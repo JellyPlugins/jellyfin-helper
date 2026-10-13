@@ -463,5 +463,12 @@
   "codecShowLess": "Weniger anzeigen",
   "explorerIncludes": "Enthält",
   "explorerExcludes": "Enthält nicht",
-  "treeExpandCapped": "{shown} von {total} Dateien - Ordner aufklappen für mehr"
+  "treeExpandCapped": "{shown} von {total} Dateien - Ordner aufklappen für mehr",
+  "codecCardReorder": "Karte neu anordnen",
+  "codecCardGrabbed": "Karte aufgenommen. Pfeiltasten zum Verschieben, Enter zum Ablegen, Escape zum Abbrechen.",
+  "codecCardMoved": "Verschoben auf Position",
+  "codecCardDropped": "Karte abgelegt und Reihenfolge gespeichert.",
+  "codecCardCancelled": "Neuanordnung abgebrochen.",
+  "codecCardOrderSaved": "Reihenfolge gespeichert",
+  "codecCardOrderSaveFailed": "Reihenfolge konnte nicht gespeichert werden"
 }

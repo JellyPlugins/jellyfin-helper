@@ -463,5 +463,12 @@
   "codecShowLess": "Show less",
   "explorerIncludes": "Includes",
   "explorerExcludes": "Excludes",
-  "treeExpandCapped": "Showing {shown} of {total} files - expand folders to see more"
+  "treeExpandCapped": "Showing {shown} of {total} files - expand folders to see more",
+  "codecCardReorder": "Reorder card",
+  "codecCardGrabbed": "Card grabbed. Use arrow keys to move, Enter to drop, Escape to cancel.",
+  "codecCardMoved": "Moved to position",
+  "codecCardDropped": "Card dropped and order saved.",
+  "codecCardCancelled": "Reorder cancelled.",
+  "codecCardOrderSaved": "Order saved",
+  "codecCardOrderSaveFailed": "Could not save order"
 }

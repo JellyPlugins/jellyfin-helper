@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -57,6 +58,9 @@ public static class BackupSanitizer
         // Arr instances
         SanitizeArrInstances(backup.RadarrInstances);
         SanitizeArrInstances(backup.SonarrInstances);
+
+        // Codecs card order
+        SanitizeCodecCardOrder(backup.CodecCardOrder);
 
         SanitizeGrowthTimeline(backup);
         SanitizeGrowthBaseline(backup);
@@ -198,5 +202,43 @@ public static class BackupSanitizer
             instance.ApiKey = TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
             instance.Libraries = TruncateString(instance.Libraries, BackupValidator.MaxArrLibrariesLength);
         }
+    }
+
+    /// <summary>
+    ///     Sanitizes a codec card order in place: trims, drops blank/oversized/unknown ids, de-duplicates,
+    ///     and caps the count. Oversized ids are dropped rather than truncated, since a truncated id would
+    ///     silently become a different (possibly valid) card.
+    /// </summary>
+    /// <param name="order">The card order list to sanitize in place.</param>
+    private static void SanitizeCodecCardOrder(List<string>? order)
+    {
+        if (order == null)
+        {
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var kept = new List<string>(order.Count);
+        foreach (var raw in order)
+        {
+            var id = raw?.Trim();
+            if (string.IsNullOrEmpty(id)
+                || id.Length > BackupValidator.MaxCodecCardIdLength
+                || !CodecCardCatalog.IsKnown(id)
+                || !seen.Add(id))
+            {
+                continue;
+            }
+
+            kept.Add(id);
+        }
+
+        while (kept.Count > BackupValidator.MaxCodecCardOrderEntries)
+        {
+            kept.RemoveAt(kept.Count - 1);
+        }
+
+        order.Clear();
+        order.AddRange(kept);
     }
 }

@@ -183,6 +183,44 @@ public class ConfigurationController : ControllerBase
     }
 
     /// <summary>
+    ///     Updates only the Codecs-tab donut card order without touching any other configuration fields.
+    ///     Dedicated endpoint so a reorder never races the Settings-tab dirty state via the full PUT.
+    /// </summary>
+    /// <param name="request">The card order update request.</param>
+    /// <returns>A status result with the stored, normalized order.</returns>
+    [HttpPut("CodecCardOrder")]
+    [ProducesResponseType(typeof(CodecCardOrderResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CodecCardOrderResponse), StatusCodes.Status400BadRequest)]
+    public ActionResult UpdateCodecCardOrder([FromBody] CodecCardOrderUpdateRequest request)
+    {
+        // A literal `null` JSON body binds `request` to null on this [ApiController] (no ModelBindingLogFilter here, unlike the main PUT), so guard explicitly to return a clean 400 instead of a 500.
+        if (request is null)
+        {
+            return BadRequest(new CodecCardOrderResponse { Message = "Request body is required." });
+        }
+
+        if (!_configService.IsInitialized)
+        {
+            return BadRequest(new CodecCardOrderResponse { Message = "Plugin not initialized." });
+        }
+
+        var validationError = ConfigurationRequestValidator.ValidateCodecCardOrder(request.CodecCardOrder);
+        if (validationError != null)
+        {
+            _pluginLog.LogWarning("API", $"Rejected codec card order update: {validationError}", logger: _logger);
+            return BadRequest(new CodecCardOrderResponse { Message = validationError });
+        }
+
+        var normalized = CodecCardCatalog.Normalize(request.CodecCardOrder);
+        _configService.ReadAndMutate(config => config.CodecCardOrder = normalized);
+
+        _pluginLog.LogInfo("API", "Codec card order updated.", _logger);
+
+        // Hand the response its own copy so it never aliases the list now owned by the live config.
+        return Ok(new CodecCardOrderResponse { Message = "Codec card order updated.", CodecCardOrder = [.. normalized] });
+    }
+
+    /// <summary>
     ///     Updates the plugin configuration. After saving, performs connection tests against all configured Arr instances and logs warnings for unreachable ones.
     /// </summary>
     /// <param name="request">The configuration update request.</param>

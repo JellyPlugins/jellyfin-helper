@@ -463,5 +463,12 @@
   "codecShowLess": "Mostrar menos",
   "explorerIncludes": "Incluye",
   "explorerExcludes": "Excluye",
-  "treeExpandCapped": "{shown} de {total} archivos - expande las carpetas para ver más"
+  "treeExpandCapped": "{shown} de {total} archivos - expande las carpetas para ver más",
+  "codecCardReorder": "Reordenar tarjeta",
+  "codecCardGrabbed": "Tarjeta agarrada. Usa las flechas para mover, Enter para soltar, Escape para cancelar.",
+  "codecCardMoved": "Movida a la posición",
+  "codecCardDropped": "Tarjeta soltada y orden guardado.",
+  "codecCardCancelled": "Reordenación cancelada.",
+  "codecCardOrderSaved": "Orden guardado",
+  "codecCardOrderSaveFailed": "No se pudo guardar el orden"
 }

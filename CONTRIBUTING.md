@@ -22,7 +22,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Jellyfin Server 12.1.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
+- [Jellyfin Server 12.2.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
 - Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
 
@@ -178,6 +178,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── BackupControllerExtendedTests.cs               # Malformed JSON → 400, null body, chunk-loop MaxSize defence, whitespace-only body
 │   ├── BackupControllerErrorHandlingTests.cs          # Service-layer failures surfaced as the right status codes (mocked IBackupService)
 │   ├── ConfigurationControllerTests.cs               # Key-masking: non-empty → fixed-length mask sentinel, empty stays empty, sentinel preserves stored key, PluginLogLevel TOCTOU
+│   ├── ConfigurationControllerCodecCardOrderTests.cs  # PUT /Configuration/CodecCardOrder: GET normalized order, null body / unknown / duplicate / >32 → 400, empty → canonical
+│   ├── ConfigurationRequestValidatorCodecCardOrderTests.cs  # ValidateCodecCardOrder branches: null/empty valid, unknown, duplicate, >32, >64-char, blank entry
 │   ├── ConfigurationResponseTests.cs                 # ConfigurationResponse.FromConfig + MaskedArrInstanceConfig: masking, field pass-through, real key never in response
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # Seerr users/services, request submission, filter logic, feedback-store error paths
@@ -198,6 +200,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   └── ...
 ├── Configuration/                 # Config serialization tests
 │   ├── PluginConfigurationSerializationTests.cs
+│   ├── CodecCardCatalogTests.cs    # Canonical order + Normalize (dedupe, drop unknown, append missing) + IsKnown
+│   ├── PluginConfigurationCodecCardOrderTests.cs  # CodecCardOrder null-guard, default empty, XmlSerializer round-trip, legacy XML
 │   └── TaskModeTests.cs
 ├── PluginPages/                   # HTML composition tests
 │   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html + README
@@ -245,6 +249,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── BackupSanitizerArrInstancesTests.cs         # Arr-instance credential redaction across multiple configured instances
 │   │   ├── BackupValidatorSecurityTests.cs             # SECURITY: trash-path null-byte/newline injection and script-pattern guards
 │   │   ├── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
+│   │   ├── BackupCodecCardOrderTests.cs                # Codec order: sanitize drops unknown/oversized/dup + cap, validate warns-on-unknown/errors-on->64, no-field clean, Create→Restore round-trip, CredentialsChanged untouched
 │   │   └── BackupValidatorTests.cs                     # SeerrCleanupAgeDays range (null=absent, 0=immediate, negative=error, >Max=error); CreatedAt timezone warnings (Unspecified emits warning, Utc/Local silent)
 │   ├── Cleanup/                   # Cleanup task tests
 │   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
@@ -499,6 +504,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LibraryListResponse.cs           # GET /Configuration/Libraries response: list of LibraryEntry
 │   ├── LibraryPathEntry.cs              # Library name + filesystem path entry (used in FolderBrowserResponse)
 │   ├── LogLevelResponse.cs              # PUT /Configuration/LogLevel response: message + active log level
+│   ├── CodecCardOrderUpdateRequest.cs   # PUT /Configuration/CodecCardOrder request: desired card id order
+│   ├── CodecCardOrderResponse.cs        # PUT /Configuration/CodecCardOrder response: message + stored normalized order
 │   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
 │   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
 │   ├── TraktDiscoveryResponse.cs        # GET /Discovery/My/Trakt envelope: Linked flag + optional scored Result
@@ -517,6 +524,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
 │   ├── ClampReportEntry.cs      # Record for reporting clamped config values at startup
 │   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
+│   ├── CodecCardCatalog.cs      # Canonical Codecs-tab card ids + shared order normalization (dedupe, drop unknown, append missing)
 │   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
 ├── Services/
 │   ├── Activity/                    # User watch activity tracking
