@@ -1213,48 +1213,81 @@ function onCodecDragPointerMove(e, state) {
     updateCodecAutoScroll(state);
 }
 
-// Moves the hidden card to the reading-order slot the pointer is over, FLIP-animating the shift.
-// Reading order (row by row, left to right) is used so a drop never displaces an unrelated card:
-// the insert point is the first sibling that sits AFTER the pointer, matching how the grid flows.
+// Reorders the hidden source card to the slot the dragged clone's CENTRE occupies in reading order.
+// The target slot is a pure function of the clone centre vs each card's RESTING centre (settled and
+// measured once), never live overlap against mid-FLIP rects - so it is monotonic and cannot oscillate.
+// Works for any column count. The clone is card-sized, so its centre reaching a neighbour's centre
+// means it already overlaps it heavily - the swap feels immediate, not sluggish.
 function reorderCodecCardTo(state, x, y) {
     var chartsRow = state.chartsRow;
-    var siblings = Array.prototype.slice.call(
-        chartsRow.querySelectorAll('.chart-box[data-chart-id]'))
-        .filter(function (b) { return b !== state.card; });
-    if (!siblings.length) {
+    var all = Array.prototype.slice.call(chartsRow.querySelectorAll('.chart-box[data-chart-id]'));
+    if (all.length < 2) {
         return;
     }
 
-    // The hidden dragged card still occupies its grid cell, so every sibling at or after its current
-    // slot is displaced by one cell - measuring raw rects would make the decision self-referential and
-    // the card sticks to the end. Collapse the card out of flow for the measurement so siblings report
-    // their true reading-order positions, then restore it (the re-insert happens in the FLIP mutate).
+    // Settle any in-flight FLIP and force one reflow so the rects below are the resting layout, not a
+    // transform mid-interpolation - this is what breaks the measure-while-animating feedback loop.
+    settleCodecFlip(all.filter(function (b) { return b !== state.card; }));
+    void chartsRow.offsetWidth;
+
+    var dragRect = state.clone
+        ? state.clone.getBoundingClientRect()
+        : { left: x - 20, right: x + 20, top: y - 20, bottom: y + 20 };
+    var dragCx = (dragRect.left + dragRect.right) / 2;
+    var dragCy = (dragRect.top + dragRect.bottom) / 2;
+
+    // Rest band: while the clone centre still sits within the source's OWN visible slot, do nothing.
+    // Measured with the source in flow (its real slot). This keeps a stationary or barely-nudged drag
+    // a true no-op - the reorder only begins once the clone centre genuinely leaves the home cell -
+    // so rest never sits on a knife edge and a plain grab cannot jump.
+    var home = state.card.getBoundingClientRect();
+    if (dragCx >= home.left && dragCx <= home.right && dragCy >= home.top && dragCy <= home.bottom) {
+        return;
+    }
+
+    // The source occupies its slot (visibility:hidden), so measuring siblings while it is in flow
+    // reads a layout that depends on WHERE the source currently sits - a sibling can jump columns
+    // when the source changes row, and the resting frame shifts under the clone point. That coupling
+    // is what let the index ping-pong (e.g. 2<->4) across a mixed-height seam once per pointermove.
+    //
+    // To make the decision a PURE function of the clone centre and the OTHER cards, measure the
+    // siblings with the source removed from flow (display:none). The clone is position:fixed, so it is
+    // unaffected; only the siblings reflow, into the exact layout they will have AFTER the move. The
+    // index computed in that frame cannot depend on the source slot, so it cannot oscillate by
+    // construction. display is restored immediately; the collapsed frame is never painted (we read
+    // synchronously before yielding to the renderer), so nothing the user sees flashes.
+    var without = all.filter(function (b) { return b !== state.card; });
+
     var prevDisplay = state.card.style.display;
     state.card.style.display = 'none';
+    void chartsRow.offsetWidth;
+    var cards = without.map(function (b) {
+        var r = b.getBoundingClientRect();
+        return { el: b, cx: r.left + (r.width / 2), cy: r.top + (r.height / 2), h: r.height };
+    });
+    state.card.style.display = prevDisplay;
 
-    // The first sibling whose centre is at or after the pointer in reading order is the insert point;
-    // the card lands before it. A pointer exactly on a (left-column) centre counts as "before" that
-    // card so it lands in that slot. If none qualifies, the pointer is past the last card -> append.
-    var ref = null;
-    for (const box of siblings) {
-        var r = box.getBoundingClientRect();
-        var cx = r.left + (r.width / 2);
-        var cy = r.top + (r.height / 2);
-        var sameRow = Math.abs(y - cy) < r.height / 2;
-        var pointerBefore = sameRow ? (x <= cx) : (y < cy);
-        if (pointerBefore) {
-            ref = box;
-            break;
+    // Target index = how many siblings sit before the clone centre in reading order, compared against
+    // each sibling's true CENTRE (no bias). A biased line would be a uniform +offset, not a direction-
+    // aware early trigger, so it just shifted every landing one slot toward the end - wrong. Row band
+    // = each sibling's own half-height so a taller row's full extent counts as same-row.
+    var targetIndex = 0;
+    for (var ti = 0; ti < cards.length; ti++) {
+        var c = cards[ti];
+        var rowTol = c.h / 2;
+        var sameRow = Math.abs(dragCy - c.cy) < rowTol;
+        var isBefore = (dragCy > c.cy + rowTol) || (sameRow && dragCx > c.cx);
+        if (isBefore) {
+            targetIndex++;
         }
     }
 
-    state.card.style.display = prevDisplay;
-
-    // Bail on a positional no-op so a neighbour never animates across the hidden slot on jitter.
-    if (ref === state.card || ref === state.card.nextElementSibling) {
-        return;
-    }
-    if (!ref && !state.card.nextElementSibling) {
+    // `without` is the sibling sequence the card will land inside; targetIndex is the position among
+    // those siblings. No-op when the source already occupies that slot: inserting before
+    // without[targetIndex] (or appending when past the end) would leave the DOM order unchanged. That
+    // is exactly when the source's current next sibling already equals the reference node.
+    var ref = targetIndex < without.length ? without[targetIndex] : null;
+    if (ref === state.card.nextElementSibling) {
         return;
     }
 
@@ -1270,6 +1303,21 @@ function reorderCodecCardTo(state, x, y) {
     state.moved = true;
 }
 
+// Cancels any in-flight FLIP glide on the given boxes and clears their transform, so a subsequent
+// getBoundingClientRect reads the resting layout rather than a transform mid-interpolation.
+function settleCodecFlip(boxes) {
+    boxes.forEach(function (b) {
+        if (b._codecFlipTimer) {
+            clearTimeout(b._codecFlipTimer);
+            b._codecFlipTimer = 0;
+        }
+        if (b.style.transform || b.style.transition) {
+            b.style.transition = 'none';
+            b.style.transform = '';
+        }
+    });
+}
+
 // FLIP the siblings that shifted. Any still mid-glide is settled first so First is read from layout,
 // not a transform mid-interpolation; otherwise a fast drag compounds transforms into jitter.
 function flipCodecReorder(chartsRow, draggedCard, mutate) {
@@ -1281,14 +1329,7 @@ function flipCodecReorder(chartsRow, draggedCard, mutate) {
         chartsRow.querySelectorAll('.chart-box[data-chart-id]'))
         .filter(function (b) { return b !== draggedCard; });
 
-    boxes.forEach(function (b) {
-        if (b._codecFlipTimer) {
-            clearTimeout(b._codecFlipTimer);
-            b._codecFlipTimer = 0;
-        }
-        b.style.transition = 'none';
-        b.style.transform = '';
-    });
+    settleCodecFlip(boxes);
 
     var first = boxes.map(function (b) { return b.getBoundingClientRect(); });
 
