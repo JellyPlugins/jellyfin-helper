@@ -1232,6 +1232,83 @@ function forceReflow(el) {
     return el.offsetWidth;
 }
 
+// Groups collapsed sibling rects into grid rows by top edge; cards run left to right per row.
+function groupCardsIntoRows(cards) {
+    var rows = [];
+    for (const c of cards) {
+        var row = null;
+        for (const candidate of rows) {
+            if (Math.abs(candidate.top - c.top) < 1) {
+                row = candidate;
+                break;
+            }
+        }
+        if (!row) {
+            row = { top: c.top, bottom: c.bottom, cards: [] };
+            rows.push(row);
+        }
+        row.cards.push(c);
+        if (c.bottom > row.bottom) {
+            row.bottom = c.bottom;
+        }
+    }
+    rows.sort(function (a, b) { return a.top - b.top; });
+    rows.forEach(function (row) {
+        row.cards.sort(function (a, b) { return a.left - b.left; });
+    });
+    return rows;
+}
+
+// Maps the pointer to a sibling index: past either grid end the slot is unambiguous (first cell or
+// append), otherwise the row whose band holds the pointer (row midlines split the gaps) and the
+// nearest card inside it. A short last row has no right-hand cell, so a pointer past its end appends
+// instead of landing on its only card.
+function findSlotIndex(rows, siblingCount, x, y) {
+    if (y < rows[0].top) {
+        return 0;
+    }
+    if (y > rows.at(-1).bottom) {
+        return siblingCount;
+    }
+    var rowIdx = 0;
+    for (var m = 0; m < rows.length - 1; m++) {
+        if (y > (rows[m].bottom + rows[m + 1].top) / 2) {
+            rowIdx = m + 1;
+        } else {
+            break;
+        }
+    }
+    var targetRow = rows[rowIdx];
+    var base = 0;
+    for (var bi = 0; bi < rowIdx; bi++) {
+        base += rows[bi].cards.length;
+    }
+    var last = targetRow.cards.at(-1);
+    if (rowIdx === rows.length - 1 && targetRow.cards.length < colsOf(rows) && x > last.right) {
+        return siblingCount;
+    }
+    var best = 0;
+    var bestDist = Math.abs(x - targetRow.cards[0].cx);
+    for (var ci = 1; ci < targetRow.cards.length; ci++) {
+        var dist = Math.abs(x - targetRow.cards[ci].cx);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = ci;
+        }
+    }
+    return base + best;
+}
+
+// Widest row: a short last row (fewer cards) has no right-hand cell.
+function colsOf(rows) {
+    var cols = 0;
+    rows.forEach(function (row) {
+        if (row.cards.length > cols) {
+            cols = row.cards.length;
+        }
+    });
+    return cols;
+}
 // Reorders the hidden source card to the collapsed-frame slot the POINTER occupies in reading order.
 // The slot is a pure function of the pointer and the OTHER cards' resting geometry, so the same
 // pointer always yields the same slot: no oscillation by construction, for any column count.
@@ -1279,73 +1356,8 @@ function reorderCodecCardTo(state, x, y) {
     });
     state.card.style.display = prevDisplay;
 
-    // Group the collapsed siblings into rows by top edge; DOM order already runs left to right.
-    var rows = [];
-    cards.forEach(function (c) {
-        var found = null;
-        for (var ri = 0; ri < rows.length; ri++) {
-            if (Math.abs(rows[ri].top - c.top) < 1) {
-                found = rows[ri];
-                break;
-            }
-        }
-        if (!found) {
-            found = { top: c.top, bottom: c.bottom, cards: [] };
-            rows.push(found);
-        }
-        found.cards.push(c);
-        if (c.bottom > found.bottom) {
-            found.bottom = c.bottom;
-        }
-    });
-    rows.sort(function (a, b) { return a.top - b.top; });
-    var cols = 0;
-    rows.forEach(function (row) {
-        row.cards.sort(function (a, b) { return a.left - b.left; });
-        if (row.cards.length > cols) {
-            cols = row.cards.length;
-        }
-    });
-
-    // Past either end of the grid the slot is unambiguous: first cell or append. Otherwise the row
-    // whose band holds the pointer (row midlines split the gaps) and the nearest card inside it, so a
-    // half-overlapped neighbour already yields instead of only a passed centre. A short last row has
-    // no right-hand cell, so a pointer past its end appends instead of landing on its only card.
-    var targetIndex;
-    if (y < rows[0].top) {
-        targetIndex = 0;
-    } else if (y > rows[rows.length - 1].bottom) {
-        targetIndex = without.length;
-    } else {
-        var rowIdx = 0;
-        for (var m = 0; m < rows.length - 1; m++) {
-            if (y > (rows[m].bottom + rows[m + 1].top) / 2) {
-                rowIdx = m + 1;
-            } else {
-                break;
-            }
-        }
-        var targetRow = rows[rowIdx];
-        var base = 0;
-        for (var bi = 0; bi < rowIdx; bi++) {
-            base += rows[bi].cards.length;
-        }
-        var last = targetRow.cards[targetRow.cards.length - 1];
-        if (rowIdx === rows.length - 1 && targetRow.cards.length < cols && x > last.right) {
-            targetIndex = without.length;
-        } else {
-            var best = 0;
-            var bestDist = Math.abs(x - targetRow.cards[0].cx);
-            for (var ci = 1; ci < targetRow.cards.length; ci++) {
-                var dist = Math.abs(x - targetRow.cards[ci].cx);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    best = ci;
-                }
-            }
-            targetIndex = base + best;
-        }
-    }
+    var rows = groupCardsIntoRows(cards);
+    var targetIndex = findSlotIndex(rows, without.length, x, y);
 
     // `without` is the sibling sequence the card will land inside; targetIndex is the position among
     // those siblings. No-op when the source already occupies that slot: inserting before
@@ -1511,11 +1523,20 @@ function onCodecHandleKeyDown(e, handle, card, chartsRow) {
             handle.dataset.originIndex = String(indexOfCard(chartsRow, card));
             announceCodec(T('codecCardGrabbed', 'Card grabbed. Use arrow keys to move, Enter to drop, Escape to cancel.'));
         } else {
+            // Drop commits only after a real move, mirroring the pointer path (state.moved): a grab
+            // followed by an immediate drop sends no redundant PUT and announces no phantom save.
+            // A missing origin parses to NaN, which never equals an index, so a corrupted grab state
+            // still commits instead of silently swallowing the drop.
+            var originIdx = Number.parseInt(handle.dataset.originIndex, 10);
             handle.setAttribute('aria-grabbed', 'false');
             card.classList.remove('codec-dragging');
             delete handle.dataset.originIndex;
-            commitCodecCardOrderFromDom(chartsRow, card);
-            announceCodec(T('codecCardDropped', 'Card dropped and order saved.'));
+            if (indexOfCard(chartsRow, card) !== originIdx) {
+                commitCodecCardOrderFromDom(chartsRow, card);
+                announceCodec(T('codecCardDropped', 'Card dropped and order saved.'));
+            } else {
+                announceCodec(T('codecCardCancelled', 'Reorder cancelled.'));
+            }
         }
         return;
     }

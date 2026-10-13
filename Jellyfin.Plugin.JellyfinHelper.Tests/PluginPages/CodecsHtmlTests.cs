@@ -538,6 +538,15 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_CodecKeyboard_DropCommitsOnlyAfterRealMove()
+    {
+        // Like the pointer path (state.moved), a keyboard drop must not PUT when the card never left
+        // its origin: grab-then-immediate-drop compares against originIndex and stays silent on save.
+        Assert.Contains("handle.dataset.originIndex", HtmlContent);
+        Assert.Contains("indexOfCard(chartsRow, card) !== originIdx", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CodecKeyboard_EscapeRestoresInPlaceAndRefocuses()
     {
         // Escape (and the error rollback) must not full-re-render: that drops focus to <body>.
@@ -756,7 +765,8 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
         // matter where the source sits, so the slot is a pure function of the pointer and cannot
         // ping-pong across a mixed-height seam.
         Assert.Contains("var without = all.filter", HtmlContent);
-        Assert.Contains("targetIndex = without.length", HtmlContent);
+        Assert.Contains("var targetIndex = findSlotIndex(rows, without.length, x, y)", HtmlContent);
+        Assert.Contains("rows.at(-1)", HtmlContent);
         Assert.Contains("state.card.style.display = 'none'", HtmlContent);
         Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
         // No history dependency: the per-direction bias branch (ti < currentIndex) is gone.
