@@ -749,22 +749,48 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CodecHitTest_UsesReadingOrderInsertPoint()
+    public void Html_CodecHitTest_IsHistoryFree()
     {
-        // The insert point is the first sibling at/after the pointer in reading order (row by row,
-        // left to right). Works for one or two columns and never displaces an unrelated card.
-        Assert.Contains("var pointerBefore = sameRow ? (x <= cx) : (y < cy)", HtmlContent);
-        Assert.Contains("function reorderCodecCardTo", HtmlContent);
+        // The target slot is counted in the "without" frame - siblings measured with the source taken
+        // out of flow (display:none on the source only; the clone is position:fixed and unaffected).
+        // That frame does not depend on where the source currently sits, so the index is a pure
+        // function of the clone centre and cannot ping-pong across a mixed-height seam.
+        Assert.Contains("state.clone.getBoundingClientRect()", HtmlContent);
+        Assert.Contains("var targetIndex = 0", HtmlContent);
+        Assert.Contains("state.card.style.display = 'none'", HtmlContent);
+        Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
+        // No history dependency: the per-direction bias branch (ti < currentIndex) is gone.
+        Assert.DoesNotContain("ti < currentIndex", HtmlContent);
+        Assert.DoesNotContain("CODEC_SWAP_OVERLAP", HtmlContent);
     }
 
     [Fact]
-    public void Html_CodecHitTest_MeasuresWithDraggedCellCollapsed()
+    public void Html_CodecHitTest_SettlesFlipBeforeMeasuring()
     {
-        // The hidden dragged card still occupies its grid cell, which would displace every sibling by
-        // one slot and make the hit-test self-referential (card sticks to the end). Collapsing it with
-        // display:none for the measurement, then restoring, yields the true reading-order positions.
-        Assert.Contains("state.card.style.display = 'none'", HtmlContent);
-        Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
+        // In-flight FLIP glides are settled and a reflow forced before measuring, so rects are the
+        // resting layout rather than a transform mid-interpolation (which fed the old oscillation).
+        Assert.Contains("function settleCodecFlip", HtmlContent);
+        Assert.Contains("settleCodecFlip(all.filter(", HtmlContent);
+        Assert.Contains("void chartsRow.offsetWidth", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_ComparesAgainstCardCentreNoBias()
+    {
+        // The "before" test uses each sibling's true centre (dragCx > c.cx), NOT a shifted line. A
+        // uniform bias (cx - 0.3w) is not a direction-aware early trigger - it just offsets every
+        // landing one slot toward the end, so the clone over slot k lands at k+1. Guard against that.
+        Assert.Contains("sameRow && dragCx > c.cx)", HtmlContent);
+        Assert.DoesNotContain("c.cx - (c.w", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_RestBandKeepsHomeSlotAStableNoOp()
+    {
+        // While the clone centre is still inside the source's own visible slot, the reorder is a
+        // no-op - so a stationary or barely-nudged grab never jumps, and rest is not on a knife edge.
+        Assert.Contains("var home = state.card.getBoundingClientRect()", HtmlContent);
+        Assert.Contains("dragCx >= home.left && dragCx <= home.right", HtmlContent);
     }
 
     [Fact]
