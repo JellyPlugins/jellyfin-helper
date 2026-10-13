@@ -43,6 +43,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 - Special thanks to [@TheColin21](https://github.com/TheColin21) for testing and donation ❤️
 - Special thanks to Daniel for his donation ❤️
+- Special thanks to [@baervers23](https://github.com/baervers23) for great input and ideas ❤️
 
 ## [3.0.0.4] - 2026-09-26
 
