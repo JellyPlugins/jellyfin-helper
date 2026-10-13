@@ -666,16 +666,6 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CodecDrag_HitTestPicksNearestCardCenter()
-    {
-        // The dragged card lands next to the sibling whose center is nearest the pointer (euclidean),
-        // not a row-major first-match that snaps between columns at every center line.
-        Assert.Contains("function reorderCodecCardTo", HtmlContent);
-        Assert.Contains("nearestDist", HtmlContent);
-        Assert.Contains("(dx * dx) + (dy * dy)", HtmlContent);
-    }
-
-    [Fact]
     public void Html_CodecPointerDrag_ReflectsGrabStateToAssistiveTech()
     {
         // Pointer/touch drags toggle aria-grabbed in step with the keyboard path.
@@ -759,11 +749,40 @@ public partial class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CodecHitTest_HandlesSingleColumnLayout()
+    public void Html_CodecHitTest_UsesReadingOrderInsertPoint()
     {
-        // In the 1-column (mobile) grid, horizontal position is meaningless; the vertical half the
-        // pointer is in must decide before/after, or reordering is off-by-one.
-        Assert.Contains("function codecGridIsSingleColumn", HtmlContent);
-        Assert.Contains("if (singleColumn)", HtmlContent);
+        // The insert point is the first sibling at/after the pointer in reading order (row by row,
+        // left to right). Works for one or two columns and never displaces an unrelated card.
+        Assert.Contains("var pointerBefore = sameRow ? (x <= cx) : (y < cy)", HtmlContent);
+        Assert.Contains("function reorderCodecCardTo", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecHitTest_MeasuresWithDraggedCellCollapsed()
+    {
+        // The hidden dragged card still occupies its grid cell, which would displace every sibling by
+        // one slot and make the hit-test self-referential (card sticks to the end). Collapsing it with
+        // display:none for the measurement, then restoring, yields the true reading-order positions.
+        Assert.Contains("state.card.style.display = 'none'", HtmlContent);
+        Assert.Contains("state.card.style.display = prevDisplay", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrop_DoesNotSaveWithoutRealMove()
+    {
+        // A long-press that armed but never dragged (too-long hold with no travel) must leave the
+        // order untouched - no commit, no "saved where it already was". Only a real reorder commits.
+        Assert.Contains("state.moved = true", HtmlContent);
+        Assert.Contains("if (state.moved)", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_CodecDrag_LocksScrollOnlyWhileActive()
+    {
+        // The grip is touch-action: pan-y so a plain touch still scrolls; once a drag arms, scrolling
+        // is locked (touch-action: none) so the page cannot pan under the finger mid-drag, then reset.
+        Assert.Matches(@"\.codec-card-handle\s*\{[^}]*touch-action:\s*pan-y", HtmlContent);
+        Assert.Contains("state.handle.style.touchAction = 'none'", HtmlContent);
+        Assert.Contains("state.handle.style.touchAction = ''", HtmlContent);
     }
 }

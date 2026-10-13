@@ -1039,23 +1039,20 @@ function reorderFullOrder(prevOrder, domIds) {
 
 // ---- Drag engine: in-house pointer/touch reorder with FLIP animation + a keyboard path ----
 
-// Persistence and keyboard reordering live in their own functions; this engine only decides order.
-var CODEC_LONGPRESS_MS = 450;          // touch hold before a drag arms
-var CODEC_TOUCH_MOVE_CANCEL_PX = 10;   // finger travel that cancels arming (treated as a scroll)
-var CODEC_MOUSE_LIFT_PX = 4;           // mouse travel before a press becomes a drag
-var CODEC_AUTOSCROLL_ZONE_PX = 64;     // viewport edge band that triggers auto-scroll
+var CODEC_LONGPRESS_MS = 450;
+var CODEC_TOUCH_MOVE_CANCEL_PX = 16;
+var CODEC_MOUSE_LIFT_PX = 4;
+var CODEC_AUTOSCROLL_ZONE_PX = 64;
 var CODEC_AUTOSCROLL_MAX_PX_PER_FRAME = 12;
-var CODEC_FLIP_MS = 160;               // sibling glide duration
+var CODEC_FLIP_MS = 160;
 
 function prefersReducedMotion() {
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
 
-// Only one drag is ever live; this holds its state (null when idle).
+// Only one drag is live at a time (null when idle).
 var _codecDrag = null;
 
-// (Re)wires reordering for the charts row after a render. Idempotent: innerHTML was just replaced,
-// so listeners attach to fresh nodes and any prior drag state is irrelevant.
 function attachCodecCardDragHandlers(container) {
     var chartsRow = container.querySelector('.charts-row');
     if (!chartsRow) {
@@ -1072,17 +1069,15 @@ function attachCodecCardDragHandlers(container) {
         handle.addEventListener('keydown', function (e) {
             onCodecHandleKeyDown(e, handle, card, chartsRow);
         });
-        // Suppress the long-press context menu / selection callout on touch so the grip arms a drag
-        // instead of popping the browser's own menu (Android Chrome) or text selection.
+        // Keep a long-press from popping the browser context menu / iOS callout instead of arming.
         handle.addEventListener('contextmenu', function (e) {
             e.preventDefault();
         });
     });
 }
 
-// If a background rescan re-renders the tab mid-drag, the dragged node and clone would be orphaned
-// (the clone lives on document.body and would stay stuck on screen). Hard-reset any live drag before
-// the DOM is swapped so nothing leaks across the re-render.
+// A rescan re-renders the tab; without this the fixed clone (parented to body) outlives its source
+// node and sticks on screen.
 function resetCodecDragForRerender() {
     if (_codecDrag) {
         teardownCodecDrag(_codecDrag);
@@ -1090,8 +1085,7 @@ function resetCodecDragForRerender() {
 }
 
 function onCodecHandlePointerDown(e, handle, card, chartsRow) {
-    // Only a non-primary *mouse* button aborts: touch and pen report button -1 for a normal press,
-    // so gating every pointer type on button===0 would swallow legitimate touch drags.
+    // Touch and pen report button -1 for a normal press, so only mouse gates on the primary button.
     if (_codecDrag || (e.pointerType === 'mouse' && e.button !== 0)) {
         return;
     }
@@ -1100,12 +1094,10 @@ function onCodecHandlePointerDown(e, handle, card, chartsRow) {
         pointerId: e.pointerId, isTouch: e.pointerType === 'touch',
         startX: e.clientX, startY: e.clientY,
         lastClientX: e.clientX, lastClientY: e.clientY,
-        active: false, armTimer: null, clone: null,
+        active: false, armTimer: null, clone: null, moved: false,
         autoScrollRaf: 0, autoScrollSpeed: 0
     };
-    // All three listeners filter on pointerId so a second finger (mobile) cannot drive or end this
-    // drag: without the filter, a second touch's move would teleport the card and its lift would
-    // commit/tear down the first finger's drag prematurely.
+    // Filter by pointerId so a second finger can neither drive nor end this drag.
     state.move = function (ev) {
         if (ev.pointerId === state.pointerId) {
             onCodecDragPointerMove(ev, state);
@@ -1122,8 +1114,7 @@ function onCodecHandlePointerDown(e, handle, card, chartsRow) {
     window.addEventListener('pointercancel', state.up);
 
     if (state.isTouch) {
-        // Long-press to arm so a normal touch still scrolls the page (the handle uses touch-action:
-        // pan-y, so vertical scrolling works until the drag actually begins).
+        // Arm on long-press so a plain touch still scrolls (handle is touch-action: pan-y).
         state.armTimer = setTimeout(function () {
             state.armTimer = null;
             beginCodecDrag(state);
@@ -1133,9 +1124,8 @@ function onCodecHandlePointerDown(e, handle, card, chartsRow) {
     _codecDrag = state;
 }
 
-// Pointer capture is best-effort: setPointerCapture/releasePointerCapture throw if the pointer was
-// already released (e.g. a lightning-fast tap). Capture only routes stray events to the handle; the
-// window-level listeners drive the drag regardless.
+// Best-effort: throws if the pointer already released, which is harmless since the window listeners
+// drive the drag regardless. Named helper so the ignore reads as intent, not a bare empty catch.
 function tryPointerCapture(handle, pointerId, release) {
     try {
         if (release) {
@@ -1143,16 +1133,13 @@ function tryPointerCapture(handle, pointerId, release) {
         } else {
             handle.setPointerCapture(pointerId);
         }
-    } catch (ignored) {
-        // Expected when the pointer is already gone; the drag still works via window listeners.
+    } catch (error_) {
         return false;
     }
     return true;
 }
 
-// Promotes an armed press into an active drag: hides the real card (keeping its grid slot) and
-// spawns a fixed clone that follows the pointer. Any failure still tears the drag down, so a throw
-// can never strand the card hidden with a dead _codecDrag blocking all future drags.
+// A throw after the card is hidden would strand it invisible with a dead _codecDrag, so recover.
 function beginCodecDrag(state) {
     if (state.active) {
         return;
@@ -1161,6 +1148,10 @@ function beginCodecDrag(state) {
     try {
         tryPointerCapture(state.handle, state.pointerId, false);
         state.handle.setAttribute('aria-grabbed', 'true');
+        // Once armed, lock scrolling: the handle is touch-action: pan-y so a plain touch can still
+        // scroll before arming, but during an active drag the page must not pan under the finger
+        // (that is what made a long hold "save where the card already lay").
+        state.handle.style.touchAction = 'none';
 
         var rect = state.card.getBoundingClientRect();
         state.grabOffsetX = state.lastClientX - rect.left;
@@ -1174,9 +1165,11 @@ function beginCodecDrag(state) {
         state.clone = clone;
         moveCodecCloneToPointer(state);
 
-        // Keep the slot; only hide the source so the grid dimensions never change.
+        // Hide, don't remove: the slot must stay or the grid loses a cell and reflows.
         state.card.classList.add('codec-dragging-source');
     } catch (err) {
+        // Unexpected: surface it, then recover so a dead drag cannot block all future drags.
+        console.error('[JellyfinHelper] Codec drag start failed', err);
         teardownCodecDrag(state);
     }
 }
@@ -1197,7 +1190,7 @@ function onCodecDragPointerMove(e, state) {
     if (!state.active) {
         var dist = Math.hypot(e.clientX - state.startX, e.clientY - state.startY);
         if (state.isTouch) {
-            // Movement before the long-press fires means the user is scrolling: cancel arming.
+            // Movement before the long-press fires is a scroll: cancel arming.
             if (dist > CODEC_TOUCH_MOVE_CANCEL_PX && state.armTimer) {
                 clearTimeout(state.armTimer);
                 state.armTimer = null;
@@ -1220,8 +1213,9 @@ function onCodecDragPointerMove(e, state) {
     updateCodecAutoScroll(state);
 }
 
-// Moves the hidden real card to the slot nearest the pointer and FLIP-animates the siblings that
-// shifted. Picks the sibling whose center is closest to the pointer, then inserts before/after it.
+// Moves the hidden card to the reading-order slot the pointer is over, FLIP-animating the shift.
+// Reading order (row by row, left to right) is used so a drop never displaces an unrelated card:
+// the insert point is the first sibling that sits AFTER the pointer, matching how the grid flows.
 function reorderCodecCardTo(state, x, y) {
     var chartsRow = state.chartsRow;
     var siblings = Array.prototype.slice.call(
@@ -1231,42 +1225,36 @@ function reorderCodecCardTo(state, x, y) {
         return;
     }
 
-    var nearest = null;
-    var nearestDist = Infinity;
-    var nearestRect = null;
+    // The hidden dragged card still occupies its grid cell, so every sibling at or after its current
+    // slot is displaced by one cell - measuring raw rects would make the decision self-referential and
+    // the card sticks to the end. Collapse the card out of flow for the measurement so siblings report
+    // their true reading-order positions, then restore it (the re-insert happens in the FLIP mutate).
+    var prevDisplay = state.card.style.display;
+    state.card.style.display = 'none';
+
+    // The first sibling whose centre is at or after the pointer in reading order is the insert point;
+    // the card lands before it. A pointer exactly on a (left-column) centre counts as "before" that
+    // card so it lands in that slot. If none qualifies, the pointer is past the last card -> append.
+    var ref = null;
     for (const box of siblings) {
         var r = box.getBoundingClientRect();
-        var dx = x - (r.left + (r.width / 2));
-        var dy = y - (r.top + (r.height / 2));
-        var dist = (dx * dx) + (dy * dy);
-        if (dist < nearestDist) {
-            nearestDist = dist;
-            nearest = box;
-            nearestRect = r;
+        var cx = r.left + (r.width / 2);
+        var cy = r.top + (r.height / 2);
+        var sameRow = Math.abs(y - cy) < r.height / 2;
+        var pointerBefore = sameRow ? (x <= cx) : (y < cy);
+        if (pointerBefore) {
+            ref = box;
+            break;
         }
     }
 
-    // Which side of the nearest card does the pointer favour? In a multi-column grid, two cards sit
-    // side by side so horizontal position decides within a row and vertical across rows. In a single
-    // column every card spans the full width, so horizontal is meaningless - the vertical half the
-    // pointer is in must decide, or reordering feels off-by-one.
-    var singleColumn = codecGridIsSingleColumn(chartsRow);
-    var after;
-    if (singleColumn) {
-        after = y > nearestRect.top + (nearestRect.height / 2);
-    } else {
-        var sameRow = y >= nearestRect.top && y <= nearestRect.bottom;
-        after = sameRow
-            ? (x > nearestRect.left + (nearestRect.width / 2))
-            : (y > nearestRect.top + (nearestRect.height / 2));
-    }
+    state.card.style.display = prevDisplay;
 
-    var ref = after ? nearest.nextElementSibling : nearest;
-    // If ref is already the dragged card's next
-    // sibling, insertBefore(card, ref) would NOT move the card, but running the reorder anyway makes
-    // the neighbouring card animate across the dragged card's still-present (visibility:hidden) slot
-    // on sub-pixel pointer jitter.
+    // Bail on a positional no-op so a neighbour never animates across the hidden slot on jitter.
     if (ref === state.card || ref === state.card.nextElementSibling) {
+        return;
+    }
+    if (!ref && !state.card.nextElementSibling) {
         return;
     }
 
@@ -1277,23 +1265,13 @@ function reorderCodecCardTo(state, x, y) {
             chartsRow.appendChild(state.card);
         }
     });
+    // Mark that the card actually changed slot, so a drop with no real move does not save (and never
+    // "saves where it already was" after a too-long press that never dragged).
+    state.moved = true;
 }
 
-// True when the grid has collapsed to one column (mobile / narrow): all cards share one column, so
-// their left edges line up.
-function codecGridIsSingleColumn(chartsRow) {
-    var cards = chartsRow.querySelectorAll('.chart-box[data-chart-id]');
-    if (cards.length < 2) {
-        return true;
-    }
-    return Math.abs(cards[0].getBoundingClientRect().left - cards[1].getBoundingClientRect().left) < 1;
-}
-
-// Snapshot sibling positions, apply the DOM mutation, then animate each moved sibling from its old
-// box to its new one via FLIP. Guards against overlapping runs: an element still mid-glide has its
-// prior transform cleared and cleanup timer cancelled before measuring, so a fast drag (many
-// reorders/sec) cannot compound transforms into jitter. Reduced-motion skips only the glide, not the
-// reorder itself.
+// FLIP the siblings that shifted. Any still mid-glide is settled first so First is read from layout,
+// not a transform mid-interpolation; otherwise a fast drag compounds transforms into jitter.
 function flipCodecReorder(chartsRow, draggedCard, mutate) {
     if (prefersReducedMotion()) {
         mutate();
@@ -1303,8 +1281,6 @@ function flipCodecReorder(chartsRow, draggedCard, mutate) {
         chartsRow.querySelectorAll('.chart-box[data-chart-id]'))
         .filter(function (b) { return b !== draggedCard; });
 
-    // Settle any in-flight glide to its resting state first, so First is measured from layout, not
-    // from a transform mid-interpolation.
     boxes.forEach(function (b) {
         if (b._codecFlipTimer) {
             clearTimeout(b._codecFlipTimer);
@@ -1325,10 +1301,8 @@ function flipCodecReorder(chartsRow, draggedCard, mutate) {
         if (dx === 0 && dy === 0) {
             return;
         }
-        // Invert: jump the sibling back to where it was, with no transition...
         b.style.transition = 'none';
         b.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
-        // ...then Play: on the next frame, release it so it glides to its real slot.
         requestAnimationFrame(function () {
             b.style.transition = 'transform ' + CODEC_FLIP_MS + 'ms ease';
             b.style.transform = '';
@@ -1340,9 +1314,8 @@ function flipCodecReorder(chartsRow, draggedCard, mutate) {
     });
 }
 
-// Edge auto-scroll: stores a live speed on state that a single rAF loop reads each frame, so moving
-// from the bottom band to the top reverses direction immediately instead of latching the old speed.
-// Runs regardless of reduced-motion - it is navigation (reaching off-screen cards), not decoration.
+// Live speed read each frame by one rAF loop, so crossing from the bottom band to the top reverses
+// direction at once. Runs under reduced-motion too: it is navigation, not decoration.
 function updateCodecAutoScroll(state) {
     var vh = window.innerHeight;
     var y = state.lastClientY;
@@ -1375,10 +1348,12 @@ function onCodecDragPointerUp(e, state) {
     }
     var wasActive = state.active;
     if (wasActive) {
-        // The hidden card already sits at its target slot; persist the DOM order.
-        commitCodecCardOrderFromDom(state.chartsRow, state.card);
-        // A touch drop ends with the finger over a chart; stamp the shared touch-end guard so the
-        // browser's compatibility click there cannot open an unintended drill-down.
+        // Only persist when the card actually moved. A press that armed but never dragged (a too-long
+        // hold with no travel) leaves the order untouched instead of re-saving the original slot.
+        if (state.moved) {
+            commitCodecCardOrderFromDom(state.chartsRow, state.card);
+        }
+        // Stamp the touch-end guard so the drop's compatibility click cannot open a drill-down.
         if (state.isTouch) {
             _lastTouchEndTime = Date.now();
         }
@@ -1386,9 +1361,8 @@ function onCodecDragPointerUp(e, state) {
     teardownCodecDrag(state);
 }
 
-// Tears a drag down to idle: stops auto-scroll, removes the clone, reveals the card, drops capture
-// and window listeners. Safe to call whether or not the drag ever became active, and whether or not
-// its nodes are still attached (a mid-drag re-render detaches them).
+// Safe to call whether or not the drag became active, and whether or not its nodes are still
+// attached (a mid-drag re-render detaches them).
 function teardownCodecDrag(state) {
     if (state.autoScrollRaf) {
         cancelAnimationFrame(state.autoScrollRaf);
@@ -1405,11 +1379,8 @@ function teardownCodecDrag(state) {
     }
     state.card.classList.remove('codec-dragging-source');
     state.handle.setAttribute('aria-grabbed', 'false');
-    try {
-        state.handle.releasePointerCapture(state.pointerId);
-    } catch (err) {
-        // Nothing captured.
-    }
+    state.handle.style.touchAction = '';
+    tryPointerCapture(state.handle, state.pointerId, true);
     window.removeEventListener('pointermove', state.move, { passive: false });
     window.removeEventListener('pointerup', state.up);
     window.removeEventListener('pointercancel', state.up);
