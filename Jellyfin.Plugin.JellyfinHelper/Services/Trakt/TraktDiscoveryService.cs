@@ -151,13 +151,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             if (!_inflightPersonal.TryGetValue(userId, out var existing) || existing.Task.IsCompleted)
             {
                 // The flight's own cancellation source represents its validity: an invalidation cancels it so the
-                // surviving fetch skips its cache/backoff write.
+                // surviving fetch skips its cache/backoff write. The completion continuation (wired below under
+                // this same lock) owns and disposes the source once the shared task settles.
                 var flightCts = new CancellationTokenSource();
                 fetch = FetchAndScorePersonalAsync(userId, config, flightCts);
 
-                // Publish the slot BEFORE wiring the completion continuation, so a synchronously-completing fetch
-                // (e.g. under test) cannot run the slot-cleanup before the slot exists. Both are done inside this
-                // lock, which the cleanup and InvalidatePersonal also take, so the ordering holds under contention.
+                // Publish the slot and wire the cleanup continuation while still holding the lock. The continuation
+                // also takes this lock, so even a synchronously-completing fetch cannot run its slot-cleanup until
+                // this block releases the lock, by which point the slot is published.
                 _inflightPersonal[userId] = new PersonalFlight(flightCts, fetch);
                 WirePersonalFlightCleanup(userId, fetch, flightCts);
             }
