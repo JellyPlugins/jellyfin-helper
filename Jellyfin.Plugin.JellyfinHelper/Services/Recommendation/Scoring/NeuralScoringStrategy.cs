@@ -2193,6 +2193,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <inheritdoc />
     public void Dispose()
     {
+        // Idempotent by design: ensembles may own (and dispose) a neural instance that the
+        // creator also disposes, so a second call must be a no-op rather than throwing.
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
         _rwLock.Dispose();
     }

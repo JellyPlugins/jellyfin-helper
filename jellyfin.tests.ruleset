@@ -48,4 +48,21 @@
         <!-- SA1649: File name should match first type name - suppressed because SA1402 is already off -->
         <Rule Id="SA1649" Action="None" />
     </Rules>
+    <Rules AnalyzerId="Microsoft.CodeAnalysis.NetAnalyzers" RuleNamespace="Microsoft.Design">
+        <!-- Test-only noise: these production rules fire legitimately in test code (disposable
+            test fixtures, seeded test-data RNG, assertion logging, inline test-data arrays).
+            Triaged per-package in SonarCloud; silenced here so no new findings accrue. -->
+        <!-- CA1861: Prefer 'static array' - inline test-data arrays allocate once per test -->
+        <Rule Id="CA1861" Action="None" />
+        <!-- CA1873: Logging argument evaluation - Moq verifies and test log calls have no prod cost -->
+        <Rule Id="CA1873" Action="None" />
+        <!-- CA2000: Dispose objects before losing scope - test fixtures are short-lived -->
+        <Rule Id="CA2000" Action="None" />
+        <!-- CA5394: Do not use insecure randomness - seeded RNG keeps tests deterministic -->
+        <Rule Id="CA5394" Action="None" />
+        <!-- CA1816: Dispose methods should call SuppressFinalize - test classes have no finalizers -->
+        <Rule Id="CA1816" Action="None" />
+        <!-- SYSLIB1045: Use GeneratedRegex - zero runtime benefit for test assertions -->
+        <Rule Id="SYSLIB1045" Action="None" />
+    </Rules>
 </RuleSet>

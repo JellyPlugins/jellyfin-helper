@@ -287,7 +287,7 @@ public class ConfigurationController : ControllerBase
         }
 
         // Warn when a relative trash path would escape the library root at runtime (falls back silently).
-        if (request.UseTrash)
+        if (request.UseTrash is true)
         {
             var trashWarning = ConfigurationRequestValidator.ValidateTrashPath(request.TrashFolderPath);
             if (trashWarning != null)
@@ -523,7 +523,10 @@ public class ConfigurationController : ControllerBase
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
         config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
-        config.OrphanMinAgeDays = Math.Clamp(request.OrphanMinAgeDays, 0, 3650);
+        if (request.OrphanMinAgeDays.HasValue)
+        {
+            config.OrphanMinAgeDays = Math.Clamp(request.OrphanMinAgeDays.Value, 0, 3650);
+        }
 
         config.TrickplayTaskMode = request.TrickplayTaskMode;
         config.EmptyMediaFolderTaskMode = request.EmptyMediaFolderTaskMode;
@@ -548,7 +551,11 @@ public class ConfigurationController : ControllerBase
 
         config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
 
-        config.UseTrash = request.UseTrash;
+        if (request.UseTrash.HasValue)
+        {
+            config.UseTrash = request.UseTrash.Value;
+        }
+
         config.TrashFolderPath = string.IsNullOrWhiteSpace(request.TrashFolderPath)
             ? ".jellyfin-trash"
             : request.TrashFolderPath;
