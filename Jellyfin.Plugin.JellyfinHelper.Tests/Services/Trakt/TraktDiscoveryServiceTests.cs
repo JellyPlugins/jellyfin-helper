@@ -92,7 +92,8 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             _cache,
             _pluginLog,
             _userManager.Object,
-            NullLogger<TraktDiscoveryService>.Instance);
+            NullLogger<TraktDiscoveryService>.Instance,
+            now);
 
     private static DiscoveryResult Scored(Guid userId, params (int TmdbId, string MediaType, string Title)[] items)
         => new()
@@ -939,6 +940,91 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
             e.Message.Contains("X-VIP-User=vip-123", StringComparison.Ordinal));
+    }
+
+    // Builds a service whose single scripted response carries the given status, Retry-After header, and body.
+    private TraktDiscoveryService ServiceWithResponse(HttpStatusCode status, Action<HttpResponseMessage> configure, Func<DateTimeOffset>? now = null)
+    {
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(status) { Content = new StringContent("{}") };
+                configure(response);
+                return response;
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        return CreateServiceWithFactory(factory.Object, now ?? (() => DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public async Task GetPersonal_RateLimited_WithDeltaRetryAfter_LogsSeconds()
+    {
+        // A 429 with a delta-seconds Retry-After is a real backoff signal (not an auth failure), so it stays a
+        // WARN and surfaces the delay the server asked for.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var sut = ServiceWithResponse(
+            HttpStatusCode.TooManyRequests,
+            r => r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(42)));
+
+        await sut.GetPersonalAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "WARN" && e.Message.Contains("Retry-After=42s", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_RateLimited_WithHttpDateRetryAfter_ResolvedAgainstClock()
+    {
+        // An HTTP-date Retry-After is resolved against the injected clock into a remaining delay.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var now = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var sut = ServiceWithResponse(
+            HttpStatusCode.TooManyRequests,
+            r => r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(now.AddSeconds(30)),
+            now: () => now);
+
+        await sut.GetPersonalAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "WARN" && e.Message.Contains("Retry-After=30s", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_RateLimited_WithPastHttpDate_OmitsRetryAfter()
+    {
+        // A Retry-After date already in the past yields no backoff hint rather than a negative one.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var now = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var sut = ServiceWithResponse(
+            HttpStatusCode.TooManyRequests,
+            r => r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(now.AddSeconds(-30)),
+            now: () => now);
+
+        await sut.GetPersonalAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "WARN" && !e.Message.Contains("Retry-After=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_AuthFailure_WithRetryAfter_NamesRateLimitInOutcome()
+    {
+        // A 401 carrying Retry-After is both an auth failure (Debug, no re-link spam) and a rate limit: the
+        // user-facing outcome names the backoff so an admin sees why the tab is empty right now.
+        _pluginLog = TestMockFactory.CreatePluginLogService();
+        var userId = Guid.NewGuid();
+        var sut = ServiceWithResponse(
+            HttpStatusCode.Unauthorized,
+            r => r.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(90)));
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO" && e.Message.Contains("rate-limited for 90s", StringComparison.Ordinal));
     }
 
     [Fact]
