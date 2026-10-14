@@ -670,7 +670,7 @@
     var TRAKT_PROBE_TIMEOUT_MS = 12000;
     // A null/empty Trakt result is cached only this long, mirroring the server-side empty backoff: enough to
     // absorb duplicate tab loads, short enough that a genuine first result is not hidden behind an empty entry.
-    var TRAKT_EMPTY_CACHE_MS = 90000;
+    var TRAKT_EMPTY_CACHE_MS = 15000;
     // Background trending preload so the first tab click usually hits the cache.
     // Keyed by user; cleared on mutation via invalidateDiscoveryResult.
     var _trendingPreloadInFlight = false;
@@ -1035,7 +1035,7 @@
     // behind a long-lived empty entry. A non-empty result stays cached for the session as before.
     // A Trakt result is the DiscoveryResult object renderCards consumes; empty means no Recommendations to show.
     function isEmptyTraktResult(data) {
-        return !data || !data.Recommendations || data.Recommendations.length === 0;
+        return !data?.Recommendations?.length;
     }
 
     function traktCacheFresh(entry) {
