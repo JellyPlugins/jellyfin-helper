@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -151,6 +152,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
     private readonly ILibraryManager _libraryManager;
+    private readonly VirtualItemDetector _virtualItemDetector;
     private readonly IPerUserEnsembleRegistry _perUserRegistry;
     private readonly DiscoveryCacheService _cache;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -190,6 +192,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="secretProtector">Decrypts the stored Seerr API key before it is used for outbound calls.</param>
+    /// <param name="virtualItemDetector">Excludes virtual stub library entries from ownership checks.</param>
     /// <param name="logger">The logger instance.</param>
     public SeerrDiscoveryService(
         IHttpClientFactory httpClientFactory,
@@ -201,6 +204,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
         ISecretProtector secretProtector,
+        VirtualItemDetector virtualItemDetector,
         ILogger<SeerrDiscoveryService> logger)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
@@ -212,6 +216,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
         ArgumentNullException.ThrowIfNull(secretProtector);
+        ArgumentNullException.ThrowIfNull(virtualItemDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _httpClientFactory = httpClientFactory;
@@ -223,6 +228,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
         _secretProtector = secretProtector;
+        _virtualItemDetector = virtualItemDetector;
         _logger = logger;
     }
 
@@ -1828,12 +1834,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (config is null || string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
             // Enrichment and the shared scorer both need a reachable Seerr; without it we cannot score.
+            _pluginLog.LogDebug(LogCategory, "External scoring skipped: Seerr is not configured.", _logger);
             return null;
         }
 
         var profile = _watchHistoryService.GetUserWatchProfile(jellyfinUserId);
         if (profile is null)
         {
+            _pluginLog.LogDebug(LogCategory, "External scoring skipped: no watch profile for the user.", _logger);
             return null;
         }
 
@@ -1841,6 +1849,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
         if (genrePreferences.Count == 0)
         {
+            _pluginLog.LogDebug(LogCategory, $"External scoring skipped: {profile.UserName} has no genre preferences.", _logger);
             return null;
         }
 
@@ -1895,8 +1904,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var uniqueCandidates = DeduplicateAndFilter(mapped, userExcluded, profile.MaxParentalRating, minVoteAverage: 0, avgYear: 0, isChildAccount);
         if (uniqueCandidates.Count == 0)
         {
+            // The stage counts make an ownership-exclusion collapse (every candidate already owned) distinguishable
+            // from an empty input or a parental drop, which is where virtual stub libraries used to break "for you".
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"External scoring: {mapped.Count} mapped → 0 after filter (exclusions={userExcluded.Count}, enriched={enrichedKeys.Count}, parental={profile.MaxParentalRating}).",
+                _logger);
             return null;
         }
+
+        _pluginLog.LogDebug(
+            LogCategory,
+            $"External scoring: {mapped.Count} mapped → {uniqueCandidates.Count} after filter (exclusions={userExcluded.Count}).",
+            _logger);
 
         var recommendations = await ScoreCandidatesForUserAsync(
             new CandidateScoringContext
@@ -2519,10 +2539,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
             });
 
-            foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(libraryItems))
+            // Virtual stub entries carry a real TMDb id but no owned media file, so they must not join the
+            // exclusion set. Filtering here keeps TmdbLibraryMapper free of location concerns.
+            var ownedItems = libraryItems.Where(item => !_virtualItemDetector.IsVirtual(item)).ToList();
+
+            var before = excluded.Count;
+            foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(ownedItems))
             {
                 excluded.Add(key);
             }
+
+            _pluginLog.LogDebug(
+                LogCategory,
+                $"Library exclusions: {libraryItems.Count} scanned, {libraryItems.Count - ownedItems.Count} virtual skipped, {excluded.Count - before} added.",
+                _logger);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

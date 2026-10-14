@@ -94,6 +94,7 @@ public sealed class SeerrDiscoveryReconcileTests : IDisposable
             _feedbackStore,
             pluginLog.Object,
             TestFixtures.TestMockFactory.CreateSecretProtector(),
+            TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

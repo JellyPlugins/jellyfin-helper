@@ -110,6 +110,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
             feedbackStore.Object,
             pluginLog.Object,
             TestFixtures.TestMockFactory.CreateSecretProtector(),
+            TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 

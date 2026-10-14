@@ -65,7 +65,8 @@ public class SeerrDiscoveryServiceTests : IDisposable
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object, libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
-            TestFixtures.TestMockFactory.CreateSecretProtector(), logger.Object);
+            TestFixtures.TestMockFactory.CreateSecretProtector(),
+            TestFixtures.TestMockFactory.CreateVirtualItemDetector(), logger.Object);
     }
 
     [Fact]

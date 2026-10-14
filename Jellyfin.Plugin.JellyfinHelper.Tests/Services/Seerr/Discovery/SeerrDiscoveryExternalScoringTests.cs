@@ -38,6 +38,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     // own cached recommendations (the source the own-recommendation exclusion reads).
     private DiscoveryCacheService? _lastCache;
 
+    // The plugin-log mock from the most recent CreateService call, so a test can assert the diagnostic
+    // stage-count line emitted when every candidate is filtered out.
+    private Mock<IPluginLogService>? _lastPluginLog;
+
     public SeerrDiscoveryExternalScoringTests()
     {
         ControllerTestFactory.InitializePluginInstance();
@@ -104,6 +108,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             new Mock<ILogger<EnsembleScoringStrategy>>().Object,
             ownsNeural: false);
         var pluginLog = new Mock<IPluginLogService>();
+        _lastPluginLog = pluginLog;
         var cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
         _lastCache = cache;
         _owned.Add(ensemble);
@@ -126,7 +131,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         return new SeerrDiscoveryService(
             factory.Object, _history.Object, arr.Object, _libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
-            TestMockFactory.CreateSecretProtector(), new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            TestMockFactory.CreateSecretProtector(),
+            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
     private void SetupProfile(Guid userId, int? maxParentalRating = null)
@@ -243,6 +249,28 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         // The enriched Horror genre hits the teen blacklist; nothing survives.
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EmptyAfterFilter_LogsStageCountsForDiagnosis()
+    {
+        // When every candidate is filtered out, a stage-count line records how many were mapped and how large the
+        // exclusion set was, so an ownership collapse (the virtual-stub-library bug) is distinguishable from an
+        // empty input or a parental drop.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId, maxParentalRating: 90);
+        ReturnsDetail(101, "[{\"id\":27,\"name\":\"Horror\"}]");
+
+        var service = CreateService();
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.Null(result);
+        _lastPluginLog!.Verify(
+            l => l.LogDebug(
+                It.IsAny<string>(),
+                It.Is<string>(m => m.Contains("after filter", StringComparison.Ordinal) && m.Contains("exclusions=", StringComparison.Ordinal)),
+                It.IsAny<ILogger>()),
+            Times.Once);
     }
 
     [Fact]

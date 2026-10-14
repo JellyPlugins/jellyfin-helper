@@ -238,6 +238,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── LibraryRootScopeTests.cs    # LibraryRootScope carrier: stores allowed/excluded roots, rejects null arguments
 │   ├── PathComparisonTests.cs      # PathComparison: comparison/comparer match the platform case convention
 │   ├── TmdbLibraryMapperTests.cs   # BuildTmdbKeySet/TryGetTmdbId: media-type keying, non-positive/invalid id rejection, dedup
+│   ├── VirtualItemDetectorTests.cs # IsVirtual: virtual flag, empty path, data-path containment with sibling-boundary and platform-casing guards
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   │   └── ArrIntegrationServiceTests.cs               # Timeout → LogWarning (not LogError); parity with TestConnectionAsync
@@ -818,6 +819,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `FileSystemHelperTests.cs` - Tests FileSystemHelper directory-size calc and dictionary count/accumulate/path helpers
 - `I18nServiceTests.cs` - Tests I18nService translations, config-page key sync, and Lazy load concurrency
 - `PathValidatorTests.cs` - Tests PathValidator safe-path, filename sanitization, and sensitive-system-path checks
+- `VirtualItemDetectorTests.cs` - Tests virtual-flag/empty-path/data-path detection with sibling-boundary and platform-casing guards
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Activity/`
 
@@ -1139,6 +1141,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `PathValidator.cs` - Path validation guarding traversal, sensitive system roots, and safe deletion
 - `PathComparison.cs` - Single source of truth for OS-appropriate file-system path comparison (StringComparison/StringComparer); macOS folds case, Linux is ordinal
 - `TmdbLibraryMapper.cs` - Maps library items to `(TmdbId, MediaType)` tuples; shared by the recommendation engine and Seerr discovery so "already in library" uses one implementation
+- `VirtualItemDetector.cs` - Flags virtual stub library entries (virtual flag, empty path, or a path inside the host data directory) so external request helpers do not count them as owned content and suppress discovery suggestions
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Activity/`
 

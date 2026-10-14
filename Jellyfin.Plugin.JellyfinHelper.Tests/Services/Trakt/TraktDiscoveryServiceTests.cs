@@ -708,6 +708,126 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_Success_LogsOutcomeAtDebugNotInfo()
+    {
+        // A non-empty personal result is routine and must stay at DEBUG so a per-tab-load Info line never spams
+        // the admin log. The summary still records the fetched-to-final counts for diagnosis.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Scored(userId, (11, "movie", "Alpha")));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        var entries = _pluginLog.GetEntries(source: "Trakt");
+        Assert.Contains(entries, e => e.Level == "DEBUG" && e.Message.Contains("final", StringComparison.Ordinal));
+        Assert.DoesNotContain(entries, e => e.Level == "INFO" && e.Message.Contains("Personal discovery", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_ScoringReturnsNull_LogsEmptyOutcomeAtInfo()
+    {
+        // Scoring that returns null (for example every candidate excluded as already owned) is the case an admin
+        // needs to see without turning on DEBUG: it is the symptom behind an empty "Trakt for you" tab.
+        _pluginLog = TestMockFactory.CreatePluginLogService();
+        var userId = Guid.NewGuid();
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DiscoveryResult?)null);
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO"
+            && e.Message.Contains("Personal discovery", StringComparison.Ordinal)
+            && e.Message.Contains("→ 0 final", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_EmptyFetch_LogsEmptyOutcomeAtInfo()
+    {
+        // Trakt returning nothing (empty arrays) is distinct from a scoring collapse; the outcome line names it
+        // so the admin can tell "Trakt had nothing" apart from "we filtered it all away".
+        _pluginLog = TestMockFactory.CreatePluginLogService();
+        var userId = Guid.NewGuid();
+        _responses.Enqueue((HttpStatusCode.OK, "[]"));
+        _responses.Enqueue((HttpStatusCode.OK, "[]"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO"
+            && e.Message.Contains("Personal discovery", StringComparison.Ordinal)
+            && e.Message.Contains("no personal recommendations", StringComparison.Ordinal));
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPersonal_SourceUnresolvableAfterGate_LogsOutcomeAndServesNull()
+    {
+        // Linked at the cheap gate but the token is gone by the time the fetch resolves it (a transient refresh
+        // failure): serve null without caching and record why, so the empty tab is explained.
+        _pluginLog = TestMockFactory.CreatePluginLogService();
+        var userId = Guid.NewGuid();
+        _officialPlugin.SetupSequence(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("tok", FarFuture))
+            .Returns((Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken?)null);
+
+        var result = await CreateService().GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO" && e.Message.Contains("source unresolvable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_SourceLostBeforeShows_LogsOutcomeAndServesNull()
+    {
+        // The token survives the gate and the movies fetch but vanishes before the shows re-resolve. The movies
+        // already fetched are discarded, the cache is cleared, and the outcome names the lost-source reason.
+        _pluginLog = TestMockFactory.CreatePluginLogService();
+        var userId = Guid.NewGuid();
+        _officialPlugin.SetupSequence(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("tok", FarFuture)) // IsLinked gate
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("tok", FarFuture)) // movies resolve
+            .Returns((Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken?)null); // shows resolve lost
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+
+        var result = await CreateService().GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO" && e.Message.Contains("source lost before shows fetch", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetTrending_ScoringReturnsNull_LogsDebugAndServesNull()
+    {
+        // A non-empty trending pool that scores to nothing (for example every candidate already owned) serves
+        // null; the Debug line records the collapse without spamming Info on a working feature.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DiscoveryResult?)null);
+
+        var result = await CreateService().GetTrendingAsync(userId, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "DEBUG" && e.Message.Contains("Trending scoring produced no result", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task GetPersonal_Source5xx_StaysWarn()
     {
         // Regression guard against over-suppression: a 5xx is a real, actionable failure and must remain a WARN
@@ -744,6 +864,81 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         // The user was warmed: a fetch ran under the official plugin's app + seeded token.
         AssertOfficialCaptured(captured);
+    }
+
+    [Fact]
+    public async Task RefreshAll_OfficialPluginAbsent_WarmsNothing()
+    {
+        // Trakt is sourced only through the official plugin; with it absent RefreshAll must return before any
+        // fetch so no stale pool is built.
+        _officialPlugin.Setup(p => p.IsPresent()).Returns(false);
+
+        var sut = CreateService();
+        await sut.RefreshAllAsync(CancellationToken.None);
+
+        // No response was dequeued: a strict handler would have thrown on an unexpected fetch.
+        Assert.Empty(_pluginLog.GetEntries(source: "Trakt"));
+    }
+
+    [Fact]
+    public async Task GetPersonal_AuthFailure_UserLookupThrows_FallsBackToId()
+    {
+        // A user-manager that throws during the diagnostic name lookup must not break logging: the message
+        // falls back to the raw id so the admin still has a handle.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _userManager.Setup(m => m.GetUserById(userId)).Throws(new InvalidOperationException("boom"));
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Message.Contains(userId.ToString("N"), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_EmptyUserId_AuthFailure_UsesGenericIdentity()
+    {
+        // Guid.Empty has no meaningful identity; the diagnostic line uses the generic "this user" rather than
+        // an empty or malformed handle.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        _officialPlugin.Setup(p => p.TryGetToken(Guid.Empty, It.IsAny<DateTimeOffset>()))
+            .Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("tok", FarFuture));
+        _responses.Enqueue((HttpStatusCode.Unauthorized, "{}"));
+
+        var sut = CreateService();
+        await sut.GetPersonalAsync(Guid.Empty, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Message.Contains("this user", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_FetchFailure_WithVipHeader_IncludesItInDiagnosticLog()
+    {
+        // Trakt returns an X-VIP-User header on some failures; the diagnostic line surfaces it so the admin can
+        // correlate the failure with the account Trakt saw.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("{}") };
+                response.Headers.TryAddWithoutValidation("X-VIP-User", "vip-123");
+                return response;
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+
+        var sut = CreateServiceWithFactory(factory.Object);
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Message.Contains("X-VIP-User=vip-123", StringComparison.Ordinal));
     }
 
     [Fact]

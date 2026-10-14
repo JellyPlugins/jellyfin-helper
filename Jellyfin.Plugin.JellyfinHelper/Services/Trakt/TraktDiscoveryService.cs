@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -96,11 +97,13 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
+        var startedAt = Stopwatch.GetTimestamp();
         var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
             // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, but keep
             // the outcome cache-free so the next request retries instead of pinning the outage.
+            LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "source unresolvable at fetch time");
             return null;
         }
 
@@ -113,6 +116,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // can re-link this user. Serve nothing cache-free so the next request retries once the plugin rotates.
         if (officialAuthFailed)
         {
+            LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "official token auth failed (re-link required)");
             return null;
         }
 
@@ -121,6 +125,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (showsSource is null)
         {
             _cache.InvalidatePersonal(userId);
+            LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;
         }
 
@@ -130,6 +135,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
+            LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
         }
 
@@ -137,9 +143,12 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (result is not null)
         {
             _cache.SetPersonal(userId, result);
-            return _discoveryService.FilterConsumedItems(userId, result);
+            var filtered = _discoveryService.FilterConsumedItems(userId, result);
+            LogPersonalOutcome(userId, startedAt, candidates.Count, filtered.Recommendations.Count, "ok");
+            return filtered;
         }
 
+        LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "scoring produced no result (all excluded as owned?)");
         return null;
     }
 
@@ -187,6 +196,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             var candidates = await FetchTrendingAsync(config, cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
+                _pluginLog.LogDebug(LogSource, "Trending fetch returned no candidates.", _logger);
                 return null;
             }
 
@@ -198,6 +208,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, cancellationToken).ConfigureAwait(false);
         if (scored is null)
         {
+            _pluginLog.LogDebug(LogSource, $"Trending scoring produced no result for {DescribeUser(userId)}.", _logger);
             return null;
         }
 
@@ -315,6 +326,25 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
             _pluginLog.LogWarning(LogSource, $"Trakt fetch failed ({relPath}).", ex, _logger);
             return (default, HttpStatusCode.ServiceUnavailable);
+        }
+    }
+
+    // Summarizes one personal generation so an empty "Trakt for you" is explainable without enabling Debug.
+    // A non-empty result is Debug (routine, not worth an Info line per tab load); an empty one is Info because
+    // that is the case an admin needs to see and the reason tells them whether it is a token, a fetch, or an
+    // ownership-exclusion problem.
+    private void LogPersonalOutcome(Guid userId, long startedAt, int fetched, int final, string reason)
+    {
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+        var message = $"Personal discovery for {DescribeUser(userId)}: {fetched} fetched → {final} final ({reason}) in {elapsedMs} ms.";
+
+        if (final > 0)
+        {
+            _pluginLog.LogDebug(LogSource, message, _logger);
+        }
+        else
+        {
+            _pluginLog.LogInfo(LogSource, message, _logger);
         }
     }
 
