@@ -11,10 +11,12 @@ internal static class SsrfGuard
 {
     // Well-known cloud instance-metadata IP literals. Named constants so the raw addresses
     // live in one place (the whole point of this guard is to block precisely these endpoints).
+#pragma warning disable S1313 // Justification: blocklist literals, not secrets; the guard exists to deny exactly these hosts.
     private const string AwsImdsV4Address = "169.254.169.254";   // AWS & GCP share this IPv4 address
     private const string AlibabaImdsAddress = "100.100.100.200";
     private const string AwsImdsV6Address = "fd00:ec2::254";
     private const string GcpImdsV6Address = "fd20:ce::254";       // GCP metadata IPv6
+#pragma warning restore S1313
 
     // Blocked metadata IP addresses (resolved once for efficient comparison).
     private static readonly IPAddress AwsImdsV4 = IPAddress.Parse(AwsImdsV4Address);
