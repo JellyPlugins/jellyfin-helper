@@ -20,7 +20,7 @@ changelog: |-
   - A rate-limited or unreachable Trakt is retried with a backoff (honouring the server's Retry-After) instead of being re-hit on every tab load, and the same account open on two devices now shares one fetch instead of firing two
   - An unlinked user no longer sees a "Trakt for you" tab that only shows a not-linked message; the tab appears once you are linked, and "Trakt trending" (which needs no login) is always available
   - The plugin log now explains an empty personal result in one line (what was fetched, what survived, and why), making a token, fetch, or ownership issue diagnosable without guesswork
-  - Tested by 6764 unit tests and 368 end-to-end tests
+  - Tested by 6771 unit tests and 368 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
   - Special thanks to @TheColin21 (https://github.com/TheColin21) for finding and reporting the empty "Trakt for you" issue and for debugging it together ❤️
 
