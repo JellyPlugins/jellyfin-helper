@@ -1879,6 +1879,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
+        var mappedCount = mapped.Count;
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
         if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
@@ -1905,10 +1906,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (uniqueCandidates.Count == 0)
         {
             // The stage counts make an ownership-exclusion collapse (every candidate already owned) distinguishable
-            // from an empty input or a parental drop, which is where virtual stub libraries used to break "for you".
+            // from an empty input, a parental drop, or an enrichment drop. mappedCount is the pre-parental total so
+            // a restricted profile whose enrichment removed everything still shows the real candidate count.
             _pluginLog.LogDebug(
                 LogCategory,
-                $"External scoring: {mapped.Count} mapped → 0 after filter (exclusions={userExcluded.Count}, enriched={enrichedKeys.Count}, parental={profile.MaxParentalRating}).",
+                $"External scoring: {mappedCount} mapped, {mapped.Count} after parental → 0 after filter (exclusions={userExcluded.Count}, enriched={enrichedKeys.Count}, parental={profile.MaxParentalRating}).",
                 _logger);
             return null;
         }
