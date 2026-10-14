@@ -165,8 +165,9 @@ public sealed class TraktCacheService
     }
 
     /// <summary>
-    ///     Drops a user's cached personal entry and clears any backoff, so the next request fetches fresh. Called
-    ///     when the master switch goes off or a user is no longer linked; no fetch is in flight on those paths.
+    ///     Drops a user's cached personal entry and clears any backoff, so the next request fetches fresh. This
+    ///     method does not guard against a concurrent in-flight fetch; the caller must cancel any such fetch first
+    ///     (see <c>TraktDiscoveryService.InvalidatePersonal</c>), or a surviving fetch could repopulate the entry.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     public void InvalidatePersonal(Guid userId)
