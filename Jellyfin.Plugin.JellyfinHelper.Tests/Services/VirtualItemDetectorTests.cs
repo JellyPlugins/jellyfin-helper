@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Common.Configuration;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,8 +12,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
 ///     Verifies the virtual-item guard: Jellyfin virtual flags, missing physical locations, and paths inside
-///     the host data directory count as virtual, while real files outside it (including a data-path sibling)
-///     count as owned. Path assertions branch on the OS so they hold on Windows and Linux CI.
+///     the host plugins directory count as virtual, while real files elsewhere (including under the data
+///     directory but outside plugins, and a plugins-path sibling) count as owned. Path assertions branch on
+///     the OS so they hold on Windows and Linux CI.
 /// </summary>
 public sealed class VirtualItemDetectorTests
 {
@@ -22,17 +22,19 @@ public sealed class VirtualItemDetectorTests
         ? @"C:\jellyfin\data"
         : "/var/lib/jellyfin/data";
 
+    private static readonly string PluginsPath = DataPath + Path.DirectorySeparatorChar + "plugins";
+
     private static VirtualItemDetector Create()
     {
         var paths = new Mock<IApplicationPaths>();
-        paths.Setup(p => p.DataPath).Returns(DataPath);
+        paths.Setup(p => p.PluginsPath).Returns(PluginsPath);
         return new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
     }
 
-    // Joins a relative segment under DataPath with an explicit separator. Path.Combine is avoided on purpose:
-    // if the segment looked rooted it would silently discard DataPath, which would defeat a containment test.
-    private static string Under(string relative) =>
-        DataPath + Path.DirectorySeparatorChar + relative.Replace('/', Path.DirectorySeparatorChar);
+    // Joins a relative segment under PluginsPath with an explicit separator. Path.Combine is avoided on purpose:
+    // if the segment looked rooted it would silently discard PluginsPath, which would defeat a containment test.
+    private static string UnderPlugins(string relative) =>
+        PluginsPath + Path.DirectorySeparatorChar + relative.Replace('/', Path.DirectorySeparatorChar);
 
     [Fact]
     public void IsVirtual_True_WhenFlaggedVirtualItem()
@@ -52,23 +54,24 @@ public sealed class VirtualItemDetectorTests
     }
 
     [Fact]
-    public void IsVirtual_True_WhenPathInsideDataDirectory()
+    public void IsVirtual_True_WhenPathInsidePluginsDirectory()
     {
-        var item = new Movie { Path = Under("stubs/4875-B-.mp4") };
+        // Mirrors JellyNext's real stub location: <data>/plugins/Jellyfin.Plugin.JellyNext/jellynext-virtual/...
+        var item = new Movie { Path = UnderPlugins("Jellyfin.Plugin.JellyNext/jellynext-virtual/abc/4875-B-.mp4") };
 
         Assert.True(Create().IsVirtual(item));
     }
 
     [Fact]
-    public void IsVirtual_True_WhenPathEqualsDataDirectory()
+    public void IsVirtual_True_WhenPathEqualsPluginsDirectory()
     {
-        var item = new Movie { Path = DataPath };
+        var item = new Movie { Path = PluginsPath };
 
         Assert.True(Create().IsVirtual(item));
     }
 
     [Fact]
-    public void IsVirtual_False_ForRealFileOutsideDataDirectory()
+    public void IsVirtual_False_ForRealFileOutsidePluginsDirectory()
     {
         var item = new Movie { Path = OwnedPath() };
 
@@ -76,19 +79,29 @@ public sealed class VirtualItemDetectorTests
     }
 
     [Fact]
-    public void IsVirtual_False_ForDataPathSibling()
+    public void IsVirtual_False_ForRealLibraryUnderDataButOutsidePlugins()
     {
-        // A sibling that merely shares the data-path prefix must not be treated as inside it.
-        var sibling = Path.TrimEndingDirectorySeparator(DataPath) + "-cache";
+        // An administrator may store a real media library under the data directory. Such a file is NOT under the
+        // plugins directory, so it must count as owned and still exclude its discovery candidate.
+        var item = new Movie { Path = DataPath + Path.DirectorySeparatorChar + "media" + Path.DirectorySeparatorChar + "real.mkv" };
+
+        Assert.False(Create().IsVirtual(item));
+    }
+
+    [Fact]
+    public void IsVirtual_False_ForPluginsPathSibling()
+    {
+        // A sibling that merely shares the plugins-path prefix must not be treated as inside it.
+        var sibling = PluginsPath + "-cache";
         var item = new Movie { Path = sibling + Path.DirectorySeparatorChar + "real.mkv" };
 
         Assert.False(Create().IsVirtual(item));
     }
 
     [Fact]
-    public void IsVirtual_MatchesDataPath_CaseInsensitivelyOnWindowsOnly()
+    public void IsVirtual_MatchesPluginsPath_CaseInsensitivelyOnWindowsOnly()
     {
-        var item = new Movie { Path = Under("Stub.mp4").ToUpperInvariant() };
+        var item = new Movie { Path = UnderPlugins("Stub.mp4").ToUpperInvariant() };
 
         Assert.Equal(OperatingSystem.IsWindows(), Create().IsVirtual(item));
     }
@@ -104,7 +117,7 @@ public sealed class VirtualItemDetectorTests
     public void Ctor_Throws_OnNullLogger()
     {
         var paths = new Mock<IApplicationPaths>();
-        paths.Setup(p => p.DataPath).Returns(DataPath);
+        paths.Setup(p => p.PluginsPath).Returns(PluginsPath);
 
         Assert.Throws<ArgumentNullException>(() => new VirtualItemDetector(paths.Object, null!));
     }
@@ -116,12 +129,12 @@ public sealed class VirtualItemDetectorTests
     }
 
     [Fact]
-    public void IsVirtual_False_ForRealFile_WhenDataPathEmpty()
+    public void IsVirtual_False_ForRealFile_WhenPluginsPathEmpty()
     {
-        // A host that reports no data path cannot contain stub libraries, so containment never matches and a
-        // real file outside it stays owned.
+        // A host that reports no plugins path cannot contain stub libraries, so containment never matches and a
+        // real file stays owned.
         var paths = new Mock<IApplicationPaths>();
-        paths.Setup(p => p.DataPath).Returns(string.Empty);
+        paths.Setup(p => p.PluginsPath).Returns(string.Empty);
         var detector = new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
 
         Assert.False(detector.IsVirtual(new Movie { Path = OwnedPath() }));
@@ -132,12 +145,12 @@ public sealed class VirtualItemDetectorTests
     {
         // The skip log is guarded by IsEnabled(Debug); with Debug on it must fire so the skip is diagnosable.
         var paths = new Mock<IApplicationPaths>();
-        paths.Setup(p => p.DataPath).Returns(DataPath);
+        paths.Setup(p => p.PluginsPath).Returns(PluginsPath);
         var logger = new Mock<ILogger<VirtualItemDetector>>();
         logger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(true);
         var detector = new VirtualItemDetector(paths.Object, logger.Object);
 
-        Assert.True(detector.IsVirtual(new Movie { Path = Under("stub.mp4") }));
+        Assert.True(detector.IsVirtual(new Movie { Path = UnderPlugins("stub.mp4") }));
         logger.Verify(
             l => l.Log(
                 LogLevel.Debug,

@@ -312,6 +312,26 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public async Task PhysicalStubUnderPluginsPath_DoesNotExcludeCandidate()
+    {
+        // JellyNext writes a real file with a TMDb id under <data>/plugins/..., not a path-less virtual entry.
+        // Such a stub must not exclude the matching candidate, while a real library under <data> still would.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]");
+        var service = CreateService();
+        // Build the stub path from the same plugins root the detector uses (Path.Join keeps it OS-correct).
+        var stubPath = Path.Join("/data", "plugins", "Jellyfin.Plugin.JellyNext", "jellynext-virtual", "abc", "4875-B-.mp4");
+        _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns([LibraryMovie(tmdbId: 101, path: stubPath)]);
+
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.TmdbId == 101);
+    }
+
+    [Fact]
     public async Task NoGenrePreferences_SkipsWithDebugReason()
     {
         // A profile with no genre history yields an empty preference vector; scoring cannot proceed and the

@@ -11,28 +11,30 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 /// </summary>
 /// <remarks>
 /// External request helpers (for example JellyNext) create stub libraries whose entries carry a real
-/// TMDb id but no real media file. Those stubs would otherwise be treated as owned and suppress every
-/// discovery suggestion for the same title. An item is virtual when Jellyfin flags it as such, when it
-/// has no physical location, or when its path resolves inside the plugin host data directory. Detection
-/// is intentionally free of name, extension, or size heuristics so a legitimately named real file is
-/// never misclassified.
+/// TMDb id but no real media file, written under the host plugins directory (for example
+/// <c>&lt;data&gt;/plugins/Jellyfin.Plugin.JellyNext/jellynext-virtual/...</c>). Those stubs would otherwise be
+/// treated as owned and suppress every discovery suggestion for the same title. An item is virtual when Jellyfin
+/// flags it as such, when it has no physical location, or when its path resolves inside the plugins directory.
+/// The containment check is scoped to the plugins directory, not the whole data directory, so a real media
+/// library an administrator happens to store under the data directory is never misclassified. Detection is
+/// intentionally free of name, extension, or size heuristics.
 /// </remarks>
 public sealed class VirtualItemDetector
 {
-    private readonly string _dataPath;
+    private readonly string _pluginsPath;
     private readonly ILogger<VirtualItemDetector> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="VirtualItemDetector"/> class.
     /// </summary>
-    /// <param name="applicationPaths">Provides the host data directory used as the virtual-location root.</param>
+    /// <param name="applicationPaths">Provides the host plugins directory used as the stub-location root.</param>
     /// <param name="logger">The logger.</param>
     public VirtualItemDetector(IApplicationPaths applicationPaths, ILogger<VirtualItemDetector> logger)
     {
         ArgumentNullException.ThrowIfNull(applicationPaths);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _dataPath = applicationPaths.DataPath;
+        _pluginsPath = applicationPaths.PluginsPath;
         _logger = logger;
     }
 
@@ -54,25 +56,26 @@ public sealed class VirtualItemDetector
             return true;
         }
 
-        if (IsUnderDataPath(item.Path))
+        if (IsUnderPluginsPath(item.Path))
         {
-            LogSkip(item, "path under host data directory");
+            LogSkip(item, "path under host plugins directory");
             return true;
         }
 
         return false;
     }
 
-    // A real file counts as owned only when it lives outside the host data directory. The comparison is
-    // ordinal and anchored on a trailing separator so a sibling like "<data>-cache" never matches "<data>".
-    private bool IsUnderDataPath(string? itemPath)
+    // A real file counts as owned unless it lives inside the host plugins directory, where only plugin-created
+    // stubs live. The comparison is ordinal and anchored on a trailing separator so a sibling like
+    // "<plugins>-cache" never matches "<plugins>".
+    private bool IsUnderPluginsPath(string? itemPath)
     {
-        if (string.IsNullOrEmpty(itemPath) || string.IsNullOrEmpty(_dataPath))
+        if (string.IsNullOrEmpty(itemPath) || string.IsNullOrEmpty(_pluginsPath))
         {
             return false;
         }
 
-        var root = NormalizeRoot(_dataPath);
+        var root = NormalizeRoot(_pluginsPath);
         var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(itemPath));
         var comparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
