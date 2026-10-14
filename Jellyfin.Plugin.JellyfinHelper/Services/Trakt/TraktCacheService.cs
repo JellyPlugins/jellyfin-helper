@@ -79,15 +79,6 @@ public sealed class TraktCacheService
     }
 
     /// <summary>
-    ///     Returns the current personal generation for a user, to be captured before a shared fetch starts and
-    ///     passed back to <see cref="SetPersonal(Guid, DiscoveryResult, int)"/> so a fetch that raced an
-    ///     invalidation does not write a stale result.
-    /// </summary>
-    /// <param name="userId">The Jellyfin user id.</param>
-    /// <returns>The current generation value.</returns>
-    public int PersonalGeneration(Guid userId) => _personalGeneration.TryGetValue(userId, out var g) ? g : 0;
-
-    /// <summary>
     ///     Stores a user's personal result only if the generation captured at fetch start still matches the
     ///     current generation. A fetch that was in flight across an invalidation is dropped instead of caching a
     ///     stale pre-invalidation result.
@@ -107,6 +98,15 @@ public sealed class TraktCacheService
         SetPersonal(userId, result);
         return true;
     }
+
+    /// <summary>
+    ///     Returns the current personal generation for a user, to be captured before a shared fetch starts and
+    ///     passed back to <see cref="SetPersonal(Guid, DiscoveryResult, int)"/> so a fetch that raced an
+    ///     invalidation does not write a stale result.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns>The current generation value.</returns>
+    public int PersonalGeneration(Guid userId) => _personalGeneration.TryGetValue(userId, out var g) ? g : 0;
 
     /// <summary>
     ///     Suppresses personal fetches for this user until the backoff elapses, after a failed fetch. The delay is

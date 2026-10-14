@@ -49,11 +49,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // needs this.
     private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightPersonal = new();
 
-    // Clock used to resolve an HTTP-date Retry-After header. Settable for tests via the UtcNow property (the
-    // assembly exposes internals); production uses the system UTC clock. Kept off the constructor so dependency
-    // injection stays at seven arguments.
-    private Func<DateTimeOffset> _utcNow = () => DateTimeOffset.UtcNow;
-
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
     /// </summary>
@@ -84,13 +79,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
     /// <summary>
     ///     Gets or sets the clock used to resolve an HTTP-date Retry-After header. Tests substitute a fixed clock;
-    ///     production uses the system UTC clock.
+    ///     production uses the system UTC clock. Kept off the constructor so dependency injection stays at seven arguments.
     /// </summary>
-    internal Func<DateTimeOffset> UtcNow
-    {
-        get => _utcNow;
-        set => _utcNow = value;
-    }
+    internal Func<DateTimeOffset> UtcNow { get; set; } = () => DateTimeOffset.UtcNow;
 
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
@@ -133,10 +124,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // caller still observes its own cancellation below.
         cancellationToken.ThrowIfCancellationRequested();
         var started = false;
-        var fetch = _inflightPersonal.GetOrAdd(userId, _ =>
+        var fetch = _inflightPersonal.GetOrAdd(userId, key =>
         {
             started = true;
-            return FetchAndScorePersonalAsync(userId, config);
+            return FetchAndScorePersonalAsync(key, config);
         });
 
         try
@@ -434,7 +425,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // RetryConditionHeaderValue always carries exactly one of Delta or Date; resolve a date against the
         // injected clock. Only a strictly positive remaining delay is a usable backoff hint.
-        var delay = header?.Delta ?? (header?.Date is { } date ? date - _utcNow() : (TimeSpan?)null);
+        var delay = header?.Delta ?? (header?.Date is { } date ? date - UtcNow() : (TimeSpan?)null);
         return delay > TimeSpan.Zero ? delay : null;
     }
 
