@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin Helper - Live Demo</title>
+    <!-- Material Icons: the discovery sidebar uses the same md-icon glyphs as inside
+         Jellyfin; the font below makes them render identically in the static demo. -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <style>
+        :root {
+            --bg-primary: #101010;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #202040;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0c0;
+            --accent: #00a4dc;
+            --accent-hover: #0088b8;
+            --border: #333355;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        .demo-banner {
+            background: linear-gradient(135deg, #00a4dc 0%, #6c5ce7 100%);
+            color: #fff;
+            text-align: center;
+            padding: 12px 20px;
+            font-size: 14px;
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+        }
+        .demo-banner a { color: #fff; font-weight: bold; text-decoration: underline; }
+        .demo-banner a:hover { opacity: 0.85; }
+        .demo-wrapper { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .pluginConfigurationPage { background: transparent; }
+        .demo-view-switch { max-width: 1200px; margin: 0 auto; padding: 16px 20px 0 20px; display: flex; justify-content: center; }
+        .demo-view-switch button {
+            flex: 1 1 0; max-width: 340px; padding: 0.55em 1.1em;
+            border: 1px solid var(--border); border-left-width: 0;
+            background: rgba(255,255,255,0.04); color: var(--text-primary);
+            cursor: pointer; font-size: 0.92em; font-weight: 500;
+            text-align: center; white-space: normal; line-height: 1.4;
+            transition: background 0.2s, color 0.2s;
+        }
+        .demo-view-switch button:first-child { border-radius: 10px 0 0 10px; border-left-width: 1px; }
+        .demo-view-switch button:last-child { border-radius: 0 10px 10px 0; }
+        .demo-view-switch button:not(.demo-view-active):hover { background: rgba(255,255,255,0.08); }
+        .demo-view-switch button.demo-view-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .demo-view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .hide { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="demo-banner">
+        <strong>Interactive Demo</strong> - This is a static preview with sample data. No real Jellyfin server required.
+        <a href="https://github.com/JellyPlugins/jellyfin-helper" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" style="vertical-align:middle;margin-right:4px;" aria-hidden="true"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>View on GitHub</a>
+    </div>
+    <div class="demo-view-switch" role="tablist" aria-label="Demo views">
+        <button id="demoViewBtnAdmin" class="demo-view-active" role="tab" aria-selected="true">Plugin Admin Page Demo</button>
+        <button id="demoViewBtnDiscovery" role="tab" aria-selected="false">Per User Discovery Tab Demo</button>
+    </div>
+    <div class="demo-wrapper" id="demoViewAdmin">
+        <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-checkbox,emby-select">
+            <style id="pluginStyles"></style>
+            <div data-role="content">
+                <div class="content-primary stats-container">
+                    <div class="stats-header">
+                        <h2>Jellyfin Helper</h2>
+                        <div class="last-scan-badge">
+                            <span id="lastScanBadge" style="display:none;"></span>
+                            <button aria-label="Scan libraries" class="scan-libraries-btn" id="btnScanLibraries" title="Scan libraries"></button>
+                        </div>
+                    </div>
+                    <div id="statsContent">
+                        <div class="loading-overlay" id="loadingIndicator" style="display:none;">
+                            <div class="spinner"></div>
+                            <p>Scanning libraries&#x2026; This may take a while for large collections.</p>
+                        </div>
+                        <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
+                            <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
+                        </div>
+                        <div id="statsResult" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="demo-wrapper hide" id="demoViewDiscovery">
+        <div id="indexPage" class="page">
+            <div class="tabContent pageTabContent is-active" id="customTab_0" data-index="2">
+                <div class="jellyfinhelper discovery"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/mock-data.js"></script>
+    <script src="js/discovery-sidebar.js"></script>
+
+    <!-- Load translations, then inject plugin CSS & JS -->
+    <script>
+    function switchDemoView(which) {
+        var admin = document.getElementById('demoViewAdmin');
+        var discovery = document.getElementById('demoViewDiscovery');
+        var btnAdmin = document.getElementById('demoViewBtnAdmin');
+        var btnDiscovery = document.getElementById('demoViewBtnDiscovery');
+        var showDiscovery = which === 'discovery';
+        admin.classList.toggle('hide', showDiscovery);
+        discovery.classList.toggle('hide', !showDiscovery);
+        btnAdmin.classList.toggle('demo-view-active', !showDiscovery);
+        btnDiscovery.classList.toggle('demo-view-active', showDiscovery);
+        btnAdmin.setAttribute('aria-selected', String(!showDiscovery));
+        btnDiscovery.setAttribute('aria-selected', String(showDiscovery));
+    }
+    document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
+    document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
+
+    fetch('i18n/en.json')
+        .then(function(r) { return r.json(); })
+        .then(function(t) { MOCK_TRANSLATIONS = t; })
+        .catch(function() { console.warn('Could not load translations'); MOCK_TRANSLATIONS = {}; })
+        .finally(function() { loadPluginAssets(); });
+
+    function loadPluginAssets() {
+        var cssFiles = [
+            'css/Shared.css', 'css/Overview.css', 'css/Codecs.css', 'css/Health.css',
+            'css/Trends.css', 'css/Settings.css', 'css/ArrIntegration.css',
+            'css/Recommendations.css', 'css/Logs.css'
+        ];
+        var styleEl = document.getElementById('pluginStyles');
+        var cssPromises = cssFiles.map(function(f) {
+            return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+        });
+        Promise.all(cssPromises).then(function(results) {
+            styleEl.textContent = results.join('\n');
+            var jsFiles = [
+                'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/CodecsExplorer.js', 'js/Health.js',
+                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js',
+                'js/Recommendations.js', 'js/Logs.js', 'js/FolderBrowser.js', 'js/Main.js'
+            ];
+            var jsPromises = jsFiles.map(function(f) {
+                return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+            });
+            Promise.all(jsPromises).then(function(jsResults) {
+                var fullScript = jsResults.join('\n');
+                try {
+                    var scriptEl = document.createElement('script');
+                    scriptEl.textContent = fullScript;
+                    document.body.appendChild(scriptEl);
+                } catch(e) { console.error('Failed to load plugin JS:', e); }
+            });
+        });
+    }
+    </script>
+</body>
+</html>
