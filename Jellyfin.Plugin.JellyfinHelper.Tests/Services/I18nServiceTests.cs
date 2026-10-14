@@ -432,7 +432,7 @@ public class I18NServiceTests : IDisposable
         // Use a barrier so all 8 tasks race into GetTranslations at the same instant,
         // maximising the chance of exposing duplicate-factory invocations.
         const int taskCount = 8;
-        using var barrier = new Barrier(taskCount);
+        var barrier = new Barrier(taskCount);
 
         var tasks = Enumerable.Range(0, taskCount).Select(_ => Task.Run(() =>
         {

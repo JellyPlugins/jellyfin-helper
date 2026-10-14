@@ -40,8 +40,8 @@ public class SeerrDiscoveryServiceTests : IDisposable
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
-        using var ensemble = new EnsembleScoringStrategy(
+        var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
+        var ensemble = new EnsembleScoringStrategy(
             learned, heuristic, neural, null,
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,
@@ -49,7 +49,7 @@ public class SeerrDiscoveryServiceTests : IDisposable
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        using var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
+        var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
         var perUserRegistry = new PerUserEnsembleRegistry(

@@ -52,7 +52,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Name_ReturnsExpected()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.Equal("Neural (Adaptive MLP)", strategy.Name);
         Assert.Equal("strategyNeural", strategy.NameKey);
     }
@@ -174,7 +174,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Score_DefaultFeatures_ReturnsScoreInRange()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var score = strategy.Score(new CandidateFeatures());
         Assert.InRange(score, 0.0, 1.0);
     }
@@ -245,7 +245,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_WeightsAreNotAllZero()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wH = strategy.GetCurrentWeightsHidden();
         var wO = strategy.GetCurrentWeightsOutput();
 
@@ -256,8 +256,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_IsDeterministic()
     {
-        using var s1 = new NeuralScoringStrategy();
-        using var s2 = new NeuralScoringStrategy();
+        var s1 = new NeuralScoringStrategy();
+        var s2 = new NeuralScoringStrategy();
 
         var wH1 = s1.GetCurrentWeightsHidden();
         var wH2 = s2.GetCurrentWeightsHidden();
@@ -273,7 +273,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Score_ReturnsValueBetweenZeroAndOne()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
@@ -292,7 +292,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Score_AllZeroFeatures_ReturnsSomething()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures();
 
         var score = strategy.Score(features);
@@ -302,7 +302,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Score_IsDeterministic()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.6,
@@ -330,7 +330,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void ScoreWithExplanation_ReturnsValidExplanation()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
@@ -353,7 +353,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void ScoreWithExplanation_FinalScore_MatchesScore()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.5,
@@ -396,7 +396,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_TooFewExamples_ReturnsFalse()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = new List<TrainingExample>();
         for (var i = 0; i < NeuralScoringStrategy.MinTrainingExamples - 1; i++)
         {
@@ -413,7 +413,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_MinimumExamples_ReturnsTrue()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(NeuralScoringStrategy.MinTrainingExamples);
 
         Assert.True(strategy.Train(examples));
@@ -422,7 +422,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_UpdatesWeights()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var initialWH = strategy.GetCurrentWeightsHidden();
         var initialWO = strategy.GetCurrentWeightsOutput();
 
@@ -459,7 +459,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_IncrementsGeneration()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.Equal(0, strategy.TrainingGeneration);
 
         var examples = GenerateExamples(50);
@@ -493,7 +493,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_SetsValidationLoss()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.True(double.IsNaN(strategy.LastValidationLoss));
 
         var examples = GenerateExamples(50);
@@ -506,7 +506,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_WeightsStayClamped()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         var examples = new List<TrainingExample>();
         for (var i = 0; i < 100; i++)
@@ -547,7 +547,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_MultipleTimes_ProducesFiniteLoss()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(50);
 
         strategy.Train(examples);
@@ -566,7 +566,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void PersistsWeights_ToFile()
     {
         var weightsPath = Path.Join(_tempDir, "neural_weights.json");
-        using var strategy = new NeuralScoringStrategy(weightsPath);
+        var strategy = new NeuralScoringStrategy(weightsPath);
 
         var examples = GenerateExamples(50);
         strategy.Train(examples);
@@ -595,7 +595,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         var weightsPath = Path.Join(_tempDir, "neural_weights2.json");
 
-        using var strategy1 = new NeuralScoringStrategy(weightsPath);
+        var strategy1 = new NeuralScoringStrategy(weightsPath);
         var examples = GenerateExamples(50);
         strategy1.Train(examples);
 
@@ -606,7 +606,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var savedWO = strategy1.GetCurrentWeightsOutput();
         var savedGen = strategy1.TrainingGeneration;
 
-        using var strategy2 = new NeuralScoringStrategy(weightsPath);
+        var strategy2 = new NeuralScoringStrategy(weightsPath);
         var loadedWH = strategy2.GetCurrentWeightsHidden();
         var loadedWH1H2 = strategy2.GetCurrentWeightsH1H2();
         var loadedWH2H3 = strategy2.GetCurrentWeightsH2H3();
@@ -646,7 +646,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         var weightsPath = Path.Join(_tempDir, "neural_weights3.json");
 
-        using var strategy1 = new NeuralScoringStrategy(weightsPath);
+        var strategy1 = new NeuralScoringStrategy(weightsPath);
         var examples = GenerateExamples(50);
         strategy1.Train(examples);
 
@@ -661,7 +661,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         var score1 = strategy1.Score(features);
 
-        using var strategy2 = new NeuralScoringStrategy(weightsPath);
+        var strategy2 = new NeuralScoringStrategy(weightsPath);
         var score2 = strategy2.Score(features);
 
         Assert.Equal(score1, score2, 8);
@@ -673,7 +673,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var weightsPath = Path.Join(_tempDir, "corrupt_neural.json");
         File.WriteAllText(weightsPath, "not valid json {{{");
 
-        using var strategy = new NeuralScoringStrategy(weightsPath);
+        var strategy = new NeuralScoringStrategy(weightsPath);
         var score = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.5 });
 
         Assert.InRange(score, 0.0, 1.0);
@@ -684,7 +684,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         var path = Path.Combine(_tempDir, "null-weights.json");
         File.WriteAllText(path, "null");
-        using var strategy = new NeuralScoringStrategy(path);
+        var strategy = new NeuralScoringStrategy(path);
         var score = strategy.Score(new CandidateFeatures());
         Assert.InRange(score, 0.0, 1.0);
     }
@@ -692,7 +692,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void NullPath_WorksInMemoryOnly()
     {
-        using var strategy = new NeuralScoringStrategy(null);
+        var strategy = new NeuralScoringStrategy(null);
         var examples = GenerateExamples(50);
 
         Assert.True(strategy.Train(examples));
@@ -723,11 +723,10 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var json = System.Text.Json.JsonSerializer.Serialize(fakeData);
         File.WriteAllText(weightsPath, json);
 
-        using var strategy = new NeuralScoringStrategy(weightsPath);
+        var strategy = new NeuralScoringStrategy(weightsPath);
         var features = new CandidateFeatures();
         var score = strategy.Score(features);
-        using var fresh = new NeuralScoringStrategy(null);
-        var expectedFreshScore = fresh.Score(features);
+        var expectedFreshScore = new NeuralScoringStrategy(null).Score(features);
 
         // Old-version weights should be discarded; score must match a freshly initialized strategy
         Assert.Equal(expectedFreshScore, score, 10);
@@ -759,7 +758,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_InputHiddenWeights_CorrectLength()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wIH = strategy.GetCurrentWeightsHidden();
 
         Assert.Equal(NeuralScoringStrategy.Hidden1Size * CandidateFeatures.FeatureCount, wIH.Length);
@@ -768,7 +767,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_H1H2Weights_CorrectLength()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wH1H2 = strategy.GetCurrentWeightsH1H2();
 
         Assert.Equal(NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size, wH1H2.Length);
@@ -777,7 +776,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_H2H3Weights_CorrectLength()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wH2H3 = strategy.GetCurrentWeightsH2H3();
 
         Assert.Equal(NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size, wH2H3.Length);
@@ -786,7 +785,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_OutputWeights_CorrectLength()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wO = strategy.GetCurrentWeightsOutput();
 
         Assert.Equal(NeuralScoringStrategy.Hidden4Size, wO.Length);
@@ -795,7 +794,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void HeInit_InputHiddenWeights_WithinExpectedBounds()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wIH = strategy.GetCurrentWeightsHidden();
 
         // He/Kaiming uniform for ReLU: limit = sqrt(6 / fan_in)
@@ -810,7 +809,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void XavierInit_OutputWeights_WithinExpectedBounds()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wO = strategy.GetCurrentWeightsOutput();
 
         var limit = Math.Sqrt(6.0 / (NeuralScoringStrategy.Hidden4Size + 1));
@@ -824,14 +823,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void ImplementsIScoringStrategy()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.IsAssignableFrom<IScoringStrategy>(strategy);
     }
 
     [Fact]
     public void ImplementsITrainableStrategy()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.IsAssignableFrom<ITrainableStrategy>(strategy);
     }
 
@@ -876,7 +875,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void H1H2Weights_AreNotAllZero()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wH1H2 = strategy.GetCurrentWeightsH1H2();
 
         Assert.True(wH1H2.Any(w => Math.Abs(w) > 1e-10), "H1→H2 weights should not all be zero after Xavier init");
@@ -885,7 +884,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void H2H3Weights_AreNotAllZero()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var wH2H3 = strategy.GetCurrentWeightsH2H3();
 
         Assert.True(wH2H3.Any(w => Math.Abs(w) > 1e-10), "H2→H3 weights should not all be zero after Xavier init");
@@ -912,7 +911,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var trainCount = NeuralScoringStrategy.MinExamplesForDropout * 6; // comfortably dropout-active
         Assert.True(trainCount >= NeuralScoringStrategy.MinExamplesForDropout);
 
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(trainCount);
 
         Assert.True(strategy.Train(examples));
@@ -1309,7 +1308,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void Train_WithDropout_WeightsConvergeWithoutNaN()
     {
         // Dropout is activated when trainIdx.Length >= MinExamplesForDropout (30). We use exactly MinExamplesForDropout examples so that the training split (which is ~80% of examples after the val split) just reaches the threshold.
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var initialWH = strategy.GetCurrentWeightsHidden().ToArray();
         var initialWO = strategy.GetCurrentWeightsOutput().ToArray();
 
@@ -1364,7 +1363,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Score_ConcurrentCalls_DoNotThrow()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
@@ -1382,7 +1381,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public async Task Score_DuringTraining_DoesNotThrow()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(50);
         var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.6 };
 
@@ -1403,7 +1402,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public async Task Score_ConcurrentWithTrain_NoRaceCondition()
     {
         // Verifies the _featureMeans thread-safety fix: Train() writes _featureMeans while Score() reads it.
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         // Use enough examples so that _featureMeans is computed (and therefore the
         // read/write interleaving is exercised under real conditions).
@@ -1469,7 +1468,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_PopulatesRankingMetricGetters_WithValuesInUnitRange()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         // Contract: the P@K/R@K/NDCG getters default to NaN and are only populated once
         // Train() has run RankingMetrics.ComputeAll on a scored held-out slice.
@@ -1496,7 +1495,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // expensive permutation-importance block at the tail of Train().
         var loggerMock = TestMockFactory.CreateLogger();
         var weightsPath = Path.Join(_tempDir, "debug_importance.json");
-        using var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
 
         strategy.Train(GenerateExamples(50));
 
@@ -1511,7 +1510,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // block must be skipped entirely - no Debug-level Log call may fire.
         var loggerMock = TestMockFactory.CreateDisabledLogger();
         var weightsPath = Path.Join(_tempDir, "disabled_importance.json");
-        using var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
 
         strategy.Train(GenerateExamples(50));
 
@@ -1534,11 +1533,10 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         File.WriteAllText(weightsPath, new string('a', 11 * 1024 * 1024));
 
         var loggerMock = TestMockFactory.CreateLogger();
-        using var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
 
         var features = new CandidateFeatures { GenreSimilarity = 0.7 };
-        using var fresh = new NeuralScoringStrategy(null);
-        var expectedFreshScore = fresh.Score(features);
+        var expectedFreshScore = new NeuralScoringStrategy(null).Score(features);
         Assert.Equal(expectedFreshScore, strategy.Score(features), 10);
 
         VerifyWarningLogContains(loggerMock, "exceeds");
@@ -1550,8 +1548,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         // A persisted file carrying a NaN weight must never be applied. The neural loader uses the default JSON reader, which rejects the bare NaN token, so the file is discarded on parse and the strategy falls back to a fresh default score.
         var weightsPath = Path.Join(_tempDir, "nan_discard.json");
-        using var trainer = new NeuralScoringStrategy(weightsPath);
-        trainer.Train(GenerateExamples(50));
+        new NeuralScoringStrategy(weightsPath).Train(GenerateExamples(50));
 
         var json = File.ReadAllText(weightsPath);
         var corrupted = System.Text.RegularExpressions.Regex.Replace(
@@ -1563,14 +1560,13 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         File.WriteAllText(weightsPath, corrupted);
 
         var loggerMock = TestMockFactory.CreateLogger();
-        using var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
 
         VerifyWarningLogContains(loggerMock, "Failed to parse weights");
 
         // Discarded, not applied: the score must match a fresh default.
         var features = new CandidateFeatures { GenreSimilarity = 0.7 };
-        using var fresh = new NeuralScoringStrategy(null);
-        Assert.Equal(fresh.Score(features), strategy.Score(features), 10);
+        Assert.Equal(new NeuralScoringStrategy(null).Score(features), strategy.Score(features), 10);
     }
 
     [Fact]
@@ -1578,8 +1574,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         // Unlike the bare NaN token, 1e400 is valid JSON: the default reader deserializes it to +Infinity, so the file clears the version/length/standardization structural gate but must still be rejected by the AllFinite finiteness check - propagating Infinity would poison every forward.
         var weightsPath = Path.Join(_tempDir, "infinity_discard.json");
-        using var trainer = new NeuralScoringStrategy(weightsPath);
-        trainer.Train(GenerateExamples(50));
+        new NeuralScoringStrategy(weightsPath).Train(GenerateExamples(50));
 
         var json = File.ReadAllText(weightsPath);
         var corrupted = System.Text.RegularExpressions.Regex.Replace(
@@ -1591,15 +1586,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         File.WriteAllText(weightsPath, corrupted);
 
         var loggerMock = TestMockFactory.CreateLogger();
-        using var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
+        var strategy = new NeuralScoringStrategy(weightsPath, loggerMock.Object);
 
         VerifyWarningLogContains(loggerMock, "NaN/Infinity");
 
         // Poisoned weights were not applied: the score matches a fresh default and stays finite in [0,1].
         var features = new CandidateFeatures { GenreSimilarity = 0.7 };
         var score = strategy.Score(features);
-        using var fresh = new NeuralScoringStrategy(null);
-        Assert.Equal(fresh.Score(features), score, 10);
+        Assert.Equal(new NeuralScoringStrategy(null).Score(features), score, 10);
         Assert.True(double.IsFinite(score));
         Assert.InRange(score, 0.0, 1.0);
     }
@@ -1715,7 +1709,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
     {
         // Train a strategy to produce a valid weights file, then corrupt one weight with NaN.
         var weightsPath = Path.Join(_tempDir, "nan_weight.json");
-        using var strategy1 = new NeuralScoringStrategy(weightsPath);
+        var strategy1 = new NeuralScoringStrategy(weightsPath);
         var rng = new Random(42);
         var examples = BuildExamples(rng, 50);
         strategy1.Train(examples);
@@ -1730,19 +1724,19 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         File.WriteAllText(weightsPath, corrupted);
 
         // Load into a fresh strategy - must reject the NaN file and not crash.
-        using var strategy2 = new NeuralScoringStrategy(weightsPath);
+        var strategy2 = new NeuralScoringStrategy(weightsPath);
         var score = strategy2.Score(new CandidateFeatures { GenreSimilarity = 0.7 });
 
         Assert.True(double.IsFinite(score), $"Score must be finite after NaN-weight rejection, got {score}");
         Assert.InRange(score, 0.0, 1.0);
-        using var freshStrategy = new NeuralScoringStrategy(null);
+        var freshStrategy = new NeuralScoringStrategy(null);
         Assert.Equal(freshStrategy.Score(new CandidateFeatures { GenreSimilarity = 0.7 }), score, 10);
     }
 
     [Fact]
     public async Task ScoreVector_ConcurrentWithTrain_AlwaysReturnsFiniteScore()
     {
-        using var strategy = new NeuralScoringStrategy(null);
+        var strategy = new NeuralScoringStrategy(null);
         var rng = new Random(1);
         var examples = BuildExamples(rng, 40);
 
@@ -1822,13 +1816,13 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
 
         var rng = new Random(77);
         var examples = BuildExamples(rng, exampleCount);
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         // Prime with one round so _featureMeans is non-null before concurrent access starts.
         strategy.Train(examples);
 
         var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
-        using var cts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
 
         var scoreTasks = Enumerable.Range(0, scoreThreads).Select(_ => Task.Run(() =>
         {
@@ -1947,7 +1941,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         var rngOn = new Random(42);
         var examplesOn = BuildExamples(rngOn, NeuralScoringStrategy.MinExamplesForDropout + 5);
 
-        using var strategyOff = new NeuralScoringStrategy();
+        var strategyOff = new NeuralScoringStrategy();
         var wBefore = (double[])strategyOff.GetCurrentWeightsHidden().Clone();
         strategyOff.Train(examplesOff);
         var wAfterOff = strategyOff.GetCurrentWeightsHidden();
@@ -1958,7 +1952,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
             deltaOff += Math.Abs(wAfterOff[i] - wBefore[i]);
         }
 
-        using var strategyOn = new NeuralScoringStrategy();
+        var strategyOn = new NeuralScoringStrategy();
         var wBeforeOn = (double[])strategyOn.GetCurrentWeightsHidden().Clone();
         strategyOn.Train(examplesOn);
         var wAfterOn = strategyOn.GetCurrentWeightsHidden();

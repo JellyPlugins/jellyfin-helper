@@ -277,7 +277,7 @@ public class HelperCleanupTaskTests
     [Fact]
     public async Task ExecuteAsync_CancellationRequested_StopsProcessing()
     {
-        using var cts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>

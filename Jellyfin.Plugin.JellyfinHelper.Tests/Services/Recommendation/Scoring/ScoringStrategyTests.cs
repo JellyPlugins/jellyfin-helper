@@ -887,7 +887,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Name_ReturnsExpected()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         Assert.Equal("Ensemble (Adaptive ML + Rules)", strategy.Name);
         Assert.Equal("strategyEnsemble", strategy.NameKey);
     }
@@ -895,7 +895,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Score_IsBetweenLearnedAndHeuristic()
     {
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
         // Use penalty-disabled heuristic (same as Ensemble uses internally) for fair comparison
         var learned = ensemble.LearnedStrategy;
         var heuristic = ensemble.HeuristicStrategy;
@@ -927,7 +927,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_DefaultAlpha_IsAlphaMin()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         // Default alpha is AlphaMin before any training occurs
         Assert.Equal(EnsembleScoringStrategy.DefaultAlphaMin, strategy.CurrentAlpha, 4);
     }
@@ -935,7 +935,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Train_IncreasesAlpha_MediumData()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         var initialAlpha = strategy.CurrentAlpha;
 
         // Generate 25 training examples
@@ -952,7 +952,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Train_IncreasesAlpha_HighData()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
 
         // Train with 50 examples first
         strategy.Train(GenerateTrainingExamples(50));
@@ -969,7 +969,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Train_FewExamples_StaysLowAlpha()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
 
         var examples = GenerateTrainingExamples(15);
         strategy.Train(examples);
@@ -985,7 +985,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Train_DelegatesToLearned()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
 
         // Capture weights before training to verify they actually change
         var weightsBefore = (double[])strategy.LearnedStrategy.GetCurrentWeights().Clone();
@@ -1017,7 +1017,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_Score_ReturnsValidRange()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
 
         var features = new CandidateFeatures
         {
@@ -1051,7 +1051,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_GenreMismatch_ChuckyVsMarvel_MarvelWins()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
 
         var marvelFeatures = new CandidateFeatures
         {
@@ -1086,7 +1086,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Ensemble_WithWeightsPath_PassesToLearned()
     {
         var weightsPath = Path.Join(_tempDir, "ensemble_weights.json");
-        using var strategy = new EnsembleScoringStrategy(weightsPath);
+        var strategy = new EnsembleScoringStrategy(weightsPath);
 
         Assert.NotNull(strategy.LearnedStrategy);
         Assert.NotNull(strategy.HeuristicStrategy);
@@ -1100,7 +1100,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_AlphaBlending_VerifyFormula()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         var learned = strategy.LearnedStrategy;
         var heuristic = strategy.HeuristicStrategy;
 
@@ -1255,7 +1255,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_ScoreWithExplanation_IncludesGenrePenalty()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.0,
@@ -1275,7 +1275,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_ScoreWithExplanation_NoPenaltyForHighGenreSimilarity()
     {
-        using var strategy = new EnsembleScoringStrategy();
+        var strategy = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.8, CombinedCriticScore = 0.7 };
 
         var explanation = strategy.ScoreWithExplanation(features);
@@ -1285,8 +1285,8 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_ConfigurableAlpha_AffectsBlending()
     {
-        using var lowAlpha = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.2);
-        using var highAlpha = new EnsembleScoringStrategy(alphaMin: 0.9, alphaMax: 0.95);
+        var lowAlpha = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.2);
+        var highAlpha = new EnsembleScoringStrategy(alphaMin: 0.9, alphaMax: 0.95);
 
         Assert.Equal(0.1, lowAlpha.CurrentAlpha, 4);
         Assert.Equal(0.9, highAlpha.CurrentAlpha, 4);
@@ -1305,8 +1305,8 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_ConfigurableGenrePenalty_StrictVsLenient()
     {
-        using var lenient = new EnsembleScoringStrategy(genrePenaltyFloor: 0.5);
-        using var strict = new EnsembleScoringStrategy(genrePenaltyFloor: 0.01);
+        var lenient = new EnsembleScoringStrategy(genrePenaltyFloor: 0.5);
+        var strict = new EnsembleScoringStrategy(genrePenaltyFloor: 0.01);
 
         var features = new CandidateFeatures
         {
@@ -1760,7 +1760,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var learned = new LearnedScoringStrategy(weightsPath);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
 
-        using var original = new EnsembleScoringStrategy(learned, heuristic, statePath: statePath);
+        var original = new EnsembleScoringStrategy(learned, heuristic, statePath: statePath);
         var examples = GenerateTrainingExamples(100);
         original.Train(examples);
 
@@ -1770,7 +1770,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Create new instance with same state path - should restore state
         var learned2 = new LearnedScoringStrategy(weightsPath);
         var heuristic2 = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var restored = new EnsembleScoringStrategy(learned2, heuristic2, statePath: statePath);
+        var restored = new EnsembleScoringStrategy(learned2, heuristic2, statePath: statePath);
 
         Assert.Equal(originalCount, restored.TrainingExampleCount);
         Assert.Equal(originalAlpha, restored.CurrentAlpha, 4);
@@ -1782,7 +1782,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var statePath = Path.Join(_tempDir, "nonexistent_state.json");
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var strategy = new EnsembleScoringStrategy(learned, heuristic, statePath: statePath);
+        var strategy = new EnsembleScoringStrategy(learned, heuristic, statePath: statePath);
 
         Assert.Equal(EnsembleScoringStrategy.DefaultAlphaMin, strategy.CurrentAlpha, 4);
         Assert.Equal(0, strategy.TrainingExampleCount);
@@ -1793,14 +1793,14 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Name_ReturnsExpectedValue()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         Assert.Equal("Neural (Adaptive MLP)", strategy.Name);
     }
 
     [Fact]
     public void Neural_Score_ReturnsValueBetweenZeroAndOne()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
@@ -1819,7 +1819,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Score_AllZeros_ReturnsBaselineScore()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures();
 
         var score = strategy.Score(features);
@@ -1832,7 +1832,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Score_HighGenreMatch_ReturnsScoreInValidRange()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.9,
@@ -1855,7 +1855,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Score_AfterTraining_GenreMatchBeatsNoGenre()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         // Train the network to learn genre importance
         var examples = new List<TrainingExample>();
@@ -1911,7 +1911,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Train_WithTooFewExamples_ReturnsFalse()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var examples = new List<TrainingExample>
         {
             new() { Features = new CandidateFeatures { GenreSimilarity = 1.0 }, Label = 1.0 },
@@ -1924,7 +1924,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Train_UpdatesWeights()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         var examples = new List<TrainingExample>();
         for (var i = 0; i <  15; i++)
@@ -1966,7 +1966,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Train_ImprovesScoresForPositiveExamples()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         var positiveFeatures = new CandidateFeatures
         {
@@ -2000,7 +2000,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_ScoreWithExplanation_MatchesScore()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
@@ -2027,7 +2027,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Neural_PersistsAndRestoresWeights()
     {
         var weightsPath = Path.Join(_tempDir, "neural_weights.json");
-        using var strategy = new NeuralScoringStrategy(weightsPath);
+        var strategy = new NeuralScoringStrategy(weightsPath);
 
         var features = new CandidateFeatures
         {
@@ -2051,7 +2051,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var scoreAfterTraining = strategy.Score(features);
 
         // Create new instance from persisted weights
-        using var restored = new NeuralScoringStrategy(weightsPath);
+        var restored = new NeuralScoringStrategy(weightsPath);
         var scoreAfterRestore = restored.Score(features);
 
         Assert.Equal(scoreAfterTraining, scoreAfterRestore, 6);
@@ -2060,7 +2060,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_Score_OutputAlwaysClamped()
     {
-        using var strategy = new NeuralScoringStrategy();
+        var strategy = new NeuralScoringStrategy();
 
         // Test with extreme values
         var features = new CandidateFeatures
@@ -2095,8 +2095,8 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy();
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        var neural = new NeuralScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train with enough data to activate neural (>= NeuralActivationThreshold)
         var examples = GenerateTrainingExamples(160);
@@ -2125,8 +2125,8 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy();
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        var neural = new NeuralScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train with data below NeuralActivationThreshold (75)
         var examples = GenerateTrainingExamples(25);
@@ -2142,7 +2142,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Ensemble without neural strategy (null)
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural: null);
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural: null);
 
         var examples = GenerateTrainingExamples(160);
         ensemble.Train(examples);
@@ -2156,8 +2156,8 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy();
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        var neural = new NeuralScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train to activate neural
         var examples = GenerateTrainingExamples(160);
@@ -2190,8 +2190,8 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var learned = new LearnedScoringStrategy(weightsPath);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy(neuralWeightsPath);
-        using var original = new EnsembleScoringStrategy(learned, heuristic, neural, statePath: statePath);
+        var neural = new NeuralScoringStrategy(neuralWeightsPath);
+        var original = new EnsembleScoringStrategy(learned, heuristic, neural, statePath: statePath);
 
         // Train enough to activate neural beta
         var examples = GenerateTrainingExamples(160);
@@ -2206,8 +2206,8 @@ public sealed class ScoringStrategyTests : IDisposable
         // Create a new instance that loads from persisted state
         var learned2 = new LearnedScoringStrategy(weightsPath);
         var heuristic2 = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural2 = new NeuralScoringStrategy(neuralWeightsPath);
-        using var restored = new EnsembleScoringStrategy(learned2, heuristic2, neural2, statePath: statePath);
+        var neural2 = new NeuralScoringStrategy(neuralWeightsPath);
+        var restored = new EnsembleScoringStrategy(learned2, heuristic2, neural2, statePath: statePath);
 
         // Neural beta should be restored from persisted state
         Assert.Equal(betaBefore, restored.CurrentNeuralBeta, 6);
@@ -2217,7 +2217,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Neural_WeightsPersistAndTrainAfterRestore()
     {
         var weightsPath = Path.Join(_tempDir, "neural_adam_reset.json");
-        using var strategy = new NeuralScoringStrategy(weightsPath);
+        var strategy = new NeuralScoringStrategy(weightsPath);
 
         // Train to persist weights (Adam optimizer state is not persisted - only network weights are)
         var examples = new List<TrainingExample>();
@@ -2238,7 +2238,7 @@ public sealed class ScoringStrategyTests : IDisposable
         strategy.Train(examples);
 
         // Restore from disk - Adam state should reset but weights should persist
-        using var restored = new NeuralScoringStrategy(weightsPath);
+        var restored = new NeuralScoringStrategy(weightsPath);
 
         // Verify weights are consistent (score should match)
         var features = new CandidateFeatures
@@ -2362,8 +2362,8 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy();
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        var neural = new NeuralScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train at threshold
         ensemble.Train(GenerateTrainingExamples(55));
@@ -2548,7 +2548,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_MetricsHistoryCount_TracksTrainingRuns()
     {
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
 
         Assert.Equal(0, ensemble.MetricsHistoryCount);
 
@@ -2561,7 +2561,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Ensemble_MetricsHistoryCount_TracksFailedTrainingRuns()
     {
         // Cold-start scenario: the very first training call has too few examples for LearnedScoringStrategy.Train to succeed.
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
 
         Assert.Equal(0, ensemble.MetricsHistoryCount);
 
@@ -2580,7 +2580,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_MetricsHistory_CappedAt10()
     {
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
 
         for (var i = 0; i < 15; i++)
         {
@@ -2594,14 +2594,14 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_LastTrend_InsufficientDataBeforeTraining()
     {
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
         Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData, ensemble.LastTrend);
     }
 
     [Fact]
     public void Ensemble_LastTrend_InsufficientDataAfterFewRuns()
     {
-        using var ensemble = new EnsembleScoringStrategy();
+        var ensemble = new EnsembleScoringStrategy();
 
         for (var i = 0; i < 3; i++)
         {
@@ -2620,8 +2620,8 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var learned = new LearnedScoringStrategy(weightsPath);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy(neuralWeightsPath);
-        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural, statePath);
+        var neural = new NeuralScoringStrategy(neuralWeightsPath);
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural, statePath);
 
         for (var i = 0; i < 7; i++)
         {
@@ -2633,8 +2633,8 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var learned2 = new LearnedScoringStrategy(weightsPath);
         var heuristic2 = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural2 = new NeuralScoringStrategy(neuralWeightsPath);
-        using var ensemble2 = new EnsembleScoringStrategy(learned2, heuristic2, neural2, statePath);
+        var neural2 = new NeuralScoringStrategy(neuralWeightsPath);
+        var ensemble2 = new EnsembleScoringStrategy(learned2, heuristic2, neural2, statePath);
 
         Assert.Equal(countBefore, ensemble2.MetricsHistoryCount);
     }

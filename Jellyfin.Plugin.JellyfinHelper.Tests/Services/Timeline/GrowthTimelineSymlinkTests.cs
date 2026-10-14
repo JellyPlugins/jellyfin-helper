@@ -193,7 +193,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
             return;
         }
 
-        using var service = BuildServiceForLocation(linkDir);
+        var service = BuildServiceForLocation(linkDir);
 
         var result = await service.ComputeTimelineAsync(CancellationToken.None);
 
@@ -226,7 +226,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
             return;
         }
 
-        using var service = BuildServiceForLocation(libRoot);
+        var service = BuildServiceForLocation(libRoot);
 
         var result = await service.ComputeTimelineAsync(CancellationToken.None);
 

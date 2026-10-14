@@ -48,7 +48,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
 
         using var withNeural = new EnsembleScoringStrategy(learned, heuristic, neural);
         Assert.Same(neural, withNeural.NeuralStrategy);
@@ -61,7 +61,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     [Fact]
     public void Train_NeuralQualityGood_RampsBetaAfterActivationThreshold()
     {
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
@@ -83,7 +83,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     [Fact]
     public void Train_NeuralFailsToTrainWhileLearnedSucceeds_DecaysBeta()
     {
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
         using var ensemble = BuildActivatedEnsemble(neural);
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
@@ -218,7 +218,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     [Fact]
     public void Dispose_WithNeuralStrategy_DisposesNeural()
     {
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
@@ -236,7 +236,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     [Fact]
     public void Train_LearnedFailsWithActiveBeta_DecaysBetaToZeroAndCapsHistory()
     {
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
         using var ensemble = BuildActivatedEnsemble(neural);
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");
@@ -268,7 +268,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
     [Fact]
     public void Train_NeuralFailsRepeatedly_SnapsBetaToZeroBelowFloor()
     {
-        using var neural = new NeuralScoringStrategy();
+        var neural = new NeuralScoringStrategy();
         using var ensemble = BuildActivatedEnsemble(neural);
         var betaStart = ensemble.CurrentNeuralBeta;
         Assert.True(betaStart > 0, $"Neural beta must have activated, was {betaStart:F4}");

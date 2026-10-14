@@ -73,8 +73,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        using var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
-        using var ensemble = new EnsembleScoringStrategy(
+        var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
+        var ensemble = new EnsembleScoringStrategy(
             learned, heuristic, neural, null,
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,
