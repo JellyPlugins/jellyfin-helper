@@ -117,8 +117,8 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     public void Constructor_AlphaMaxBelowAlphaMin_IsClampedToAlphaMin()
     {
         // A "finite & in-range" assertion alone would still pass if the constructor silently ignored the invalid values altogether.
-        var invalid = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
-        var clamped = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.6);
+        using var invalid = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
+        using var clamped = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.6);
         var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.5 };
 
         var invalidScore = invalid.Score(features);
@@ -134,10 +134,10 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         // Same idea as above: assert the clamp landed on the actual boundary (0.0 and 1.0)
         // instead of "produced a finite number".
-        var tooHigh = new EnsembleScoringStrategy(genrePenaltyFloor: 5.0);
-        var tooLow = new EnsembleScoringStrategy(genrePenaltyFloor: -1.0);
-        var atFloorOne = new EnsembleScoringStrategy(genrePenaltyFloor: 1.0);
-        var atFloorZero = new EnsembleScoringStrategy(genrePenaltyFloor: 0.0);
+        using var tooHigh = new EnsembleScoringStrategy(genrePenaltyFloor: 5.0);
+        using var tooLow = new EnsembleScoringStrategy(genrePenaltyFloor: -1.0);
+        using var atFloorOne = new EnsembleScoringStrategy(genrePenaltyFloor: 1.0);
+        using var atFloorZero = new EnsembleScoringStrategy(genrePenaltyFloor: 0.0);
         var zeroGenre = new CandidateFeatures { GenreSimilarity = 0.0, CombinedCriticScore = 0.5 };
 
         Assert.True(double.IsFinite(tooHigh.Score(zeroGenre)));
@@ -149,7 +149,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithOffset_ZeroOffset_MatchesScore()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.6, CombinedCriticScore = 0.7 };
 
         var baseline = ensemble.Score(features);
@@ -161,7 +161,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithOffset_MassivePositiveOffset_ClampedInRange()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.8, CombinedCriticScore = 0.7 };
         var score = ensemble.ScoreWithOffset(features, 100.0);
         Assert.True(double.IsFinite(score));
@@ -171,7 +171,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithOffset_MassiveNegativeOffset_ClampedInRange()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.8, CombinedCriticScore = 0.7 };
         var score = ensemble.ScoreWithOffset(features, -100.0);
         Assert.True(double.IsFinite(score));
@@ -181,7 +181,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithExplanationAndOffset_ZeroOffset_MatchesBaseline()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.6, CombinedCriticScore = 0.7 };
 
         var baseline = ensemble.ScoreWithExplanation(features);
@@ -194,7 +194,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithExplanationAndOffset_NonZeroOffset_ReturnsValidExplanation()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var features = new CandidateFeatures { GenreSimilarity = 0.6, CombinedCriticScore = 0.7 };
         var explanation = ensemble.ScoreWithExplanationAndOffset(features, 0.2);
 
@@ -207,7 +207,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_InsufficientControlSamples_NoOp()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var initialOffset = ensemble.SigmoidMidpointOffset;
 
         var controlResult = BuildCohortResult("control", 3, 3, out var cw);
@@ -226,7 +226,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_ExploreHighBeatsControl_ShiftsMidpointDown()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var controlResult = BuildCohortResult("control", 10, 5, out var cw);
         var highResult = BuildCohortResult("explore-high", 10, 9, out var hw);
 
@@ -243,7 +243,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_ExploreLowBeatsControl_ShiftsMidpointUp()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var controlResult = BuildCohortResult("control", 10, 3, out var cw);
         var lowResult = BuildCohortResult("explore-low", 10, 9, out var lw);
 
@@ -260,7 +260,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_ControlOptimalWithQualifyingCohorts_DecaysOffset()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
 
         // Seed a positive offset via low-cohort win.
         var seedControl = BuildCohortResult("control", 10, 3, out var scw);
@@ -294,7 +294,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_NoQualifyingCohorts_NoDecayApplied()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
 
         var seedControl = BuildCohortResult("control", 10, 3, out var scw);
         var seedLow = BuildCohortResult("explore-low", 10, 9, out var slw);
@@ -326,7 +326,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_EmptyRecommendations_Ignored()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var initialOffset = ensemble.SigmoidMidpointOffset;
 
         var empty = new RecommendationResult { UserId = Guid.NewGuid(), UserName = "empty", Cohort = "control" };
@@ -344,7 +344,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ApplyCohortFeedback_NullCohort_TreatedAsControl()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
 
         var nullResult = BuildCohortResult(cohort: null, recCount: 5, watchedCount: 2, out var nw);
         var controlResult = BuildCohortResult("control", 5, 2, out var cw);
@@ -364,7 +364,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void Reconfigure_UpdatesBoundsAndClampsAlpha()
     {
-        var ensemble = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.9);
+        using var ensemble = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.9);
 
         // Train so alpha advances above the minimum
         var positiveFeatures = new CandidateFeatures
@@ -394,7 +394,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void Reconfigure_NewBoundsReflectedInSubsequentScore()
     {
-        var ensemble = new EnsembleScoringStrategy(alphaMin: 0.0, alphaMax: 0.0);
+        using var ensemble = new EnsembleScoringStrategy(alphaMin: 0.0, alphaMax: 0.0);
         var features = new CandidateFeatures
         {
             GenreSimilarity = 1.0,
@@ -416,7 +416,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void Reconfigure_AlphaMinAboveMax_ClampedToSameValue()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         // Passing min > max - implementation clamps max to min
         ensemble.Reconfigure(alphaMin: 0.8, alphaMax: 0.3, genrePenaltyFloor: 0.1);
         Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
@@ -452,7 +452,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var neural = new NeuralScoringStrategy();
+        using var neural = new NeuralScoringStrategy();
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train well past NeuralActivationThreshold (75) so the neural ramp activates beta > 0.
@@ -464,7 +464,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithOffset_NeuralActiveWithBeta_BlendsNeuralIntoMlBudget()
     {
-        var ensemble = BuildNeuralActiveEnsemble();
+        using var ensemble = BuildNeuralActiveEnsemble();
         var beta = ensemble.CurrentNeuralBeta;
         Assert.True(beta > 0, $"Neural beta must have activated for this test, was {beta:F4}");
 
@@ -501,7 +501,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void ScoreWithExplanationAndOffset_NeuralActiveWithBeta_BlendsNeuralExplanation()
     {
-        var ensemble = BuildNeuralActiveEnsemble();
+        using var ensemble = BuildNeuralActiveEnsemble();
         Assert.True(ensemble.CurrentNeuralBeta > 0,
             "Neural beta must have activated for this test");
 
@@ -536,7 +536,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
-        var ensemble = BuildLoggingEnsemble(logger);
+        using var ensemble = BuildLoggingEnsemble(logger);
 
         var control = BuildCohortResult("control", 10, 5, out var cw);
         var high = BuildCohortResult("explore-high", 10, 9, out var hw);
@@ -564,7 +564,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
-        var ensemble = BuildLoggingEnsemble(logger);
+        using var ensemble = BuildLoggingEnsemble(logger);
 
         var control = BuildCohortResult("control", 10, 3, out var cw);
         var low = BuildCohortResult("explore-low", 10, 9, out var lw);
@@ -592,7 +592,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     {
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
-        var ensemble = BuildLoggingEnsemble(logger);
+        using var ensemble = BuildLoggingEnsemble(logger);
 
         // Seed a non-zero offset via a low-cohort win (logs one Information message).
         var seedControl = BuildCohortResult("control", 10, 3, out var scw);
@@ -632,7 +632,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void EffectiveSigmoidMidpoint_ReflectsDefaultPlusAdaptiveOffset()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
 
         // Fresh ensemble: no offset yet, so the effective midpoint is exactly the default.
         Assert.Equal(EnsembleScoringStrategy.DefaultSigmoidMidpoint, ensemble.EffectiveSigmoidMidpoint, 6);

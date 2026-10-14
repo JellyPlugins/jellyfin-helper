@@ -426,7 +426,7 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
 
-        var sut = new TrainingService(
+        using var sut = new TrainingService(
             _watchHistoryMock.Object,
             _pluginLogMock.Object,
             _loggerMock.Object);

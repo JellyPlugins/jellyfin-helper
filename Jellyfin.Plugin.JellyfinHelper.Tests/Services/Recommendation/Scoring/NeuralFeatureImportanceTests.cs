@@ -77,8 +77,9 @@ public class NeuralFeatureImportanceTests
     public void ComputePermutationImportance_EmptyExamples_ReturnsEmptyDictionary()
     {
         // Contract: fewer than 2 samples cannot support permutation (no variance to permute).
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             new List<TrainingExample>());
         Assert.NotNull(result);
         Assert.Empty(result);
@@ -88,8 +89,9 @@ public class NeuralFeatureImportanceTests
     public void ComputePermutationImportance_SingleExample_ReturnsEmptyDictionary()
     {
         // A single sample has no variance to shuffle - must not divide by zero.
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(1));
         Assert.Empty(result);
     }
@@ -99,8 +101,9 @@ public class NeuralFeatureImportanceTests
     {
         // Even with 10 examples, capping to sampleSize=1 must yield empty (guard on
         // actualSampleSize < 2).
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(10),
             sampleSize: 1);
         Assert.Empty(result);
@@ -111,8 +114,9 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_SampleSizeExceedsExamplesCount_ClampsToExamplesCount()
     {
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(10),
             sampleSize: 1000);
         Assert.NotEmpty(result);
@@ -124,8 +128,9 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_ReturnsOneEntryPerFeature()
     {
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(50));
         Assert.Equal(CandidateFeatures.FeatureCount, result.Count);
     }
@@ -136,8 +141,9 @@ public class NeuralFeatureImportanceTests
         // Contract: consumers of the result look up entries by feature name to render
         // debug tables. Any drift between the enum and the result keys silently breaks
         // that UI.
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(50));
 
         // Every result key must be a declared FeatureIndex name. We compare against the set of all
@@ -160,8 +166,9 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_AllValuesAreFiniteDoubles()
     {
+        using var strategy = CreateStrategy();
         var result = NeuralFeatureImportance.ComputePermutationImportance(
-            CreateStrategy(),
+            strategy,
             BuildExamples(50));
         Assert.All(result.Values, v => Assert.True(double.IsFinite(v),
             $"Importance value {v} is not finite"));
@@ -173,7 +180,7 @@ public class NeuralFeatureImportanceTests
     public void ComputePermutationImportance_IsDeterministic_AcrossRepeatedCalls()
     {
         // The class uses a fixed seed (Random(42)) so repeated calls with the same input MUST produce byte-identical importance dictionaries.
-        var strategy = CreateStrategy();
+        using var strategy = CreateStrategy();
         var examples = BuildExamples(30);
 
         var run1 = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples);
@@ -191,7 +198,7 @@ public class NeuralFeatureImportanceTests
     public void ComputePermutationImportance_DifferentSampleSize_YieldsDifferentImportanceValues()
     {
         // Sanity: different sampleSize must be able to affect the outcome, otherwise the sampling is a no-op.
-        var strategy = CreateStrategy();
+        using var strategy = CreateStrategy();
         var examples = BuildExamples(50);
         var small = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, sampleSize: 5);
         var full = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, sampleSize: 50);

@@ -84,7 +84,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
         // Seek a deterministic noisy dataset whose learned validation loss lands in the soft-dampening band (threshold, ceiling).
         for (var seed = 1; seed <= 60; seed++)
         {
-            var ensemble = new EnsembleScoringStrategy();
+            using var ensemble = new EnsembleScoringStrategy();
             Assert.True(ensemble.Train(NoisyExamples(60, seed)));
             var loss = ensemble.LearnedStrategy.LastValidationLoss;
 
@@ -117,7 +117,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
 
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, logger: logger.Object);
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, logger: logger.Object);
 
         Assert.True(ensemble.Train(CleanExamples(30)));
 
@@ -136,8 +136,8 @@ public sealed class EnsembleScoringStrategyTrainingTests
     {
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var neural = new NeuralScoringStrategy();
-        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
+        using var neural = new NeuralScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Ramp beta above zero with clean data past the activation threshold.
         ensemble.Train(CleanExamples(160));

@@ -96,7 +96,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         try
         {
             var weightsFile = "jf-helper-bare-weights-" + Guid.NewGuid().ToString("N")[..8] + ".json";
-            var ensemble = new EnsembleScoringStrategy(weightsFile);
+            using var ensemble = new EnsembleScoringStrategy(weightsFile);
 
             Assert.True(ensemble.Train(CleanExamples(30)));
             Assert.True(File.Exists(stateInCwd),
@@ -128,7 +128,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
 
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
-        var sut = BuildSut(logger);
+        using var sut = BuildSut(logger);
 
         Assert.Equal(AlphaMin, sut.CurrentAlpha, 4);
         Assert.Equal(0, sut.TrainingExampleCount);
@@ -140,7 +140,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     {
         File.WriteAllText(StatePath, "null");
 
-        var sut = BuildSut();
+        using var sut = BuildSut();
 
         Assert.Equal(AlphaMin, sut.CurrentAlpha, 4);
         Assert.Equal(0, sut.TrainingExampleCount);
@@ -164,7 +164,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var sut = BuildSut(logger);
+        using var sut = BuildSut(logger);
 
         Assert.Equal(0, sut.TrainingExampleCount);
         Assert.Equal(AlphaMin, sut.CurrentAlpha, 4);
@@ -188,7 +188,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var sut = BuildSut();
+        using var sut = BuildSut();
 
         Assert.Equal(0, sut.MetricsHistoryCount);
         Assert.Equal(0, sut.TrainingExampleCount);
@@ -212,8 +212,8 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var neural = new NeuralScoringStrategy();
-        var sut = BuildSut(logger, neural);
+        using var neural = new NeuralScoringStrategy();
+        using var sut = BuildSut(logger, neural);
 
         // An over-ceiling persisted beta is discarded so the ramp restarts from zero.
         Assert.Equal(0.0, sut.CurrentNeuralBeta);
@@ -334,7 +334,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
-        var sut = new EnsembleScoringStrategy(
+        using var sut = new EnsembleScoringStrategy(
             learned, heuristic, statePath: unwritableStatePath, logger: logger.Object);
 
         bool trained = false;
@@ -353,7 +353,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
 
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
-        var sut = BuildSut(logger);
+        using var sut = BuildSut(logger);
 
         bool trained = false;
         var ex = Record.Exception(() => trained = sut.Train(CleanExamples(30)));

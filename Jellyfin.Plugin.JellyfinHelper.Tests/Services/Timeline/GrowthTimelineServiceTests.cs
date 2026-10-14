@@ -716,7 +716,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         var root = Path.Join(_dataPath, "unreadable");
         fsMock.Setup(f => f.GetFiles(root)).Throws(new IOException("permission denied"));
 
-        var sut = new GrowthTimelineService(
+        using var sut = new GrowthTimelineService(
             _libraryManagerMock.Object,
             fsMock.Object,
             TestMockFactory.CreatePluginLogService(),
@@ -887,7 +887,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
             .Returns([new FileSystemMetadata { FullName = Path.Join(trickplayChild, "thumbs.bif"), Name = "thumbs.bif", IsDirectory = false, Length = 500 }]);
         fsMock.Setup(f => f.GetDirectories(trickplayChild)).Returns(Array.Empty<FileSystemMetadata>());
 
-        var sut = new GrowthTimelineService(
+        using var sut = new GrowthTimelineService(
             _libraryManagerMock.Object,
             fsMock.Object,
             TestMockFactory.CreatePluginLogService(),

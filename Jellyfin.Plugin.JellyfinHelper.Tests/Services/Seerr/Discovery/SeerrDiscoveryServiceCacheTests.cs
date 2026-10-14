@@ -79,8 +79,8 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
-        var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
-        var ensemble = new EnsembleScoringStrategy(
+        using var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
+        using var ensemble = new EnsembleScoringStrategy(
             learned, heuristic, neural, null,
             EnsembleScoringStrategy.DefaultAlphaMin,
             EnsembleScoringStrategy.DefaultAlphaMax,

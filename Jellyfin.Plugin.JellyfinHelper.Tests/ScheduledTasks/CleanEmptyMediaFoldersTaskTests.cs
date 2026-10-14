@@ -342,7 +342,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupFiles("/media/movies1/Movie", "movie.nfo", "movie.srt");
         SetupTopLevelDirs("/media/movies1/Movie");
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>

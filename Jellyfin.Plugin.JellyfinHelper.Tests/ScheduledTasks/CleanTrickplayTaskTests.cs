@@ -437,7 +437,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         // Cancel immediately after first folder
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>

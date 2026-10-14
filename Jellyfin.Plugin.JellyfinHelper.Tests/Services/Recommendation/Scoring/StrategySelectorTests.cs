@@ -17,7 +17,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetAlphaOffset_ExplorationInactive_AllUsersControl()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
         for (var i = 0; i < 50; i++)
@@ -29,7 +29,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetCohortName_ExplorationInactive_AllUsersControl()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
         for (var i = 0; i < 50; i++)
@@ -41,7 +41,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetAlphaOffset_SameUser_SameOffsetAcrossCalls()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
         var userId = Guid.NewGuid();
 
@@ -56,7 +56,7 @@ public class StrategySelectorTests
     [Fact]
     public void GetCohortName_SameUser_SameCohortAcrossCalls()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
         var userId = Guid.NewGuid();
 
@@ -66,7 +66,7 @@ public class StrategySelectorTests
     [Fact]
     public void CohortAndOffset_DoNotDriftForSameUser()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
         for (var i = 0; i < 30; i++)
@@ -98,7 +98,7 @@ public class StrategySelectorTests
     public void GetAlphaOffset_KnownGuids_ProduceStableBuckets_WithExplorationActive()
     {
         // With a bare ensemble, exploration is inactive and EVERY GUID maps to "control".
-        var ensemble = BuildActivatedEnsemble();
+        using var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
         // Same-GUID stability (weaker property but easy to reason about).
@@ -148,7 +148,7 @@ public class StrategySelectorTests
     [Fact]
     public void EmptyGuid_HandledDeterministically()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
         var offset1 = selector.GetAlphaOffset(Guid.Empty);
@@ -165,7 +165,7 @@ public class StrategySelectorTests
     {
         // Guid.Empty bytes are all 0 -> XOR-fold produces bucket 0.
         // But exploration inactive -> offset must still be 0 and cohort "control".
-        var ensemble = new EnsembleScoringStrategy();
+        using var ensemble = new EnsembleScoringStrategy();
         var selector = new StrategySelector(ensemble);
 
         Assert.Equal(0.0, selector.GetAlphaOffset(Guid.Empty));
@@ -178,7 +178,7 @@ public class StrategySelectorTests
     public void GetAlphaOffset_AllZeroGuid_ExplorationActive_ReturnsExploreHigh()
     {
         // Guid.Empty XOR-folds to bucket 0 which is inside the explore-high band (0..9).
-        var ensemble = BuildActivatedEnsemble();
+        using var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
         Assert.Equal(StrategySelector.ExploreHighOffset, selector.GetAlphaOffset(Guid.Empty));
@@ -189,7 +189,7 @@ public class StrategySelectorTests
     public void GetAlphaOffset_ExplorationActive_DistributionCoversAllThreeCohorts()
     {
         // With exploration active, iterating enough random users must produce entries in all three cohorts (explore-high 10%, explore-low 10%, control 80%).
-        var ensemble = BuildActivatedEnsemble();
+        using var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
         var cohorts = new HashSet<string>(StringComparer.Ordinal);
@@ -208,7 +208,7 @@ public class StrategySelectorTests
     {
         // For every user, the offset must be strictly derived from the cohort. A drift
         // between the two would show up here.
-        var ensemble = BuildActivatedEnsemble();
+        using var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
         for (var i = 0; i < 200; i++)
@@ -239,7 +239,7 @@ public class StrategySelectorTests
     public void GetAlphaOffset_ExplorationActive_ApproximateSplitMatches10_10_80()
     {
         // Statistical sanity: over 2000 samples the observed proportion of each cohort should be close to the intended 10 / 10 / 80 split.
-        var ensemble = BuildActivatedEnsemble();
+        using var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
         int high = 0, low = 0, control = 0;
