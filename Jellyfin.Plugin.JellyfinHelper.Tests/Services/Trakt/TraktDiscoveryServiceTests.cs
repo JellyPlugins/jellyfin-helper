@@ -1172,47 +1172,6 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_InvalidatedMidFetch_DoesNotCacheStaleResult()
-    {
-        // A fetch in flight when a mutation invalidates the user must not resurrect its now-stale result into
-        // the cache. The gate holds the fetch open until the invalidation has bumped the generation.
-        var userId = Guid.NewGuid();
-        var gate = new TaskCompletionSource();
-        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
-        var calls = 0;
-        handler.Protected()
-            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-            .Returns(async () =>
-            {
-                var n = System.Threading.Interlocked.Increment(ref calls);
-                if (n == 1)
-                {
-                    await gate.Task.ConfigureAwait(false);
-                }
-
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(n % 2 == 1 ? MoviesJson : ShowsJson),
-                };
-            });
-        var factory = new Mock<IHttpClientFactory>();
-        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
-        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
-                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
-        var sut = CreateServiceWithFactory(factory.Object);
-
-        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
-        sut.InvalidatePersonal(userId); // mutation races the in-flight fetch
-        gate.SetResult();
-        await fetch;
-
-        // The stale result was not written: the cache holds nothing for this user.
-        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
-    }
-
-    [Fact]
     public async Task GetPersonal_SequentialCalls_AfterCompletion_StartFreshFetch()
     {
         // The in-flight slot clears once the shared fetch settles, so a later call is not stuck awaiting the
@@ -1323,6 +1282,240 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             ControllerTestFactory.InitializePluginInstance();
             Plugin.Instance!.Configuration.TraktSourcingEnabled = true;
         }
+    }
+
+    [Fact]
+    public async Task GetPersonal_InvalidatedMidFetch_DoesNotWriteStaleResult()
+    {
+        // The CodeRabbit data-integrity case: an invalidation (master switch off or unlink on a concurrent call)
+        // lands while a fetch is in flight. The invalidation cancels the flight, so when the fetch finishes it
+        // must NOT write its now-stale result into the cache; a later re-link therefore refetches instead of
+        // serving the pre-invalidation data for up to the full TTL.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                // Hold the fetch open until the test has invalidated, so the write decision happens post-cancel.
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+        sut.InvalidatePersonal(userId); // cancels the in-flight flight
+        scoringGate.SetResult();
+        await fetch;
+
+        // The cancelled flight did not persist its result: the cache holds nothing for this user.
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+    }
+
+    [Fact]
+    public async Task GetPersonal_SwitchedOffDuringFetch_WritesNoStaleResultOrBackoff()
+    {
+        // Switch-off on a CONCURRENT call while a fetch is in flight. The master-switch path routes through the
+        // service-level invalidation, which cancels the running flight, so the surviving fetch writes neither a
+        // stale result nor a backoff that would suppress the user once the switch is turned back on.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        // A concurrent call observes the master switch off and takes the invalidating path.
+        Plugin.Instance!.Configuration.TraktSourcingEnabled = false;
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        scoringGate.SetResult();
+        await fetch;
+
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+        Assert.False(_cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public async Task GetPersonal_UnlinkedDuringFetch_WritesNoStaleResultOrBackoff()
+    {
+        // Unlink on a CONCURRENT call while a fetch is in flight. The link-gate path routes through the
+        // service-level invalidation, cancelling the running flight so no stale result or backoff is written for
+        // a user who just unlinked and may relink.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        // A concurrent call now sees the user unlinked (the official plugin no longer holds a token) and invalidates.
+        _officialPlugin.Setup(p => p.TryGetToken(It.IsAny<Guid>(), It.IsAny<DateTimeOffset>()))
+            .Returns((Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken?)null);
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        scoringGate.SetResult();
+        await fetch;
+
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+        Assert.False(_cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public async Task GetPersonal_SharedFetchFaults_DegradesToNullWarnsAndBacksOff()
+    {
+        // A non-fatal fault inside the shared fetch (here the scorer throws) must never surface to waiters as an
+        // exception: the caller gets null, a warning is logged, and the failure arms the backoff so an immediate
+        // second call is suppressed without re-fetching.
+        var userId = Guid.NewGuid();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("scorer blew up"));
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        Assert.True(_cache.IsPersonalBackoffActive(userId));
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "WARN" && e.Message.Contains("Personal fetch failed", StringComparison.Ordinal));
+
+        // The second immediate call is suppressed by the backoff: it never reaches the scorer again.
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetPersonal_BackoffAlreadyActive_ReturnsNullAndLogsDebug()
+    {
+        // Entering with an already-active backoff short-circuits before any fetch and records the gated skip at
+        // Debug (it is per tab load and expected during the window), so an admin can tell a backoff from an
+        // empty result.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        _cache.MarkPersonalFailed(userId, null); // arm the backoff before the call
+        var sut = CreateService();
+
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "DEBUG" && e.Message.Contains("Personal fetch suppressed by active backoff for", StringComparison.Ordinal));
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPersonal_EmptyOutcome_FirstLogsInfoSecondLogsDebugRecurrenceLogsInfoAgain()
+    {
+        // The empty-outcome transition: the FIRST empty outcome for a user is Info (an admin needs to see the empty
+        // tab's cause without Debug); a SECOND consecutive empty for the same user drops to Debug so repeated loads
+        // do not spam. A later non-empty result clears the flag, so a subsequent empty is reported at Info again.
+        _pluginLog = TestMockFactory.CreatePluginLogService(new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { PluginLogLevel = "DEBUG" });
+        var userId = Guid.NewGuid();
+        // Scoring-null is the empty path that sets NO backoff, so each sequential call refetches freely.
+        _discovery.SetupSequence(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DiscoveryResult?)null) // call 1: first empty
+            .ReturnsAsync((DiscoveryResult?)null) // call 2: second consecutive empty
+            .ReturnsAsync(Scored(userId, (11, "movie", "Alpha"))) // call 3: non-empty clears the flag
+            .ReturnsAsync((DiscoveryResult?)null); // call 4: empty again after the non-empty
+        for (var i = 0; i < 4; i++)
+        {
+            _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+            _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        }
+
+        var sut = CreateService();
+
+        int CountEmptyOutcome(string level) => _pluginLog.GetEntries(source: "Trakt").Count(e =>
+            e.Level == level && e.Message.Contains("Personal discovery", StringComparison.Ordinal)
+            && e.Message.Contains("scoring returned no result", StringComparison.Ordinal));
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None); // empty #1 -> Info
+        Assert.Equal(1, CountEmptyOutcome("INFO"));
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None); // empty #2 -> Debug
+        Assert.Equal(1, CountEmptyOutcome("INFO"));
+        Assert.Equal(1, CountEmptyOutcome("DEBUG"));
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None); // non-empty clears the flag (and caches)
+        sut.InvalidatePersonal(userId); // drop the cached non-empty so the next call refetches to empty
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None); // empty again -> Info once more
+        Assert.Equal(2, CountEmptyOutcome("INFO"));
+    }
+
+    [Fact]
+    public async Task RefreshAll_LogsHonestWarmedAggregate()
+    {
+        // The summary reports warmed/attempted honestly: of two linked users one yields a non-empty result and one
+        // scores to nothing, so exactly 1 of 2 is counted warmed.
+        var warmedUser = Guid.NewGuid();
+        var emptyUser = Guid.NewGuid();
+        _officialPlugin.Setup(p => p.GetLinkedUserIds(It.IsAny<DateTimeOffset>())).Returns(new[] { warmedUser, emptyUser });
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(warmedUser, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Scored(warmedUser, (11, "movie", "Alpha")));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(emptyUser, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DiscoveryResult?)null);
+        for (var i = 0; i < 2; i++)
+        {
+            _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+            _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        }
+
+        var sut = CreateService();
+        await sut.RefreshAllAsync(CancellationToken.None);
+
+        Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
+            e.Level == "INFO" && e.Message.Contains("Personal refresh warmed 1/2 linked users.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetTrending_ConcurrentCallsForSameUser_ShareOneScoring()
+    {
+        // Per-user trending single-flight: the shared pool is pre-seeded so both concurrent calls skip the fetch
+        // and reach the expensive per-user scoring together. A gate holds the first scoring open until the second
+        // caller has joined, so exactly one ScoreExternalCandidatesAsync runs.
+        var userId = Guid.NewGuid();
+        _cache.SetTrendingPool(new[]
+        {
+            new ExternalDiscoveryCandidate { TmdbId = 33, MediaType = "movie", Title = "T1" },
+            new ExternalDiscoveryCandidate { TmdbId = 44, MediaType = "tv", Title = "T2" },
+        });
+        var gate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                await gate.Task.ConfigureAwait(false); // hold the shared scoring open until both callers are in flight
+                return (DiscoveryResult?)Scored(u, (33, "movie", "T1"), (44, "tv", "T2"));
+            });
+        var sut = CreateService();
+
+        var first = sut.GetTrendingAsync(userId, CancellationToken.None);
+        var second = sut.GetTrendingAsync(userId, CancellationToken.None);
+        gate.SetResult(); // release the shared scoring
+        var results = await Task.WhenAll(first, second);
+
+        Assert.NotNull(results[0]);
+        Assert.NotNull(results[1]);
+        _discovery.Verify(
+            d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     private static void AssertOfficialCaptured(List<CapturedRequest> captured)

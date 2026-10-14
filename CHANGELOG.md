@@ -9,7 +9,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Fixed
 
-- **"Trakt for you" no longer stays empty while the other tabs are full.** Virtual stub library entries (real-looking files that carry a TMDb id but no media, created by some external request helpers) were treated as owned content and silently excluded every personal Trakt pick. A new `VirtualItemDetector` recognises them (Jellyfin virtual flag, empty path, or a path inside the host data directory, with no name/extension/size heuristics) and the discovery exclusion set ignores them, so personal recommendations come through. Real owned files still exclude their matching candidate.
+- **"Trakt for you" no longer stays empty while the other tabs are full.** Virtual stub library entries (real-looking files that carry a TMDb id but no media, created by some external request helpers) were treated as owned content and silently excluded every personal Trakt pick. A new `VirtualItemDetector` recognises them (Jellyfin virtual flag, empty path, or a path inside the host plugins directory, with no name/extension/size heuristics) and the discovery exclusion set ignores them, so personal recommendations come through. Real owned files still exclude their matching candidate.
 - **An empty personal result is no longer sticky on the client.** The Discovery sidebar cached a null or empty Trakt result indefinitely, so a result the server produced moments later stayed hidden. Empty results are now kept only briefly (mirroring the server), so a genuine first result appears on the next open.
 - **A rate-limited or unreachable Trakt is backed off, not hammered.** A failed personal fetch now backs off (honouring the server's `Retry-After` when present, otherwise ~5 minutes) instead of being re-hit on every tab load; a legitimately empty result backs off only briefly to absorb duplicate loads.
 
@@ -17,11 +17,11 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 - **Concurrent personal fetches for one user are coalesced.** The same account open on two devices now shares a single live Trakt fetch instead of each firing its own.
 - **The Trakt personal tab is hidden for unlinked users.** An unlinked user no longer sees a "Trakt for you" tab that only renders a not-linked message; it appears once linked. "Trakt trending" (no login required) is always available.
-- **Discovery stages are logged for diagnosis.** An empty personal result is explained in a single plugin-log line (fetched vs final counts, elapsed time, and reason) at Info; per-stage counts and the exclusion-set size are available at Debug, so an ownership collapse is distinguishable from an empty fetch or a parental drop.
+- **Discovery stages are logged for diagnosis.** The first time a user's personal result comes back empty it is explained in a single plugin-log line (fetched vs final counts, elapsed time, and reason) at Info; staying empty logs at Debug so opening the tab repeatedly does not spam the log, and per-stage counts and the exclusion-set size are available at Debug so an ownership collapse is distinguishable from an empty fetch or an enrichment drop.
 
 ### Tests
 
-- Tested by 6773 unit tests and 368 end-to-end tests.
+- Tested by 6779 unit tests and 369 end-to-end tests.
 
 ### Special Thanks
 

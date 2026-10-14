@@ -21,8 +21,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 /// </remarks>
 public sealed class VirtualItemDetector
 {
-    private readonly string _pluginsPath;
     private readonly ILogger<VirtualItemDetector> _logger;
+
+    // The plugins directory normalized once with a trailing separator, so the per-item containment check does no
+    // repeated GetFullPath work across a large library scan. Null when the host reports no plugins path or the
+    // path cannot be normalized, in which case containment never matches and every real file stays owned.
+    private readonly string? _normalizedPluginsRoot;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="VirtualItemDetector"/> class.
@@ -34,8 +38,8 @@ public sealed class VirtualItemDetector
         ArgumentNullException.ThrowIfNull(applicationPaths);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _pluginsPath = applicationPaths.PluginsPath;
         _logger = logger;
+        _normalizedPluginsRoot = NormalizeRoot(applicationPaths.PluginsPath);
     }
 
     /// <summary>
@@ -47,9 +51,9 @@ public sealed class VirtualItemDetector
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        // An empty path is how Jellyfin represents a purely virtual entry (BaseItem.LocationType derives
-        // Virtual from exactly this). Checking the path directly avoids the derived property, which reads
-        // SourceType and throws on a partially materialized item.
+        // Treat the item as virtual when Jellyfin flags it, or when it has no physical path. An empty path is how
+        // Jellyfin represents a purely virtual entry, and reading it directly avoids BaseItem.LocationType, which
+        // derives the same thing but reads SourceType and can throw on a partially materialized item.
         if (item.IsVirtualItem || string.IsNullOrEmpty(item.Path))
         {
             LogSkip(item, "flagged virtual or no physical path");
@@ -67,22 +71,21 @@ public sealed class VirtualItemDetector
 
     // A real file counts as owned unless it lives inside the host plugins directory, where only plugin-created
     // stubs live. The comparison is ordinal and anchored on a trailing separator so a sibling like
-    // "<plugins>-cache" never matches "<plugins>".
+    // "<plugins>-cache" never matches "<plugins>". The root is normalized once in the ctor; only the per-item
+    // path is normalized here.
     private bool IsUnderPluginsPath(string? itemPath)
     {
-        if (string.IsNullOrEmpty(itemPath) || string.IsNullOrEmpty(_pluginsPath))
+        if (string.IsNullOrEmpty(itemPath) || _normalizedPluginsRoot is null)
         {
             return false;
         }
 
-        // Normalize per item and fail closed: a path with invalid characters cannot be a plugins-directory stub,
-        // so treat it as owned rather than letting the exception unwind into AddLibraryExclusions, which contains
-        // the whole scan and would otherwise discard every owned title's exclusion over one bad path.
+        // Normalize the item path and fail closed: a path with invalid characters cannot be a plugins-directory
+        // stub, so treat it as owned rather than letting the exception unwind into AddLibraryExclusions, which
+        // contains the whole scan and would otherwise discard every owned title's exclusion over one bad path.
         string candidate;
-        string root;
         try
         {
-            root = NormalizeRoot(_pluginsPath);
             candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(itemPath));
         }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
@@ -94,14 +97,32 @@ public sealed class VirtualItemDetector
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-        return candidate.Equals(Path.TrimEndingDirectorySeparator(root), comparison)
-            || candidate.StartsWith(root, comparison);
+        return candidate.Equals(Path.TrimEndingDirectorySeparator(_normalizedPluginsRoot), comparison)
+            || candidate.StartsWith(_normalizedPluginsRoot, comparison);
     }
 
-    private static string NormalizeRoot(string path)
+    // Normalizes the plugins root once with a trailing separator. Returns null when the host reports no path or
+    // the path cannot be normalized, so containment simply never matches rather than throwing on every scan.
+    private static string? NormalizeRoot(string? path)
     {
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        return full + Path.DirectorySeparatorChar;
+        if (string.IsNullOrEmpty(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+            // A filesystem root (for example "/" or "C:\") keeps its trailing separator through the trim above, so
+            // only append one when it is not already present, or a root would gain a double separator and never
+            // match its children.
+            return Path.EndsInDirectorySeparator(full) ? full : full + Path.DirectorySeparatorChar;
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private void LogSkip(BaseItem item, string reason)

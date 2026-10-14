@@ -496,7 +496,6 @@ public class HelperCleanupTask : IScheduledTask
 
         _pluginLog.LogInfo("TraktDiscovery", "Refreshing Trakt discovery caches...", _logger);
         await _traktDiscoveryService.RefreshAllAsync(cancellationToken).ConfigureAwait(false);
-        _pluginLog.LogInfo("TraktDiscovery", "Trakt discovery caches refreshed.", _logger);
         progress.Report(100);
     }
 

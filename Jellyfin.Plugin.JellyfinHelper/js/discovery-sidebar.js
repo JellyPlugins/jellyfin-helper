@@ -711,6 +711,9 @@
             _traktProbeUserId = probeUserId;
             _traktEnabled = null;
             _traktProbeResult = null;
+            // Clear the per-user link flag on an account switch too: leaving a prior user's _traktLinked=true
+            // would let the next (possibly unlinked) account briefly see the personal tab until its probe returns.
+            _traktLinked = false;
             // Render the single own-grid immediately so the tab never stays blank
             // while the probe is in flight; the probe upgrades to the tab bar below.
             renderShell(container, forceRefresh);
@@ -1063,6 +1066,9 @@
             && _traktProbeResult.generation === _discoveryGeneration) {
             var probed = _traktProbeResult;
             _traktProbeResult = null;
+            // Defensive: renderShell hides the personal tab for an unlinked user, so this path is normally
+            // reached only while linked. The not-linked branch stays as a safety net for the brief window where
+            // a stale _traktLinked let the tab render before the server confirmed Linked:false.
             if (probed.resp?.Linked !== true) {
                 renderTraktNotLinked(host);
                 return;

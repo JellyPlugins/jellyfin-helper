@@ -173,6 +173,32 @@ public sealed class VirtualItemDetectorTests
         Assert.False(Create().IsVirtual(item));
     }
 
+    [Fact]
+    public void IsVirtual_False_ForRealFile_WhenPluginsPathUnnormalizable()
+    {
+        // A host reporting a plugins path with invalid characters must not throw at construction or on every
+        // scan; the root is simply unusable, so containment never matches and a real file stays owned.
+        var paths = new Mock<IApplicationPaths>();
+        paths.Setup(p => p.PluginsPath).Returns("bad\0plugins");
+        var detector = new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
+
+        Assert.False(detector.IsVirtual(new Movie { Path = OwnedPath() }));
+    }
+
+    [Fact]
+    public void IsVirtual_True_ForChildOfRootPluginsPath()
+    {
+        // A filesystem-root plugins path keeps its trailing separator, so NormalizeRoot must not append a second
+        // one, or containment would never match and a stub under the root would wrongly count as owned.
+        var root = OperatingSystem.IsWindows() ? @"C:\" : "/";
+        var child = OperatingSystem.IsWindows() ? @"C:\stub.mp4" : "/stub.mp4";
+        var paths = new Mock<IApplicationPaths>();
+        paths.Setup(p => p.PluginsPath).Returns(root);
+        var detector = new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
+
+        Assert.True(detector.IsVirtual(new Movie { Path = child }));
+    }
+
     private static string OwnedPath() =>
         OperatingSystem.IsWindows() ? @"D:\media\movies\real.mkv" : "/media/movies/real.mkv";
 }
