@@ -13,8 +13,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 /// </summary>
 public sealed class TraktCacheService
 {
+    /// <summary>Default backoff for a failed personal fetch when the server gave no Retry-After.</summary>
+    public static readonly TimeSpan DefaultFailureBackoff = TimeSpan.FromMinutes(5);
+
+    /// <summary>Short dampener for a legitimately empty personal result, enough to absorb duplicate tab loads.</summary>
+    public static readonly TimeSpan EmptyBackoff = TimeSpan.FromSeconds(90);
+
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _personal = new();
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _trendingScored = new();
+
+    // Negative cache: the UTC instant until which a user's personal fetch should not be retried. A failure
+    // backs off (so a rate-limited or down Trakt is not hammered every tab load); a legitimately empty result
+    // backs off only briefly (just to absorb duplicate loads) so a genuine first result appears fast.
+    private readonly ConcurrentDictionary<Guid, DateTime> _personalBackoffUntil = new();
     private readonly Func<DateTime> _utcNow;
 
     // volatile so a set/invalidate on one thread is observed by a concurrent reader without a lock. The
@@ -56,6 +67,49 @@ public sealed class TraktCacheService
     {
         ArgumentNullException.ThrowIfNull(result);
         _personal[userId] = new CacheEntry<DiscoveryResult>(result, _utcNow());
+
+        // A fresh positive result clears any backoff so the user is served immediately rather than waiting it out.
+        _personalBackoffUntil.TryRemove(userId, out _);
+    }
+
+    /// <summary>
+    ///     Suppresses personal fetches for this user until the backoff elapses, after a failed fetch. The delay is
+    ///     the server's Retry-After when supplied, otherwise <see cref="DefaultFailureBackoff"/>.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="retryAfter">The server-requested backoff, if any.</param>
+    public void MarkPersonalFailed(Guid userId, TimeSpan? retryAfter)
+    {
+        var delay = retryAfter is { } wait && wait > TimeSpan.Zero ? wait : DefaultFailureBackoff;
+        _personalBackoffUntil[userId] = _utcNow() + delay;
+    }
+
+    /// <summary>
+    ///     Applies a short backoff after a legitimately empty personal result, long enough to absorb duplicate tab
+    ///     loads but short enough that a genuine first result is not hidden for long.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    public void MarkPersonalEmpty(Guid userId) => _personalBackoffUntil[userId] = _utcNow() + EmptyBackoff;
+
+    /// <summary>
+    ///     Returns whether a personal fetch for this user is currently suppressed by an active backoff.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns><see langword="true"/> while the backoff is active; otherwise <see langword="false"/>.</returns>
+    public bool IsPersonalBackoffActive(Guid userId)
+    {
+        if (_personalBackoffUntil.TryGetValue(userId, out var until))
+        {
+            if (_utcNow() < until)
+            {
+                return true;
+            }
+
+            // Expired: drop it so the dictionary does not accumulate stale per-user entries.
+            _personalBackoffUntil.TryRemove(userId, out _);
+        }
+
+        return false;
     }
 
     /// <summary>

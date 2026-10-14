@@ -154,4 +154,93 @@ public sealed class TraktCacheServiceTests
         Assert.Null(cache.GetTrendingPool(_ttl));
         Assert.Null(cache.GetTrending(userId, _ttl));
     }
+
+    [Fact]
+    public void Backoff_InactiveByDefault()
+    {
+        Assert.False(Create().IsPersonalBackoffActive(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void MarkFailed_WithoutRetryAfter_BacksOffForDefaultWindow()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, null);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+
+        // Still active just before the default window elapses, clear just after.
+        _now = _now.Add(TraktCacheService.DefaultFailureBackoff).AddSeconds(-1);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+        _now = _now.AddSeconds(2);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkFailed_WithRetryAfter_UsesServerDelay()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, TimeSpan.FromSeconds(30));
+
+        _now = _now.AddSeconds(29);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+        _now = _now.AddSeconds(2);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkFailed_WithNonPositiveRetryAfter_FallsBackToDefault()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, TimeSpan.Zero);
+
+        // Zero is not a usable delay, so the default window applies instead of clearing immediately.
+        _now = _now.Add(TraktCacheService.DefaultFailureBackoff).AddSeconds(-1);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkEmpty_BacksOffForShortWindowOnly()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalEmpty(userId);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+
+        _now = _now.Add(TraktCacheService.EmptyBackoff).AddSeconds(1);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void SetPersonal_ClearsActiveBackoff()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.MarkPersonalFailed(userId, null);
+
+        cache.SetPersonal(userId, Result(userId));
+
+        // A fresh positive result must serve immediately, not wait out the backoff.
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+        Assert.NotNull(cache.GetPersonal(userId, _ttl));
+    }
+
+    [Fact]
+    public void Backoff_IsIsolatedPerUser()
+    {
+        var cache = Create();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(a, null);
+
+        Assert.True(cache.IsPersonalBackoffActive(a));
+        Assert.False(cache.IsPersonalBackoffActive(b));
+    }
 }

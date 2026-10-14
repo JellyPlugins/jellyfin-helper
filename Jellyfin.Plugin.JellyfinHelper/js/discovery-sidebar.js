@@ -665,6 +665,9 @@
     var TRAKT_PENDING_REVEAL_MS = 300;
     // Silent probe budget: past this the tab stays single-grid and the next mount re-probes.
     var TRAKT_PROBE_TIMEOUT_MS = 12000;
+    // A null/empty Trakt result is cached only this long, mirroring the server-side empty backoff: enough to
+    // absorb duplicate tab loads, short enough that a genuine first result is not hidden behind an empty entry.
+    var TRAKT_EMPTY_CACHE_MS = 90000;
     // Background trending preload so the first tab click usually hits the cache.
     // Keyed by user; cleared on mutation via invalidateDiscoveryResult.
     var _trendingPreloadInFlight = false;
@@ -851,7 +854,7 @@
         var userId = currentDiscoveryUserId();
         if (!userId) { return; }
         if (_traktEnabled !== true) { return; }
-        if (_traktTrendingCache && _traktTrendingCache.userId === userId) { return; }
+        if (traktCacheFresh(_traktTrendingCache)) { return; }
         if (_trendingPreloadInFlight && _trendingPreloadUserId === userId) { return; }
         _trendingPreloadInFlight = true;
         _trendingPreloadUserId = userId;
@@ -861,7 +864,7 @@
                 if (_discoveryGeneration !== startedGeneration || userId !== currentDiscoveryUserId()) {
                     return;
                 }
-                _traktTrendingCache = { data: data, userId: userId };
+                _traktTrendingCache = makeTraktCacheEntry(data, userId);
             })
             .catch(function () {
                 // Ignored by design: a tab click retries with a spinner, so a failed
@@ -1010,8 +1013,31 @@
     // self-refresh in the background: the scheduled task warms both server-side pools, so a tab load
     // reflects the latest warmed data without a client-side refetch loop. A card mutation still bumps
     // _discoveryGeneration and nulls these caches, so the next render re-fetches fresh data.
+    //
+    // A null or empty Result is cached only briefly (mirroring the server-side empty backoff) so duplicate
+    // tab loads coalesce, but a genuine first result that the server produced moments later is not hidden
+    // behind a long-lived empty entry. A non-empty result stays cached for the session as before.
+    // A Trakt result is the DiscoveryResult object renderCards consumes; empty means no Recommendations to show.
+    function isEmptyTraktResult(data) {
+        return !data || !data.Recommendations || data.Recommendations.length === 0;
+    }
+
+    function traktCacheFresh(entry) {
+        if (!entry || entry.userId !== currentDiscoveryUserId()) {
+            return false;
+        }
+        if (isEmptyTraktResult(entry.data)) {
+            return (Date.now() - entry.storedAt) < TRAKT_EMPTY_CACHE_MS;
+        }
+        return true;
+    }
+
+    function makeTraktCacheEntry(data, userId) {
+        return { data: data, userId: userId, storedAt: Date.now() };
+    }
+
     function renderTraktPersonal(host, forceRefresh) {
-        if (!forceRefresh && _traktPersonalCache && _traktPersonalCache.userId === currentDiscoveryUserId()) {
+        if (!forceRefresh && traktCacheFresh(_traktPersonalCache)) {
             renderCards(host, _traktPersonalCache.data);
             return;
         }
@@ -1025,7 +1051,7 @@
                 renderTraktNotLinked(host);
                 return;
             }
-            _traktPersonalCache = { data: probed.resp.Result, userId: probed.userId };
+            _traktPersonalCache = makeTraktCacheEntry(probed.resp.Result, probed.userId);
             renderCards(host, probed.resp.Result);
             return;
         }
@@ -1044,7 +1070,7 @@
                     renderTraktNotLinked(host);
                     return;
                 }
-                _traktPersonalCache = { data: resp.Result, userId: startedUserId };
+                _traktPersonalCache = makeTraktCacheEntry(resp.Result, startedUserId);
                 renderCards(host, resp.Result);
             })
             .catch(function (err) {
@@ -1059,7 +1085,7 @@
 
     // Global trending tab: no linking required, just fetch and render the per-user-scored pool.
     function renderTraktTrending(host, forceRefresh) {
-        if (!forceRefresh && _traktTrendingCache && _traktTrendingCache.userId === currentDiscoveryUserId()) {
+        if (!forceRefresh && traktCacheFresh(_traktTrendingCache)) {
             renderCards(host, _traktTrendingCache.data);
             return;
         }
@@ -1073,7 +1099,7 @@
                 if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
                     return;
                 }
-                _traktTrendingCache = { data: data, userId: startedUserId };
+                _traktTrendingCache = makeTraktCacheEntry(data, startedUserId);
                 renderCards(host, data);
             })
             .catch(function (err) {

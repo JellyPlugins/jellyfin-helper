@@ -99,14 +99,22 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
+        // Negative-cache gate: a recent failure or empty result backs off further live fetches, so a rate-limited
+        // or down Trakt is not re-hit on every tab load and duplicate loads coalesce onto the first outcome.
+        if (_cache.IsPersonalBackoffActive(userId))
+        {
+            return null;
+        }
+
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
         var startedAt = Stopwatch.GetTimestamp();
         var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
-            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, but keep
-            // the outcome cache-free so the next request retries instead of pinning the outage.
+            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, back off
+            // briefly so the next request retries after the outage rather than hammering it.
+            _cache.MarkPersonalFailed(userId, null);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "source unresolvable at fetch time");
             return null;
         }
@@ -123,6 +131,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             var reason = retryAfter is { } wait
                 ? $"official token auth failed, rate-limited for {(int)wait.TotalSeconds}s"
                 : "official token auth failed (re-link required)";
+            // A failed fetch backs off further live attempts (Retry-After when given, else the default) so a
+            // dead token or a rate limit is not re-hit on every tab load.
+            _cache.MarkPersonalFailed(userId, retryAfter);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, reason);
             return null;
         }
@@ -132,6 +143,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (showsSource is null)
         {
             _cache.InvalidatePersonal(userId);
+            _cache.MarkPersonalFailed(userId, null);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;
         }
@@ -142,6 +154,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
+            // Legitimately empty: a short dampener only, so a genuine first result is not hidden for long.
+            _cache.MarkPersonalEmpty(userId);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
         }
@@ -155,6 +169,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return filtered;
         }
 
+        // Scoring returned nothing (for example every candidate already owned). Treat as empty, not a failure:
+        // a short dampener so the next genuine result is not delayed behind a long backoff.
+        _cache.MarkPersonalEmpty(userId);
         LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "scoring produced no result (all excluded as owned?)");
         return null;
     }

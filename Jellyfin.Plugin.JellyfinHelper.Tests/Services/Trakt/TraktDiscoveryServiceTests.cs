@@ -291,24 +291,25 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetPersonal_NullScore_DoesNotCache()
+    public async Task GetPersonal_NullScore_DoesNotCacheResult_AndDampensDuplicateLoads()
     {
+        // A null score caches no result (SetPersonal is never called), but it does apply a short empty-dampener
+        // so a duplicate tab load within the window coalesces instead of refetching. The dampener expiry itself
+        // is covered deterministically in TraktCacheServiceTests; here we assert the second call is suppressed.
         var userId = Guid.NewGuid();
-        _discovery.SetupSequence(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((DiscoveryResult?)null)
-            .ReturnsAsync(Scored(userId, (11, "movie", "Alpha")));
-        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
-        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DiscoveryResult?)null);
         _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
         _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
         var sut = CreateService();
 
         Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
-
-        // The null result was not cached: the second call refetches and serves fresh data.
-        var second = await sut.GetPersonalAsync(userId, CancellationToken.None);
-        Assert.NotNull(second);
-        Assert.Single(second!.Recommendations);
+        // No positive result was cached.
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+        // The empty dampener is active, so a second immediate call does not refetch (the response queue is empty;
+        // a refetch would throw on the strict handler).
+        Assert.True(_cache.IsPersonalBackoffActive(userId));
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
     }
 
     [Fact]
@@ -1025,6 +1026,67 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         Assert.Contains(_pluginLog.GetEntries(source: "Trakt"), e =>
             e.Level == "INFO" && e.Message.Contains("rate-limited for 90s", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetPersonal_AfterFailure_SecondCallIsSuppressedByBackoff()
+    {
+        // The negative cache must stop a second live fetch while the backoff is active: a rate-limited or down
+        // Trakt is hit once, then served null from the backoff until it elapses (the duplicate-tab-load dampener).
+        var userId = Guid.NewGuid();
+        var fetches = 0;
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                fetches++;
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") };
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        var sut = CreateServiceWithFactory(factory.Object);
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None);
+        var afterFirst = fetches;
+        var second = await sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        Assert.Equal(1, afterFirst); // movies fetch failed with 401; shows is skipped on auth failure
+        Assert.Equal(1, fetches); // the second call never reached the network
+        Assert.Null(second);
+    }
+
+    [Fact]
+    public async Task GetPersonal_SuccessAfterFailure_ClearsBackoffAndServes()
+    {
+        // A positive result clears the backoff so a later success is served immediately, not held behind it.
+        var userId = Guid.NewGuid();
+        var step = 0;
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                // First call (movies) 401 to set the backoff; later calls succeed with real payloads.
+                step++;
+                return step == 1
+                    ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") }
+                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(step % 2 == 0 ? MoviesJson : ShowsJson) };
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
+        var sut = CreateServiceWithFactory(factory.Object);
+
+        await sut.GetPersonalAsync(userId, CancellationToken.None); // fails, backoff set
+        _cache.SetPersonal(userId, Scored(userId, (11, "movie", "Alpha"))); // simulate a later successful warm
+
+        Assert.False(_cache.IsPersonalBackoffActive(userId));
+        Assert.NotNull(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
     }
 
     [Fact]
