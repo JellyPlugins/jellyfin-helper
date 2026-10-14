@@ -96,11 +96,6 @@ public class ConfigurationUpdateRequest
     public int? TraktTimeoutSeconds { get; init; }
 
     /// <summary>
-    ///     Gets the number of Trakt items fetched per list. Nullable so older clients do not reset it.
-    /// </summary>
-    public int? TraktLimit { get; init; }
-
-    /// <summary>
     ///     Gets a value indicating whether to use a trash folder instead of permanently deleting files.
     /// </summary>
     /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>

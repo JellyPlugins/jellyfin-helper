@@ -154,4 +154,170 @@ public sealed class TraktCacheServiceTests
         Assert.Null(cache.GetTrendingPool(_ttl));
         Assert.Null(cache.GetTrending(userId, _ttl));
     }
+
+    [Fact]
+    public void Backoff_InactiveByDefault()
+    {
+        Assert.False(Create().IsPersonalBackoffActive(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void MarkFailed_WithoutRetryAfter_BacksOffForDefaultWindow()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, null);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+
+        // Still active just before the default window elapses, clear just after.
+        _now = _now.Add(TraktCacheService.DefaultFailureBackoff).AddSeconds(-1);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+        _now = _now.AddSeconds(2);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkFailed_WithRetryAfter_UsesServerDelay()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, TimeSpan.FromSeconds(30));
+
+        _now = _now.AddSeconds(29);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+        _now = _now.AddSeconds(2);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkFailed_WithNonPositiveRetryAfter_FallsBackToDefault()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(userId, TimeSpan.Zero);
+
+        // Zero is not a usable delay, so the default window applies instead of clearing immediately.
+        _now = _now.Add(TraktCacheService.DefaultFailureBackoff).AddSeconds(-1);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void MarkEmpty_BacksOffForShortWindowOnly()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+
+        cache.MarkPersonalEmpty(userId);
+        Assert.True(cache.IsPersonalBackoffActive(userId));
+
+        _now = _now.Add(TraktCacheService.EmptyBackoff).AddSeconds(1);
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void SetPersonal_ClearsActiveBackoff()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.MarkPersonalFailed(userId, null);
+
+        cache.SetPersonal(userId, Result(userId));
+
+        // A fresh positive result must serve immediately, not wait out the backoff.
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+        Assert.NotNull(cache.GetPersonal(userId, _ttl));
+    }
+
+    [Fact]
+    public void Backoff_IsIsolatedPerUser()
+    {
+        var cache = Create();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+
+        cache.MarkPersonalFailed(a, null);
+
+        Assert.True(cache.IsPersonalBackoffActive(a));
+        Assert.False(cache.IsPersonalBackoffActive(b));
+    }
+
+    [Fact]
+    public void InvalidatePersonal_ClearsBackoff()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.MarkPersonalFailed(userId, null);
+
+        cache.InvalidatePersonal(userId);
+
+        // A request/dismiss mutation must not leave the user served nothing for the failure window.
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void SetPersonal_WithStaleGeneration_IsDropped()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        var generation = cache.PersonalGeneration(userId);
+
+        // A mutation invalidates mid-fetch, bumping the generation.
+        cache.InvalidatePersonal(userId);
+
+        var stored = cache.SetPersonal(userId, Result(userId), generation);
+
+        Assert.False(stored);
+        Assert.Null(cache.GetPersonal(userId, _ttl));
+    }
+
+    [Fact]
+    public void SetPersonal_WithCurrentGeneration_IsStored()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        var generation = cache.PersonalGeneration(userId);
+
+        var stored = cache.SetPersonal(userId, Result(userId), generation);
+
+        Assert.True(stored);
+        Assert.NotNull(cache.GetPersonal(userId, _ttl));
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task SetPersonal_RacingInvalidation_NeverLeavesStaleEntry()
+    {
+        // The generation guard reads, writes, then re-checks, so an invalidation landing in the write window is
+        // self-healed. This asserts the invariant that must hold across every interleaving: once an invalidation
+        // for the captured generation has run, no entry written under that generation may survive. Running many
+        // rounds exercises the post-write re-check branch under real contention without a timing assumption.
+        var cache = Create();
+
+        for (var round = 0; round < 2000; round++)
+        {
+            var userId = Guid.NewGuid();
+            var generation = cache.PersonalGeneration(userId);
+
+            using var ready = new System.Threading.Barrier(2);
+            var writer = System.Threading.Tasks.Task.Run(() =>
+            {
+                ready.SignalAndWait();
+                cache.SetPersonal(userId, Result(userId), generation);
+            });
+            var invalidator = System.Threading.Tasks.Task.Run(() =>
+            {
+                ready.SignalAndWait();
+                cache.InvalidatePersonal(userId);
+            });
+            await System.Threading.Tasks.Task.WhenAll(writer, invalidator);
+
+            // The invalidation bumped the generation, so a result written under the old generation must not remain.
+            if (cache.PersonalGeneration(userId) != generation)
+            {
+                Assert.Null(cache.GetPersonal(userId, _ttl));
+            }
+        }
+    }
 }

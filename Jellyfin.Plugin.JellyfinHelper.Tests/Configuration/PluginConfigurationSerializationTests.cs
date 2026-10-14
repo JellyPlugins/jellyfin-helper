@@ -597,4 +597,25 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(min, config.EnsembleAlphaMin);
         Assert.Equal(max, config.EnsembleAlphaMax);
     }
+
+    [Fact]
+    public void Deserialize_LegacyXmlWithRemovedTraktLimit_IsIgnoredAndOtherFieldsSurvive()
+    {
+        // TraktLimit was removed as a config field and is now a code constant. An older plugin.xml that still
+        // carries <TraktLimit> must deserialize without error, ignore the unknown element, and preserve the
+        // neighbouring fields so no setting is lost on upgrade.
+        var legacyXml =
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>" +
+            "<PluginConfiguration xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">" +
+            "<TraktTimeoutSeconds>45</TraktTimeoutSeconds>" +
+            "<TraktLimit>25</TraktLimit>" +
+            "<ConfigVersion>7</ConfigVersion>" +
+            "</PluginConfiguration>";
+
+        using var reader = new StringReader(legacyXml);
+        var restored = (PluginConfiguration)Serializer.Deserialize(reader)!;
+
+        Assert.Equal(45, restored.TraktTimeoutSeconds);
+        Assert.Equal(7, restored.ConfigVersion);
+    }
 }

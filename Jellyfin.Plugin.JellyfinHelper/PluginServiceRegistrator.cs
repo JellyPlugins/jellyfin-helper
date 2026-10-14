@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -237,6 +238,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
+        serviceCollection.AddSingleton<VirtualItemDetector>();
         serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
 
         // Action filter for surfacing model-binding failures into the plugin log before [ApiController]'s auto-400 short-circuits the request.

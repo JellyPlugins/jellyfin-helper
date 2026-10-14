@@ -57,9 +57,6 @@ public sealed class ConfigurationResponse
     /// <summary>Gets the Trakt HTTP request timeout in seconds.</summary>
     public int TraktTimeoutSeconds { get; init; }
 
-    /// <summary>Gets the number of Trakt items fetched per list.</summary>
-    public int TraktLimit { get; init; }
-
     /// <summary>Gets a value indicating whether trash is enabled.</summary>
     public bool UseTrash { get; init; }
 
@@ -141,7 +138,6 @@ public sealed class ConfigurationResponse
             SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
             TraktSourcingEnabled = config.TraktSourcingEnabled,
             TraktTimeoutSeconds = config.TraktTimeoutSeconds,
-            TraktLimit = config.TraktLimit,
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,

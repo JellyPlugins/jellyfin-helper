@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -52,6 +53,10 @@ public static class TestMockFactory
         mock.Setup(ap => ap.ConfigurationDirectoryPath).Returns(effectiveConfigPath);
         return mock;
     }
+
+    /// <summary>Creates a <see cref="VirtualItemDetector"/> rooted at the given data path (default "/data").</summary>
+    public static VirtualItemDetector CreateVirtualItemDetector(string? dataPath = null) =>
+        new(CreateAppPaths(dataPath).Object, NullLogger<VirtualItemDetector>.Instance);
 
     /// <summary>
     ///     Creates a new Mock{ILogger} (non-generic). IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks (see CA1873 fixes) still executes the underlying Log(...) call under test.

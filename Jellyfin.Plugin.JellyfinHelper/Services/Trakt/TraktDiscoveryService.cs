@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -26,6 +28,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private const string MediaTypeMovie = "movie";
     private const string MediaTypeTv = "tv";
 
+    // Items fetched per Trakt list. A fixed value, not configurable: the ceiling is never reached in practice
+    // and there is no UI to set it, so a serialized config field would be dead weight.
+    private const int TraktLimit = 20;
+
     // Caches are warmed by the scheduled task; request-time serves a fresh entry or does a lazy live fetch.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(12);
 
@@ -36,6 +42,12 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly IPluginLogService _pluginLog;
     private readonly IUserManager _userManager;
     private readonly ILogger<TraktDiscoveryService> _logger;
+
+    // Per-user single-flight for personal fetches: concurrent requests for the same user (for example the same
+    // account open on two devices) share one live fetch instead of each firing their own. Cleared when the
+    // shared fetch settles. Trending is pool-backed and already coalesces on the shared pool, so only personal
+    // needs this.
+    private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightPersonal = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
@@ -64,6 +76,12 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
+
+    /// <summary>
+    ///     Gets or sets the clock used to resolve an HTTP-date Retry-After header. Tests substitute a fixed clock;
+    ///     production uses the system UTC clock. Kept off the constructor so dependency injection stays at seven arguments.
+    /// </summary>
+    internal Func<DateTimeOffset> UtcNow { get; set; } = () => DateTimeOffset.UtcNow;
 
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
@@ -94,18 +112,66 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return _discoveryService.FilterConsumedItems(userId, cached);
         }
 
+        // Negative-cache gate: a recent failure or empty result backs off further live fetches, so a rate-limited
+        // or down Trakt is not re-hit on every tab load and duplicate loads coalesce onto the first outcome.
+        if (_cache.IsPersonalBackoffActive(userId))
+        {
+            return null;
+        }
+
+        // Single-flight the live fetch per user so two concurrent requests (e.g. two devices) share one fetch.
+        // The shared work runs on an independent token so one caller cancelling cannot abort the others; each
+        // caller still observes its own cancellation below.
+        cancellationToken.ThrowIfCancellationRequested();
+        var started = false;
+        var fetch = _inflightPersonal.GetOrAdd(userId, key =>
+        {
+            started = true;
+            return FetchAndScorePersonalAsync(key, config);
+        });
+
+        try
+        {
+            return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Only the caller that created the slot clears it, and only if it is still the same task, so a
+            // replacement started after this one settled is never stranded. Clearing after the await (rather
+            // than in a continuation) avoids the race where a synchronously-completing fetch would run its
+            // cleanup before GetOrAdd had even published the slot.
+            if (started)
+            {
+                _inflightPersonal.TryRemove(new KeyValuePair<Guid, Task<DiscoveryResult?>>(userId, fetch));
+            }
+        }
+    }
+
+    // The live personal fetch and scoring, shared across concurrent callers for one user. Runs cancellation-free
+    // (CancellationToken.None) so no single caller's cancellation aborts the shared work.
+    private async Task<DiscoveryResult?> FetchAndScorePersonalAsync(Guid userId, PluginConfiguration config)
+    {
+        var cancellationToken = CancellationToken.None;
+
+        // Capture the generation up front: if an invalidation (request/dismiss mutation) bumps it while this
+        // fetch is in flight, the result is dropped at SetPersonal rather than resurrecting pre-mutation data.
+        var generation = _cache.PersonalGeneration(userId);
+
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
+        var startedAt = Stopwatch.GetTimestamp();
         var source = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (source is null)
         {
-            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, but keep
-            // the outcome cache-free so the next request retries instead of pinning the outage.
+            // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, back off
+            // briefly so the next request retries after the outage rather than hammering it.
+            _cache.MarkPersonalFailed(userId, null);
+            LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "source unresolvable at fetch time");
             return null;
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        var (movies, officialAuthFailed) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
+        var (movies, officialAuthFailed, retryAfter) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(movies);
 
         // A revoked/stale official token fails the movies call and would fail the shows call identically (same
@@ -113,6 +179,13 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // can re-link this user. Serve nothing cache-free so the next request retries once the plugin rotates.
         if (officialAuthFailed)
         {
+            var reason = retryAfter is { } wait
+                ? $"official token auth failed, rate-limited for {(int)wait.TotalSeconds}s"
+                : "official token auth failed (re-link required)";
+            // A failed fetch backs off further live attempts (Retry-After when given, else the default) so a
+            // dead token or a rate limit is not re-hit on every tab load.
+            _cache.MarkPersonalFailed(userId, retryAfter);
+            LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, reason);
             return null;
         }
 
@@ -120,26 +193,43 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var showsSource = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (showsSource is null)
         {
-            _cache.InvalidatePersonal(userId);
+            // No cache entry exists to drop here (a hit would have returned earlier), and this failing fetch
+            // never writes one, so a plain failure backoff is enough; invalidating would only bump the
+            // generation and clear the backoff MarkPersonalFailed sets one line later.
+            _cache.MarkPersonalFailed(userId, null);
+            LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;
         }
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        var (shows, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
+        var (shows, _, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
+            // Trakt itself returned nothing: a stable empty result, so a short dampener absorbs duplicate tab
+            // loads. The ambiguous scoring-null path below sets no backoff; only this definite emptiness does.
+            _cache.MarkPersonalEmpty(userId);
+            LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
         }
 
         var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, cancellationToken).ConfigureAwait(false);
         if (result is not null)
         {
-            _cache.SetPersonal(userId, result);
-            return _discoveryService.FilterConsumedItems(userId, result);
+            // Cache only if no invalidation raced this fetch; otherwise the mutation that bumped the generation
+            // wins and this now-stale result is discarded.
+            _cache.SetPersonal(userId, result, generation);
+            var filtered = _discoveryService.FilterConsumedItems(userId, result);
+            LogPersonalOutcome(userId, startedAt, candidates.Count, filtered.Recommendations.Count, "ok");
+            return filtered;
         }
 
+        // Scoring returned nothing. This is ambiguous: it can mean every candidate was already owned, but also
+        // that the user has no watch profile or Seerr is unconfigured yet. Those "not ready" states resolve on
+        // their own, so this path sets no backoff. A backoff here would hide a genuine result the moment the
+        // profile grows or Seerr is configured, which is exactly what broke "Trakt for you" for a fresh user.
+        LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "scoring produced no result (all excluded as owned?)");
         return null;
     }
 
@@ -159,7 +249,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     /// <inheritdoc />
-    public void InvalidatePersonal(Guid userId) => _cache.InvalidatePersonal(userId);
+    public void InvalidatePersonal(Guid userId)
+    {
+        _cache.InvalidatePersonal(userId);
+
+        // Drop any in-flight (possibly already-settled) shared fetch so the next call starts a fresh one rather
+        // than awaiting a stale completed task that would serve the pre-invalidation result.
+        _inflightPersonal.TryRemove(userId, out _);
+    }
 
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetTrendingAsync(Guid userId, CancellationToken cancellationToken)
@@ -184,9 +281,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var pool = _cache.GetTrendingPool(CacheTtl);
         if (pool is null)
         {
-            var candidates = await FetchTrendingAsync(config, cancellationToken).ConfigureAwait(false);
+            var candidates = await FetchTrendingAsync(cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
+                _pluginLog.LogDebug(LogSource, "Trending fetch returned no candidates.", _logger);
                 return null;
             }
 
@@ -198,6 +296,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var scored = await _discoveryService.ScoreExternalCandidatesAsync(userId, pool, cancellationToken).ConfigureAwait(false);
         if (scored is null)
         {
+            _pluginLog.LogDebug(LogSource, $"Trending scoring produced no result for {DescribeUser(userId)}.", _logger);
             return null;
         }
 
@@ -246,26 +345,26 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
     }
 
-    private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed)> FetchPersonalAsync(
+    private async Task<(List<ExternalDiscoveryCandidate> Items, bool OfficialAuthFailed, TimeSpan? RetryAfter)> FetchPersonalAsync(
         string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, Guid userId, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
-        var (items, status) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
+        var (items, status, retryAfter) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
 
         // A revoked/stale official token answers 401 OR 403 ("unapproved app" when the token predates the current
         // official client id). We are read-only on it (the official plugin owns refresh/re-link), and the next
         // fetch would fail identically, so signal the caller to skip the remaining calls for this user.
         if (status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            return ([], true);
+            return ([], true, retryAfter);
         }
 
         var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
         LogDropped(dropped, mediaType, "personal");
-        return (mapped, false);
+        return (mapped, false, retryAfter);
     }
 
-    private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(CancellationToken cancellationToken)
     {
         var all = new List<ExternalDiscoveryCandidate>();
 
@@ -273,16 +372,16 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // app id rather than an empty trakt-api-key (which Trakt rejects).
         var clientId = External.OfficialTraktPluginReader.OfficialTraktClientId;
 
-        using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
+        using (var movieReq = BuildRequest("/movies/trending", clientId, TraktLimit, accessToken: null))
         {
-            var (movies, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            var (movies, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
-        using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
+        using (var showReq = BuildRequest("/shows/trending", clientId, TraktLimit, accessToken: null))
         {
-            var (shows, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            var (shows, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -293,7 +392,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return all;
     }
 
-    private async Task<(T? Data, HttpStatusCode Status)> SendAndReadAsync<T>(
+    private async Task<(T? Data, HttpStatusCode Status, TimeSpan? RetryAfter)> SendAndReadAsync<T>(
         HttpRequestMessage request, string relPath, bool hasBearer, Guid? userId, CancellationToken cancellationToken)
     {
         try
@@ -302,19 +401,52 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                LogFetchFailure(relPath, hasBearer, userId, response);
-                return (default, response.StatusCode);
+                var retryAfter = ExtractRetryAfter(response);
+                LogFetchFailure(relPath, hasBearer, userId, response, retryAfter);
+                return (default, response.StatusCode, retryAfter);
             }
 
             var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
-            return (JsonSerializer.Deserialize<T>(json), response.StatusCode);
+            return (JsonSerializer.Deserialize<T>(json), response.StatusCode, null);
         }
         catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
         {
             // Network, timeout, size-limit, and malformed-payload failures degrade to an empty
             // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
             _pluginLog.LogWarning(LogSource, $"Trakt fetch failed ({relPath}).", ex, _logger);
-            return (default, HttpStatusCode.ServiceUnavailable);
+            return (default, HttpStatusCode.ServiceUnavailable, null);
+        }
+    }
+
+    // Reads a Retry-After header into a non-negative delay. Trakt sends a delta-seconds value on rate limits
+    // (420 "enhance your calm" / 429); an HTTP-date form is resolved against the injected clock. A past date or
+    // malformed value yields null so the caller falls back to its default backoff.
+    private TimeSpan? ExtractRetryAfter(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+
+        // RetryConditionHeaderValue always carries exactly one of Delta or Date; resolve a date against the
+        // injected clock. Only a strictly positive remaining delay is a usable backoff hint.
+        var delay = header?.Delta ?? (header?.Date is { } date ? date - UtcNow() : (TimeSpan?)null);
+        return delay > TimeSpan.Zero ? delay : null;
+    }
+
+    // Summarizes one personal generation so an empty "Trakt for you" is explainable without enabling Debug.
+    // A non-empty result is Debug (routine, not worth an Info line per tab load); an empty one is Info because
+    // that is the case an admin needs to see and the reason tells them whether it is a token, a fetch, or an
+    // ownership-exclusion problem.
+    private void LogPersonalOutcome(Guid userId, long startedAt, int fetched, int final, string reason)
+    {
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+        var message = $"Personal discovery for {DescribeUser(userId)}: {fetched} fetched → {final} final ({reason}) in {elapsedMs} ms.";
+
+        if (final > 0)
+        {
+            _pluginLog.LogDebug(LogSource, message, _logger);
+        }
+        else
+        {
+            _pluginLog.LogInfo(LogSource, message, _logger);
         }
     }
 
@@ -323,7 +455,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // official plugin can re-link), and noisy, so it is logged at DEBUG rather than as a repeated WARN burst.
     // The affected user is named so the admin knows WHO to re-link (the plugin log is admin-only). Trending (no
     // bearer) and all other failures stay WARN. No token value is ever logged.
-    private void LogFetchFailure(string relPath, bool hasBearer, Guid? userId, HttpResponseMessage response)
+    private void LogFetchFailure(string relPath, bool hasBearer, Guid? userId, HttpResponseMessage response, TimeSpan? retryAfter)
     {
         var code = (int)response.StatusCode;
         var authFailure = response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
@@ -332,6 +464,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (response.Headers.TryGetValues("X-VIP-User", out var vip))
         {
             detail += $" X-VIP-User={string.Join(",", vip)}";
+        }
+
+        if (retryAfter is { } wait)
+        {
+            detail += $" Retry-After={(int)wait.TotalSeconds}s.";
         }
 
         if (authFailure && hasBearer)

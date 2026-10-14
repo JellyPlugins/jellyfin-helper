@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -37,6 +38,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
     // own cached recommendations (the source the own-recommendation exclusion reads).
     private DiscoveryCacheService? _lastCache;
+
+    // The plugin-log mock from the most recent CreateService call, so a test can assert the diagnostic
+    // stage-count line emitted when every candidate is filtered out.
+    private Mock<IPluginLogService>? _lastPluginLog;
 
     public SeerrDiscoveryExternalScoringTests()
     {
@@ -104,6 +109,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             new Mock<ILogger<EnsembleScoringStrategy>>().Object,
             ownsNeural: false);
         var pluginLog = new Mock<IPluginLogService>();
+        _lastPluginLog = pluginLog;
         var cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object, filePath: Path.GetTempFileName());
         _lastCache = cache;
         _owned.Add(ensemble);
@@ -126,7 +132,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         return new SeerrDiscoveryService(
             factory.Object, _history.Object, arr.Object, _libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
-            TestMockFactory.CreateSecretProtector(), new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            TestMockFactory.CreateSecretProtector(),
+            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object);
     }
 
     private void SetupProfile(Guid userId, int? maxParentalRating = null)
@@ -244,6 +251,122 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         // The enriched Horror genre hits the teen blacklist; nothing survives.
         Assert.Null(result);
     }
+
+    [Fact]
+    public async Task EmptyAfterFilter_LogsStageCountsForDiagnosis()
+    {
+        // When every candidate is filtered out, a stage-count line records how many were mapped and how large the
+        // exclusion set was, so an ownership collapse (the virtual-stub-library bug) is distinguishable from an
+        // empty input or a parental drop.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId, maxParentalRating: 90);
+        ReturnsDetail(101, "[{\"id\":27,\"name\":\"Horror\"}]");
+
+        var service = CreateService();
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.Null(result);
+        _lastPluginLog!.Verify(
+            l => l.LogDebug(
+                It.IsAny<string>(),
+                It.Is<string>(m => m.Contains("after filter", StringComparison.Ordinal) && m.Contains("exclusions=", StringComparison.Ordinal)),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task VirtualStubInLibrary_DoesNotExcludeCandidate()
+    {
+        // The regression at the heart of the fix: a virtual stub library entry carries a real TMDb id but no
+        // owned file, so it must NOT exclude the matching discovery candidate. Candidate 101 survives.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]");
+        var service = CreateService();
+        // Set the library AFTER CreateService, whose own GetItemList setup returns an empty list.
+        _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns([LibraryMovie(tmdbId: 101, path: null)]); // null path => virtual stub
+
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.TmdbId == 101);
+    }
+
+    [Fact]
+    public async Task RealItemInLibrary_ExcludesCandidate()
+    {
+        // Counter-proof that the filter is not a blanket pass-through: a real owned file with the same TMDb id
+        // must still exclude the candidate, so discovery never offers a title the user already has.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]");
+        var service = CreateService();
+        _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns([LibraryMovie(tmdbId: 101, path: OperatingSystem.IsWindows() ? @"D:\media\real.mkv" : "/media/real.mkv")]);
+
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        // The only candidate is owned, so nothing survives the exclusion.
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PhysicalStubUnderPluginsPath_DoesNotExcludeCandidate()
+    {
+        // JellyNext writes a real file with a TMDb id under <data>/plugins/..., not a path-less virtual entry.
+        // Such a stub must not exclude the matching candidate, while a real library under <data> still would.
+        var userId = Guid.NewGuid();
+        SetupProfile(userId);
+        ReturnsDetail(101, "[{\"id\":28,\"name\":\"Action\"}]");
+        var service = CreateService();
+        // Build the stub path from the same plugins root the detector uses (Path.Join keeps it OS-correct).
+        var stubPath = Path.Join("/data", "plugins", "Jellyfin.Plugin.JellyNext", "jellynext-virtual", "abc", "4875-B-.mp4");
+        _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns([LibraryMovie(tmdbId: 101, path: stubPath)]);
+
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Contains(result!.Recommendations, r => r.TmdbId == 101);
+    }
+
+    [Fact]
+    public async Task NoGenrePreferences_SkipsWithDebugReason()
+    {
+        // A profile with no genre history yields an empty preference vector; scoring cannot proceed and the
+        // skip is recorded with its reason rather than returning silently.
+        var userId = Guid.NewGuid();
+        _history.Setup(h => h.GetUserWatchProfile(userId)).Returns(new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "nogenres",
+            GenreDistribution = new Dictionary<string, int>(),
+        });
+        _history.Setup(h => h.GetSeriesEpisodeCounts()).Returns(new Dictionary<Guid, int>());
+
+        var service = CreateService();
+        var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
+
+        Assert.Null(result);
+        _lastPluginLog!.Verify(
+            l => l.LogDebug(
+                It.IsAny<string>(),
+                It.Is<string>(m => m.Contains("no genre preferences", StringComparison.Ordinal)),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
+
+    private static Movie LibraryMovie(int tmdbId, string? path) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = "Lib " + tmdbId,
+        Path = path,
+        ProviderIds = new Dictionary<string, string>
+        {
+            ["Tmdb"] = tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        },
+    };
 
     [Fact]
     public async Task UnenrichedCandidate_DroppedForRestricted_KeptForUnrestricted()
