@@ -29,8 +29,10 @@ public sealed class VirtualItemDetectorTests
         return new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
     }
 
+    // Joins a relative segment under DataPath with an explicit separator. Path.Combine is avoided on purpose:
+    // if the segment looked rooted it would silently discard DataPath, which would defeat a containment test.
     private static string Under(string relative) =>
-        Path.Combine(DataPath, relative);
+        DataPath + Path.DirectorySeparatorChar + relative.Replace('/', Path.DirectorySeparatorChar);
 
     [Fact]
     public void IsVirtual_True_WhenFlaggedVirtualItem()
@@ -78,7 +80,7 @@ public sealed class VirtualItemDetectorTests
     {
         // A sibling that merely shares the data-path prefix must not be treated as inside it.
         var sibling = Path.TrimEndingDirectorySeparator(DataPath) + "-cache";
-        var item = new Movie { Path = Path.Combine(sibling, "real.mkv") };
+        var item = new Movie { Path = sibling + Path.DirectorySeparatorChar + "real.mkv" };
 
         Assert.False(Create().IsVirtual(item));
     }
