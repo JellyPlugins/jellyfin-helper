@@ -50,9 +50,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // Per-user single-flight for personal fetches: concurrent requests for the same user (for example the same
     // account open on two devices) share one live fetch instead of each firing their own. The slot is published
     // and cleared under _personalFlightLock, and cleared only by a continuation on the shared task (not an
-    // awaiting caller's finally), so a waiter cancelling cannot strand or re-spawn the shared fetch. Trending is
-    // pool-backed on the fetch, but its per-user scoring is just as expensive and gets its own single-flight.
-    private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightPersonal = new();
+    // awaiting caller's finally), so a waiter cancelling cannot strand or re-spawn the shared fetch. Each flight
+    // carries a cancellation source: an invalidation (switch-off or unlink on a concurrent call) cancels it, so a
+    // fetch still running skips its stale cache/backoff write. Trending is pool-backed on the fetch, but its
+    // per-user scoring is just as expensive and gets its own single-flight.
+    private readonly ConcurrentDictionary<Guid, PersonalFlight> _inflightPersonal = new();
     private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightTrending = new();
     private readonly Lock _personalFlightLock = new();
     private readonly Lock _trendingFlightLock = new();
@@ -146,66 +148,107 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             // Reuse only an in-flight (not completed) task; start one otherwise. GetOrAdd could run the factory
             // more than once under contention, double-fetching the same user; the lock plus this check makes the
             // start exactly-once per burst.
-            if (!_inflightPersonal.TryGetValue(userId, out var existing) || existing.IsCompleted)
+            if (!_inflightPersonal.TryGetValue(userId, out var existing) || existing.Task.IsCompleted)
             {
-                fetch = StartPersonalFetch(userId, config);
-                _inflightPersonal[userId] = fetch;
+                // The flight's own cancellation source represents its validity: an invalidation cancels it so the
+                // surviving fetch skips its cache/backoff write.
+                var flightCts = new CancellationTokenSource();
+                fetch = FetchAndScorePersonalAsync(userId, config, flightCts);
+
+                // Publish the slot BEFORE wiring the completion continuation, so a synchronously-completing fetch
+                // (e.g. under test) cannot run the slot-cleanup before the slot exists. Both are done inside this
+                // lock, which the cleanup and InvalidatePersonal also take, so the ordering holds under contention.
+                _inflightPersonal[userId] = new PersonalFlight(flightCts, fetch);
+                WirePersonalFlightCleanup(userId, fetch, flightCts);
             }
             else
             {
-                fetch = existing;
+                fetch = existing.Task;
             }
         }
 
         return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    // Starts the shared personal fetch and clears its slot once it settles, mirroring the Seerr exclusion-build
-    // single-flight. The slot is cleared in a continuation (not an awaiting caller's finally) so a waiter that
-    // cancels never strands the fetch or lets a later caller spawn a second live fetch; the ReferenceEquals
-    // guard ensures a replacement installed after this task settled is never wiped.
-    private Task<DiscoveryResult?> StartPersonalFetch(Guid userId, PluginConfiguration config)
+    // Clears the flight's slot and disposes its cancellation source once the shared task settles, mirroring the
+    // Seerr exclusion-build single-flight. The cleanup is a continuation (not an awaiting caller's finally) so a
+    // waiter that cancels never strands the fetch or lets a later caller spawn a second live fetch. Everything
+    // touching flightCts (this dispose and InvalidatePersonal's cancel) runs under _personalFlightLock, so a
+    // cancel never hits a disposed source; the ReferenceEquals guard leaves a replacement slot untouched.
+    private void WirePersonalFlightCleanup(Guid userId, Task<DiscoveryResult?> fetch, CancellationTokenSource flightCts)
     {
-        Task<DiscoveryResult?> fetch = FetchAndScorePersonalAsync(userId, config);
         _ = fetch.ContinueWith(
-            completed =>
+            _ =>
             {
                 lock (_personalFlightLock)
                 {
-                    if (_inflightPersonal.TryGetValue(userId, out var current) && ReferenceEquals(current, completed))
+                    if (_inflightPersonal.TryGetValue(userId, out var current) && ReferenceEquals(current.Cts, flightCts))
                     {
-                        _inflightPersonal.TryRemove(userId, out _);
+                        _inflightPersonal.TryRemove(userId, out PersonalFlight? _);
                     }
+
+                    flightCts.Dispose();
                 }
             },
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
-        return fetch;
     }
 
-    // The live personal fetch and scoring, shared across concurrent callers for one user. Runs on its own
-    // time-boxed token (independent of any caller) so no single caller's cancellation aborts the shared work,
-    // and a hung Trakt socket cannot pin the single-flight slot past the overall timeout. A non-fatal fault or
-    // the timeout degrades to null for every waiter (never a 500) and marks a short failure backoff.
-    private async Task<DiscoveryResult?> FetchAndScorePersonalAsync(Guid userId, PluginConfiguration config)
+    // Cache/backoff writes from a fetch go through these so a flight cancelled by an invalidation (switch-off or
+    // unlink on a concurrent call) never persists a stale result or a backoff against a user who may since have
+    // re-linked. Callers pass whether the flight is still valid (its token is not cancelled), so this needs no
+    // slot lookup or publish timing. Logging is intentionally not guarded: an outcome line is always recorded.
+    private void CachePersonalIfValid(Guid userId, bool valid, DiscoveryResult result)
     {
-        using var timeout = new CancellationTokenSource(PersonalFetchTimeout);
+        if (valid)
+        {
+            _cache.SetPersonal(userId, result);
+        }
+    }
+
+    private void MarkPersonalFailedIfValid(Guid userId, bool valid, TimeSpan? retryAfter)
+    {
+        if (valid)
+        {
+            _cache.MarkPersonalFailed(userId, retryAfter);
+        }
+    }
+
+    private void MarkPersonalEmptyIfValid(Guid userId, bool valid)
+    {
+        if (valid)
+        {
+            _cache.MarkPersonalEmpty(userId);
+        }
+    }
+
+    // The live personal fetch and scoring, shared across concurrent callers for one user. Runs on a token that
+    // links the flight's validity source with an overall timeout, so no single caller's cancellation aborts the
+    // shared work, a hung Trakt socket cannot pin the slot past the timeout, and an invalidation cancels every
+    // pending write. A non-fatal fault or the timeout degrades to null for every waiter (never a 500) and marks a
+    // short failure backoff (unless the flight was cancelled, so a re-linked user is not suppressed).
+    private async Task<DiscoveryResult?> FetchAndScorePersonalAsync(Guid userId, PluginConfiguration config, CancellationTokenSource flightCts)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(flightCts.Token);
+        linked.CancelAfter(PersonalFetchTimeout);
+        var flightToken = flightCts.Token;
         try
         {
-            return await FetchAndScorePersonalCoreAsync(userId, config, timeout.Token).ConfigureAwait(false);
+            return await FetchAndScorePersonalCoreAsync(userId, config, flightToken, linked.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
             // Covers the overall-timeout cancellation and any non-fatal fault from resolve/fetch/scoring. Waiters
             // get null, not an exception; a short backoff absorbs the retry storm the failure would otherwise draw.
-            _cache.MarkPersonalFailed(userId, null);
+            // The guarded write skips the backoff if the flight was invalidated, so a re-linked user is not suppressed.
+            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
             _pluginLog.LogWarning(LogSource, $"Personal fetch failed for {DescribeUser(userId)}.", ex, _logger);
             return null;
         }
     }
 
-    private async Task<DiscoveryResult?> FetchAndScorePersonalCoreAsync(Guid userId, PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<DiscoveryResult?> FetchAndScorePersonalCoreAsync(Guid userId, PluginConfiguration config, CancellationToken flightToken, CancellationToken cancellationToken)
     {
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
@@ -215,7 +258,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, back off
             // briefly so the next request retries after the outage rather than hammering it.
-            _cache.MarkPersonalFailed(userId, null);
+            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "source unresolvable at fetch time");
             return null;
         }
@@ -234,7 +277,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 : "official token auth failed (re-link required)";
             // A failed fetch backs off further live attempts (Retry-After when given, else the default) so a
             // dead token or a rate limit is not re-hit on every tab load.
-            _cache.MarkPersonalFailed(userId, retryAfter);
+            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, retryAfter);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, reason);
             return null;
         }
@@ -244,9 +287,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (showsSource is null)
         {
             // No cache entry exists to drop here (a hit would have returned earlier), and this failing fetch
-            // never writes one, so a plain failure backoff is enough; invalidating would only bump the
-            // generation and clear the backoff MarkPersonalFailed sets one line later.
-            _cache.MarkPersonalFailed(userId, null);
+            // never writes one, so a plain failure backoff is enough.
+            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;
         }
@@ -259,7 +301,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Trakt itself returned nothing: a stable empty result, so a short dampener absorbs duplicate tab
             // loads. The ambiguous scoring-null path below sets no backoff; only this definite emptiness does.
-            _cache.MarkPersonalEmpty(userId);
+            MarkPersonalEmptyIfValid(userId, !flightToken.IsCancellationRequested);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
         }
@@ -267,7 +309,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, cancellationToken).ConfigureAwait(false);
         if (result is not null)
         {
-            _cache.SetPersonal(userId, result);
+            CachePersonalIfValid(userId, !flightToken.IsCancellationRequested, result);
             var filtered = _discoveryService.FilterConsumedItems(userId, result);
             LogPersonalOutcome(userId, startedAt, candidates.Count, filtered.Recommendations.Count, "ok");
             return filtered;
@@ -302,12 +344,17 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         _cache.InvalidatePersonal(userId);
 
-        // Drop any in-flight (possibly already-settled) shared fetch so the next call starts a fresh one rather
-        // than awaiting a stale completed task that would serve the pre-invalidation result. Under the same lock
-        // the single-flight publishes/clears the slot, so this never races the start-or-reuse decision.
+        // Cancel and drop any in-flight (possibly already-settled) shared fetch so the next call starts a fresh
+        // one rather than awaiting a stale completed task, and so a fetch still running cancels its pending
+        // cache/backoff write instead of resurrecting the pre-invalidation result. Cancel under the lock: the
+        // fetch's continuation disposes the source under the same lock, so cancel never races dispose. If the
+        // continuation already ran, the slot is gone and there is nothing to cancel.
         lock (_personalFlightLock)
         {
-            _inflightPersonal.TryRemove(userId, out _);
+            if (_inflightPersonal.TryRemove(userId, out var flight))
+            {
+                flight.Cts.Cancel();
+            }
         }
     }
 
@@ -672,4 +719,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     private static PluginConfiguration? GetConfig() => Plugin.Instance?.Configuration;
+
+    // A personal single-flight slot: the shared fetch task plus the cancellation source that represents its
+    // validity. Invalidation (switch-off or unlink on a concurrent call) cancels the source, so the surviving
+    // fetch sees cancellation and skips its stale cache/backoff write without depending on slot-publish timing.
+    private sealed record PersonalFlight(CancellationTokenSource Cts, Task<DiscoveryResult?> Task);
 }

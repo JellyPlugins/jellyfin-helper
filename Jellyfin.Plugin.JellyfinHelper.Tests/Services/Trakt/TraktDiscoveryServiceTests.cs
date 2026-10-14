@@ -1285,6 +1285,35 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_InvalidatedMidFetch_DoesNotWriteStaleResult()
+    {
+        // The CodeRabbit data-integrity case: an invalidation (master switch off or unlink on a concurrent call)
+        // lands while a fetch is in flight. The invalidation cancels the flight, so when the fetch finishes it
+        // must NOT write its now-stale result into the cache; a later re-link therefore refetches instead of
+        // serving the pre-invalidation data for up to the full TTL.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                // Hold the fetch open until the test has invalidated, so the write decision happens post-cancel.
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+        sut.InvalidatePersonal(userId); // cancels the in-flight flight
+        scoringGate.SetResult();
+        await fetch;
+
+        // The cancelled flight did not persist its result: the cache holds nothing for this user.
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+    }
+
+    [Fact]
     public async Task GetPersonal_SharedFetchFaults_DegradesToNullWarnsAndBacksOff()
     {
         // A non-fatal fault inside the shared fetch (here the scorer throws) must never surface to waiters as an
