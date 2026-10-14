@@ -648,6 +648,9 @@
     // The active tab persists across remounts; each tab keeps its own cache
     // so switching tabs is instant and never shows another tab's data.
     var _traktEnabled = null;
+    // Whether THIS user is linked to Trakt (distinct from _traktEnabled, which is the global feature switch).
+    // An unlinked user still gets the Trending tab but not the personal "Trakt for you" tab.
+    var _traktLinked = false;
     var _traktProbeUserId = null;
     var _activeTab = 'own';
     var _traktPersonalCache = null;
@@ -686,6 +689,7 @@
     // Used when the feature is toggled off mid-session (403) or the account changes.
     function resetTraktState() {
         _traktEnabled = false;
+        _traktLinked = false;
         _traktProbeUserId = null;
         _traktPersonalCache = null;
         _traktTrendingCache = null;
@@ -739,6 +743,9 @@
                     // callbacks alone decide _traktEnabled and the probe result.
                     if (probeSettled || probeSeq !== _traktProbeSeq || probeUserId !== currentDiscoveryUserId()) { return; }
                     _traktEnabled = true;
+                    // Record link state so renderShell can hide the personal tab for an unlinked user while
+                    // still offering Trending (which needs no link).
+                    _traktLinked = resp?.Linked === true;
                     // Keep the probe payload: it is exactly what the personal tab
                     // would refetch, so the first visit renders without a second GET.
                     // Stamped with the fire-time generation so a payload that raced a
@@ -819,10 +826,19 @@
             return;
         }
 
+        // An unlinked user cannot have a personal tab; if it was the active tab (e.g. after an account switch),
+        // fall back to the own grid so the host never shows a tab whose button is absent.
+        if (!_traktLinked && _activeTab === TAB_TRAKT) {
+            _activeTab = TAB_OWN;
+        }
+
+        var personalButton = _traktLinked
+            ? tabButton(TAB_TRAKT, t('discoveryTabTraktForYou', 'Trakt for you'))
+            : '';
         var tabs =
             '<div class="jfh-discovery-container"><div class="jfh-discovery-tabs" role="tablist">' +
             tabButton(TAB_OWN, t('discoveryTabForYou', 'For you')) +
-            tabButton(TAB_TRAKT, t('discoveryTabTraktForYou', 'Trakt for you')) +
+            personalButton +
             tabButton(TAB_TRENDING, t('discoveryTabTraktTrending', 'Trakt trending')) +
             '</div><div class="jfh-discovery-tab-host"></div></div>';
         container.innerHTML = tabs;
