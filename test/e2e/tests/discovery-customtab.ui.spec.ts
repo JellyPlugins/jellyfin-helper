@@ -310,3 +310,63 @@ test.describe('Discovery custom tab - access disabled', () => {
     await expect(grid).toHaveCount(0);
   });
 });
+
+/**
+ * Unlinked-user tab layout: with Trakt sourcing on and the official Trakt plugin present, a user WITHOUT a Trakt
+ * link must not see a "Trakt for you" tab (it would only render a not-linked message), but must still see the
+ * local "For you" grid and the login-free "Trakt trending" tab. The e2e admin is never seeded into the official
+ * plugin's TraktUsers (global-setup seeds only the normal user), so the admin is a real unlinked user here - no
+ * extra token seeding needed. This is the behavioral proof of the renderShell tab-hide for unlinked users.
+ */
+test.describe('Discovery custom tab - unlinked Trakt user', () => {
+  test.skip(!EXTERNAL_PLUGINS, 'Custom Tabs / official Trakt not staged (JFH_E2E_EXTERNAL_PLUGINS!=1)');
+
+  // Open Home authenticated as the ADMIN specifically (not the normal user), because the admin holds no official
+  // Trakt token and is therefore the unlinked case this spec needs.
+  async function openHomeAsAdmin(page: Page): Promise<void> {
+    const auth = loadAuth();
+    const base = auth.baseUrl.replace(/\/$/, '');
+    const infoRes = await page.request.get(`${base}/System/Info/Public`);
+    const { Id: serverId } = (await infoRes.json()) as { Id: string };
+    await page.addInitScript(seedCredentials, { base, token: auth.token, userId: auth.userId, serverId });
+    await page.goto(`${base}/web/index.html#/home`);
+  }
+
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    const admin = await apiContext(auth);
+    try {
+      // Trakt sourcing on + Seerr configured so the tab bar renders and the probe is not access-gated.
+      await ensureDiscoveryConfigured(admin);
+      await expect
+        .poll(async () => (await admin.get(p('Discovery/My/Trakt'))).status(), { timeout: 15_000 })
+        .not.toBe(403);
+    } finally {
+      await admin.dispose();
+    }
+  });
+
+  test('unlinked user sees For you + Trakt trending but not Trakt for you', async ({ page }) => {
+    await openHomeAsAdmin(page);
+    await expect(discoveryTab(page)).toBeVisible({ timeout: 20_000 });
+    await clickDiscoveryTab(page);
+
+    // The tab bar renders once the Trakt availability probe settles (enabled by presence, not by link state).
+    const tabs = page.locator('.jellyfinhelper.discovery .jfh-discovery-tabs');
+    await expect(tabs).toBeVisible({ timeout: 20_000 });
+
+    // Match the tab's full trimmed label exactly: "For you" is a substring of "Trakt for you", so a loose
+    // hasText would conflate the local and personal tabs and hide the very regression under test.
+    const tabButton = (label: string) =>
+      tabs.locator('.jfh-discovery-tab', { hasText: new RegExp(`^\\s*${label}\\s*$`) });
+
+    // For you (local) and Trakt trending (no login) are present; Trakt for you (personal) is absent because the
+    // admin is unlinked. The hidden personal button is proven by its total absence, not merely being invisible.
+    await expect(tabButton('For you')).toBeVisible();
+    await expect(tabButton('Trakt trending')).toBeVisible();
+    await expect(tabButton('Trakt for you')).toHaveCount(0);
+
+    // Exactly two tabs, so the layout is the clean 2-segment bar, never a gap where the personal tab would sit.
+    await expect(tabs.locator('.jfh-discovery-tab')).toHaveCount(2);
+  });
+});

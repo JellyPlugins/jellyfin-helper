@@ -28,10 +28,6 @@ public sealed class TraktCacheService
     // backs off only briefly (just to absorb duplicate loads) so a genuine first result appears fast.
     private readonly ConcurrentDictionary<Guid, DateTime> _personalBackoffUntil = new();
 
-    // Per-user generation counter, bumped on every invalidation. A shared fetch captures the generation at start
-    // and may only write its result if the generation is unchanged, so a fetch that was in flight when a mutation
-    // invalidated the user never resurrects the pre-mutation result into the cache.
-    private readonly ConcurrentDictionary<Guid, int> _personalGeneration = new();
     private readonly Func<DateTime> _utcNow;
 
     // volatile so a set/invalidate on one thread is observed by a concurrent reader without a lock. The
@@ -77,47 +73,6 @@ public sealed class TraktCacheService
         // A fresh positive result clears any backoff so the user is served immediately rather than waiting it out.
         _personalBackoffUntil.TryRemove(userId, out _);
     }
-
-    /// <summary>
-    ///     Stores a user's personal result only if the generation captured at fetch start still matches the
-    ///     current generation. A fetch that was in flight across an invalidation is dropped instead of caching a
-    ///     stale pre-invalidation result.
-    /// </summary>
-    /// <param name="userId">The Jellyfin user id.</param>
-    /// <param name="result">The result to cache.</param>
-    /// <param name="generation">The generation captured before the fetch started.</param>
-    /// <returns><see langword="true"/> if the result was cached; otherwise <see langword="false"/>.</returns>
-    public bool SetPersonal(Guid userId, DiscoveryResult result, int generation)
-    {
-        ArgumentNullException.ThrowIfNull(result);
-        if (PersonalGeneration(userId) != generation)
-        {
-            return false;
-        }
-
-        SetPersonal(userId, result);
-
-        // Re-check after the write to close the gap between the guard above and the store: an invalidation that
-        // raced in between bumped the generation, so undo the now-stale write rather than leave it cached for the
-        // full TTL. Lock-free by design (this is a best-effort process-local cache); the self-heal keeps the
-        // window to a single write that the next statement reverts.
-        if (PersonalGeneration(userId) != generation)
-        {
-            _personal.TryRemove(userId, out _);
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    ///     Returns the current personal generation for a user, to be captured before a shared fetch starts and
-    ///     passed back to <see cref="SetPersonal(Guid, DiscoveryResult, int)"/> so a fetch that raced an
-    ///     invalidation does not write a stale result.
-    /// </summary>
-    /// <param name="userId">The Jellyfin user id.</param>
-    /// <returns>The current generation value.</returns>
-    public int PersonalGeneration(Guid userId) => _personalGeneration.TryGetValue(userId, out var g) ? g : 0;
 
     /// <summary>
     ///     Suppresses personal fetches for this user until the backoff elapses, after a failed fetch. The delay is
@@ -210,22 +165,16 @@ public sealed class TraktCacheService
     }
 
     /// <summary>
-    ///     Drops a user's cached personal entry and backoff, and bumps the generation so any in-flight fetch
-    ///     that started before this call cannot write its now-stale result (e.g. on disconnect or a mutation).
+    ///     Drops a user's cached personal entry and clears any backoff, so the next request fetches fresh. Called
+    ///     when the master switch goes off or a user is no longer linked; no fetch is in flight on those paths.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     public void InvalidatePersonal(Guid userId)
     {
-        // Bump the generation BEFORE dropping the entry. A racing SetPersonal(generation) writes, then re-checks
-        // the generation and removes its own entry on a mismatch; ordering the bump first guarantees that any
-        // write which observed the old generation is either barred (its re-check now sees the bump) or removed
-        // here (its store happened before this TryRemove). The reverse order leaves a window where a write lands
-        // after the remove but before the bump, stranding a stale entry.
-        _personalGeneration.AddOrUpdate(userId, 1, (_, current) => current + 1);
         _personal.TryRemove(userId, out _);
 
-        // Clear the backoff so a request/dismiss mutation does not leave the user served nothing for up to the
-        // failure window.
+        // Clear the backoff too so a later re-enable or re-link serves immediately rather than waiting out a
+        // failure window carried over from before.
         _personalBackoffUntil.TryRemove(userId, out _);
     }
 

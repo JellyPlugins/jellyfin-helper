@@ -173,6 +173,18 @@ public sealed class VirtualItemDetectorTests
         Assert.False(Create().IsVirtual(item));
     }
 
+    [Fact]
+    public void IsVirtual_False_ForRealFile_WhenPluginsPathUnnormalizable()
+    {
+        // A host reporting a plugins path with invalid characters must not throw at construction or on every
+        // scan; the root is simply unusable, so containment never matches and a real file stays owned.
+        var paths = new Mock<IApplicationPaths>();
+        paths.Setup(p => p.PluginsPath).Returns("bad\0plugins");
+        var detector = new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance);
+
+        Assert.False(detector.IsVirtual(new Movie { Path = OwnedPath() }));
+    }
+
     private static string OwnedPath() =>
         OperatingSystem.IsWindows() ? @"D:\media\movies\real.mkv" : "/media/movies/real.mkv";
 }

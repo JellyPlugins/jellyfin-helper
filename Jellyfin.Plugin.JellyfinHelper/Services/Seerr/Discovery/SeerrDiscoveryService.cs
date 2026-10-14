@@ -1906,11 +1906,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (uniqueCandidates.Count == 0)
         {
             // The stage counts make an ownership-exclusion collapse (every candidate already owned) distinguishable
-            // from an empty input, a parental drop, or an enrichment drop. mappedCount is the pre-parental total so
-            // a restricted profile whose enrichment removed everything still shows the real candidate count.
+            // from an empty input, an enrichment drop, or the parental/dedup filter. mappedCount is the raw total
+            // before the restricted-profile enrichment gate (RemoveAll above), so the real candidate count stays
+            // visible even when the enrichment gate removed everything. The parental and dedup pruning happens
+            // inside DeduplicateAndFilter, so it is folded into the "after filter" count, not the enrichment delta.
             _pluginLog.LogDebug(
                 LogCategory,
-                $"External scoring: {mappedCount} mapped, {mapped.Count} after parental → 0 after filter (exclusions={userExcluded.Count}, enriched={enrichedKeys.Count}, parental={profile.MaxParentalRating}).",
+                $"External scoring: {mappedCount} mapped, {mapped.Count} after enrichment → 0 after filter (exclusions={userExcluded.Count}, enriched={enrichedKeys.Count}, parental={profile.MaxParentalRating}).",
                 _logger);
             return null;
         }
