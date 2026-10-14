@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -38,6 +39,12 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly IUserManager _userManager;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly ILogger<TraktDiscoveryService> _logger;
+
+    // Per-user single-flight for personal fetches: concurrent requests for the same user (for example the same
+    // account open on two devices) share one live fetch instead of each firing their own. Cleared when the
+    // shared fetch settles. Trending is pool-backed and already coalesces on the shared pool, so only personal
+    // needs this.
+    private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightPersonal = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
@@ -105,6 +112,39 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             return null;
         }
+
+        // Single-flight the live fetch per user so two concurrent requests (e.g. two devices) share one fetch.
+        // The shared work runs on an independent token so one caller cancelling cannot abort the others; each
+        // caller still observes its own cancellation below.
+        cancellationToken.ThrowIfCancellationRequested();
+        var fetch = _inflightPersonal.GetOrAdd(userId, id => RunSharedPersonalFetchAsync(id, config));
+        return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Wraps the shared fetch so the in-flight slot is cleared once it settles, closing the window where a late
+    // caller would start a second fetch. Clears only its own slot to avoid stranding a replacement.
+    private Task<DiscoveryResult?> RunSharedPersonalFetchAsync(Guid userId, PluginConfiguration config)
+    {
+        var fetch = FetchAndScorePersonalAsync(userId, config);
+        _ = fetch.ContinueWith(
+            _ =>
+            {
+                if (_inflightPersonal.TryGetValue(userId, out var current) && ReferenceEquals(current, fetch))
+                {
+                    _inflightPersonal.TryRemove(new KeyValuePair<Guid, Task<DiscoveryResult?>>(userId, fetch));
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return fetch;
+    }
+
+    // The live personal fetch and scoring, shared across concurrent callers for one user. Runs cancellation-free
+    // (CancellationToken.None) so no single caller's cancellation aborts the shared work.
+    private async Task<DiscoveryResult?> FetchAndScorePersonalAsync(Guid userId, PluginConfiguration config)
+    {
+        var cancellationToken = CancellationToken.None;
 
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
@@ -192,7 +232,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     }
 
     /// <inheritdoc />
-    public void InvalidatePersonal(Guid userId) => _cache.InvalidatePersonal(userId);
+    public void InvalidatePersonal(Guid userId)
+    {
+        _cache.InvalidatePersonal(userId);
+
+        // Drop any in-flight (possibly already-settled) shared fetch so the next call starts a fresh one rather
+        // than awaiting a stale completed task that would serve the pre-invalidation result.
+        _inflightPersonal.TryRemove(userId, out _);
+    }
 
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetTrendingAsync(Guid userId, CancellationToken cancellationToken)

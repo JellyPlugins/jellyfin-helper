@@ -1090,6 +1090,74 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_ConcurrentCallsForSameUser_ShareOneFetch()
+    {
+        // Single-flight: two simultaneous requests for the same user (e.g. two devices) must coalesce onto one
+        // live fetch, not fire two. The gate holds the first fetch open until both callers are awaiting.
+        var userId = Guid.NewGuid();
+        var fetchCount = 0;
+        var gate = new TaskCompletionSource();
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Returns(async () =>
+            {
+                var n = System.Threading.Interlocked.Increment(ref fetchCount);
+                if (n == 1)
+                {
+                    await gate.Task.ConfigureAwait(false); // hold the first (movies) fetch open
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(n % 2 == 1 ? MoviesJson : ShowsJson),
+                };
+            });
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(f => f.CreateClient("Trakt")).Returns(() => new HttpClient(handler.Object));
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
+        var sut = CreateServiceWithFactory(factory.Object);
+
+        var first = sut.GetPersonalAsync(userId, CancellationToken.None);
+        var second = sut.GetPersonalAsync(userId, CancellationToken.None);
+        gate.SetResult(); // release the shared fetch
+        var results = await Task.WhenAll(first, second);
+
+        Assert.NotNull(results[0]);
+        Assert.NotNull(results[1]);
+        // Only one movies + one shows fetch ran total, proving the second caller joined the first's fetch.
+        Assert.Equal(2, fetchCount);
+    }
+
+    [Fact]
+    public async Task GetPersonal_SequentialCalls_AfterCompletion_StartFreshFetch()
+    {
+        // The in-flight slot clears once the shared fetch settles, so a later call is not stuck awaiting the
+        // old completed task: with the warm cache dropped it fetches again.
+        var userId = Guid.NewGuid();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        Assert.NotNull(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        // Drop the warm cache and the in-flight slot; the next call must fetch again (strict handler would throw
+        // if it did not and the queue were empty).
+        sut.InvalidatePersonal(userId);
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+
+        Assert.NotNull(await sut.GetPersonalAsync(userId, CancellationToken.None));
+        Assert.Empty(_responses);
+    }
+
+    [Fact]
     public async Task IsLinkedFor_OfficialHasToken_ReturnsTrue()
     {
         // An official-plugin user must report linked so the controller fetches their recommendations
