@@ -34,8 +34,8 @@ export function loadAuth(): AuthInfo {
 }
 
 /** Create a Playwright request context authenticated as the NON-admin user. */
-export async function normalUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
-  if (!auth.normalUser) return null;
+export function normalUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
+  if (!auth.normalUser) return Promise.resolve(null);
   return pwRequest.newContext({
     baseURL: auth.baseUrl,
     extraHTTPHeaders: {
@@ -74,7 +74,7 @@ export function authHeader(token?: string): string {
 }
 
 /** Create a Playwright request context pre-authenticated as the admin. */
-export async function apiContext(auth: AuthInfo): Promise<APIRequestContext> {
+export function apiContext(auth: AuthInfo): Promise<APIRequestContext> {
   return pwRequest.newContext({
     baseURL: auth.baseUrl,
     extraHTTPHeaders: {
@@ -129,6 +129,7 @@ export async function runTaskToCompletion(
 
   const deadline = Date.now() + timeoutMs;
   // Accept Idle as "completed" only once we've EITHER observed a Running state OR seen a fresh LastExecutionResult.EndTimeUtc (newer than before we started).
+  // Polling is inherently sequential: each status check must await the previous one, so awaits inside this loop are intentional.
   await sleep(500);
   let sawRunning = false;
   while (Date.now() < deadline) {
@@ -140,7 +141,7 @@ export async function runTaskToCompletion(
       const finishedFresh = end !== '' && end !== priorEnd;
       if (task.State === 'Idle' && (sawRunning || finishedFresh)) return task;
     }
-    await sleep(pollMs);
+    await sleep(pollMs); // NOSONAR - sequential polling delay must stay inside the loop
   }
   throw new Error(`Task ${taskId} did not complete within ${timeoutMs}ms`);
 }

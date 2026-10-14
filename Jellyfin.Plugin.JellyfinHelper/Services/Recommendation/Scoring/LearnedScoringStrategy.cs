@@ -911,12 +911,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         for (var i = 0; i < len; i++)
         {
             var gradient = (error * vector[i]) + (L2Lambda * _weights[i]);
-            _weights[i] -= lr * gradient;
-            _weights[i] = Math.Clamp(_weights[i], -2.0, 2.0);
+            _weights[i] = Math.Clamp(_weights[i] - (lr * gradient), -2.0, 2.0);
         }
 
-        _bias -= lr * error;
-        _bias = Math.Clamp(_bias, -1.0, 1.0);
+        _bias = Math.Clamp(_bias - (lr * error), -1.0, 1.0);
     }
 
     /// <summary>
