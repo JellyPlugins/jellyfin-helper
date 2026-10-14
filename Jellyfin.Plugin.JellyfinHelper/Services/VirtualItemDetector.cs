@@ -113,7 +113,11 @@ public sealed class VirtualItemDetector
         try
         {
             var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-            return full + Path.DirectorySeparatorChar;
+
+            // A filesystem root (for example "/" or "C:\") keeps its trailing separator through the trim above, so
+            // only append one when it is not already present, or a root would gain a double separator and never
+            // match its children.
+            return Path.EndsInDirectorySeparator(full) ? full : full + Path.DirectorySeparatorChar;
         }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {

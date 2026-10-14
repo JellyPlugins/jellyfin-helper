@@ -105,8 +105,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         if (config is null || !config.TraktSourcingEnabled)
         {
             // Master switch off: source nothing from either own creds or the official plugin, and drop any warm
-            // pool so flipping the switch takes effect immediately rather than on the 12h TTL.
-            _cache.InvalidatePersonal(userId);
+            // pool so flipping the switch takes effect immediately rather than on the 12h TTL. Route through the
+            // service-level invalidation so a concurrent in-flight fetch is cancelled too, not just the cache
+            // dropped, or that fetch could write a stale result after this returns.
+            InvalidatePersonal(userId);
             return null;
         }
 
@@ -117,7 +119,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // The resolution rules themselves live in ITraktPersonalSourceService; this method only orchestrates.
         if (!_personalSources.IsLinked(userId, config))
         {
-            _cache.InvalidatePersonal(userId);
+            // Route through the service-level invalidation so a concurrent in-flight fetch is cancelled, not just
+            // the cache dropped; otherwise that fetch could write a stale result for a user who just unlinked.
+            InvalidatePersonal(userId);
             return null;
         }
 
@@ -343,13 +347,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// <inheritdoc />
     public void InvalidatePersonal(Guid userId)
     {
-        _cache.InvalidatePersonal(userId);
-
-        // Cancel and drop any in-flight (possibly already-settled) shared fetch so the next call starts a fresh
-        // one rather than awaiting a stale completed task, and so a fetch still running cancels its pending
-        // cache/backoff write instead of resurrecting the pre-invalidation result. Cancel under the lock: the
-        // fetch's continuation disposes the source under the same lock, so cancel never races dispose. If the
-        // continuation already ran, the slot is gone and there is nothing to cancel.
+        // Cancel the in-flight fetch BEFORE dropping the cache. Cancelling first means a surviving fetch either
+        // already wrote (then the cache drop below removes it) or sees the cancelled token and skips its write;
+        // dropping first would leave a window where the fetch writes a stale entry after the drop but before the
+        // cancel. Cancel under the lock so it never races the continuation's dispose of the same source.
         lock (_personalFlightLock)
         {
             if (_inflightPersonal.TryRemove(userId, out var flight))
@@ -357,6 +358,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 flight.Cts.Cancel();
             }
         }
+
+        _cache.InvalidatePersonal(userId);
     }
 
     /// <inheritdoc />

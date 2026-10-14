@@ -1314,6 +1314,69 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_SwitchedOffDuringFetch_WritesNoStaleResultOrBackoff()
+    {
+        // Switch-off on a CONCURRENT call while a fetch is in flight. The master-switch path routes through the
+        // service-level invalidation, which cancels the running flight, so the surviving fetch writes neither a
+        // stale result nor a backoff that would suppress the user once the switch is turned back on.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        // A concurrent call observes the master switch off and takes the invalidating path.
+        Plugin.Instance!.Configuration.TraktSourcingEnabled = false;
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        scoringGate.SetResult();
+        await fetch;
+
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+        Assert.False(_cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public async Task GetPersonal_UnlinkedDuringFetch_WritesNoStaleResultOrBackoff()
+    {
+        // Unlink on a CONCURRENT call while a fetch is in flight. The link-gate path routes through the
+        // service-level invalidation, cancelling the running flight so no stale result or backoff is written for
+        // a user who just unlinked and may relink.
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken _) =>
+            {
+                await scoringGate.Task.ConfigureAwait(false);
+                return Scored(u, (11, "movie", "Alpha"));
+            });
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+
+        var fetch = sut.GetPersonalAsync(userId, CancellationToken.None);
+
+        // A concurrent call now sees the user unlinked (the official plugin no longer holds a token) and invalidates.
+        _officialPlugin.Setup(p => p.TryGetToken(It.IsAny<Guid>(), It.IsAny<DateTimeOffset>()))
+            .Returns((Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken?)null);
+        Assert.Null(await sut.GetPersonalAsync(userId, CancellationToken.None));
+
+        scoringGate.SetResult();
+        await fetch;
+
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+        Assert.False(_cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
     public async Task GetPersonal_SharedFetchFaults_DegradesToNullWarnsAndBacksOff()
     {
         // A non-fatal fault inside the shared fetch (here the scorer throws) must never surface to waiters as an
