@@ -50,10 +50,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // Per-user single-flight for personal fetches: concurrent requests for the same user (for example the same
     // account open on two devices) share one live fetch instead of each firing their own. The slot is published
     // and cleared under _personalFlightLock, and cleared only by a continuation on the shared task (not an
-    // awaiting caller's finally), so a waiter cancelling cannot strand or re-spawn the shared fetch. Each flight
-    // carries a cancellation source: an invalidation (switch-off or unlink on a concurrent call) cancels it, so a
-    // fetch still running skips its stale cache/backoff write. Trending is pool-backed on the fetch, but its
-    // per-user scoring is just as expensive and gets its own single-flight.
+    // awaiting caller's finally), so a waiter cancelling cannot strand or re-spawn the shared fetch. A fetch
+    // checks slot membership and writes to the cache/backoff under the same lock, so an invalidation (switch-off
+    // or unlink on a concurrent call) that removed the slot bars the stale write with no check-then-act gap.
+    // Trending is pool-backed on the fetch, but its per-user scoring is just as expensive and gets its own
+    // single-flight.
     private readonly ConcurrentDictionary<Guid, PersonalFlight> _inflightPersonal = new();
     private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightTrending = new();
     private readonly Lock _personalFlightLock = new();
@@ -200,31 +201,42 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             TaskScheduler.Default);
     }
 
-    // Cache/backoff writes from a fetch go through these so a flight cancelled by an invalidation (switch-off or
-    // unlink on a concurrent call) never persists a stale result or a backoff against a user who may since have
-    // re-linked. Callers pass whether the flight is still valid (its token is not cancelled), so this needs no
-    // slot lookup or publish timing. Logging is intentionally not guarded: an outcome line is always recorded.
-    private void CachePersonalIfValid(Guid userId, bool valid, DiscoveryResult result)
+    // Cache/backoff writes from a fetch go through these so a flight invalidated (switch-off or unlink on a
+    // concurrent call) never persists a stale result or a backoff against a user who may since have re-linked.
+    // The cancellation check and the write run under _personalFlightLock, the same lock InvalidatePersonal takes
+    // to cancel the flight, so a cancel cannot land between the check and the write. The lock is reentrant, so a
+    // synchronously-completing fetch that writes while GetPersonalAsync still holds the lock is fine. Logging is
+    // intentionally not guarded: an outcome line is always recorded.
+    private void CachePersonalIfValid(Guid userId, CancellationTokenSource flightCts, DiscoveryResult result)
     {
-        if (valid)
+        lock (_personalFlightLock)
         {
-            _cache.SetPersonal(userId, result);
+            if (!flightCts.IsCancellationRequested)
+            {
+                _cache.SetPersonal(userId, result);
+            }
         }
     }
 
-    private void MarkPersonalFailedIfValid(Guid userId, bool valid, TimeSpan? retryAfter)
+    private void MarkPersonalFailedIfValid(Guid userId, CancellationTokenSource flightCts, TimeSpan? retryAfter)
     {
-        if (valid)
+        lock (_personalFlightLock)
         {
-            _cache.MarkPersonalFailed(userId, retryAfter);
+            if (!flightCts.IsCancellationRequested)
+            {
+                _cache.MarkPersonalFailed(userId, retryAfter);
+            }
         }
     }
 
-    private void MarkPersonalEmptyIfValid(Guid userId, bool valid)
+    private void MarkPersonalEmptyIfValid(Guid userId, CancellationTokenSource flightCts)
     {
-        if (valid)
+        lock (_personalFlightLock)
         {
-            _cache.MarkPersonalEmpty(userId);
+            if (!flightCts.IsCancellationRequested)
+            {
+                _cache.MarkPersonalEmpty(userId);
+            }
         }
     }
 
@@ -237,23 +249,22 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(flightCts.Token);
         linked.CancelAfter(PersonalFetchTimeout);
-        var flightToken = flightCts.Token;
         try
         {
-            return await FetchAndScorePersonalCoreAsync(userId, config, flightToken, linked.Token).ConfigureAwait(false);
+            return await FetchAndScorePersonalCoreAsync(userId, config, flightCts, linked.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
             // Covers the overall-timeout cancellation and any non-fatal fault from resolve/fetch/scoring. Waiters
             // get null, not an exception; a short backoff absorbs the retry storm the failure would otherwise draw.
             // The guarded write skips the backoff if the flight was invalidated, so a re-linked user is not suppressed.
-            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
+            MarkPersonalFailedIfValid(userId, flightCts, null);
             _pluginLog.LogWarning(LogSource, $"Personal fetch failed for {DescribeUser(userId)}.", ex, _logger);
             return null;
         }
     }
 
-    private async Task<DiscoveryResult?> FetchAndScorePersonalCoreAsync(Guid userId, PluginConfiguration config, CancellationToken flightToken, CancellationToken cancellationToken)
+    private async Task<DiscoveryResult?> FetchAndScorePersonalCoreAsync(Guid userId, PluginConfiguration config, CancellationTokenSource flightCts, CancellationToken cancellationToken)
     {
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
@@ -263,7 +274,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Linked at the gate but unresolvable now (a transient refresh failure): serve nothing, back off
             // briefly so the next request retries after the outage rather than hammering it.
-            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
+            MarkPersonalFailedIfValid(userId, flightCts, null);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "source unresolvable at fetch time");
             return null;
         }
@@ -274,7 +285,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // A revoked/stale official token fails the movies call and would fail the shows call identically (same
         // dead token, same app). Stop here instead of firing a second doomed request; only the official plugin
-        // can re-link this user. Serve nothing cache-free so the next request retries once the plugin rotates.
+        // can re-link this user. A failure backoff is set below so the next request waits rather than re-hitting
+        // the dead token on every tab load.
         if (officialAuthFailed)
         {
             var reason = retryAfter is { } wait
@@ -282,7 +294,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
                 : "official token auth failed (re-link required)";
             // A failed fetch backs off further live attempts (Retry-After when given, else the default) so a
             // dead token or a rate limit is not re-hit on every tab load.
-            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, retryAfter);
+            MarkPersonalFailedIfValid(userId, flightCts, retryAfter);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, reason);
             return null;
         }
@@ -293,7 +305,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // No cache entry exists to drop here (a hit would have returned earlier), and this failing fetch
             // never writes one, so a plain failure backoff is enough.
-            MarkPersonalFailedIfValid(userId, !flightToken.IsCancellationRequested, null);
+            MarkPersonalFailedIfValid(userId, flightCts, null);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;
         }
@@ -306,7 +318,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         {
             // Trakt itself returned nothing: a stable empty result, so a short dampener absorbs duplicate tab
             // loads. The ambiguous scoring-null path below sets no backoff; only this definite emptiness does.
-            MarkPersonalEmptyIfValid(userId, !flightToken.IsCancellationRequested);
+            MarkPersonalEmptyIfValid(userId, flightCts);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
         }
@@ -314,7 +326,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, cancellationToken).ConfigureAwait(false);
         if (result is not null)
         {
-            CachePersonalIfValid(userId, !flightToken.IsCancellationRequested, result);
+            CachePersonalIfValid(userId, flightCts, result);
             var filtered = _discoveryService.FilterConsumedItems(userId, result);
             LogPersonalOutcome(userId, startedAt, candidates.Count, filtered.Recommendations.Count, "ok");
             return filtered;
@@ -618,7 +630,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return delay > TimeSpan.Zero ? delay : null;
     }
 
-    // Summarizes one personal generation so an empty "Trakt for you" is explainable without enabling Debug.
+    // Summarizes one personal fetch outcome so an empty "Trakt for you" is explainable without enabling Debug.
     // A non-empty result is Debug (routine). An empty result logs Info only on the FIRST transition into empty
     // for a user; a repeated empty (the same user opening the tab again) stays at Debug so the empty cohort does
     // not spam the admin log on every load. A later non-empty result clears the flag so a recurrence is reported.
