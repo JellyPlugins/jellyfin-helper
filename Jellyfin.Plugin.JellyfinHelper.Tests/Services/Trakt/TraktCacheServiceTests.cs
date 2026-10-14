@@ -243,4 +243,46 @@ public sealed class TraktCacheServiceTests
         Assert.True(cache.IsPersonalBackoffActive(a));
         Assert.False(cache.IsPersonalBackoffActive(b));
     }
+
+    [Fact]
+    public void InvalidatePersonal_ClearsBackoff()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        cache.MarkPersonalFailed(userId, null);
+
+        cache.InvalidatePersonal(userId);
+
+        // A request/dismiss mutation must not leave the user served nothing for the failure window.
+        Assert.False(cache.IsPersonalBackoffActive(userId));
+    }
+
+    [Fact]
+    public void SetPersonal_WithStaleGeneration_IsDropped()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        var generation = cache.PersonalGeneration(userId);
+
+        // A mutation invalidates mid-fetch, bumping the generation.
+        cache.InvalidatePersonal(userId);
+
+        var stored = cache.SetPersonal(userId, Result(userId), generation);
+
+        Assert.False(stored);
+        Assert.Null(cache.GetPersonal(userId, _ttl));
+    }
+
+    [Fact]
+    public void SetPersonal_WithCurrentGeneration_IsStored()
+    {
+        var cache = Create();
+        var userId = Guid.NewGuid();
+        var generation = cache.PersonalGeneration(userId);
+
+        var stored = cache.SetPersonal(userId, Result(userId), generation);
+
+        Assert.True(stored);
+        Assert.NotNull(cache.GetPersonal(userId, _ttl));
+    }
 }

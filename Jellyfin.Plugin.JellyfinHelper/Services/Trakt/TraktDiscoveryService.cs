@@ -41,7 +41,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private readonly TraktCacheService _cache;
     private readonly IPluginLogService _pluginLog;
     private readonly IUserManager _userManager;
-    private readonly Func<DateTimeOffset> _utcNow;
     private readonly ILogger<TraktDiscoveryService> _logger;
 
     // Per-user single-flight for personal fetches: concurrent requests for the same user (for example the same
@@ -49,6 +48,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     // shared fetch settles. Trending is pool-backed and already coalesces on the shared pool, so only personal
     // needs this.
     private readonly ConcurrentDictionary<Guid, Task<DiscoveryResult?>> _inflightPersonal = new();
+
+    // Clock used to resolve an HTTP-date Retry-After header. Settable for tests via the UtcNow property (the
+    // assembly exposes internals); production uses the system UTC clock. Kept off the constructor so dependency
+    // injection stays at seven arguments.
+    private Func<DateTimeOffset> _utcNow = () => DateTimeOffset.UtcNow;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="TraktDiscoveryService"/> class.
@@ -60,7 +64,6 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="userManager">The Jellyfin user manager, used only to resolve a username for diagnostic logs.</param>
     /// <param name="logger">The logger.</param>
-    /// <param name="utcNow">Clock used to resolve an HTTP-date Retry-After header; defaults to the system UTC clock.</param>
     public TraktDiscoveryService(
         IHttpClientFactory httpClientFactory,
         ITraktPersonalSourceService personalSources,
@@ -68,8 +71,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         TraktCacheService cache,
         IPluginLogService pluginLog,
         IUserManager userManager,
-        ILogger<TraktDiscoveryService> logger,
-        Func<DateTimeOffset>? utcNow = null)
+        ILogger<TraktDiscoveryService> logger)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _personalSources = personalSources ?? throw new ArgumentNullException(nameof(personalSources));
@@ -78,7 +80,16 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         _pluginLog = pluginLog ?? throw new ArgumentNullException(nameof(pluginLog));
         _userManager = userManager ?? throw new ArgumentNullException(nameof(userManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    ///     Gets or sets the clock used to resolve an HTTP-date Retry-After header. Tests substitute a fixed clock;
+    ///     production uses the system UTC clock.
+    /// </summary>
+    internal Func<DateTimeOffset> UtcNow
+    {
+        get => _utcNow;
+        set => _utcNow = value;
     }
 
     /// <inheritdoc />
@@ -121,27 +132,28 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // The shared work runs on an independent token so one caller cancelling cannot abort the others; each
         // caller still observes its own cancellation below.
         cancellationToken.ThrowIfCancellationRequested();
-        var fetch = _inflightPersonal.GetOrAdd(userId, id => RunSharedPersonalFetchAsync(id, config));
-        return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
+        var started = false;
+        var fetch = _inflightPersonal.GetOrAdd(userId, _ =>
+        {
+            started = true;
+            return FetchAndScorePersonalAsync(userId, config);
+        });
 
-    // Wraps the shared fetch so the in-flight slot is cleared once it settles, closing the window where a late
-    // caller would start a second fetch. Clears only its own slot to avoid stranding a replacement.
-    private Task<DiscoveryResult?> RunSharedPersonalFetchAsync(Guid userId, PluginConfiguration config)
-    {
-        var fetch = FetchAndScorePersonalAsync(userId, config);
-        _ = fetch.ContinueWith(
-            _ =>
+        try
+        {
+            return await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Only the caller that created the slot clears it, and only if it is still the same task, so a
+            // replacement started after this one settled is never stranded. Clearing after the await (rather
+            // than in a continuation) avoids the race where a synchronously-completing fetch would run its
+            // cleanup before GetOrAdd had even published the slot.
+            if (started)
             {
-                if (_inflightPersonal.TryGetValue(userId, out var current) && ReferenceEquals(current, fetch))
-                {
-                    _inflightPersonal.TryRemove(new KeyValuePair<Guid, Task<DiscoveryResult?>>(userId, fetch));
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-        return fetch;
+                _inflightPersonal.TryRemove(new KeyValuePair<Guid, Task<DiscoveryResult?>>(userId, fetch));
+            }
+        }
     }
 
     // The live personal fetch and scoring, shared across concurrent callers for one user. Runs cancellation-free
@@ -149,6 +161,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private async Task<DiscoveryResult?> FetchAndScorePersonalAsync(Guid userId, PluginConfiguration config)
     {
         var cancellationToken = CancellationToken.None;
+
+        // Capture the generation up front: if an invalidation (request/dismiss mutation) bumps it while this
+        // fetch is in flight, the result is dropped at SetPersonal rather than resurrecting pre-mutation data.
+        var generation = _cache.PersonalGeneration(userId);
 
         // Resolve this user's personal source from the official Trakt plugin's token (strictly read-only;
         // the sole Trakt source). Resolution is per user, not cached globally.
@@ -198,7 +214,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
-            // Legitimately empty: a short dampener only, so a genuine first result is not hidden for long.
+            // Trakt itself returned nothing: a stable empty result, so a short dampener absorbs duplicate tab
+            // loads. The ambiguous scoring-null path below sets no backoff; only this definite emptiness does.
             _cache.MarkPersonalEmpty(userId);
             LogPersonalOutcome(userId, startedAt, fetched: 0, final: 0, "Trakt returned no personal recommendations");
             return null;
@@ -207,15 +224,18 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var result = await _discoveryService.ScoreExternalCandidatesAsync(userId, candidates, cancellationToken).ConfigureAwait(false);
         if (result is not null)
         {
-            _cache.SetPersonal(userId, result);
+            // Cache only if no invalidation raced this fetch; otherwise the mutation that bumped the generation
+            // wins and this now-stale result is discarded.
+            _cache.SetPersonal(userId, result, generation);
             var filtered = _discoveryService.FilterConsumedItems(userId, result);
             LogPersonalOutcome(userId, startedAt, candidates.Count, filtered.Recommendations.Count, "ok");
             return filtered;
         }
 
-        // Scoring returned nothing (for example every candidate already owned). Treat as empty, not a failure:
-        // a short dampener so the next genuine result is not delayed behind a long backoff.
-        _cache.MarkPersonalEmpty(userId);
+        // Scoring returned nothing. This is ambiguous: it can mean every candidate was already owned, but also
+        // that the user has no watch profile or Seerr is unconfigured yet. Those "not ready" states resolve on
+        // their own, so this path sets no backoff. A backoff here would hide a genuine result the moment the
+        // profile grows or Seerr is configured, which is exactly what broke "Trakt for you" for a fresh user.
         LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "scoring produced no result (all excluded as owned?)");
         return null;
     }
@@ -268,7 +288,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var pool = _cache.GetTrendingPool(CacheTtl);
         if (pool is null)
         {
-            var candidates = await FetchTrendingAsync(config, cancellationToken).ConfigureAwait(false);
+            var candidates = await FetchTrendingAsync(cancellationToken).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
                 _pluginLog.LogDebug(LogSource, "Trending fetch returned no candidates.", _logger);
@@ -351,7 +371,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         return (mapped, false, retryAfter);
     }
 
-    private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    private async Task<List<ExternalDiscoveryCandidate>> FetchTrendingAsync(CancellationToken cancellationToken)
     {
         var all = new List<ExternalDiscoveryCandidate>();
 

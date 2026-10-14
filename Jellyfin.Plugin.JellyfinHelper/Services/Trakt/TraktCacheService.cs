@@ -16,8 +16,9 @@ public sealed class TraktCacheService
     /// <summary>Default backoff for a failed personal fetch when the server gave no Retry-After.</summary>
     public static readonly TimeSpan DefaultFailureBackoff = TimeSpan.FromMinutes(5);
 
-    /// <summary>Short dampener for a legitimately empty personal result, enough to absorb duplicate tab loads.</summary>
-    public static readonly TimeSpan EmptyBackoff = TimeSpan.FromSeconds(90);
+    /// <summary>Short dampener for a stable empty personal result (Trakt itself returned nothing), enough to
+    /// absorb duplicate tab loads without hiding a result that only appears once the user's data changes.</summary>
+    public static readonly TimeSpan EmptyBackoff = TimeSpan.FromSeconds(15);
 
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _personal = new();
     private readonly ConcurrentDictionary<Guid, CacheEntry<DiscoveryResult>> _trendingScored = new();
@@ -26,6 +27,11 @@ public sealed class TraktCacheService
     // backs off (so a rate-limited or down Trakt is not hammered every tab load); a legitimately empty result
     // backs off only briefly (just to absorb duplicate loads) so a genuine first result appears fast.
     private readonly ConcurrentDictionary<Guid, DateTime> _personalBackoffUntil = new();
+
+    // Per-user generation counter, bumped on every invalidation. A shared fetch captures the generation at start
+    // and may only write its result if the generation is unchanged, so a fetch that was in flight when a mutation
+    // invalidated the user never resurrects the pre-mutation result into the cache.
+    private readonly ConcurrentDictionary<Guid, int> _personalGeneration = new();
     private readonly Func<DateTime> _utcNow;
 
     // volatile so a set/invalidate on one thread is observed by a concurrent reader without a lock. The
@@ -70,6 +76,36 @@ public sealed class TraktCacheService
 
         // A fresh positive result clears any backoff so the user is served immediately rather than waiting it out.
         _personalBackoffUntil.TryRemove(userId, out _);
+    }
+
+    /// <summary>
+    ///     Returns the current personal generation for a user, to be captured before a shared fetch starts and
+    ///     passed back to <see cref="SetPersonal(Guid, DiscoveryResult, int)"/> so a fetch that raced an
+    ///     invalidation does not write a stale result.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns>The current generation value.</returns>
+    public int PersonalGeneration(Guid userId) => _personalGeneration.TryGetValue(userId, out var g) ? g : 0;
+
+    /// <summary>
+    ///     Stores a user's personal result only if the generation captured at fetch start still matches the
+    ///     current generation. A fetch that was in flight across an invalidation is dropped instead of caching a
+    ///     stale pre-invalidation result.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="result">The result to cache.</param>
+    /// <param name="generation">The generation captured before the fetch started.</param>
+    /// <returns><see langword="true"/> if the result was cached; otherwise <see langword="false"/>.</returns>
+    public bool SetPersonal(Guid userId, DiscoveryResult result, int generation)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (PersonalGeneration(userId) != generation)
+        {
+            return false;
+        }
+
+        SetPersonal(userId, result);
+        return true;
     }
 
     /// <summary>
@@ -163,10 +199,19 @@ public sealed class TraktCacheService
     }
 
     /// <summary>
-    ///     Drops a user's cached personal entry (e.g. on disconnect or a mutation that invalidates it).
+    ///     Drops a user's cached personal entry and backoff, and bumps the generation so any in-flight fetch
+    ///     that started before this call cannot write its now-stale result (e.g. on disconnect or a mutation).
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
-    public void InvalidatePersonal(Guid userId) => _personal.TryRemove(userId, out _);
+    public void InvalidatePersonal(Guid userId)
+    {
+        _personal.TryRemove(userId, out _);
+
+        // Clear the backoff so a request/dismiss mutation does not leave the user served nothing for up to the
+        // failure window, and bump the generation so a racing in-flight fetch is barred from caching a result.
+        _personalBackoffUntil.TryRemove(userId, out _);
+        _personalGeneration.AddOrUpdate(userId, 1, (_, current) => current + 1);
+    }
 
     /// <summary>
     ///     Drops the cached global trending pool along with every per-user trending result derived from it.
