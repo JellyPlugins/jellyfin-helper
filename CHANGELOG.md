@@ -20,6 +20,14 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Discovery stages are logged for diagnosis.** An empty personal result is explained in a single plugin-log line (fetched vs final counts, elapsed time, and reason) at Info; per-stage counts and the exclusion-set size are available at Debug, so an ownership collapse is distinguishable from an empty fetch or a parental drop.
 - **`TraktLimit` is now a code constant** instead of a serialized config field (it had no UI and a ceiling never reached in practice). A legacy `plugin.xml` still carrying `<TraktLimit>` is accepted and the value ignored, with no effect on other settings.
 
+### Tests
+
+- Tested by 6764 unit tests and 368 end-to-end tests.
+
+### Special Thanks
+
+- Special thanks to [@TheColin21](https://github.com/TheColin21) for finding and reporting the empty "Trakt for you" issue and for debugging it together ❤️
+
 ## [3.0.1.0] - 2026-10-13
 
 ### Added
