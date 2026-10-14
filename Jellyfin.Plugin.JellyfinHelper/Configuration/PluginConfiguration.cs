@@ -24,7 +24,6 @@ public class PluginConfiguration : BasePluginConfiguration
     private int _seerrCleanupAgeDays = 365;
     private int _trashRetentionDays = 30;
     private int _traktTimeoutSeconds = 30;
-    private int _traktLimit = 20;
     private List<ArrInstanceConfig> _radarrInstances = [];
     private List<ArrInstanceConfig> _sonarrInstances = [];
     private List<string> _codecCardOrder = [];
@@ -119,16 +118,6 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         get => _traktTimeoutSeconds;
         set => _traktTimeoutSeconds = ClampAndReport(nameof(TraktTimeoutSeconds), value, 5, 60);
-    }
-
-    /// <summary>
-    ///     Gets or sets the number of Trakt items fetched per list. Default 20. Valid range 1-40; out-of-range
-    ///     values are clamped.
-    /// </summary>
-    public int TraktLimit
-    {
-        get => _traktLimit;
-        set => _traktLimit = ClampAndReport(nameof(TraktLimit), value, 1, 40);
     }
 
     /// <summary>

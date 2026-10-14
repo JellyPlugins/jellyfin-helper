@@ -630,7 +630,6 @@ public class ConfigurationController : ControllerBase
     private static void ApplyTraktSettings(ConfigurationUpdateRequest request, PluginConfiguration config)
     {
         config.TraktTimeoutSeconds = request.TraktTimeoutSeconds ?? config.TraktTimeoutSeconds;
-        config.TraktLimit = request.TraktLimit ?? config.TraktLimit;
 
         // Sourcing switch. Absent in the request => keep the stored value, so a partial PUT from a client
         // without the Trakt checkbox never silently flips Trakt.

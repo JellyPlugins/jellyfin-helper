@@ -28,6 +28,10 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     private const string MediaTypeMovie = "movie";
     private const string MediaTypeTv = "tv";
 
+    // Items fetched per Trakt list. A fixed value, not configurable: the ceiling is never reached in practice
+    // and there is no UI to set it, so a serialized config field would be dead weight.
+    private const int TraktLimit = 20;
+
     // Caches are warmed by the scheduled task; request-time serves a fresh entry or does a lazy live fetch.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(12);
 
@@ -160,7 +164,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var candidates = new List<ExternalDiscoveryCandidate>();
-        var (movies, officialAuthFailed, retryAfter) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, config.TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
+        var (movies, officialAuthFailed, retryAfter) = await FetchPersonalAsync("/recommendations/movies", MediaTypeMovie, source, TraktLimit, rankOffset: 0, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(movies);
 
         // A revoked/stale official token fails the movies call and would fail the shows call identically (same
@@ -190,7 +194,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         // Continue the ranking after the movies so personal shows rank below personal movies, matching
         // the fetch order.
-        var (shows, _, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, config.TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
+        var (shows, _, _) = await FetchPersonalAsync("/recommendations/shows", MediaTypeTv, showsSource, TraktLimit, candidates.Count, userId, cancellationToken).ConfigureAwait(false);
         candidates.AddRange(shows);
         if (candidates.Count == 0)
         {
@@ -355,14 +359,14 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // app id rather than an empty trakt-api-key (which Trakt rejects).
         var clientId = External.OfficialTraktPluginReader.OfficialTraktClientId;
 
-        using (var movieReq = BuildRequest("/movies/trending", clientId, config.TraktLimit, accessToken: null))
+        using (var movieReq = BuildRequest("/movies/trending", clientId, TraktLimit, accessToken: null))
         {
             var (movies, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
-        using (var showReq = BuildRequest("/shows/trending", clientId, config.TraktLimit, accessToken: null))
+        using (var showReq = BuildRequest("/shows/trending", clientId, TraktLimit, accessToken: null))
         {
             var (shows, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
 
