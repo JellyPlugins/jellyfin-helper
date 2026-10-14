@@ -96,6 +96,17 @@ public sealed class TraktCacheService
         }
 
         SetPersonal(userId, result);
+
+        // Re-check after the write to close the gap between the guard above and the store: an invalidation that
+        // raced in between bumped the generation, so undo the now-stale write rather than leave it cached for the
+        // full TTL. Lock-free by design (this is a best-effort process-local cache); the self-heal keeps the
+        // window to a single write that the next statement reverts.
+        if (PersonalGeneration(userId) != generation)
+        {
+            _personal.TryRemove(userId, out _);
+            return false;
+        }
+
         return true;
     }
 
@@ -205,12 +216,17 @@ public sealed class TraktCacheService
     /// <param name="userId">The Jellyfin user id.</param>
     public void InvalidatePersonal(Guid userId)
     {
+        // Bump the generation BEFORE dropping the entry. A racing SetPersonal(generation) writes, then re-checks
+        // the generation and removes its own entry on a mismatch; ordering the bump first guarantees that any
+        // write which observed the old generation is either barred (its re-check now sees the bump) or removed
+        // here (its store happened before this TryRemove). The reverse order leaves a window where a write lands
+        // after the remove but before the bump, stranding a stale entry.
+        _personalGeneration.AddOrUpdate(userId, 1, (_, current) => current + 1);
         _personal.TryRemove(userId, out _);
 
         // Clear the backoff so a request/dismiss mutation does not leave the user served nothing for up to the
-        // failure window, and bump the generation so a racing in-flight fetch is barred from caching a result.
+        // failure window.
         _personalBackoffUntil.TryRemove(userId, out _);
-        _personalGeneration.AddOrUpdate(userId, 1, (_, current) => current + 1);
     }
 
     /// <summary>

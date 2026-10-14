@@ -161,6 +161,18 @@ public sealed class VirtualItemDetectorTests
             Times.Once);
     }
 
+    [Fact]
+    public void IsVirtual_False_ForUnnormalizablePath_FailsClosedAsOwned()
+    {
+        // A path with an invalid character makes Path.GetFullPath throw. Such a path cannot be a plugins-directory
+        // stub, so the detector must fail closed (owned) rather than let the exception unwind into the caller's
+        // library scan, which contains the whole scan and would discard every owned title's exclusion over one
+        // bad path. A null character is rejected on both Windows and Linux.
+        var item = new Movie { Path = "bad\0path.mkv" };
+
+        Assert.False(Create().IsVirtual(item));
+    }
+
     private static string OwnedPath() =>
         OperatingSystem.IsWindows() ? @"D:\media\movies\real.mkv" : "/media/movies/real.mkv";
 }

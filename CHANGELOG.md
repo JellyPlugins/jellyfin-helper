@@ -21,7 +21,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- Tested by 6771 unit tests and 368 end-to-end tests.
+- Tested by 6773 unit tests and 368 end-to-end tests.
 
 ### Special Thanks
 

@@ -285,4 +285,39 @@ public sealed class TraktCacheServiceTests
         Assert.True(stored);
         Assert.NotNull(cache.GetPersonal(userId, _ttl));
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task SetPersonal_RacingInvalidation_NeverLeavesStaleEntry()
+    {
+        // The generation guard reads, writes, then re-checks, so an invalidation landing in the write window is
+        // self-healed. This asserts the invariant that must hold across every interleaving: once an invalidation
+        // for the captured generation has run, no entry written under that generation may survive. Running many
+        // rounds exercises the post-write re-check branch under real contention without a timing assumption.
+        var cache = Create();
+
+        for (var round = 0; round < 2000; round++)
+        {
+            var userId = Guid.NewGuid();
+            var generation = cache.PersonalGeneration(userId);
+
+            using var ready = new System.Threading.Barrier(2);
+            var writer = System.Threading.Tasks.Task.Run(() =>
+            {
+                ready.SignalAndWait();
+                cache.SetPersonal(userId, Result(userId), generation);
+            });
+            var invalidator = System.Threading.Tasks.Task.Run(() =>
+            {
+                ready.SignalAndWait();
+                cache.InvalidatePersonal(userId);
+            });
+            await System.Threading.Tasks.Task.WhenAll(writer, invalidator);
+
+            // The invalidation bumped the generation, so a result written under the old generation must not remain.
+            if (cache.PersonalGeneration(userId) != generation)
+            {
+                Assert.Null(cache.GetPersonal(userId, _ttl));
+            }
+        }
+    }
 }

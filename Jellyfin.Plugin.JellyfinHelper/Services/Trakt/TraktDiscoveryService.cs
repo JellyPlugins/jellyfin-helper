@@ -193,7 +193,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         var showsSource = await _personalSources.ResolveAsync(userId, config, cancellationToken).ConfigureAwait(false);
         if (showsSource is null)
         {
-            _cache.InvalidatePersonal(userId);
+            // No cache entry exists to drop here (a hit would have returned earlier), and this failing fetch
+            // never writes one, so a plain failure backoff is enough; invalidating would only bump the
+            // generation and clear the backoff MarkPersonalFailed sets one line later.
             _cache.MarkPersonalFailed(userId, null);
             LogPersonalOutcome(userId, startedAt, candidates.Count, final: 0, "source lost before shows fetch");
             return null;

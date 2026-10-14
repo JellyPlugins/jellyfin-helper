@@ -75,8 +75,21 @@ public sealed class VirtualItemDetector
             return false;
         }
 
-        var root = NormalizeRoot(_pluginsPath);
-        var candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(itemPath));
+        // Normalize per item and fail closed: a path with invalid characters cannot be a plugins-directory stub,
+        // so treat it as owned rather than letting the exception unwind into AddLibraryExclusions, which contains
+        // the whole scan and would otherwise discard every owned title's exclusion over one bad path.
+        string candidate;
+        string root;
+        try
+        {
+            root = NormalizeRoot(_pluginsPath);
+            candidate = Path.TrimEndingDirectorySeparator(Path.GetFullPath(itemPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return false;
+        }
+
         var comparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;

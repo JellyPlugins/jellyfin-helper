@@ -821,7 +821,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     public async Task GetPersonal_SourceLostBeforeShows_LogsOutcomeAndServesNull()
     {
         // The token survives the gate and the movies fetch but vanishes before the shows re-resolve. The movies
-        // already fetched are discarded, the cache is cleared, and the outcome names the lost-source reason.
+        // already fetched are discarded, the fetch backs off, and the outcome names the lost-source reason.
         _pluginLog = TestMockFactory.CreatePluginLogService();
         var userId = Guid.NewGuid();
         _officialPlugin.SetupSequence(p => p.TryGetToken(userId, It.IsAny<DateTimeOffset>()))
