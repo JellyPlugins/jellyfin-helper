@@ -17,7 +17,8 @@ public class ConfigurationUpdateRequest
     /// <summary>
     ///     Gets the minimum age in days an orphaned item must have before deletion.
     /// </summary>
-    public int OrphanMinAgeDays { get; init; }
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public int? OrphanMinAgeDays { get; init; }
 
     /// <summary>
     ///     Gets the execution mode for the Trickplay Folder Cleaner task.
@@ -102,7 +103,8 @@ public class ConfigurationUpdateRequest
     /// <summary>
     ///     Gets a value indicating whether to use a trash folder instead of permanently deleting files.
     /// </summary>
-    public bool UseTrash { get; init; }
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public bool? UseTrash { get; init; }
 
     /// <summary>
     ///     Gets the path to the trash folder.

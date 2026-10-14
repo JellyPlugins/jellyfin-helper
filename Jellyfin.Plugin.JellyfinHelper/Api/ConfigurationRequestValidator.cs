@@ -85,7 +85,7 @@ public static class ConfigurationRequestValidator
         }
 
         // Trash folder path validation (block obviously invalid paths from being persisted)
-        var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash);
+        var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash ?? false);
         if (trashPathError != null)
         {
             return trashPathError;

@@ -1896,4 +1896,30 @@ public class ConfigurationControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
         Assert.True(_config.TraktSourcingEnabled);
     }
+
+    [Fact]
+    public async Task UpdateConfiguration_OrphanMinAgeDaysOmitted_PreservesStoredValue()
+    {
+        // A partial PUT omitting the field must not silently reset the stored age to 0.
+        _config.OrphanMinAgeDays = 30;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(30, _config.OrphanMinAgeDays);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashOmitted_PreservesStoredValue()
+    {
+        // An omitted UseTrash must not silently disable the trash (which would flip deletes to permanent).
+        _config.UseTrash = true;
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest { }, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.True(_config.UseTrash);
+    }
 }

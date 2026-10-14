@@ -141,7 +141,7 @@ export async function runTaskToCompletion(
       const finishedFresh = end !== '' && end !== priorEnd;
       if (task.State === 'Idle' && (sawRunning || finishedFresh)) return task;
     }
-    await sleep(pollMs); // NOSONAR - sequential polling delay must stay inside the loop
+    await sleep(pollMs); // sequential polling delay must stay inside the loop
   }
   throw new Error(`Task ${taskId} did not complete within ${timeoutMs}ms`);
 }
