@@ -294,6 +294,9 @@ var _dirtyTrackingHandler = null;
 var _dirtyTrackingForm = null;
 
 function handleDirtyInput() {
+    // Synchronous: the debounced band refresh below must never run before this flag,
+    // or a snapshot taken in between would swallow a fresh edit as the new baseline.
+    _settingsInteracted = true;
     if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
     _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
 }
@@ -522,10 +525,10 @@ function loadSettings(onDone) {
         var discoveryEnabled = recsNotDeactivated && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
-        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" aria-disabled="false" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations not set to Deactivate and Seerr configured.')) + '</div>';
-        // Discovery setup hint - collapsible panel (default: closed)
-        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;">';
+        // Discovery setup hint - collapsible panel (default: closed, always operable so it overrides the greyed wrapper for assistive tech)
+        h += '<div class="discovery-setup-hint" aria-disabled="false" style="margin:0.3em 0 0;">';
         h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
         h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
         h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
@@ -1394,6 +1397,28 @@ function fallbackCopy(text) {
  * Called after the settings form is rendered.
  */
 function attachAutoSaveHandlers() {
+    // Coalesce rapid toggle saves into one PUT so overlapping full-payload saves cannot
+    // persist out of order. UI updates stay instant, only the network call is deferred.
+    var quietSaveTimer = null;
+    var quietSaveElements = [];
+    function scheduleQuietSave(el) {
+        if (el && quietSaveElements.indexOf(el) === -1) quietSaveElements.push(el);
+        if (quietSaveTimer) clearTimeout(quietSaveTimer);
+        quietSaveTimer = setTimeout(function () {
+            quietSaveTimer = null;
+            var elements = quietSaveElements;
+            quietSaveElements = [];
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { indicateQuietSave(elements, true); },
+                onError: function () { indicateQuietSave(elements, false); }
+            });
+        }, 250);
+    }
+    function indicateQuietSave(elements, success) {
+        for (var i = 0; i < elements.length; i++) showInlineCheckboxIndicator(elements[i], success);
+    }
     // Task mode dropdowns - auto-save on change
     var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
     for (var i = 0; i < taskModeIds.length; i++) {
@@ -1460,12 +1485,7 @@ function attachAutoSaveHandlers() {
         discoveryEl.addEventListener('change', function () {
             // Refresh the Trakt row right away instead of waiting for the save.
             refreshTraktRowState();
-            doSaveSettings(buildSettingsPayload(), {
-                quiet: true,
-                element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
-                onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
-            });
+            scheduleQuietSave(discoveryEl);
         });
     }
 
@@ -1473,12 +1493,7 @@ function attachAutoSaveHandlers() {
     var traktEl = document.getElementById('cfgTraktSourcingEnabled');
     if (traktEl) {
         traktEl.addEventListener('change', function () {
-            doSaveSettings(buildSettingsPayload(), {
-                quiet: true,
-                element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(traktEl, true); },
-                onError: function () { showInlineCheckboxIndicator(traktEl, false); }
-            });
+            scheduleQuietSave(traktEl);
         });
     }
 

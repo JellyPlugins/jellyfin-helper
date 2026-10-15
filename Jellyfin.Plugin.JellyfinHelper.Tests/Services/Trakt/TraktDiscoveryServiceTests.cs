@@ -74,6 +74,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     public void Dispose()
     {
         Plugin.Instance!.Configuration.TraktSourcingEnabled = true;
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.DryRun;
         ControllerTestFactory.TeardownPluginInstance();
         GC.SuppressFinalize(this);
     }
@@ -529,6 +530,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     [Fact]
     public async Task RefreshAll_InvalidatesTrendingPool()
     {
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.Activate;
         var userId = Guid.NewGuid();
         _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) =>
@@ -549,6 +551,32 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var fresh = await sut.GetTrendingAsync(userId, CancellationToken.None);
         Assert.NotNull(fresh);
         Assert.Contains(fresh!.Recommendations, r => r.TmdbId == 55);
+    }
+
+    [Fact]
+    public async Task RefreshAll_DryRun_PreservesTrendingPool()
+    {
+        // Dry run warms personal caches without evicting trending, so a later outage serves
+        // the previous pool instead of an empty result. Runs in the default DryRun mode.
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.DryRun;
+        var userId = Guid.NewGuid();
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid u, IReadOnlyList<ExternalDiscoveryCandidate> c, CancellationToken t) =>
+                Scored(u, c.Select(x => (x.TmdbId, x.MediaType, x.Title ?? string.Empty)).ToArray()));
+        var sut = CreateService();
+
+        _responses.Enqueue((HttpStatusCode.OK, TrendingMoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, TrendingShowsJson));
+        var seeded = await sut.GetTrendingAsync(userId, CancellationToken.None);
+        Assert.NotNull(seeded);
+
+        await sut.RefreshAllAsync(CancellationToken.None);
+
+        // No refetch: the strict handler would throw on any live fetch, so serving the
+        // seeded pool proves it survived the refresh.
+        var preserved = await sut.GetTrendingAsync(userId, CancellationToken.None);
+        Assert.NotNull(preserved);
+        Assert.Equal(seeded!.Recommendations.Count, preserved!.Recommendations.Count);
     }
 
     // --- Official-Trakt-plugin source mode -------------------------------------------------------------

@@ -507,7 +507,12 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         // Drop the shared trending pool and every per-user trending result derived from it, so the
         // next request re-fetches a fresh pool and rescores; trending is not warmed per user here. Then
         // warm each linked user's personal cache, guarding every user so one failure never aborts the rest.
-        _cache.InvalidateTrendingPool();
+        // Dry run skips the eviction and warms personal caches only, so a later outage cannot
+        // leave users worse off than before the task ran.
+        if (config.RecommendationsTaskMode != TaskMode.DryRun)
+        {
+            _cache.InvalidateTrendingPool();
+        }
 
         // Warm every user the official plugin holds a usable token for. The population comes from the
         // source service, which owns the foreign token store.
