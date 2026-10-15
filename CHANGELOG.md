@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.1.2] - 2026-10-15
+
+### Added
+
+- **Backup now carries the Trakt sourcing flag.** Export and import round-trip "Enable Trakt discovery" verbatim, so the choice survives a move to a fresh installation. Backups from before the flag existed restore it as off, matching the default.
+- **Trakt sourcing toggle auto-saves.** The checkbox saves instantly with an inline confirmation, like the Discovery access toggle. Rapid on/off toggles are coalesced into a single save so overlapping saves can no longer persist out of order.
+
+### Fixed
+
+- **Discovery background work respects its master switch.** Seerr discovery generation and the Trakt refresh no longer run while Discovery user access is off. Stored choices are preserved, so re-enabling Discovery resumes both without reconfiguration.
+- **The Trakt checkbox only appears when it applies.** It is shown only with Discovery access on and the official Trakt plugin detected, instead of sitting inert on the page.
+- **Unsaved-changes tracking no longer cries wolf.** The baseline snapshot is re-taken after the async plugin probe (unless you already edited), and edits register synchronously, so leaving the tab no longer reports phantom unsaved changes and can no longer swallow a fresh edit.
+- **Greyed-out settings are truly inert.** Seerr task-mode and retention inputs are now disabled (not just dimmed), so keyboard focus cannot reach them, and greyed sections report correctly to screen readers.
+
+### Changed
+
+- **DryRun warms discovery caches without persisting.** Seerr generation runs in DryRun as a preview (logged, nothing persisted) and the Trakt refresh warms its memory caches; the shared trending pool is left untouched so a later outage cannot leave users worse off. Deactivate still skips both entirely.
+
+### Tests
+
+- Tested by 6800 unit tests and 369 end-to-end tests.
+
 ## [3.0.1.1] - 2026-10-14
 
 ### Fixed

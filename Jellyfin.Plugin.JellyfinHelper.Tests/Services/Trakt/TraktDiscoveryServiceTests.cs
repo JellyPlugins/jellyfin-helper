@@ -572,11 +572,15 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
 
         await sut.RefreshAllAsync(CancellationToken.None);
 
-        // No refetch: the strict handler would throw on any live fetch, so serving the
+        // A different user has no scored cache entry, so serving them must read the shared
+        // pool. No refetch: the strict handler would throw on any live fetch, so serving the
         // seeded pool proves it survived the refresh.
-        var preserved = await sut.GetTrendingAsync(userId, CancellationToken.None);
+        var otherUser = Guid.NewGuid();
+        var preserved = await sut.GetTrendingAsync(otherUser, CancellationToken.None);
         Assert.NotNull(preserved);
-        Assert.Equal(seeded!.Recommendations.Count, preserved!.Recommendations.Count);
+        Assert.Equal(
+            seeded!.Recommendations.Select(r => r.TmdbId),
+            preserved!.Recommendations.Select(r => r.TmdbId));
     }
 
     // --- Official-Trakt-plugin source mode -------------------------------------------------------------

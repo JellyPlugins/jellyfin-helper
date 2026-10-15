@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.1.1"
+version: "3.0.1.2"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,13 +13,12 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.1.1 - "Trakt for you" no longer stays empty; discovery is quieter and self-healing
+  v3.0.1.2 - Discovery background work respects its master switch, Trakt travels with backup
 
-  - Fixed the main report: "Trakt for you" could stay empty while trending and the local picks were full. Virtual stub library entries (real-looking files with a TMDb id but no media, created by some request helpers) were counted as owned and silently excluded every personal pick. They are now recognised as virtual and ignored, so your Trakt recommendations come through
-  - An empty "Trakt for you" is no longer sticky: a null or empty result is cached only briefly, so once the server has your picks they appear on the next open instead of being held behind a stale empty view
-  - A rate-limited or unreachable Trakt is retried with a backoff (honouring the server's Retry-After) instead of being re-hit on every tab load, and the same account open on two devices now shares one fetch instead of firing two
-  - An unlinked user no longer sees a "Trakt for you" tab that only shows a not-linked message; the tab appears once you are linked, and "Trakt trending" (which needs no login) is always available
-  - The plugin log now explains an empty personal result in one line (what was fetched, what survived, and why), so a token, fetch, or ownership issue is far easier to pin down
-  - Tested by 6779 unit tests and 369 end-to-end tests
+  - Seerr discovery generation and the Trakt refresh no longer run while Discovery user access is off; stored choices resume automatically on re-enabling
+  - Backup export/import round-trips the "Enable Trakt discovery" flag, so the choice survives a move to a fresh installation
+  - The Trakt checkbox only appears with Discovery on and the official Trakt plugin detected, and auto-saves like the Discovery toggle
+  - DryRun warms discovery caches without persisting, and leaves the shared trending pool untouched
+  - Greyed-out settings are now truly inert (keyboard and screen readers), and unsaved-changes tracking no longer reports phantom edits
+  - Tested by 6800 unit tests and 369 end-to-end tests
   - Requires Jellyfin 12.2 - if you are on Jellyfin 10.x, stay on v2.1.0.6
-  - Special thanks to @TheColin21 (https://github.com/TheColin21) for finding and reporting the empty "Trakt for you" issue and for debugging it together ❤️
