@@ -1132,4 +1132,127 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
     }
+
+    [Fact]
+    public void RestoreBackup_TraktSourcingEnabled_RestoredVerbatim()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.DiscoveryUserAccessEnabled = true;
+        backup.TraktSourcingEnabled = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.DiscoveryUserAccessEnabled);
+        Assert.True(liveConfig.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public void RestoreBackup_TraktSourcingEnabled_DiscoveryDisabled_PreservedVerbatim()
+    {
+        // No Discovery gate on import. Enforcement happens at the use sites, so a stored
+        // true survives a Discovery off/on cycle.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktSourcingEnabled = false;
+        var backup = MakeMinimalValidBackup();
+        backup.DiscoveryUserAccessEnabled = false;
+        backup.TraktSourcingEnabled = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.False(liveConfig.DiscoveryUserAccessEnabled);
+        Assert.True(liveConfig.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public void RestoreBackup_TraktSourcingEnabledFalse_OverwritesLiveTrue()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktSourcingEnabled = true;
+        var backup = MakeMinimalValidBackup();
+        backup.TraktSourcingEnabled = false;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.DiscoveryUserAccessEnabled);
+        Assert.False(liveConfig.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public void CreateBackup_TraktSourcingEnabled_ExportedOneToOne()
+    {
+        // Export is always verbatim, so the round-trip stays lossless with Discovery disabled.
+        var liveConfig = new PluginConfiguration
+        {
+            DiscoveryUserAccessEnabled = false,
+            TraktSourcingEnabled = true
+        };
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
+
+        var backup = service.CreateBackup();
+
+        Assert.False(backup.DiscoveryUserAccessEnabled);
+        Assert.True(backup.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public void RestoreBackup_LegacyBackupWithoutTraktField_DisablesSourcing()
+    {
+        // Backups predating the Trakt flag default to false, matching the live default.
+        var json = "{ \"backupVersion\": 1, \"createdAt\": \"2026-10-14T13:19:44Z\","
+            + " \"pluginVersion\": \"3.0.1.0\", \"language\": \"de\", \"discoveryUserAccessEnabled\": true }";
+        var backup = BackupService.DeserializeBackup(json);
+        Assert.NotNull(backup);
+        Assert.False(backup.TraktSourcingEnabled);
+
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.TraktSourcingEnabled = true;
+
+        service.RestoreBackup(backup);
+
+        Assert.True(liveConfig.DiscoveryUserAccessEnabled);
+        Assert.False(liveConfig.TraktSourcingEnabled);
+    }
+
+    [Fact]
+    public void Backup_TraktSourcingEnabled_SurvivesFullExportRestoreCycle()
+    {
+        var sourceConfig = new PluginConfiguration
+        {
+            DiscoveryUserAccessEnabled = false,
+            TraktSourcingEnabled = true
+        };
+        var sourceMock = new Mock<IPluginConfigurationService>();
+        sourceMock.Setup(c => c.GetConfiguration()).Returns(sourceConfig);
+        sourceMock.Setup(c => c.IsInitialized).Returns(true);
+        sourceMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        var exporter = new BackupService(
+            _tempDir,
+            sourceMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object,
+            growthTimeline: null,
+            secretProtector: _secretProtector);
+
+        var backup = exporter.CreateBackup(includeSecrets: true);
+        var roundTripped = BackupService.DeserializeBackup(BackupService.SerializeBackup(backup));
+        Assert.NotNull(roundTripped);
+
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        service.RestoreBackup(roundTripped);
+
+        Assert.False(liveConfig.DiscoveryUserAccessEnabled);
+        Assert.True(liveConfig.TraktSourcingEnabled);
+    }
 }

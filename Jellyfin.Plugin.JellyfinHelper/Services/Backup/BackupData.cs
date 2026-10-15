@@ -184,6 +184,12 @@ public class BackupData
     public bool DiscoveryUserAccessEnabled { get; set; }
 
     /// <summary>
+    ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled.
+    /// </summary>
+    [JsonPropertyName("traktSourcingEnabled")]
+    public bool TraktSourcingEnabled { get; set; }
+
+    /// <summary>
     ///     Gets or sets the growth timeline result (trend graph data).
     /// </summary>
     [JsonPropertyName("growthTimeline")]

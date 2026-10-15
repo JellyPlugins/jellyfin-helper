@@ -210,7 +210,8 @@ public class HelperCleanupTaskTests
             SeerrCleanupTaskMode = TaskMode.Activate,
             SeerrUrl = "http://localhost:5055",
             SeerrApiKey = "test-key",
-            RecommendationsTaskMode = TaskMode.Activate
+            RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -228,6 +229,12 @@ public class HelperCleanupTaskTests
         _seerrDiscoveryServiceMock.Verify(
             s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
             Times.Once);
+        VerifyLogContains("Generating discovery recommendations...", LogLevel.Information);
+
+        // Trakt sourcing defaults to off, so no refresh happens even with Discovery on.
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -449,8 +456,9 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_TraktDryRun_LogsSkippedWithoutRefreshing()
+    public async Task ExecuteAsync_TraktDryRun_RefreshesCaches()
     {
+        // Trakt refresh only warms caches, so dry run refreshes instead of skipping.
         _config = new PluginConfiguration
         {
             TrickplayTaskMode = TaskMode.Deactivate,
@@ -458,15 +466,16 @@ public class HelperCleanupTaskTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             RecommendationsTaskMode = TaskMode.DryRun,
+            DiscoveryUserAccessEnabled = true,
             TraktSourcingEnabled = true
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Task started (Dry Run). Skipping Trakt refresh.", LogLevel.Information);
+        VerifyLogContains("Refreshing Trakt discovery caches (Dry Run - cache only)...", LogLevel.Information);
         _traktDiscoveryMock.Verify(
             d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
     }
 
     [Fact]
@@ -479,6 +488,7 @@ public class HelperCleanupTaskTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true,
             TraktSourcingEnabled = true
         };
 
@@ -488,6 +498,56 @@ public class HelperCleanupTaskTests
         _traktDiscoveryMock.Verify(
             d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    public static TheoryData<TaskMode, bool, bool, bool, bool> DiscoverySurfaceGateCases() => new()
+    {
+        // mode, discoveryAccess, traktSourcing, expectSeerrDiscovery, expectTraktRefresh
+        { TaskMode.Deactivate, false, false, false, false },
+        { TaskMode.Deactivate, true, false, false, false },
+        { TaskMode.Deactivate, false, true, false, false },
+        { TaskMode.Deactivate, true, true, false, false },
+        { TaskMode.Activate, false, false, false, false },
+        { TaskMode.Activate, true, false, true, false },
+        { TaskMode.Activate, false, true, false, false },
+        { TaskMode.Activate, true, true, true, true },
+        { TaskMode.DryRun, false, false, false, false },
+        { TaskMode.DryRun, true, false, true, false },
+        { TaskMode.DryRun, false, true, false, false },
+        { TaskMode.DryRun, true, true, true, true },
+    };
+
+    [Theory]
+    [MemberData(nameof(DiscoverySurfaceGateCases))]
+    public async Task ExecuteAsync_DiscoverySurfaceTasks_OnlyRunWithDiscoveryAccess(
+        TaskMode mode, bool discoveryEnabled, bool traktEnabled, bool expectSeerr, bool expectTrakt)
+    {
+        // Seerr generation needs Discovery access, Trakt refresh additionally needs its flag.
+        // Dry run still warms both caches without persisting. Stored flags are never reset here.
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = mode,
+            SeerrUrl = "http://localhost:5055",
+            SeerrApiKey = "test-key",
+            DiscoveryUserAccessEnabled = discoveryEnabled,
+            TraktSourcingEnabled = traktEnabled
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            expectSeerr ? Times.Once() : Times.Never());
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            expectTrakt ? Times.Once() : Times.Never());
+        Assert.Equal(discoveryEnabled, _config.DiscoveryUserAccessEnabled);
+        Assert.Equal(traktEnabled, _config.TraktSourcingEnabled);
     }
 
     [Fact]

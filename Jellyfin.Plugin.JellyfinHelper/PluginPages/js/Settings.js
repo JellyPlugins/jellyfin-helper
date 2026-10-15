@@ -37,8 +37,9 @@ function refreshDiscoveryAccessState() {
     }
     var chk = document.getElementById('cfgDiscoveryUserAccess');
     if (chk) {
+        // Disabled only, never unchecked: the choice must survive a prereq dip and
+        // the payload forcer keeps unmet prereqs from being persisted.
         chk.disabled = !discEnabled;
-        if (!discEnabled) chk.checked = false;
     }
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
@@ -52,7 +53,22 @@ function refreshDiscoveryAccessState() {
         if (panel) panel.style.display = 'none';
         if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
     }
+    refreshTraktRowState();
     return discEnabled;
+}
+
+// Set by the official Trakt plugin probe. The row shows only when present and Discovery is on.
+var _traktPluginPresent = false;
+
+// Visible only with the official plugin present and Discovery on. The stored value is kept while hidden.
+function refreshTraktRowState() {
+    var row = document.getElementById('traktSourcingRow');
+    var hint = document.getElementById('traktSourcingHint');
+    if (!row) return;
+    var discChk = document.getElementById('cfgDiscoveryUserAccess');
+    var show = _traktPluginPresent && !!(discChk && discChk.checked && !discChk.disabled);
+    row.style.display = show ? '' : 'none';
+    if (hint) hint.style.display = show ? '' : 'none';
 }
 
 // Show/hide the Recommendations tab button+content based on TaskMode
@@ -496,7 +512,7 @@ function loadSettings(onDone) {
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
         // Discovery setup hint - collapsible panel (default: closed)
@@ -516,7 +532,7 @@ function loadSettings(onDone) {
         h += '<div style="margin-top:0.6em;font-size:0.9em;">' + escHtml(T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?')) + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →')) + '</a></div>';
         h += '</div></div>';
 
-        // Only shown when the official Trakt plugin is present (loadTraktOfficialStatus unhides it); default off.
+        // Shown only with the official Trakt plugin present and Discovery on; hidden by default.
         h += '<div class="checkbox-row" id="traktSourcingRow" style="display:none;margin-top:0.2em;"><input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === true ? ' checked' : '') + '><label for="cfgTraktSourcingEnabled">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label></div>';
         h += '<div class="help-text" id="traktSourcingHint" style="display:none;">' + escHtml(T('traktSourcingHint', 'Sources Trakt recommendations through the official Trakt plugin.')) + '</div>';
         h += '</div>';
@@ -1244,20 +1260,18 @@ function attachSeerrHandlers() {
 }
 
 /**
- * Probe the admin-only official-plugin status endpoint and reveal the Trakt sourcing checkbox only when the
- * official Trakt plugin is present (Trakt discovery is sourced exclusively through it).
+ * Probe the official plugin status and refresh the Trakt row, which shows only
+ * with the plugin present and Discovery access on.
  */
 function loadTraktOfficialStatus() {
     var row = document.getElementById('traktSourcingRow');
-    var hint = document.getElementById('traktSourcingHint');
     if (!row) return;
     apiGet('JellyfinHelper/Trakt/OfficialPluginStatus', function (res) {
-        var present = !!(res && (res.Present || res.present));
-        row.style.display = present ? '' : 'none';
-        if (hint) hint.style.display = present ? '' : 'none';
+        _traktPluginPresent = !!(res && (res.Present || res.present));
+        refreshTraktRowState();
     }, function () {
-        row.style.display = 'none';
-        if (hint) hint.style.display = 'none';
+        _traktPluginPresent = false;
+        refreshTraktRowState();
     });
 }
 
@@ -1397,11 +1411,9 @@ function attachAutoSaveHandlers() {
                             var hint = document.querySelector('.playlist-sync-disabled-hint');
                             if (hint) hint.style.display = isActive ? 'none' : '';
 
-                            // Update discovery access toggle greyed-out state
+                            // Update discovery access toggle greyed-out state. Checked state is kept
+                            // while disabled so it survives a mode round-trip; the payload forcer guards the save.
                             refreshDiscoveryAccessState();
-                            // Uncheck discovery when deactivating recommendations
-                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
-                            if (!isActive && discChk) discChk.checked = false;
                         }
                     });
                     return;
@@ -1425,27 +1437,16 @@ function attachAutoSaveHandlers() {
         });
     }
 
-    // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
-    // sourcing row (revealed only when the official Trakt plugin is present) appears/disappears live
-    // instead of waiting for the next tab load. loadSettings re-fetches config, so the row reflects
-    // the just-saved state.
+    // Discovery user access toggle. Auto-save on change with no form reload. The Trakt row follows live and the stored choice is kept.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {
-            var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
-            var savedScroll = scrollContainer.scrollTop;
+            // Refresh the Trakt row right away instead of waiting for the save.
+            refreshTraktRowState();
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null, // suppress default overlay
-                onSuccess: function () {
-                    // Restore scroll + show the indicator only AFTER loadSettings has re-rendered the
-                    // form, so neither acts on the stale/destroyed DOM the async reload replaces.
-                    loadSettings(function () {
-                        scrollContainer.scrollTop = savedScroll;
-                        var newEl = document.getElementById('cfgDiscoveryUserAccess');
-                        if (newEl) showInlineCheckboxIndicator(newEl, true);
-                    });
-                },
+                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
                 onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
             });
         });

@@ -126,7 +126,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             SeerrCleanupTaskMode = TaskMode.Deactivate,
-            RecommendationsTaskMode = TaskMode.Activate
+            RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true
         };
 
         _seerrDiscoveryServiceMock
@@ -151,7 +152,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             SeerrCleanupTaskMode = TaskMode.Deactivate,
-            RecommendationsTaskMode = TaskMode.Activate
+            RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true
         };
 
         _seerrDiscoveryServiceMock

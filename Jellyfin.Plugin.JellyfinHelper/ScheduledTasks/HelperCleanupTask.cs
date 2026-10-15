@@ -465,9 +465,10 @@ public class HelperCleanupTask : IScheduledTask
 
     private async Task RunSeerrDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        // Skip generation with Discovery off. No audience means nothing to generate.
+        // Dry run caching without persisting is handled inside the service.
+        if (!config.DiscoveryUserAccessEnabled)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "Task started (Dry Run). Skipping discovery generation.", _logger);
             progress.Report(100);
             return;
         }
@@ -481,20 +482,24 @@ public class HelperCleanupTask : IScheduledTask
 
     private async Task RunTraktDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (!config.TraktSourcingEnabled)
+        // Skip refresh unless Discovery access and Trakt sourcing are both on. Refreshing
+        // only warms caches, so dry run needs no special handling. The plugin check lives
+        // in the service and the stored flag is kept for re-enabling Discovery.
+        if (!config.DiscoveryUserAccessEnabled || !config.TraktSourcingEnabled)
         {
             progress.Report(100);
             return;
         }
 
-        if (config.RecommendationsTaskMode == TaskMode.DryRun)
-        {
-            _pluginLog.LogInfo("TraktDiscovery", "Task started (Dry Run). Skipping Trakt refresh.", _logger);
-            progress.Report(100);
-            return;
-        }
-
-        _pluginLog.LogInfo("TraktDiscovery", "Refreshing Trakt discovery caches...", _logger);
+        // Deactivate never reaches here, the orchestrator skips it. Dry run refreshes
+        // like Activate, only the log differs since refresh warms caches without persisting.
+        var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
+        _pluginLog.LogInfo(
+            "TraktDiscovery",
+            dryRun
+                ? "Refreshing Trakt discovery caches (Dry Run - cache only)..."
+                : "Refreshing Trakt discovery caches...",
+            _logger);
         await _traktDiscoveryService.RefreshAllAsync(cancellationToken).ConfigureAwait(false);
         progress.Report(100);
     }

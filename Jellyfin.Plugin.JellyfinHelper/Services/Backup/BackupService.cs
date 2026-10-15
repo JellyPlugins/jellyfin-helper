@@ -187,6 +187,9 @@ public sealed class BackupService : IBackupService
             // Discovery user access
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
 
+            // Trakt sourcing flag, exported 1:1. TraktTimeoutSeconds is not backed up and a live value is never overwritten.
+            TraktSourcingEnabled = config.TraktSourcingEnabled,
+
             // Codecs-tab card order (plaintext ids, not a secret). Normalized so the backup is always complete.
             CodecCardOrder = CodecCardCatalog.Normalize(config.CodecCardOrder)
         };
@@ -447,6 +450,10 @@ public sealed class BackupService : IBackupService
             // Discovery user access - defaults to false for older backups without this field
             config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
+            // Restored verbatim with no Discovery gate. Enforcement happens at the use sites,
+            // so a stored true survives a Discovery off/on cycle.
+            RestoreTraktSettings(config, backup);
+
             // Arr instances - preserve live keys when the backup omitted them, and flag any
             // credential replacements via CredentialsChanged on the summary.
             RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
@@ -535,6 +542,16 @@ public sealed class BackupService : IBackupService
 
             config.SeerrSkipCertificateValidation = backup.SeerrSkipCertificateValidation.Value;
         }
+    }
+
+    /// <summary>
+    ///     Restores the Trakt sourcing flag verbatim. The Discovery gate is enforced at the use sites instead.
+    /// </summary>
+    /// <param name="config">The live configuration being mutated.</param>
+    /// <param name="backup">The backup data being restored.</param>
+    private static void RestoreTraktSettings(PluginConfiguration config, BackupData backup)
+    {
+        config.TraktSourcingEnabled = backup.TraktSourcingEnabled;
     }
 
     /// <summary>
