@@ -33,6 +33,8 @@ public class HelperCleanupTask : IScheduledTask
 {
     private const string LogSource = "HelperCleanup";
     private const string SeerrCleanupLogSource = "SeerrCleanup";
+    private const string SeerrDiscoveryLogSource = "SeerrDiscovery";
+    private const string TraktDiscoveryLogSource = "TraktDiscovery";
 
     private readonly IStatisticsCacheService _cacheService;
     private readonly ICleanupConfigHelper _configHelper;
@@ -469,15 +471,15 @@ public class HelperCleanupTask : IScheduledTask
         // Dry run preview without persisting is handled inside the service.
         if (!config.DiscoveryUserAccessEnabled)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "Skipping discovery generation (Discovery disabled).", _logger);
+            _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Skipping discovery generation (Discovery disabled).", _logger);
             progress.Report(100);
             return;
         }
 
-        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
+        _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Generating discovery recommendations...", _logger);
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
-        _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
+        _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Discovery recommendations generated.", _logger);
         progress.Report(100);
     }
 
@@ -488,7 +490,7 @@ public class HelperCleanupTask : IScheduledTask
         // in the service and the stored flag is kept for re-enabling Discovery.
         if (!config.DiscoveryUserAccessEnabled || !config.TraktSourcingEnabled)
         {
-            _pluginLog.LogInfo("TraktDiscovery", "Skipping Trakt refresh (Discovery or sourcing disabled).", _logger);
+            _pluginLog.LogInfo(TraktDiscoveryLogSource, "Skipping Trakt refresh (Discovery or sourcing disabled).", _logger);
             progress.Report(100);
             return;
         }
@@ -497,7 +499,7 @@ public class HelperCleanupTask : IScheduledTask
         // like Activate, only the log differs since refresh warms caches without persisting.
         var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
         _pluginLog.LogInfo(
-            "TraktDiscovery",
+            TraktDiscoveryLogSource,
             dryRun
                 ? "Refreshing Trakt discovery caches (Dry Run - cache only)..."
                 : "Refreshing Trakt discovery caches...",
