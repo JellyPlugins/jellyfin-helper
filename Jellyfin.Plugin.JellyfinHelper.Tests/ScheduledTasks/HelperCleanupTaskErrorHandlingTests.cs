@@ -126,7 +126,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             SeerrCleanupTaskMode = TaskMode.Deactivate,
-            RecommendationsTaskMode = TaskMode.Activate
+            RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true
         };
 
         _seerrDiscoveryServiceMock
@@ -135,6 +136,9 @@ public sealed class HelperCleanupTaskErrorHandlingTests
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
         VerifyLogContains("Error executing Seerr Discovery", LogLevel.Error);
         VerifyLogContains("Finished Seerr Discovery (with errors)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
@@ -151,7 +155,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
             SeerrCleanupTaskMode = TaskMode.Deactivate,
-            RecommendationsTaskMode = TaskMode.Activate
+            RecommendationsTaskMode = TaskMode.Activate,
+            DiscoveryUserAccessEnabled = true
         };
 
         _seerrDiscoveryServiceMock
@@ -161,6 +166,9 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             _task.ExecuteAsync(new Progress<double>(), CancellationToken.None));
 
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
         VerifyLogContains("cancelled during Seerr Discovery", LogLevel.Warning);
         VerifyLogNeverContains("Helper Cleanup finished", LogLevel.Information);
     }

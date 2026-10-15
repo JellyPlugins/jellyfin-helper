@@ -33,6 +33,8 @@ public class HelperCleanupTask : IScheduledTask
 {
     private const string LogSource = "HelperCleanup";
     private const string SeerrCleanupLogSource = "SeerrCleanup";
+    private const string SeerrDiscoveryLogSource = "SeerrDiscovery";
+    private const string TraktDiscoveryLogSource = "TraktDiscovery";
 
     private readonly IStatisticsCacheService _cacheService;
     private readonly ICleanupConfigHelper _configHelper;
@@ -465,36 +467,43 @@ public class HelperCleanupTask : IScheduledTask
 
     private async Task RunSeerrDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        // Skip generation with Discovery off. No audience means nothing to generate.
+        // Dry run preview without persisting is handled inside the service.
+        if (!config.DiscoveryUserAccessEnabled)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "Task started (Dry Run). Skipping discovery generation.", _logger);
+            _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Skipping discovery generation (Discovery disabled).", _logger);
             progress.Report(100);
             return;
         }
 
-        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
+        _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Generating discovery recommendations...", _logger);
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
-        _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
+        _pluginLog.LogInfo(SeerrDiscoveryLogSource, "Discovery recommendations generated.", _logger);
         progress.Report(100);
     }
 
     private async Task RunTraktDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (!config.TraktSourcingEnabled)
+        // Skip refresh unless Discovery access and Trakt sourcing are both on. Refreshing
+        // only warms caches, so dry run needs no special handling. The plugin check lives
+        // in the service and the stored flag is kept for re-enabling Discovery.
+        if (!config.DiscoveryUserAccessEnabled || !config.TraktSourcingEnabled)
         {
+            _pluginLog.LogInfo(TraktDiscoveryLogSource, "Skipping Trakt refresh (Discovery or sourcing disabled).", _logger);
             progress.Report(100);
             return;
         }
 
-        if (config.RecommendationsTaskMode == TaskMode.DryRun)
-        {
-            _pluginLog.LogInfo("TraktDiscovery", "Task started (Dry Run). Skipping Trakt refresh.", _logger);
-            progress.Report(100);
-            return;
-        }
-
-        _pluginLog.LogInfo("TraktDiscovery", "Refreshing Trakt discovery caches...", _logger);
+        // Deactivate never reaches here, the orchestrator skips it. Dry run refreshes
+        // like Activate, only the log differs since refresh warms caches without persisting.
+        var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
+        _pluginLog.LogInfo(
+            TraktDiscoveryLogSource,
+            dryRun
+                ? "Refreshing Trakt discovery caches (Dry Run - cache only)..."
+                : "Refreshing Trakt discovery caches...",
+            _logger);
         await _traktDiscoveryService.RefreshAllAsync(cancellationToken).ConfigureAwait(false);
         progress.Report(100);
     }

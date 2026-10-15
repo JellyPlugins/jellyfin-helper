@@ -268,6 +268,7 @@ test('full config field-set round-trips through export → mutate → import', a
     recommendationsTaskMode: 'Activate',
     syncRecommendationsToPlaylist: true,
     discoveryUserAccessEnabled: true,
+    traktSourcingEnabled: true,
     pluginLogLevel: 'DEBUG',
   });
   const res = await importBackup(backup);
@@ -288,6 +289,7 @@ test('full config field-set round-trips through export → mutate → import', a
   expect(cfg.RecommendationsTaskMode).toBe('Activate');
   expect(cfg.SyncRecommendationsToPlaylist).toBe(true);
   expect(cfg.DiscoveryUserAccessEnabled).toBe(true);
+  expect(cfg.TraktSourcingEnabled).toBe(true);
   // Backup restore DOES apply PluginLogLevel (unlike PUT /Configuration, which ignores it).
   expect(cfg.PluginLogLevel).toBe('DEBUG');
   await assertPluginActive(ctx);

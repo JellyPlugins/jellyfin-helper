@@ -28,31 +28,49 @@ function refreshDiscoveryAccessState() {
     var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
     var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
     var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
-    var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
+    var discEnabled = recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
     if (wrapper) {
         wrapper.style.opacity = discEnabled ? '' : '0.5';
         wrapper.style.pointerEvents = discEnabled ? '' : 'none';
+        wrapper.setAttribute('aria-disabled', discEnabled ? 'false' : 'true');
     }
     var chk = document.getElementById('cfgDiscoveryUserAccess');
     if (chk) {
+        // Disabled only, never unchecked: the choice must survive a prereq dip and
+        // the payload forcer keeps unmet prereqs from being persisted.
         chk.disabled = !discEnabled;
-        if (!discEnabled) chk.checked = false;
     }
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
-    // Keep the setup hint button/panel in sync with the enabled state
+    // Keep the setup hint button/panel usable while greyed out: the instructions explain the missing prerequisites.
     var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
-    if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
-    var setupHint = document.querySelector('.discovery-setup-hint');
-    if (setupHint) setupHint.style.display = discEnabled ? '' : 'none';
-    if (!discEnabled) {
-        var panel = document.getElementById('discoveryHintPanel');
-        if (panel) panel.style.display = 'none';
-        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    if (toggleBtn) {
+        toggleBtn.style.display = '';
+        toggleBtn.style.pointerEvents = discEnabled ? '' : 'auto';
     }
+    var setupHint = document.querySelector('.discovery-setup-hint');
+    if (setupHint) {
+        setupHint.style.display = '';
+        setupHint.style.pointerEvents = discEnabled ? '' : 'auto';
+    }
+    refreshTraktRowState();
     return discEnabled;
+}
+
+// Set by the official Trakt plugin probe. The row shows only when present and Discovery is on.
+var _traktPluginPresent = false;
+
+// Visible only with the official plugin present and Discovery on. The stored value is kept while hidden.
+function refreshTraktRowState() {
+    var row = document.getElementById('traktSourcingRow');
+    var hint = document.getElementById('traktSourcingHint');
+    if (!row) return;
+    var discChk = document.getElementById('cfgDiscoveryUserAccess');
+    var show = _traktPluginPresent && !!(discChk?.checked && !discChk?.disabled);
+    row.style.display = show ? '' : 'none';
+    if (hint) hint.style.display = show ? '' : 'none';
 }
 
 // Show/hide the Recommendations tab button+content based on TaskMode
@@ -75,12 +93,18 @@ function updateSeerrUIState(isConfigured) {
     if (taskW) {
         taskW.style.opacity = isConfigured ? '' : '0.5';
         taskW.style.pointerEvents = isConfigured ? '' : 'none';
+        taskW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
     }
+    var taskSel = document.getElementById('cfgSeerrMode');
+    if (taskSel) taskSel.disabled = !isConfigured;
     var ageW = document.querySelector('.seerr-age-wrapper');
     if (ageW) {
         ageW.style.opacity = isConfigured ? '' : '0.5';
         ageW.style.pointerEvents = isConfigured ? '' : 'none';
+        ageW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
     }
+    var ageInput = document.getElementById('cfgSeerrAgeDays');
+    if (ageInput) ageInput.disabled = !isConfigured;
     var count = document.getElementById('arrCountSeerr');
     if (count) count.innerHTML = isConfigured ? mi('check_circle') : '';
     var hint = document.querySelector('.seerr-not-configured-hint');
@@ -270,6 +294,9 @@ var _dirtyTrackingHandler = null;
 var _dirtyTrackingForm = null;
 
 function handleDirtyInput() {
+    // Synchronous: the debounced band refresh below must never run before this flag,
+    // or a snapshot taken in between would swallow a fresh edit as the new baseline.
+    _settingsInteracted = true;
     if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
     _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
 }
@@ -454,7 +481,7 @@ function loadSettings(onDone) {
             cfgSeerrMode: ['taskDesc_seerr', 'Deletes Seerr media requests older than the configured maximum age.']
         };
 
-        function renderTaskModeSelect(id, label, currentVal) {
+        function renderTaskModeSelect(id, label, currentVal, isDisabled) {
             var desc = taskModeDescriptions[id];
             var descText = desc ? T(desc[0], desc[1]) : '';
             var s = '<div class="task-desc-head"><label for="' + id + '">' + label + '</label>';
@@ -462,7 +489,7 @@ function loadSettings(onDone) {
             if (descText) {
                 s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:0.8em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;opacity:0.5;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">' + mi('info') + '</button>';
             }
-            s += '</div><select id="' + id + '">';
+            s += '</div><select id="' + id + '"' + (isDisabled ? ' disabled' : '') + '>';
 
             for (var tm = 0; tm < taskModes.length; tm++) {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
@@ -486,7 +513,7 @@ function loadSettings(onDone) {
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
         var recsActive = (cfg.RecommendationsTaskMode || 'DryRun') === 'Activate';
-        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" aria-disabled="' + (!recsActive ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + escHtml(T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.')) + '</div>';
         h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + escHtml(T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.')) + '</div>';
@@ -494,13 +521,14 @@ function loadSettings(onDone) {
 
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
-        var discoveryEnabled = recsActive && seerrConfigured;
-        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
-        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
-        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
-        // Discovery setup hint - collapsible panel (default: closed)
-        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
+        var recsNotDeactivated = (cfg.RecommendationsTaskMode || 'DryRun') !== 'Deactivate';
+        var discoveryEnabled = recsNotDeactivated && seerrConfigured;
+        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" aria-disabled="false" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
+        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations not set to Deactivate and Seerr configured.')) + '</div>';
+        // Discovery setup hint - collapsible panel (default: closed, always operable so it overrides the greyed wrapper for assistive tech)
+        h += '<div class="discovery-setup-hint" aria-disabled="false" style="margin:0.3em 0 0;">';
         h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
         h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
         h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
@@ -516,14 +544,14 @@ function loadSettings(onDone) {
         h += '<div style="margin-top:0.6em;font-size:0.9em;">' + escHtml(T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?')) + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + escHtml(T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →')) + '</a></div>';
         h += '</div></div>';
 
-        // Only shown when the official Trakt plugin is present (loadTraktOfficialStatus unhides it); default off.
+        // Shown only with the official Trakt plugin present and Discovery on; hidden by default.
         h += '<div class="checkbox-row" id="traktSourcingRow" style="display:none;margin-top:0.2em;"><input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === true ? ' checked' : '') + '><label for="cfgTraktSourcingEnabled">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label></div>';
         h += '<div class="help-text" id="traktSourcingHint" style="display:none;">' + escHtml(T('traktSourcingHint', 'Sources Trakt recommendations through the official Trakt plugin.')) + '</div>';
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
-        h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate');
+        h += '<div class="seerr-task-mode-wrapper" aria-disabled="' + (!seerrConfigured ? 'true' : 'false') + '" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate', !seerrConfigured);
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
 
@@ -550,7 +578,7 @@ function loadSettings(onDone) {
 
         h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
         h += '<div class="help-text">' + escHtml(T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.')) + '</div>';
-        var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
+        var seerrHasCfg = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
         h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, escHtml(T('seerrInstance', 'Seerr Instance')), seerrHasCfg ? mi('check_circle') : '', 'Seerr');
         h += '<div class="arr-collapsible-body" aria-hidden="' + (seerrHasCfg ? 'true' : 'false') + '">';
@@ -560,9 +588,9 @@ function loadSettings(onDone) {
         h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + ((cfg.SeerrSkipCertificateValidation ?? cfg.seerrSkipCertificateValidation) ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
-        h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="seerr-age-wrapper" aria-disabled="' + (!seerrHasCfg ? 'true' : 'false') + '" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
-        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
+        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays ?? 365) + '"' + (!seerrHasCfg ? ' disabled' : '') + '>';
         h += '<div class="help-text">' + escHtml(T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.')) + '</div>';
         h += '</div>';
         h += '<div style="margin-top:0.5em;">';
@@ -673,6 +701,9 @@ function loadSettings(onDone) {
 }
 
 function buildSettingsPayload() {
+    // Forcer rules per flag: Sync sends verbatim (the task ignores it unless active, so resume works).
+    // Discovery and Seerr mode force safe defaults without prerequisites (a stored true would
+    // otherwise open a broken surface). Trakt sends null without the official plugin (preserved).
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
@@ -692,8 +723,8 @@ function buildSettingsPayload() {
         SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
         SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
         SeerrSkipCertificateValidation: document.getElementById('cfgSeerrSkipCert') ? document.getElementById('cfgSeerrSkipCert').checked : false,
-        // null when the checkbox is absent (no official plugin) so a partial PUT preserves the stored value.
-        TraktSourcingEnabled: document.getElementById('cfgTraktSourcingEnabled') ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
+        // null without the official plugin so a partial PUT preserves the stored value.
+        TraktSourcingEnabled: (_traktPluginPresent && document.getElementById('cfgTraktSourcingEnabled')) ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = document.getElementById('cfgSeerrUrl')?.value || '';
@@ -716,11 +747,11 @@ function buildSettingsPayload() {
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
             if (!checkbox || !checkbox.checked) return false;
-            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured). This prevents stale "true" from being persisted when the admin disables recommendations or clears Seerr config while the checkbox was previously enabled.
+            // Force false when prerequisites are not met (Recommendations must not be deactivated + Seerr configured). DryRun keeps the flag for its read-only UI. This prevents stale "true" from being persisted when the admin deactivates recommendations or clears Seerr config while the checkbox was previously enabled.
             var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
             var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
             var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
-            return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
+            return recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang')?.value ?? 'en',
         PluginLogLevel: _currentLogLevel,
@@ -1244,20 +1275,22 @@ function attachSeerrHandlers() {
 }
 
 /**
- * Probe the admin-only official-plugin status endpoint and reveal the Trakt sourcing checkbox only when the
- * official Trakt plugin is present (Trakt discovery is sourced exclusively through it).
+ * Probe the official plugin status and refresh the Trakt row, which shows only
+ * with the plugin present and Discovery access on.
  */
 function loadTraktOfficialStatus() {
     var row = document.getElementById('traktSourcingRow');
-    var hint = document.getElementById('traktSourcingHint');
     if (!row) return;
     apiGet('JellyfinHelper/Trakt/OfficialPluginStatus', function (res) {
-        var present = !!(res && (res.Present || res.present));
-        row.style.display = present ? '' : 'none';
-        if (hint) hint.style.display = present ? '' : 'none';
+        _traktPluginPresent = !!(res && (res.Present || res.present));
+        refreshTraktRowState();
+        // Re-snapshot unless the user already edited: the load-time snapshot used the
+        // pre-probe null, so tab leave would report phantom unsaved changes.
+        if (!_settingsInteracted) takeSettingsSnapshot();
     }, function () {
-        row.style.display = 'none';
-        if (hint) hint.style.display = 'none';
+        _traktPluginPresent = false;
+        refreshTraktRowState();
+        if (!_settingsInteracted) takeSettingsSnapshot();
     });
 }
 
@@ -1359,11 +1392,46 @@ function fallbackCopy(text) {
     }
 }
 
+function indicateQuietSave(elements, success) {
+    for (const checkbox of elements) showInlineCheckboxIndicator(checkbox, success);
+}
+
 /**
  * Attach auto-save change handlers to task-mode dropdowns and language select.
  * Called after the settings form is rendered.
  */
 function attachAutoSaveHandlers() {
+    // Coalesce rapid toggle saves into one PUT so overlapping full-payload saves cannot
+    // persist out of order. UI updates stay instant, only the network call is deferred.
+    var quietSaveTimer = null;
+    var quietSaveElements = [];
+    var quietSaveInFlight = false;
+    function scheduleQuietSave(el) {
+        if (el && !quietSaveElements.includes(el)) quietSaveElements.push(el);
+        if (quietSaveTimer) clearTimeout(quietSaveTimer);
+        quietSaveTimer = setTimeout(sendQuietSave, 250);
+    }
+    function sendQuietSave() {
+        quietSaveTimer = null;
+        if (quietSaveInFlight) {
+            // A previous PUT is still pending: wait one more window so saves apply in click order.
+            quietSaveTimer = setTimeout(sendQuietSave, 250);
+            return;
+        }
+        var elements = quietSaveElements;
+        quietSaveElements = [];
+        quietSaveInFlight = true;
+        // Failsafe: a cancelled trash dialog settles neither callback. No PUT is in flight
+        // then, so sending stays safe. Stored and cleared on settle so a stale timer can
+        // never release the guard while a later save is pending.
+        var guardTimer = setTimeout(function () { quietSaveInFlight = false; }, 15000);
+        doSaveSettings(buildSettingsPayload(), {
+            quiet: true,
+            element: null, // suppress default overlay
+            onSuccess: function () { clearTimeout(guardTimer); quietSaveInFlight = false; indicateQuietSave(elements, true); },
+            onError: function () { clearTimeout(guardTimer); quietSaveInFlight = false; indicateQuietSave(elements, false); }
+        });
+    }
     // Task mode dropdowns - auto-save on change
     var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
     for (var i = 0; i < taskModeIds.length; i++) {
@@ -1391,17 +1459,16 @@ function attachAutoSaveHandlers() {
                             if (wrapper) {
                                 wrapper.style.opacity = isActive ? '' : '0.5';
                                 wrapper.style.pointerEvents = isActive ? '' : 'none';
+                                wrapper.setAttribute('aria-disabled', isActive ? 'false' : 'true');
                             }
                             var chk = document.getElementById('cfgSyncPlaylist');
                             if (chk) chk.disabled = !isActive;
                             var hint = document.querySelector('.playlist-sync-disabled-hint');
                             if (hint) hint.style.display = isActive ? 'none' : '';
 
-                            // Update discovery access toggle greyed-out state
+                            // Update discovery access toggle greyed-out state. Checked state is kept
+                            // while disabled so it survives a mode round-trip; the payload forcer guards the save.
                             refreshDiscoveryAccessState();
-                            // Uncheck discovery when deactivating recommendations
-                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
-                            if (!isActive && discChk) discChk.checked = false;
                         }
                     });
                     return;
@@ -1425,29 +1492,21 @@ function attachAutoSaveHandlers() {
         });
     }
 
-    // Discovery user access toggle - auto-save on change. Re-render the form on success so the Trakt
-    // sourcing row (revealed only when the official Trakt plugin is present) appears/disappears live
-    // instead of waiting for the next tab load. loadSettings re-fetches config, so the row reflects
-    // the just-saved state.
+    // Discovery user access toggle. Auto-save on change with no form reload. The Trakt row follows live and the stored choice is kept.
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {
-            var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
-            var savedScroll = scrollContainer.scrollTop;
-            doSaveSettings(buildSettingsPayload(), {
-                quiet: true,
-                element: null, // suppress default overlay
-                onSuccess: function () {
-                    // Restore scroll + show the indicator only AFTER loadSettings has re-rendered the
-                    // form, so neither acts on the stale/destroyed DOM the async reload replaces.
-                    loadSettings(function () {
-                        scrollContainer.scrollTop = savedScroll;
-                        var newEl = document.getElementById('cfgDiscoveryUserAccess');
-                        if (newEl) showInlineCheckboxIndicator(newEl, true);
-                    });
-                },
-                onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
-            });
+            // Refresh the Trakt row right away instead of waiting for the save.
+            refreshTraktRowState();
+            scheduleQuietSave(discoveryEl);
+        });
+    }
+
+    // Trakt sourcing toggle. Same auto-save principle as the Discovery toggle above.
+    var traktEl = document.getElementById('cfgTraktSourcingEnabled');
+    if (traktEl) {
+        traktEl.addEventListener('change', function () {
+            scheduleQuietSave(traktEl);
         });
     }
 
