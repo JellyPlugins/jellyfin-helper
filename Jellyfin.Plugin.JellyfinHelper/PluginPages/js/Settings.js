@@ -28,7 +28,7 @@ function refreshDiscoveryAccessState() {
     var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
     var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
     var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
-    var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
+    var discEnabled = recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
     if (wrapper) {
@@ -44,15 +44,16 @@ function refreshDiscoveryAccessState() {
     }
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
-    // Keep the setup hint button/panel in sync with the enabled state
+    // Keep the setup hint button/panel usable while greyed out: the instructions explain the missing prerequisites.
     var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
-    if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
+    if (toggleBtn) {
+        toggleBtn.style.display = '';
+        toggleBtn.style.pointerEvents = discEnabled ? '' : 'auto';
+    }
     var setupHint = document.querySelector('.discovery-setup-hint');
-    if (setupHint) setupHint.style.display = discEnabled ? '' : 'none';
-    if (!discEnabled) {
-        var panel = document.getElementById('discoveryHintPanel');
-        if (panel) panel.style.display = 'none';
-        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    if (setupHint) {
+        setupHint.style.display = '';
+        setupHint.style.pointerEvents = discEnabled ? '' : 'auto';
     }
     refreshTraktRowState();
     return discEnabled;
@@ -517,13 +518,14 @@ function loadSettings(onDone) {
 
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
-        var discoveryEnabled = recsActive && seerrConfigured;
+        var recsNotDeactivated = (cfg.RecommendationsTaskMode || 'DryRun') !== 'Deactivate';
+        var discoveryEnabled = recsNotDeactivated && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
-        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
-        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
+        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations not set to Deactivate and Seerr configured.')) + '</div>';
         // Discovery setup hint - collapsible panel (default: closed)
-        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
+        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;">';
         h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
         h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
         h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
@@ -573,7 +575,7 @@ function loadSettings(onDone) {
 
         h += '<div class="section-title">' + escHtml(T('settingsSeerrTitle', 'Seerr settings')) + '</div>';
         h += '<div class="help-text">' + escHtml(T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.')) + '</div>';
-        var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
+        var seerrHasCfg = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
         h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, escHtml(T('seerrInstance', 'Seerr Instance')), seerrHasCfg ? mi('check_circle') : '', 'Seerr');
         h += '<div class="arr-collapsible-body" aria-hidden="' + (seerrHasCfg ? 'true' : 'false') + '">';
@@ -585,7 +587,7 @@ function loadSettings(onDone) {
         h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
         h += '<div class="seerr-age-wrapper" aria-disabled="' + (!seerrHasCfg ? 'true' : 'false') + '" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
-        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '"' + (!seerrHasCfg ? ' disabled' : '') + '>';
+        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays ?? 365) + '"' + (!seerrHasCfg ? ' disabled' : '') + '>';
         h += '<div class="help-text">' + escHtml(T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.')) + '</div>';
         h += '</div>';
         h += '<div style="margin-top:0.5em;">';
@@ -696,6 +698,9 @@ function loadSettings(onDone) {
 }
 
 function buildSettingsPayload() {
+    // Forcer rules per flag: Sync sends verbatim (the task ignores it unless active, so resume works).
+    // Discovery and Seerr mode force safe defaults without prerequisites (a stored true would
+    // otherwise open a broken surface). Trakt sends null without the official plugin (preserved).
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
@@ -715,8 +720,8 @@ function buildSettingsPayload() {
         SeerrUrl: document.getElementById('cfgSeerrUrl')?.value || '',
         SeerrApiKey: document.getElementById('cfgSeerrApiKey')?.value || '',
         SeerrSkipCertificateValidation: document.getElementById('cfgSeerrSkipCert') ? document.getElementById('cfgSeerrSkipCert').checked : false,
-        // null when the checkbox is absent (no official plugin) so a partial PUT preserves the stored value.
-        TraktSourcingEnabled: document.getElementById('cfgTraktSourcingEnabled') ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
+        // null without the official plugin so a partial PUT preserves the stored value.
+        TraktSourcingEnabled: (_traktPluginPresent && document.getElementById('cfgTraktSourcingEnabled')) ? document.getElementById('cfgTraktSourcingEnabled').checked : null,
         SeerrCleanupTaskMode: (function () {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = document.getElementById('cfgSeerrUrl')?.value || '';
@@ -739,11 +744,11 @@ function buildSettingsPayload() {
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
             if (!checkbox || !checkbox.checked) return false;
-            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured). This prevents stale "true" from being persisted when the admin disables recommendations or clears Seerr config while the checkbox was previously enabled.
+            // Force false when prerequisites are not met (Recommendations must not be deactivated + Seerr configured). DryRun keeps the flag for its read-only UI. This prevents stale "true" from being persisted when the admin deactivates recommendations or clears Seerr config while the checkbox was previously enabled.
             var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
             var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
             var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
-            return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
+            return recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang')?.value ?? 'en',
         PluginLogLevel: _currentLogLevel,
@@ -1276,9 +1281,13 @@ function loadTraktOfficialStatus() {
     apiGet('JellyfinHelper/Trakt/OfficialPluginStatus', function (res) {
         _traktPluginPresent = !!(res && (res.Present || res.present));
         refreshTraktRowState();
+        // Re-snapshot unless the user already edited: the load-time snapshot used the
+        // pre-probe null, so tab leave would report phantom unsaved changes.
+        if (!_settingsInteracted) takeSettingsSnapshot();
     }, function () {
         _traktPluginPresent = false;
         refreshTraktRowState();
+        if (!_settingsInteracted) takeSettingsSnapshot();
     });
 }
 
@@ -1456,6 +1465,19 @@ function attachAutoSaveHandlers() {
                 element: null, // suppress default overlay
                 onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
                 onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
+            });
+        });
+    }
+
+    // Trakt sourcing toggle. Same auto-save principle as the Discovery toggle above.
+    var traktEl = document.getElementById('cfgTraktSourcingEnabled');
+    if (traktEl) {
+        traktEl.addEventListener('change', function () {
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { showInlineCheckboxIndicator(traktEl, true); },
+                onError: function () { showInlineCheckboxIndicator(traktEl, false); }
             });
         });
     }

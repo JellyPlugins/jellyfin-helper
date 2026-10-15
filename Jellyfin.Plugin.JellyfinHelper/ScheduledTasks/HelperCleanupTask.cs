@@ -466,7 +466,7 @@ public class HelperCleanupTask : IScheduledTask
     private async Task RunSeerrDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
         // Skip generation with Discovery off. No audience means nothing to generate.
-        // Dry run caching without persisting is handled inside the service.
+        // Dry run preview without persisting is handled inside the service.
         if (!config.DiscoveryUserAccessEnabled)
         {
             _pluginLog.LogInfo("SeerrDiscovery", "Skipping discovery generation (Discovery disabled).", _logger);
