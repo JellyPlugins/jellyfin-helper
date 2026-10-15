@@ -502,10 +502,9 @@
     margin-top: 0.4em;
 }
 
-/* Card header: remove default top margin. */
-/* noinspection CssUnusedSymbol */
-.settings-card > .section-title:first-child {
-    margin-top: 0 !important;
+/* Card header: remove default top margin.*/
+.tab-content .settings-card > .section-title:first-child {
+    margin-top: 0;
     margin-bottom: 0.6em;
 }
 
