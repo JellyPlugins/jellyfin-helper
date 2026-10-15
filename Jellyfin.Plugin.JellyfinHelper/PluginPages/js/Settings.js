@@ -1422,13 +1422,14 @@ function attachAutoSaveHandlers() {
         quietSaveElements = [];
         quietSaveInFlight = true;
         // Failsafe: a cancelled trash dialog settles neither callback. No PUT is in flight
-        // then, so sending stays safe and the flag cannot block later saves.
-        setTimeout(function () { quietSaveInFlight = false; }, 15000);
+        // then, so sending stays safe. Stored and cleared on settle so a stale timer can
+        // never release the guard while a later save is pending.
+        var guardTimer = setTimeout(function () { quietSaveInFlight = false; }, 15000);
         doSaveSettings(buildSettingsPayload(), {
             quiet: true,
             element: null, // suppress default overlay
-            onSuccess: function () { quietSaveInFlight = false; indicateQuietSave(elements, true); },
-            onError: function () { quietSaveInFlight = false; indicateQuietSave(elements, false); }
+            onSuccess: function () { clearTimeout(guardTimer); quietSaveInFlight = false; indicateQuietSave(elements, true); },
+            onError: function () { clearTimeout(guardTimer); quietSaveInFlight = false; indicateQuietSave(elements, false); }
         });
     }
     // Task mode dropdowns - auto-save on change
