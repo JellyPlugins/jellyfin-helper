@@ -34,6 +34,7 @@ function refreshDiscoveryAccessState() {
     if (wrapper) {
         wrapper.style.opacity = discEnabled ? '' : '0.5';
         wrapper.style.pointerEvents = discEnabled ? '' : 'none';
+        wrapper.setAttribute('aria-disabled', discEnabled ? 'false' : 'true');
     }
     var chk = document.getElementById('cfgDiscoveryUserAccess');
     if (chk) {
@@ -91,12 +92,18 @@ function updateSeerrUIState(isConfigured) {
     if (taskW) {
         taskW.style.opacity = isConfigured ? '' : '0.5';
         taskW.style.pointerEvents = isConfigured ? '' : 'none';
+        taskW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
     }
+    var taskSel = document.getElementById('cfgSeerrMode');
+    if (taskSel) taskSel.disabled = !isConfigured;
     var ageW = document.querySelector('.seerr-age-wrapper');
     if (ageW) {
         ageW.style.opacity = isConfigured ? '' : '0.5';
         ageW.style.pointerEvents = isConfigured ? '' : 'none';
+        ageW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
     }
+    var ageInput = document.getElementById('cfgSeerrAgeDays');
+    if (ageInput) ageInput.disabled = !isConfigured;
     var count = document.getElementById('arrCountSeerr');
     if (count) count.innerHTML = isConfigured ? mi('check_circle') : '';
     var hint = document.querySelector('.seerr-not-configured-hint');
@@ -470,7 +477,7 @@ function loadSettings(onDone) {
             cfgSeerrMode: ['taskDesc_seerr', 'Deletes Seerr media requests older than the configured maximum age.']
         };
 
-        function renderTaskModeSelect(id, label, currentVal) {
+        function renderTaskModeSelect(id, label, currentVal, isDisabled) {
             var desc = taskModeDescriptions[id];
             var descText = desc ? T(desc[0], desc[1]) : '';
             var s = '<div class="task-desc-head"><label for="' + id + '">' + label + '</label>';
@@ -478,7 +485,7 @@ function loadSettings(onDone) {
             if (descText) {
                 s += '<button type="button" class="material-icons" id="taskDescBtn_' + id + '" style="color:#00a4dc;font-size:0.8em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;opacity:0.5;" title="' + escAttr(descText) + '" aria-label="' + escAttr(T('taskDescInfo', 'Show task description')) + '" aria-expanded="false" aria-controls="taskDescHint_' + id + '">' + mi('info') + '</button>';
             }
-            s += '</div><select id="' + id + '">';
+            s += '</div><select id="' + id + '"' + (isDisabled ? ' disabled' : '') + '>';
 
             for (var tm = 0; tm < taskModes.length; tm++) {
                 s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
@@ -502,7 +509,7 @@ function loadSettings(onDone) {
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
         var recsActive = (cfg.RecommendationsTaskMode || 'DryRun') === 'Activate';
-        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" aria-disabled="' + (!recsActive ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + escHtml(T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.')) + '</div>';
         h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + escHtml(T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.')) + '</div>';
@@ -511,7 +518,7 @@ function loadSettings(onDone) {
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         var discoveryEnabled = recsActive && seerrConfigured;
-        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
@@ -538,8 +545,8 @@ function loadSettings(onDone) {
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
-        h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate');
+        h += '<div class="seerr-task-mode-wrapper" aria-disabled="' + (!seerrConfigured ? 'true' : 'false') + '" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate', !seerrConfigured);
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
 
@@ -576,9 +583,9 @@ function loadSettings(onDone) {
         h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + ((cfg.SeerrSkipCertificateValidation ?? cfg.seerrSkipCertificateValidation) ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
-        h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="seerr-age-wrapper" aria-disabled="' + (!seerrHasCfg ? 'true' : 'false') + '" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
-        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
+        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '"' + (!seerrHasCfg ? ' disabled' : '') + '>';
         h += '<div class="help-text">' + escHtml(T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.')) + '</div>';
         h += '</div>';
         h += '<div style="margin-top:0.5em;">';
@@ -1405,6 +1412,7 @@ function attachAutoSaveHandlers() {
                             if (wrapper) {
                                 wrapper.style.opacity = isActive ? '' : '0.5';
                                 wrapper.style.pointerEvents = isActive ? '' : 'none';
+                                wrapper.setAttribute('aria-disabled', isActive ? 'false' : 'true');
                             }
                             var chk = document.getElementById('cfgSyncPlaylist');
                             if (chk) chk.disabled = !isActive;

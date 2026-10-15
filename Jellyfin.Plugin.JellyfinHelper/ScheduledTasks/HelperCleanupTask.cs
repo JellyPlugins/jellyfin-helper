@@ -469,14 +469,6 @@ public class HelperCleanupTask : IScheduledTask
         // Dry run caching without persisting is handled inside the service.
         if (!config.DiscoveryUserAccessEnabled)
         {
-            progress.Report(100);
-            return;
-        }
-
-        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
-        // Dry run caching without persisting is handled inside the service.
-        if (!config.DiscoveryUserAccessEnabled)
-        {
             _pluginLog.LogInfo("SeerrDiscovery", "Skipping discovery generation (Discovery disabled).", _logger);
             progress.Report(100);
             return;
