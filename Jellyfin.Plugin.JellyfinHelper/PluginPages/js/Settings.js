@@ -1392,6 +1392,10 @@ function fallbackCopy(text) {
     }
 }
 
+function indicateQuietSave(elements, success) {
+    for (const checkbox of elements) showInlineCheckboxIndicator(checkbox, success);
+}
+
 /**
  * Attach auto-save change handlers to task-mode dropdowns and language select.
  * Called after the settings form is rendered.
@@ -1402,7 +1406,7 @@ function attachAutoSaveHandlers() {
     var quietSaveTimer = null;
     var quietSaveElements = [];
     function scheduleQuietSave(el) {
-        if (el && quietSaveElements.indexOf(el) === -1) quietSaveElements.push(el);
+        if (el && !quietSaveElements.includes(el)) quietSaveElements.push(el);
         if (quietSaveTimer) clearTimeout(quietSaveTimer);
         quietSaveTimer = setTimeout(function () {
             quietSaveTimer = null;
@@ -1415,9 +1419,6 @@ function attachAutoSaveHandlers() {
                 onError: function () { indicateQuietSave(elements, false); }
             });
         }, 250);
-    }
-    function indicateQuietSave(elements, success) {
-        for (var i = 0; i < elements.length; i++) showInlineCheckboxIndicator(elements[i], success);
     }
     // Task mode dropdowns - auto-save on change
     var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
