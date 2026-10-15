@@ -1405,20 +1405,31 @@ function attachAutoSaveHandlers() {
     // persist out of order. UI updates stay instant, only the network call is deferred.
     var quietSaveTimer = null;
     var quietSaveElements = [];
+    var quietSaveInFlight = false;
     function scheduleQuietSave(el) {
         if (el && !quietSaveElements.includes(el)) quietSaveElements.push(el);
         if (quietSaveTimer) clearTimeout(quietSaveTimer);
-        quietSaveTimer = setTimeout(function () {
-            quietSaveTimer = null;
-            var elements = quietSaveElements;
-            quietSaveElements = [];
-            doSaveSettings(buildSettingsPayload(), {
-                quiet: true,
-                element: null, // suppress default overlay
-                onSuccess: function () { indicateQuietSave(elements, true); },
-                onError: function () { indicateQuietSave(elements, false); }
-            });
-        }, 250);
+        quietSaveTimer = setTimeout(sendQuietSave, 250);
+    }
+    function sendQuietSave() {
+        quietSaveTimer = null;
+        if (quietSaveInFlight) {
+            // A previous PUT is still pending: wait one more window so saves apply in click order.
+            quietSaveTimer = setTimeout(sendQuietSave, 250);
+            return;
+        }
+        var elements = quietSaveElements;
+        quietSaveElements = [];
+        quietSaveInFlight = true;
+        // Failsafe: a cancelled trash dialog settles neither callback. No PUT is in flight
+        // then, so sending stays safe and the flag cannot block later saves.
+        setTimeout(function () { quietSaveInFlight = false; }, 15000);
+        doSaveSettings(buildSettingsPayload(), {
+            quiet: true,
+            element: null, // suppress default overlay
+            onSuccess: function () { quietSaveInFlight = false; indicateQuietSave(elements, true); },
+            onError: function () { quietSaveInFlight = false; indicateQuietSave(elements, false); }
+        });
     }
     // Task mode dropdowns - auto-save on change
     var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
