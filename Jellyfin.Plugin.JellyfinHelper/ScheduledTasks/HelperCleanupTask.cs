@@ -474,6 +474,15 @@ public class HelperCleanupTask : IScheduledTask
         }
 
         _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
+        // Dry run caching without persisting is handled inside the service.
+        if (!config.DiscoveryUserAccessEnabled)
+        {
+            _pluginLog.LogInfo("SeerrDiscovery", "Skipping discovery generation (Discovery disabled).", _logger);
+            progress.Report(100);
+            return;
+        }
+
+        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
         _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
@@ -487,6 +496,7 @@ public class HelperCleanupTask : IScheduledTask
         // in the service and the stored flag is kept for re-enabling Discovery.
         if (!config.DiscoveryUserAccessEnabled || !config.TraktSourcingEnabled)
         {
+            _pluginLog.LogInfo("TraktDiscovery", "Skipping Trakt refresh (Discovery or sourcing disabled).", _logger);
             progress.Report(100);
             return;
         }

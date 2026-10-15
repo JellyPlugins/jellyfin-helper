@@ -551,6 +551,35 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DiscoveryEnabled_SeerrNotConfigured_StillDelegatesToService()
+    {
+        // The task gates on the access flag only. The Seerr setup check lives in the
+        // service, which skips with its own log when Url or Key are missing.
+        _config = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            LinkRepairTaskMode = TaskMode.Deactivate,
+            SeerrCleanupTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Activate,
+            SeerrUrl = string.Empty,
+            SeerrApiKey = string.Empty,
+            DiscoveryUserAccessEnabled = true,
+            TraktSourcingEnabled = false
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Once());
+        _traktDiscoveryMock.Verify(
+            d => d.RefreshAllAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_SeerrDeactivated_SkipsEvenIfConfigured()
     {
         _config = new PluginConfiguration

@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -1224,6 +1226,79 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.True(liveConfig.DiscoveryUserAccessEnabled);
         Assert.False(liveConfig.TraktSourcingEnabled);
     }
+
+    [Fact]
+    public void BackupData_CoversAllUserFacingConfigurationProperties()
+    {
+        // Guards against silently dropping a newly added setting from backup and restore.
+        // Every PluginConfiguration property must either round-trip through BackupData or
+        // be listed below with its reason.
+        var excluded = new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Migration marker, not a setting.
+            nameof(PluginConfiguration.ConfigVersion),
+            // No UI surface, always default. Restore never touches it.
+            nameof(PluginConfiguration.TraktTimeoutSeconds),
+            // Safe built-in defaults, intentionally not backed up.
+            nameof(PluginConfiguration.MaxRecommendationsPerUser),
+            nameof(PluginConfiguration.EnsembleAlphaMin),
+            nameof(PluginConfiguration.EnsembleAlphaMax),
+            nameof(PluginConfiguration.EnsembleGenrePenaltyFloor),
+            // Runtime statistics, rebuilt by scheduled runs.
+            nameof(PluginConfiguration.TotalBytesFreed),
+            nameof(PluginConfiguration.TotalItemsDeleted),
+            nameof(PluginConfiguration.LastCleanupTimestamp),
+        };
+
+        var covered = new HashSet<string>(StringComparer.Ordinal)
+        {
+            nameof(PluginConfiguration.ExcludedLibraries),
+            nameof(PluginConfiguration.OrphanMinAgeDays),
+            nameof(PluginConfiguration.PluginLogLevel),
+            nameof(PluginConfiguration.TrickplayTaskMode),
+            nameof(PluginConfiguration.EmptyMediaFolderTaskMode),
+            nameof(PluginConfiguration.OrphanedSubtitleTaskMode),
+            nameof(PluginConfiguration.LinkRepairTaskMode),
+            nameof(PluginConfiguration.SeerrCleanupTaskMode),
+            nameof(PluginConfiguration.SeerrCleanupAgeDays),
+            nameof(PluginConfiguration.SeerrUrl),
+            nameof(PluginConfiguration.SeerrApiKey),
+            nameof(PluginConfiguration.SeerrSkipCertificateValidation),
+            nameof(PluginConfiguration.DiscoveryUserAccessEnabled),
+            nameof(PluginConfiguration.TraktSourcingEnabled),
+            nameof(PluginConfiguration.UseTrash),
+            nameof(PluginConfiguration.TrashFolderPath),
+            nameof(PluginConfiguration.TrashRetentionDays),
+            nameof(PluginConfiguration.RadarrInstances),
+            nameof(PluginConfiguration.SonarrInstances),
+            nameof(PluginConfiguration.CodecCardOrder),
+            nameof(PluginConfiguration.Language),
+            nameof(PluginConfiguration.RecommendationsTaskMode),
+            nameof(PluginConfiguration.SyncRecommendationsToPlaylist),
+        };
+
+        var actual = typeof(PluginConfiguration)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Select(p => p.Name)
+            .ToList();
+
+        // No property may exist outside both sets, otherwise it silently skips backup.
+        Assert.DoesNotContain(actual, n => !covered.Contains(n) && !excluded.Contains(n));
+        // Every claimed cover must name a real property, otherwise the guard rots.
+        Assert.DoesNotContain(covered, n => !actual.Contains(n));
+
+        // Every covered property must have a matching BackupData field, compared by the
+        // camelCase JSON contract both sides share.
+        var backupJsonNames = typeof(BackupData)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.DoesNotContain(covered, n => !backupJsonNames.Contains(ToCamelCase(n)));
+    }
+
+    private static string ToCamelCase(string name) =>
+        string.IsNullOrEmpty(name) ? name : char.ToLowerInvariant(name[0]) + name[1..];
 
     [Fact]
     public void Backup_TraktSourcingEnabled_SurvivesFullExportRestoreCycle()

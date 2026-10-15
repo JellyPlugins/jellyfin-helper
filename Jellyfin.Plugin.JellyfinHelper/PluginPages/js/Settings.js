@@ -66,7 +66,7 @@ function refreshTraktRowState() {
     var hint = document.getElementById('traktSourcingHint');
     if (!row) return;
     var discChk = document.getElementById('cfgDiscoveryUserAccess');
-    var show = _traktPluginPresent && !!(discChk && discChk.checked && !discChk.disabled);
+    var show = _traktPluginPresent && !!(discChk?.checked && !discChk?.disabled);
     row.style.display = show ? '' : 'none';
     if (hint) hint.style.display = show ? '' : 'none';
 }
