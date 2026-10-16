@@ -48,7 +48,7 @@
        RunVitest=false and uses the dedicated ui-tests job instead. -->
   <PropertyGroup>
     <RunVitest Condition="'$(RunVitest)' == ''">true</RunVitest>
-    <UiTestDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../test/ui'))</UiTestDir>
+    <UiTestDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../test/ui'))</UiTestDir>
   </PropertyGroup>
 
   <Target Name="VitestUi" AfterTargets="VSTest" Condition="'$(RunVitest)' == 'true' And Exists('$(UiTestDir)/node_modules')">

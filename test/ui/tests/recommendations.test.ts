@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -140,11 +140,22 @@ describe('request response handling', () => {
     expect(btn.textContent).toMatch(/fail/i);
   });
 
-  test('repeated errors reset the timer instead of stacking', () => {
+  test('repeated errors reset the timer instead of stacking', async () => {
     const btn = buttonInGrid();
     ui.handleDiscoveryRequestError(btn);
+    // Let the first deadline almost arrive, then fire a second error. The reset
+    // must restart the countdown, so the original deadline no longer applies.
+    await vi.advanceTimersByTimeAsync(2500);
     ui.handleDiscoveryRequestError(btn);
     expect(btn.disabled).toBe(false);
+    expect(btn.innerHTML).toMatch(/fail/i);
+    // Past the first error's original 3000ms deadline, the label still shows the
+    // error because the second error reset the timer, proving no early wipe.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(btn.innerHTML).toMatch(/fail/i);
+    // Only after the second error's full window does it revert to Request.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(btn.innerHTML).toMatch(/request/i);
   });
 
   test('submit posts the expected payload shape', async () => {

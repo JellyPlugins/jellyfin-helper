@@ -35,33 +35,42 @@ function mergeInto(merged, cov) {
 function writeLcov(merged) {
   const lines = [];
   for (const [file, data] of Object.entries(merged)) {
-    lines.push(`SF:${file}`);
-    for (const fn of Object.values(data.fnMap)) lines.push(`FN:${fn.loc.start.line},${fn.name}`);
-    lines.push(`FNF:${Object.keys(data.fnMap).length}`);
-    lines.push(`FNH:${Object.values(data.f).filter((c) => c > 0).length}`);
+    const fnLines = Object.values(data.fnMap).map((fn) => `FN:${fn.loc.start.line},${fn.name}`);
+    lines.push(
+      `SF:${file}`,
+      ...fnLines,
+      `FNF:${Object.keys(data.fnMap).length}`,
+      `FNH:${Object.values(data.f).filter((c) => c > 0).length}`,
+    );
     const byLine = new Map();
     for (const [id, count] of Object.entries(data.s)) {
-      const line = data.statementMap[id].start.line;
+      const stmt = data.statementMap[id];
+      if (!stmt) continue;
+      const line = stmt.start.line;
       byLine.set(line, (byLine.get(line) ?? 0) + count);
     }
-    for (const [line, count] of [...byLine.entries()].sort((a, b) => a[0] - b[0])) {
-      lines.push(`DA:${line},${count}`);
-    }
-    lines.push(`LF:${byLine.size}`);
-    lines.push(`LH:${[...byLine.values()].filter((c) => c > 0).length}`);
+    const daLines = [...byLine.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([line, count]) => `DA:${line},${count}`);
+    lines.push(
+      ...daLines,
+      `LF:${byLine.size}`,
+      `LH:${[...byLine.values()].filter((c) => c > 0).length}`,
+    );
     let found = 0;
     let hit = 0;
+    const brLines = [];
     for (const [id, counts] of Object.entries(data.b)) {
-      const loc = data.branchMap[id].loc.start.line;
+      const branch = data.branchMap[id];
+      if (!branch) continue;
+      const loc = branch.loc.start.line;
       counts.forEach((c, i) => {
         found++;
         if (c > 0) hit++;
-        lines.push(`BRDA:${loc},${id},${i},${c}`);
+        brLines.push(`BRDA:${loc},${id},${i},${c}`);
       });
     }
-    lines.push(`BRF:${found}`);
-    lines.push(`BRH:${hit}`);
-    lines.push('end_of_record');
+    lines.push(...brLines, `BRF:${found}`, `BRH:${hit}`, 'end_of_record');
   }
   mkdirSync(join(UI_ROOT, 'coverage'), { recursive: true });
   writeFileSync(join(UI_ROOT, 'coverage', 'lcov.info'), lines.join('\n') + '\n');
@@ -81,19 +90,38 @@ if (files.length === 0) {
 const merged = {};
 for (const f of files) mergeInto(merged, JSON.parse(readFileSync(join(TMP, f), 'utf8')));
 
+// Drop harness-only coverage keys (e.g. the discovery double-init guard bundle,
+// which instruments the full IIFE under a throwaway path). They are not real
+// product modules and must not count toward the gate or lcov.
+for (const key of Object.keys(merged)) {
+  if (key.includes('.guard.js')) delete merged[key];
+}
+
 let lineHit = 0;
 let lineAll = 0;
 let branchHit = 0;
 let branchAll = 0;
-for (const [file, data] of Object.entries(merged).sort()) {
+for (const [file, data] of [...Object.entries(merged)].sort((a, b) => a[0].localeCompare(b[0]))) {
+  // Group statement hits by source line: a line counts once and is "hit" if any
+  // statement on it ran. Counting raw statements would let a multi-statement
+  // line inflate the denominator and pass the gate below true line coverage.
+  const byLine = new Map();
+  for (const [id, count] of Object.entries(data.s)) {
+    // A merged report can carry statement ids whose map entry came from a
+    // differently instrumented run; skip any id without a known source line.
+    const stmt = data.statementMap[id];
+    if (!stmt) continue;
+    const line = stmt.start.line;
+    byLine.set(line, (byLine.get(line) ?? 0) + count);
+  }
   let lh = 0;
   let la = 0;
   let bh = 0;
   let ba = 0;
-  for (const c of Object.values(data.s)) {
+  for (const count of byLine.values()) {
     la++;
     lineAll++;
-    if (c > 0) {
+    if (count > 0) {
       lh++;
       lineHit++;
     }

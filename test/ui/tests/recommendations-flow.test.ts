@@ -23,10 +23,13 @@ function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
       }
       calls.push({ url: String(opts.url), body });
       if (failures.some((f) => String(opts.url).includes(f))) return Promise.reject(new Error('down'));
-      const exact = Object.entries(routes).find(([key]) => String(opts.url) === key);
+      const url = String(opts.url);
+      const exact = Object.entries(routes).find(([key]) => url === key);
       if (exact) return Promise.resolve(exact[1]);
+      // Insertion order decides substring matches, so a caller lists a specific
+      // route (e.g. Discovery/Request) before the generic one it extends.
       for (const [key, value] of Object.entries(routes)) {
-        if (String(opts.url).includes(key)) return Promise.resolve(value);
+        if (url.includes(key)) return Promise.resolve(value);
       }
       return Promise.resolve({});
     },
@@ -108,12 +111,13 @@ describe('recommendations tab flow', () => {
 });
 
 describe('discovery request through the profile popup', () => {
-  // Services must precede the all-users Discovery key: substring routing
-  // would otherwise answer service lookups with user data.
+  // Specific Discovery sub-routes must precede the generic all-users Discovery
+  // key: insertion-order substring routing would otherwise answer the service
+  // lookup and the request POST with the user-discovery payload.
   const popupRoutes = (services: unknown, extra: Record<string, unknown> = {}) => ({
     'Discovery/Services/radarr': services,
-    ...fullRoutes(),
     ...extra,
+    ...fullRoutes(),
   });
 
   test('profile click submits with server, profile and folder', async () => {
@@ -137,6 +141,9 @@ describe('discovery request through the profile popup', () => {
     expect(post).toBeDefined();
     expect(post!.body).toMatchObject({ TmdbId: 5, ServerId: 0, ProfileId: 4, RootFolder: '/movies' });
     expect(document.getElementById('seerrUserPopup')).toBeNull();
+    // The success response marks the originating card done, proving the request
+    // resolved as success and not the generic discovery payload.
+    expect(btn.classList.contains('discovery-request-done')).toBe(true);
   });
 
   test('escape closes the popup without submitting', async () => {

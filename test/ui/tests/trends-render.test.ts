@@ -70,8 +70,10 @@ describe('loadTrendData', () => {
   test('missing container does not throw', async () => {
     ajaxRouter({ GrowthTimeline: timeline() });
     document.body.innerHTML = '';
-    ui.loadTrendData(false);
+    expect(() => ui.loadTrendData(false)).not.toThrow();
     await flush();
+    // No chart container means nothing to render into: the body stays empty.
+    expect(document.body.children).toHaveLength(0);
   });
 });
 

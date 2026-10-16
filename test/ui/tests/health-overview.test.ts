@@ -164,8 +164,10 @@ describe('loadCleanupStats', () => {
   test('missing container does not throw', async () => {
     ajaxRouter({ CleanupStatistics: {} });
     document.body.innerHTML = '';
-    ui.loadCleanupStats();
+    expect(() => ui.loadCleanupStats()).not.toThrow();
     await flush();
+    // With no container the loader is a no-op: nothing is injected into the body.
+    expect(document.body.children).toHaveLength(0);
   });
 });
 

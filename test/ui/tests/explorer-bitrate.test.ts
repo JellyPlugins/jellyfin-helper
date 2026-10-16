@@ -40,6 +40,21 @@ function seed() {
   ui.fillCodecsData(scanData());
 }
 
+// Seeds exactly one integer bitrate so getBitrateBounds hits its single-value
+// branch, where floor == ceil and the span must widen by one.
+function seedOne(bitrate: number) {
+  (globalThis as any).ApiClient = {
+    getUrl: (p: string) => p,
+    getCurrentUserId: () => '',
+    accessToken: () => 't',
+    ajax: () => Promise.resolve({}),
+  };
+  document.body.innerHTML = '';
+  const data = scanData();
+  data.Movies[0].VideoBitrates = { '/m/a.mkv': bitrate };
+  ui.fillCodecsData(data);
+}
+
 describe('explorer seeding through fillCodecsData', () => {
   test('renders one card per populated descriptor', () => {
     if (!(globalThis as any).window.scrollTo) (globalThis as any).window.scrollTo = () => undefined;
@@ -79,8 +94,8 @@ describe('bitrate maps and bounds', () => {
   });
 
   test('single value widens to a unit span', () => {
-    seed();
-    expect(ui.getBitrateBounds()).not.toBeNull();
+    seedOne(15);
+    expect(ui.getBitrateBounds()).toMatchObject({ min: 15, max: 16, count: 1 });
   });
 
   test('range keeps only measured files inside', () => {

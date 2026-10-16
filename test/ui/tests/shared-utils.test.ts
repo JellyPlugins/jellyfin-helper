@@ -55,7 +55,10 @@ describe('allowSafeHtml keeps only strong and br', () => {
   });
 
   test.each([
-    ['<script>alert(1)</script>', '<img src=x onerror=y>', '<a href="javascript:z">t</a>', '<div>hi</div>'],
+    ['<script>alert(1)</script>'],
+    ['<img src=x onerror=y>'],
+    ['<a href="javascript:z">t</a>'],
+    ['<div>hi</div>'],
   ])('never restores %s', (input) => {
     expect(ui.allowSafeHtml(input)).not.toContain('<script');
     expect(ui.allowSafeHtml(input)).toContain('&lt;');

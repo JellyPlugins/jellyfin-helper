@@ -24,7 +24,7 @@ describe('folder browser dialog', () => {
   beforeEach(failingApi);
 
   test('unreachable backend shows an error instead of hanging', async () => {
-    const overlay = openOnTrashPath('/media');
+    openOnTrashPath('/media');
     for (let i = 0; i < 10; i++) await Promise.resolve();
     const listing = document.getElementById('folderBrowserListing')!;
     expect(listing.textContent).toMatch(/cannot access|error/i);
