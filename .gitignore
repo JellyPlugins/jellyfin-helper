@@ -30,3 +30,6 @@ test/e2e/test-results/
 test/e2e/.artifacts/
 test/e2e/runtime/
 test/e2e/setup/auth.json
+# UI Vitest harness (generated, never committed)
+test/ui/node_modules/
+test/ui/coverage/
