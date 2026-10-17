@@ -100,7 +100,7 @@ describe('folder browser navigation', () => {
     document.body.innerHTML = '<input id="cfgTrashPath" value="">';
     ui.openFolderBrowserDialog();
     await flush();
-    expect(document.querySelectorAll('.folder-browser-item').length).toBe(1);
+    expect(document.querySelectorAll('.folder-browser-item')).toHaveLength(1);
     expect(document.getElementById('folderBrowserQuickJump')!.textContent).toContain('Media');
     (document.querySelector('.folder-browser-item') as HTMLElement).click();
     await flush();

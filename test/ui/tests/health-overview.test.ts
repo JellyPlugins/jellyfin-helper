@@ -69,7 +69,7 @@ describe('fillHealthData', () => {
     ui.fillHealthData(scanFixture());
     await flush();
     const c = document.getElementById('healthContent')!;
-    expect(c.querySelectorAll('.health-item').length).toBe(4);
+    expect(c.querySelectorAll('.health-item')).toHaveLength(4);
     expect(document.getElementById('trashHealthSection')).toBeNull();
   });
 

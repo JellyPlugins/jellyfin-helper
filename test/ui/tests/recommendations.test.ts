@@ -58,6 +58,10 @@ describe('findUserDiscovery matches case-insensitively', () => {
   test.each([[[], 'a'], [null, 'a'], [all, ''], [all, null]])('empty input yields null', (data: any, id: string) => {
     expect(ui.findUserDiscovery(data, id)).toBeNull();
   });
+
+  test('entries without any id fall through to a later match', () => {
+    expect(ui.findUserDiscovery([{}, { userId: 'abc' }], 'ABC')).toMatchObject({ userId: 'abc' });
+  });
 });
 
 describe('renderRecommendationCard clamps and escapes', () => {
@@ -224,7 +228,7 @@ describe('ensemble diagnostics math', () => {
     await flush();
     ui.loadEnsembleDiagnostics('u1');
     await flush();
-    expect(calls.filter((c) => c.url.includes('Ensemble')).length).toBe(1);
+    expect(calls.filter((c) => c.url.includes('Ensemble'))).toHaveLength(1);
   });
 });
 
@@ -273,6 +277,321 @@ describe('watch profile and activity rendering', () => {
   });
 });
 
+describe('renderRecommendationCard optional fields', () => {
+  test('item type and year tags render with a clamped score', () => {
+    const html = ui.renderRecommendationCard({ Score: 0.3, ItemType: 'Movie', Year: 2021 }, 1);
+    expect(html).toContain('Unknown');
+    expect(html).toContain('recs-tag-type');
+    expect(html).toContain('2021');
+    expect(html).toContain('30%');
+  });
+
+  test('reason key without a reason falls back to the key text', () => {
+    const html = ui.renderRecommendationCard({ Name: 'N', Score: 0.1, ReasonKey: 'rk' }, 2);
+    expect(html).toContain('rk');
+  });
+
+  test('out-of-range placeholders survive substitution', () => {
+    const html = ui.renderRecommendationCard(
+      { Name: 'N', Score: 0.1, ReasonKey: 'rk', Reason: 'x {9} y', RelatedItemName: 'A' },
+      3,
+    );
+    expect(html).toContain('x {9} y');
+  });
+
+  test('plain reason renders without a reason key', () => {
+    expect(ui.renderRecommendationCard({ Name: 'N', Score: 0.4, Reason: 'because' }, 4)).toContain('because');
+  });
+
+  test('missing reason falls back to the generic text', () => {
+    expect(ui.renderRecommendationCard({ Name: 'N', Score: 0.4 }, 5)).toContain('Based on your viewing history');
+  });
+});
+
+describe('renderDiscoveryCard optional fields', () => {
+  test('tv type, year and rating tags render with genres capped at three', () => {
+    const html = ui.renderDiscoveryCard(
+      { Title: 'T', MediaType: 'tv', TmdbId: 1, Year: 2022, TmdbRating: 7.28, Genres: ['G1', 'G2', 'G3', 'G4'] },
+      0,
+    );
+    expect(html).toContain('Series');
+    expect(html).toContain('2022');
+    expect(html).toContain('7.3');
+    expect(html.match(/recs-tag">G/g)).toHaveLength(3);
+  });
+
+  test('missing title falls back to unknown with a zero score', () => {
+    const html = ui.renderDiscoveryCard({ MediaType: 'movie', TmdbId: 1 }, 0);
+    expect(html).toContain('Unknown');
+    expect(html).toContain('0%');
+  });
+
+  test('plain reason renders without placeholders', () => {
+    const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, Reason: 'because', MediaType: 'movie', TmdbId: 1 }, 0);
+    expect(html).toContain('because');
+  });
+
+  test('reason key without a reason falls back to the key text', () => {
+    const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, ReasonKey: 'rk', MediaType: 'movie', TmdbId: 1 }, 0);
+    expect(html).toContain('rk');
+  });
+
+  test('reason key substitutes related info placeholders', () => {
+    const html = ui.renderDiscoveryCard(
+      { Title: 'T', Score: 0.5, ReasonKey: 'rk', Reason: 'because {0}', RelatedInfo: 'Z', MediaType: 'movie', TmdbId: 1 },
+      0,
+    );
+    expect(html).toContain('because Z');
+  });
+});
+
+describe('renderDiscoveryCards list variants', () => {
+  test('missing counter still renders the grid', () => {
+    document.body.innerHTML = '<div id="g"></div>';
+    const g = document.getElementById('g')!;
+    ui.renderDiscoveryCards(g, null, { Recommendations: [{ Title: 'T', MediaType: 'movie', TmdbId: 1 }] });
+    expect(g.querySelectorAll('.discovery-card')).toHaveLength(1);
+  });
+
+  test('empty list without a counter still renders the empty state', () => {
+    document.body.innerHTML = '<div id="g"></div>';
+    const g = document.getElementById('g')!;
+    ui.renderDiscoveryCards(g, null, null);
+    expect(g.textContent).toMatch(/no suggestions/i);
+  });
+
+  test('generated-at footer renders for valid dates and is skipped for garbage', () => {
+    document.body.innerHTML = '<div id="g"></div>';
+    const g = document.getElementById('g')!;
+    const base = { Recommendations: [{ Title: 'T', MediaType: 'movie', TmdbId: 1 }] };
+    ui.renderDiscoveryCards(g, null, { ...base, GeneratedAt: '2026-02-03T04:05:06Z' });
+    expect(g.textContent).toContain('Last updated');
+    ui.renderDiscoveryCards(g, null, { ...base, GeneratedAt: 'not-a-date' });
+    expect(g.textContent).not.toContain('Last updated');
+  });
+});
+
+describe('getTopGenresFromDistribution edge cases', () => {
+  test('inherited keys are skipped and zero counts keep their own entries', () => {
+    const dist = Object.assign(Object.create({ inherited: 9 }), { A: 0, B: 2 });
+    expect(ui.getTopGenresFromDistribution(dist, 5)).toEqual(['B', 'A']);
+  });
+});
+
+describe('renderCompactWatchProfile variants', () => {
+  test('missing counts render zeros and empty genres omit the row', () => {
+    document.body.innerHTML = '<div id="c"></div>';
+    const c = document.getElementById('c')!;
+    ui.renderCompactWatchProfile(c, { GenreDistribution: {} });
+    expect(c.textContent).toContain('0 Watched');
+    expect(c.textContent).not.toContain('Top Genres');
+  });
+});
+
+describe('renderCompactActivityTable variants', () => {
+  test('empty list shows the empty state', () => {
+    document.body.innerHTML = '<div id="c"></div>';
+    const c = document.getElementById('c')!;
+    ui.renderCompactActivityTable(c, []);
+    expect(c.textContent).toMatch(/no watch activity/i);
+  });
+
+  test('series names, missing titles and invalid dates degrade gracefully', () => {
+    document.body.innerHTML = '<div id="c"></div>';
+    const c = document.getElementById('c')!;
+    ui.renderCompactActivityTable(c, [
+      { SeriesName: 'Show', EpisodeLabel: 'S1E1', TotalPlayCount: 2, AverageCompletionPercent: 100, MostRecentWatch: 'not-a-date' },
+      { SeriesName: 'Show', ItemName: 'Ep2', TotalPlayCount: 1, AverageCompletionPercent: 10, MostRecentWatch: '2026-01-01T00:00:00' },
+      { SeriesName: 'Show', TotalPlayCount: 0, AverageCompletionPercent: 50 },
+      { TotalPlayCount: 3, AverageCompletionPercent: 0 },
+    ]);
+    expect(c.querySelectorAll('tbody tr')).toHaveLength(4);
+    expect(c.textContent).toContain('Show \u2013 S1E1');
+    expect(c.textContent).toContain('Show \u2013 Ep2');
+    expect(c.textContent).toContain('\u2014');
+  });
+});
+
+describe('ensemble diagnostics rendering variants', () => {
+  function host() {
+    document.body.innerHTML = '<div id="h"></div>';
+    return document.getElementById('h')!;
+  }
+
+  test('per-user model names the user and a frozen gate wins over the trend', () => {
+    const h = host();
+    ui.renderEnsembleDiagnostics(h, {
+      Available: true, Alpha: 0.8, NeuralBeta: 0.5, NeuralEnabled: true,
+      IsPerUser: true, UserName: 'Alice', Trend: 'Stable', TrainingExampleCount: 7, QualityGateFrozen: true,
+    });
+    expect(h.textContent).toContain('Alice');
+    expect(h.textContent).toContain('frozen');
+    expect(h.textContent).toContain('20%');
+    expect(h.textContent).toContain('40%');
+  });
+
+  test('per-user model without a name uses the neutral term', () => {
+    const h = host();
+    ui.renderEnsembleDiagnostics(h, {
+      Available: true, Alpha: 0.5, NeuralBeta: 0, NeuralEnabled: false,
+      IsPerUser: true, Trend: 'Degrading', TrainingExampleCount: 0,
+    });
+    expect(h.textContent).toContain('this user');
+    expect(h.textContent).toContain('Degrading');
+  });
+
+  test('unknown trend passes through and missing factors read as off', () => {
+    const h = host();
+    ui.renderEnsembleDiagnostics(h, { Available: true, Trend: 'Weird', TrainingExampleCount: 0 });
+    expect(h.textContent).toContain('Weird');
+    expect(h.textContent).toContain('100%');
+    expect(h.textContent).toContain('off');
+  });
+});
+
+describe('ensemble diagnostics loading variants', () => {
+  test('userless diagnostics omit the query and cache under the empty key', async () => {
+    const calls = ajaxRouter({ 'Diagnostics/Ensemble': { Available: false } });
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics(null);
+    await flush();
+    ui.loadEnsembleDiagnostics(null);
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).not.toContain('userId=');
+  });
+
+  test('cached diagnostics repaint into a replaced host and tolerate a missing host', async () => {
+    ajaxRouter({ 'Diagnostics/Ensemble': { Available: true, Alpha: 0.25 } });
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics('u1');
+    await flush();
+    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('75%');
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics('u1');
+    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('75%');
+    document.body.innerHTML = '';
+    expect(() => ui.loadEnsembleDiagnostics('u1')).not.toThrow();
+  });
+
+  test('stale diagnostics responses cannot overwrite the latest user footnote', async () => {
+    (globalThis as any).ApiClient = {
+      getUrl: (p: string) => p,
+      getCurrentUserId: () => '',
+      accessToken: () => 't',
+      ajax: (opts: any) =>
+        Promise.resolve(String(opts.url).includes('userId=u1')
+          ? { Available: true, Alpha: 0.1 }
+          : { Available: true, Alpha: 0.9 }),
+    };
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics('u1');
+    ui.loadEnsembleDiagnostics('u2');
+    await flush();
+    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('10%');
+  });
+
+  test('a stale failure is ignored while the latest failure clears the footnote', async () => {
+    ajaxRouter({}, ['Diagnostics/Ensemble']);
+    document.body.innerHTML = '<div id="recsEnsembleFootnote">stale</div>';
+    ui.loadEnsembleDiagnostics('u1');
+    ui.loadEnsembleDiagnostics('u2');
+    await flush();
+    expect(document.getElementById('recsEnsembleFootnote')!.innerHTML).toBe('');
+  });
+
+  test('a failure without a host is a silent no-op', async () => {
+    ajaxRouter({}, ['Diagnostics/Ensemble']);
+    document.body.innerHTML = '';
+    expect(() => ui.loadEnsembleDiagnostics('u1')).not.toThrow();
+    await flush();
+  });
+
+  test('a success arriving after the footnote is gone is cached for the next render', async () => {
+    ajaxRouter({ 'Diagnostics/Ensemble': { Available: true, Alpha: 0.5 } });
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics('gone');
+    document.body.innerHTML = '';
+    await flush();
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
+    ui.loadEnsembleDiagnostics('gone');
+    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('50%');
+  });
+});
+
+describe('discovery card removal animation', () => {
+  function cardInGrid(count?: string) {
+    document.body.innerHTML =
+      '<div class="discovery-grid"><div class="discovery-card"><button class="discovery-request-btn">Request</button></div></div>'
+      + (count === undefined ? '' : '<span id="discoveryCount">' + count + '</span>');
+    return document.querySelector('.discovery-request-btn') as HTMLButtonElement;
+  }
+
+  test('success removes the card, decrements the counter and shows the empty state', async () => {
+    const btn = cardInGrid('1');
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(document.querySelector('.discovery-card')!.classList.contains('discovery-card-removing')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(document.querySelectorAll('.discovery-card')).toHaveLength(0);
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('0');
+    expect(document.querySelector('.discovery-grid')!.textContent).toMatch(/no suggestions/i);
+  });
+
+  test('a card removed before the fade never touches the counter', async () => {
+    const btn = cardInGrid('1');
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    document.querySelector('.discovery-card')!.remove();
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('1');
+  });
+
+  test('a card detached during the fade keeps the counter intact', async () => {
+    const btn = cardInGrid('1');
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    await vi.advanceTimersByTimeAsync(5000);
+    document.querySelector('.discovery-card')!.remove();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('1');
+  });
+
+  test('remaining cards keep the grid and non-numeric counters clamp at zero', async () => {
+    document.body.innerHTML =
+      '<div class="discovery-grid">' +
+      '<div class="discovery-card"><button class="discovery-request-btn">R</button></div>' +
+      '<div class="discovery-card"><button>b</button></div></div>' +
+      '<span id="discoveryCount">x</span>';
+    const btn = document.querySelector('.discovery-request-btn') as HTMLButtonElement;
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(document.querySelectorAll('.discovery-card')).toHaveLength(1);
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('0');
+  });
+
+  test('a card outside any grid removes without counter updates', async () => {
+    document.body.innerHTML = '<div class="discovery-card"><button class="discovery-request-btn">R</button></div>';
+    const btn = document.querySelector('.discovery-request-btn') as HTMLButtonElement;
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(document.querySelectorAll('.discovery-request-btn')).toHaveLength(0);
+  });
+
+  test('success without a card only marks the button', async () => {
+    document.body.innerHTML = '<button id="solo">R</button>';
+    const btn = document.getElementById('solo') as HTMLButtonElement;
+    ui.handleDiscoveryRequestResponse({ Success: true }, btn, 5, 'movie');
+    expect(btn.classList.contains('discovery-request-done')).toBe(true);
+    await vi.advanceTimersByTimeAsync(5300);
+  });
+
+  test('error timer on a detached button leaves the label alone', async () => {
+    const btn = document.createElement('button');
+    ui.handleDiscoveryRequestError(btn);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(btn.innerHTML).toMatch(/fail/i);
+  });
+});
+
 describe('toggleCollapsible', () => {
   test('toggles open state and aria', () => {
     document.body.innerHTML =
@@ -286,5 +605,13 @@ describe('toggleCollapsible', () => {
 
   test('missing body does not throw', () => {
     expect(() => ui.toggleCollapsible('nope', 'tgl')).not.toThrow();
+  });
+
+  test('missing toggle and arrow still flip the body', () => {
+    document.body.innerHTML = '<div id="body"></div>';
+    ui.toggleCollapsible('body', 'tgl');
+    expect(document.getElementById('body')!.classList.contains('open')).toBe(true);
+    ui.toggleCollapsible('body', 'tgl');
+    expect(document.getElementById('body')!.classList.contains('open')).toBe(false);
   });
 });

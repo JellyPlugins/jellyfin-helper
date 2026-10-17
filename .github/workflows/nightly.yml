@@ -175,7 +175,7 @@ jobs:
           node-version: 24
 
       - name: Install UI test dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: test/ui
 
       - name: Run UI tests with coverage gate

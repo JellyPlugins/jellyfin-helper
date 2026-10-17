@@ -111,8 +111,8 @@ describe('fillCodecsData full render', () => {
     expect(ids).not.toContain('videoBitrate');
     // Canonical order places containers and resolutions before videoCodecs.
     expect(ids.indexOf('containers')).toBeLessThan(ids.indexOf('videoCodecs'));
-    expect(row.querySelectorAll('.codec-card-handle').length).toBe(ids.length);
-    expect(row.querySelectorAll('.donut-svg').length).toBe(ids.length);
+    expect(row.querySelectorAll('.codec-card-handle')).toHaveLength(ids.length);
+    expect(row.querySelectorAll('.donut-svg')).toHaveLength(ids.length);
   });
 
   test('watched card merges per-user counts with Never watched', async () => {

@@ -145,7 +145,7 @@ describe('doSaveSettings', () => {
     ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null, onError: err });
     await flush();
     expect(err).toHaveBeenCalled();
-    expect(calls.length).toBe(0);
+    expect(calls).toHaveLength(0);
     expect(document.getElementById('trashPathErrorMsg')).not.toBeNull();
   });
 
@@ -203,7 +203,7 @@ describe('library multiselect', () => {
     document.body.insertAdjacentHTML('beforeend', '<div id="cfgExcludedWrapper2"></div>');
     ui.renderLibraryMultiSelect('cfgExcludedWrapper2', libs, { movies: 'Movies' }, 'excluded');
     const wrap = document.getElementById('cfgExcludedWrapper2')!;
-    expect(wrap.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+    expect(wrap.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(wrap.querySelector('.library-multiselect-summary')!.textContent).toBe('Movies');
   });
 

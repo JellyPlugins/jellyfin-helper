@@ -49,7 +49,25 @@ describe('interpolateDataPoints', () => {
 
   test('adjacent points gain nothing', () => {
     const pts = [pt('2026-01-01T00:00:00.000Z', 1, 1), pt('2026-01-02T00:00:00.000Z', 2, 2)];
-    expect(ui.interpolateDataPoints(pts, 'daily').length).toBe(2);
+    expect(ui.interpolateDataPoints(pts, 'daily')).toHaveLength(2);
+  });
+
+  test('a dense series hitting the point cap truncates and warns', () => {
+    const start = Date.UTC(2000, 0, 1);
+    const pts = Array.from({ length: 20000 }, (_, i) => pt(new Date(start + i * 86400000).toISOString(), i, i));
+    const out = ui.interpolateDataPoints(pts, 'daily');
+    expect(out).toHaveLength(20000);
+    expect(out.at(-1).cumulativeSize).toBe(19999);
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  test('a gap larger than the cap truncates while keeping the final point', () => {
+    const out = ui.interpolateDataPoints(
+      [pt('2000-01-01T00:00:00.000Z', 1, 1), pt('2060-01-01T00:00:00.000Z', 2, 2)],
+      'daily',
+    );
+    expect(out).toHaveLength(19999);
+    expect(out.at(-1).cumulativeSize).toBe(2);
   });
 });
 
@@ -57,7 +75,7 @@ describe('projectToGranularity and pickLevelForSpan', () => {
   test('keeps the last point per bucket', () => {
     const pts = [pt('2026-05-11T00:00:00.000Z', 1, 1), pt('2026-05-12T00:00:00.000Z', 5, 2), pt('2026-05-19T00:00:00.000Z', 9, 3)];
     const out = ui.projectToGranularity(pts, 'weekly');
-    expect(out.length).toBe(2);
+    expect(out).toHaveLength(2);
     expect(out[0].cumulativeSize).toBe(5);
   });
 
@@ -97,6 +115,12 @@ describe('computeNiceYScale', () => {
   test('small peaks stay in bytes', () => {
     expect(ui.computeNiceYScale(500).yMax).toBeLessThan(1024);
   });
+
+  test('a denormal peak still yields a positive scale', () => {
+    const { yMax, ticks } = ui.computeNiceYScale(Number.MIN_VALUE);
+    expect(yMax).toBeGreaterThan(0);
+    expect(ticks.length).toBeGreaterThan(0);
+  });
 });
 
 describe('collectVisiblePoints', () => {
@@ -109,7 +133,11 @@ describe('collectVisiblePoints', () => {
   test('empty window falls back to the last point', () => {
     const pts = [pt('2026-01-01T00:00:00.000Z')];
     const out = ui.collectVisiblePoints(pts, 0, 1);
-    expect(out.length).toBe(1);
+    expect(out).toHaveLength(1);
+  });
+
+  test('an empty projection renders nothing', () => {
+    expect(ui.collectVisiblePoints([], 0, 1)).toHaveLength(0);
   });
 });
 
@@ -127,6 +155,11 @@ describe('deltas and zoom math', () => {
     expect(ui.wheelZoomFactor(false, 100, 100)).toBeGreaterThan(1);
     expect(ui.wheelZoomFactor(false, -10000, 10000)).toBe(ui.wheelZoomFactor(false, -200, 200));
     expect(ui.wheelZoomFactor(true, -100, 100)).toBeGreaterThan(ui.wheelZoomFactor(false, -100, 100));
+  });
+
+  test('pinch zoom-out follows the gentler pinch curve', () => {
+    expect(ui.wheelZoomFactor(true, 100, 100)).toBeGreaterThan(1);
+    expect(ui.wheelZoomFactor(true, 100, 100)).toBeLessThan(ui.wheelZoomFactor(false, 100, 100));
   });
 
   test('zoom limits at domain edges', () => {
@@ -218,6 +251,55 @@ describe('insights', () => {
     expect(b1.getAttribute('aria-expanded')).toBe('true');
     expect(b2.getAttribute('aria-expanded')).toBe('false');
   });
+
+  test('panel toggle tolerates missing nodes and buttons', () => {
+    document.body.innerHTML = '<div id="p1"></div>';
+    ui.toggleInsightPanel('missing-show', 'p1', null, null);
+    expect(document.getElementById('p1')!.classList.contains('visible')).toBe(false);
+    ui.toggleInsightPanel('p1', 'missing-hide', null, null);
+    expect(document.getElementById('p1')!.classList.contains('visible')).toBe(true);
+  });
+
+  test('largest rows treat garbage and non-positive sizes as zero', () => {
+    const html = ui.buildLargestTree({
+      Largest: [
+        { LibraryName: 'Mixed', CollectionType: 'movies', Name: 'a', Size: 'x' },
+        { LibraryName: 'Mixed', CollectionType: 'movies', Name: 'b', Size: -5 },
+      ],
+    });
+    expect(html.match(/insight-tree-name/g)).toHaveLength(2);
+    expect(html).toContain('0 B');
+  });
+
+  test('recent rows treat garbage sizes as zero', () => {
+    const html = ui.buildRecentItemRow({ ChangeType: 'added', Name: 'n', Size: 'x', CreatedUtc: '2026-01-02T00:00:00.000Z' });
+    expect(html).toContain('0 B');
+    expect(html).toContain('insight-badge-added');
+  });
+
+  test('recent tree groups two libraries and sorts movies first', () => {
+    const html = ui.buildRecentTree({
+      Recent: [
+        { LibraryName: 'Shows', CollectionType: 'tvshows', Name: 's', Size: 5, ChangeType: 'added', CreatedUtc: '2026-01-02T00:00:00.000Z' },
+        { LibraryName: 'Movies', CollectionType: 'movies', Name: 'm', Size: 10, ChangeType: 'changed', ModifiedUtc: '2026-01-03T00:00:00.000Z' },
+      ],
+    });
+    expect(html.indexOf('Movies')).toBeLessThan(html.indexOf('Shows'));
+  });
+
+  test('sort order falls back when no collection type is set', () => {
+    expect(ui.insightLibrarySortOrder('L', { L: [{ Name: 'x' }] })).toBe(2);
+  });
+
+  test('grouping keeps same-library entries in one bucket', () => {
+    const grouped = ui.groupByLibrary([{ LibraryName: 'A', Name: 'x' }, { LibraryName: 'A', Name: 'y' }]);
+    expect(grouped.A).toHaveLength(2);
+  });
+
+  test('music libraries get their own badge icon', () => {
+    expect(ui.getInsightTypeBadge('music')).not.toBe(ui.getInsightTypeBadge('unknown-thing'));
+    expect(ui.getInsightTypeBadge('MUSIC')).toBe(ui.getInsightTypeBadge('music'));
+  });
 });
 
 describe('formatGranularityLabel', () => {
@@ -231,5 +313,11 @@ describe('formatGranularityLabel', () => {
 
   test('month labels carry the year', () => {
     expect(ui.formatGranularityLabel('2026-05-17T00:00:00.000Z', 'monthly')).toContain('2026');
+  });
+
+  test('unknown granularity falls back to the full date', () => {
+    const out = ui.formatGranularityLabel('2026-05-17T00:00:00.000Z', 'quarterly');
+    expect(out).toContain('2026');
+    expect(out).not.toBe('-');
   });
 });

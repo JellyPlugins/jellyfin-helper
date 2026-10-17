@@ -51,9 +51,9 @@ function preparedUnwrapped(absPath: string): string {
   );
   // Drop the bootstrap tail so nothing auto-mounts at evaluation time.
   body = body
-    .replace(/^\s*bootstrapDiscovery\(\);[ \t]*\r?$/m, '')
-    .replace(/^\s*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, '')
-    .replace(/^\s*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, '');
+    .replace(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, '')
+    .replace(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, '')
+    .replace(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, '');
   return instrumenter.instrumentSync(body, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 
@@ -172,6 +172,9 @@ const CONFIG_EXPECTED = [
         'handleDiscoveryRequestResponse', 'handleDiscoveryRequestError',
         'submitDiscoveryRequest', 'submitDiscoveryRequestWithProfile',
         'markDiscoveryItemRequested', 'showSeerrUserPopup',
+        'showLibraryMultiSelectIndicator',
+        'getCodecsExplorerState', 'intersectPathMaps', 'findExplorerFocusBox',
+        'commitBitrateOnEnter',
 ];
 
 let discovery: UiBridge | null = null;
@@ -216,6 +219,7 @@ const DISCOVERY_EXPECTED = [
   'renderDiscovery', 'fetchPermissionsAndRequest', 'setDismissSiblingHidden',
   'finalizeDiscoveryPopup', 'injectPopupStyles', 'handleDiscoveryProbe',
   'probeDiscoveryAvailability', 'activateDiscoveryTab', 'notifyDiscoveryTabMissing',
+  'waitForApi', 'loadStrings', 'bootstrapDiscovery',
 ];
 
 let discoveryBridge: UiBridge | null = null;

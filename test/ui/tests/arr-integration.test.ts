@@ -125,10 +125,10 @@ describe('add and remove instances', () => {
     ui.addArrInstance('Radarr');
     ui.addArrInstance('Radarr');
     ui.addArrInstance('Radarr');
-    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]').length).toBe(3);
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]')).toHaveLength(3);
     expect((document.getElementById('btnAddRadarr') as HTMLButtonElement).style.display).toBe('none');
     ui.addArrInstance('Radarr');
-    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]').length).toBe(3);
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]')).toHaveLength(3);
   });
 
   test('remove deletes, reindexes and autosaves without the row', async () => {
@@ -139,7 +139,7 @@ describe('add and remove instances', () => {
     ]);
     ui.removeArrInstance('Radarr', 0);
     const rows = document.querySelectorAll('.arr-instance-row[data-type="Radarr"]');
-    expect(rows.length).toBe(1);
+    expect(rows).toHaveLength(1);
     expect((document.getElementById('Radarr_0_name') as HTMLInputElement).value).toBe('B');
     await flush();
     const put = calls.find((c) => String(c.url).includes('JellyfinHelper/Configuration'));
@@ -214,7 +214,7 @@ describe('testArrConnection', () => {
     arrShell([{ Name: 'R', Url: '', ApiKey: '' }]);
     ui.testArrConnection('Radarr', 0);
     await flush();
-    expect(calls.length).toBe(0);
+    expect(calls).toHaveLength(0);
     expect(document.getElementById('Radarr_0_btnTest')!.textContent).toMatch(/required/i);
   });
 

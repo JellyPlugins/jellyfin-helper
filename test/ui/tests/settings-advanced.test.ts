@@ -229,8 +229,9 @@ describe('misc settings entries', () => {
   });
 
   test('failing ping still resolves the probe', async () => {
-    ajaxRouter({}, ['JellyfinHelper/Ping']);
+    const calls = ajaxRouter({}, ['JellyfinHelper/Ping']);
     await ui.probeBackendReachability({ status: 0, kind: 'network' });
     await flush();
+    expect(calls.some((c) => String(c.url).includes('JellyfinHelper/Ping'))).toBe(true);
   });
 });

@@ -68,7 +68,7 @@ describe('loadLogs', () => {
     ui.loadLogs();
     await flush();
     const rows = document.querySelectorAll('.logs-table tbody tr');
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     expect(document.getElementById('logsCount')!.textContent).toContain('2');
     expect(document.body.innerHTML).toContain('log-level-info');
     expect(document.body.innerHTML).not.toContain('<script>');

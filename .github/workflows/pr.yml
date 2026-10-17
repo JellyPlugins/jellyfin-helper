@@ -127,10 +127,10 @@ jobs:
       with:
         node-version: 24
 
-    # npm install (not ci): the lockfile is generated on first green CI run
-    # and committed afterwards. Until then resolve at run time.
+    # npm ci: installs exactly the committed lockfile, so CI never resolves
+    # unpinned dependency versions at run time.
     - name: Install UI test dependencies
-      run: npm install --ignore-scripts --no-audit --no-fund
+      run: npm ci --ignore-scripts --no-audit --no-fund
       working-directory: test/ui
 
     - name: Run UI tests with coverage gate
@@ -281,6 +281,8 @@ jobs:
         # Coverage is imported from the C# unit-test run only. E2E, PluginPages and demo have no
         # instrumentation, so exclusions prevent 0% scores. They stay in normal analysis, only
         # coverage denominator is affected. Generated configPage.html and docs/ are dropped entirely.
+        # test/ui is excluded completely: it is a JavaScript test surface (Vitest) with its own
+        # Codecov upload, and Sonar would treat it as un-instrumented product code.
         #
         # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
         # production code, so SonarCloud applies its (much lighter) test rule set to them instead
@@ -292,8 +294,8 @@ jobs:
           /d:sonar.host.url="https://sonarcloud.io" \
           /d:sonar.token="$SONAR_TOKEN" \
           /d:sonar.tests="Jellyfin.Plugin.JellyfinHelper.Tests,test/e2e" \
-          /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,**/bin/**,**/obj/**,**/node_modules/**" \
-          /d:sonar.coverage.exclusions="test/e2e/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
+          /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,test/ui/**,**/bin/**,**/obj/**,**/node_modules/**" \
+          /d:sonar.coverage.exclusions="test/e2e/**,test/ui/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
           /d:sonar.cs.cobertura.reportsPaths="**/coverage.cobertura.xml"
         dotnet build --configuration Release --no-incremental
         dotnet test --configuration Release --no-build --verbosity normal \

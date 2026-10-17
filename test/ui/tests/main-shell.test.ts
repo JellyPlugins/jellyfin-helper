@@ -96,7 +96,7 @@ describe('fillScanData end to end', () => {
     await flush();
     expect(document.getElementById('overviewContent')!.textContent).toContain('Video Data - Movies');
     expect(document.querySelector('#codecsContent [data-chart-id="videoCodecs"]')).not.toBeNull();
-    expect(document.querySelectorAll('#healthContent .health-item').length).toBe(4);
+    expect(document.querySelectorAll('#healthContent .health-item')).toHaveLength(4);
   });
 });
 
@@ -193,7 +193,7 @@ describe('loadLatestStatistics retry and load', () => {
     await flush();
     await vi.advanceTimersByTimeAsync(400);
     await flush();
-    expect(calls.filter((u) => u.includes('MediaStatistics/Latest')).length).toBe(3);
+    expect(calls.filter((u) => u.includes('MediaStatistics/Latest'))).toHaveLength(3);
   });
 });
 

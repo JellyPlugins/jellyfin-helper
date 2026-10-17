@@ -150,14 +150,14 @@ describe('lazy tree expansion', () => {
     expect(c.querySelector('.tree-leaf')).toBeNull();
     (c.querySelector('[data-tree-toggle]') as HTMLElement).click();
     const leaves = c.querySelectorAll('.tree-leaf');
-    expect(leaves.length).toBe(2);
+    expect(leaves).toHaveLength(2);
     expect(c.textContent).toContain('f1.mkv');
   });
 
   test('expand-all fills everything and collapse closes', () => {
     const c = treeDom();
     ui.runTreeAction(c, 'expand', c);
-    expect(c.querySelectorAll('.tree-leaf').length).toBe(2);
+    expect(c.querySelectorAll('.tree-leaf')).toHaveLength(2);
     ui.runTreeAction(c, 'collapse', c);
     expect(c.querySelector('.tree-node.tree-expanded')).toBeNull();
   });

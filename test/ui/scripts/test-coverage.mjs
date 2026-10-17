@@ -13,11 +13,17 @@ const TMP = join(HERE, '..', 'coverage', 'tmp');
 // reports could keep the number up after the current tests cover less.
 rmSync(TMP, { recursive: true, force: true });
 
-const vitest = spawnSync('npx', ['vitest', 'run'], { stdio: 'inherit', shell: true });
+// Spawn the local binaries via this Node executable with absolute paths and no
+// shell: nothing is resolved through PATH, so an attacker-writable PATH entry
+// cannot substitute a different vitest/check script.
+const NODE = process.execPath;
+const VITEST_BIN = join(HERE, '..', 'node_modules', 'vitest', 'vitest.mjs');
+
+const vitest = spawnSync(NODE, [VITEST_BIN, 'run'], { stdio: 'inherit' });
 const gate = spawnSync(
-  'node',
-  ['scripts/check-coverage.mjs', '--lines=85', '--branches=80'],
-  { stdio: 'inherit', shell: true },
+  NODE,
+  [join(HERE, 'check-coverage.mjs'), '--lines=85', '--branches=80'],
+  { stdio: 'inherit' },
 );
 
 if (vitest.status !== 0) process.exit(vitest.status);

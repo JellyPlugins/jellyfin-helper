@@ -63,7 +63,7 @@ describe('polarToCartesian and describeArc', () => {
 
   test('full circle splits into two paths', () => {
     const path = ui.describeArc(0, 0, 10, 5, 0, 2 * Math.PI);
-    expect(path.split('M ').length).toBe(3);
+    expect(path.split('M ')).toHaveLength(3);
   });
 });
 
@@ -91,7 +91,7 @@ describe('renderCodecBreakdown', () => {
 
   test('rows hide behind the show-more toggle', () => {
     document.body.innerHTML = ui.renderCodecBreakdown({ a: 2, b: 1 }, { a: 100, b: 50 }, 'c1');
-    expect(document.querySelectorAll('[data-breakdown-hidden]').length).toBe(2);
+    expect(document.querySelectorAll('[data-breakdown-hidden]')).toHaveLength(2);
     const btn = document.querySelector('[data-breakdown-toggle]') as HTMLElement;
     ui.toggleCodecBreakdown(btn);
     expect(btn.dataset.expanded).toBe('true');
@@ -199,7 +199,7 @@ describe('drag geometry helpers', () => {
       { top: 0, bottom: 10, left: 0 },
       { top: 50, bottom: 60, left: 0 },
     ]);
-    expect(r.length).toBe(2);
+    expect(r).toHaveLength(2);
     expect(r[0].cards.map((c: any) => c.left)).toEqual([0, 20]);
     expect(ui.colsOf(r)).toBe(2);
   });
