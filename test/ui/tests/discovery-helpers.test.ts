@@ -1618,7 +1618,7 @@ describe('trakt cache helpers + cache-hit paths', () => {
     document.body.appendChild(el2);
     ui.renderTraktPersonal(el2, false);
     await flush();
-    expect(calls.length).toBe(before);
+    expect(calls).toHaveLength(before);
     expect(el2.querySelector('.jfh-discovery-card-title')!.getAttribute('title')).toBe('personal');
   });
 
@@ -1637,7 +1637,7 @@ describe('trakt cache helpers + cache-hit paths', () => {
     document.body.appendChild(el2);
     ui.renderTraktTrending(el2, false);
     await flush();
-    expect(calls.length).toBe(before);
+    expect(calls).toHaveLength(before);
     expect(el2.querySelector('.jfh-discovery-card-title')!.getAttribute('title')).toBe('trend');
   });
 
@@ -1791,7 +1791,7 @@ describe('renderDiscovery probe + shell flows', () => {
     const before = calls.length;
     (el.querySelector('[data-tab="trakt"]') as HTMLElement).click();
     await flush();
-    expect(calls.length).toBe(before);
+    expect(calls).toHaveLength(before);
 
     (el.querySelector('[data-tab="trending"]') as HTMLElement).click();
     await flush();
@@ -1995,7 +1995,7 @@ describe('injectNavigation + activateDiscoveryTab', () => {
     const nav = sidebar.querySelector('a')!;
     expect(nav).not.toBeNull();
     expect(sidebar.querySelector('.sidebarHeader')!.textContent).toBe('Jellyfin Helper');
-    expect(nav.closest('.sidebarHeader') === null).toBe(true);
+    expect(nav.closest('.sidebarHeader')).toBeNull();
     expect(sidebar.firstElementChild!.nextElementSibling).toBe(media);
     ui.injectNavigation();
     expect(sidebar.querySelectorAll('a')).toHaveLength(1);

@@ -148,7 +148,7 @@ describe('updateRecsTabVisibility', () => {
 
   test.each([['Activate'], ['DryRun'], ['']])('mode %s keeps the tab', (mode) => {
     ui.updateRecsTabVisibility(mode);
-    expect(document.querySelector('.tab-btn[data-tab="recommendations"]')!.style.display).toBe('');
+    expect((document.querySelector('.tab-btn[data-tab="recommendations"]') as HTMLElement).style.display).toBe('');
   });
 });
 

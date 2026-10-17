@@ -29,7 +29,7 @@ function debounce() {
 // A two-library video scan plus a music and a book library, with every per-dimension
 // count map, matching path map, and per-file side map the explorer reads. Paths all
 // share one separator style so the root boundary matches like real server data.
-function richData() {
+function richData(): any {
   const movies = {
     LibraryName: 'Movies',
     CollectionType: 'movies',

@@ -44,7 +44,11 @@ async function flush() {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
-const users = () => [
+// Loose on purpose: inference would lock the map to the happy-path fixture and
+// reject the degraded payloads these tests reshape it into.
+type RouteTable = Record<string, any>;
+
+const users = (): any[] => [
   {
     UserId: 'u1',
     UserName: 'Alice',
@@ -53,7 +57,7 @@ const users = () => [
   { UserId: 'u2', UserName: 'Bob', Recommendations: [] },
 ];
 
-function fullRoutes() {
+function fullRoutes(): RouteTable {
   return {
     'Recommendations/WatchProfile/': { WatchedMovieCount: 1, WatchedEpisodeCount: 0, GenreDistribution: { Action: 2 } },
     'UserActivity/User/': [{ ItemName: 'E1', TotalPlayCount: 2, AverageCompletionPercent: 100 }],
@@ -117,7 +121,7 @@ describe('discovery request through the profile popup', () => {
   // Specific Discovery sub-routes must precede the generic all-users Discovery
   // key: insertion-order substring routing would otherwise answer the service
   // lookup and the request POST with the user-discovery payload.
-  const popupRoutes = (services: unknown, extra: Record<string, unknown> = {}) => ({
+  const popupRoutes = (services: unknown, extra: RouteTable = {}): RouteTable => ({
     'Discovery/Services/radarr': services,
     ...extra,
     ...fullRoutes(),
@@ -652,7 +656,7 @@ describe('recommendations loading variants', () => {
     document.body.innerHTML = '';
     expect(() => ui.initRecommendationsTab()).not.toThrow();
     await flush();
-    expect(calls.filter((c) => c.url === 'JellyfinHelper/Recommendations').length).toBe(before);
+    expect(calls.filter((c) => c.url === 'JellyfinHelper/Recommendations')).toHaveLength(before);
   });
 
   test('stale discovery failures are dropped while the latest paints the error', async () => {

@@ -11,6 +11,7 @@
     "coverage:check": "node scripts/check-coverage.mjs --lines=85 --branches=80"
   },
   "devDependencies": {
+    "@types/node": "22.20.1",
     "istanbul-lib-instrument": "6.0.3",
     "jsdom": "30.0.1",
     "vitest": "4.1.10"

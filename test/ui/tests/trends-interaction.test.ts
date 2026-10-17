@@ -197,7 +197,12 @@ describe('wheel zoom narrows the window', () => {
 });
 
 describe('drag pan shifts the window', () => {
-  test('dragging past the threshold changes the polyline', async () => {
+  // One plain drag plus the two that run into a domain edge and get clamped.
+  test.each([
+    { label: 'dragging past the threshold changes the polyline', downX: 400, moveX: 250 },
+    { label: 'dragging right against the left domain edge clamps the window', downX: 100, moveX: 800 },
+    { label: 'dragging left against the right domain edge clamps the window', downX: 800, moveX: 0 },
+  ])('$label', async ({ downX, moveX }) => {
     const { container, svg } = await mount(denseTimeline());
     // Zoom in first so there is room to pan without clamping to the domain edges.
     svg.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, ctrlKey: true, clientX: 440, bubbles: true, cancelable: true }));
@@ -205,9 +210,8 @@ describe('drag pan shifts the window', () => {
     const before = snapshot(container);
 
     const chart = container.querySelector('.trend-chart') as HTMLElement;
-    chart.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 400, bubbles: true }));
-    // Move more than the 4px dead-zone to engage panning.
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, buttons: 1, bubbles: true }));
+    chart.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: downX, bubbles: true }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: moveX, buttons: 1, bubbles: true }));
     vi.advanceTimersByTime(32);
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
 
@@ -238,31 +242,6 @@ describe('drag pan shifts the window', () => {
     expect(snapshot(container).polyline).toBe(before.polyline);
   });
 
-  test('dragging right against the left domain edge clamps the window', async () => {
-    const { container, svg } = await mount(denseTimeline());
-    svg.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, ctrlKey: true, clientX: 440, bubbles: true, cancelable: true }));
-    vi.advanceTimersByTime(32);
-    const before = snapshot(container);
-    const chart = container.querySelector('.trend-chart') as HTMLElement;
-    chart.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 100, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 800, buttons: 1, bubbles: true }));
-    vi.advanceTimersByTime(32);
-    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    expect(snapshot(container).polyline).not.toBe(before.polyline);
-  });
-
-  test('dragging left against the right domain edge clamps the window', async () => {
-    const { container, svg } = await mount(denseTimeline());
-    svg.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, ctrlKey: true, clientX: 440, bubbles: true, cancelable: true }));
-    vi.advanceTimersByTime(32);
-    const before = snapshot(container);
-    const chart = container.querySelector('.trend-chart') as HTMLElement;
-    chart.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 800, bubbles: true }));
-    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, buttons: 1, bubbles: true }));
-    vi.advanceTimersByTime(32);
-    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    expect(snapshot(container).polyline).not.toBe(before.polyline);
-  });
 
   test('panning with a collapsed svg box falls back to a unit scale', async () => {
     const { container, svg } = await mount(denseTimeline());
@@ -318,14 +297,15 @@ describe('hover shows the tooltip and diff panel', () => {
   test('hovering beyond the plot clamps to the edge points and flips the tooltip', async () => {
     const { container, svg } = await mount(denseTimeline());
     svg.dispatchEvent(new MouseEvent('mousemove', { clientX: -5000, buttons: 0, bubbles: true }));
-    const tooltip = container.querySelector('.trend-tooltip')!;
+    const tooltip = container.querySelector('.trend-tooltip') as HTMLElement;
     expect(tooltip.classList.contains('visible')).toBe(true);
     const leftDate = container.querySelector('.tt-date')!.textContent;
 
     svg.dispatchEvent(new MouseEvent('mousemove', { clientX: 5000, buttons: 0, bubbles: true }));
     expect(container.querySelector('.tt-date')!.textContent).not.toBe(leftDate);
     // The newest point sits at the top-right corner: the tooltip flips to the left of it and clamps near the top.
-    const anchorX = Number.parseFloat(container.querySelector('.trend-crosshair')!.style.left);
+    const crosshair = container.querySelector('.trend-crosshair') as HTMLElement;
+    const anchorX = Number.parseFloat(crosshair.style.left);
     const tipX = Number.parseFloat(tooltip.style.left);
     expect(tipX).toBeLessThan(anchorX);
     expect(tipX).toBeCloseTo(anchorX - 132, 3);
@@ -345,7 +325,7 @@ describe('hover shows the tooltip and diff panel', () => {
     svg.getBoundingClientRect = () => rect as DOMRect;
     (container.querySelector('.trend-chart') as HTMLElement).getBoundingClientRect = () => rect as DOMRect;
     svg.dispatchEvent(new MouseEvent('mousemove', { clientX: -5000, buttons: 0, bubbles: true }));
-    const tooltip = container.querySelector('.trend-tooltip')!;
+    const tooltip = container.querySelector('.trend-tooltip') as HTMLElement;
     expect(tooltip.classList.contains('visible')).toBe(true);
     expect(tooltip.style.top).toBe('46px');
   });

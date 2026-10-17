@@ -5,7 +5,7 @@ const ui = loadConfigPage();
 
 afterAll(saveCoverage);
 
-function scanData() {
+function scanData(): any {
   return {
     Movies: [
       {
