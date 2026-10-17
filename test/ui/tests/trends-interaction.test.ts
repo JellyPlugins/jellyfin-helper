@@ -26,7 +26,7 @@ function denseTimeline(days = 400) {
 // clientXToTime / panByPixels / tooltip positioning produce observable output.
 function stubSvgGeometry(container: HTMLElement) {
   const svg = container.querySelector('svg') as SVGElement;
-  const rect = { left: 0, top: 0, width: 880, height: 240, right: 880, bottom: 240, x: 0, y: 0, toJSON() { return {}; } };
+  const rect = { left: 0, top: 0, width: 880, height: 240, right: 880, bottom: 240, x: 0, y: 0 };
   svg.getBoundingClientRect = () => rect as DOMRect;
   const chart = container.querySelector('.trend-chart') as HTMLElement;
   chart.getBoundingClientRect = () => rect as DOMRect;
@@ -248,7 +248,7 @@ describe('drag pan shifts the window', () => {
     svg.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, ctrlKey: true, clientX: 440, bubbles: true, cancelable: true }));
     vi.advanceTimersByTime(32);
     const before = snapshot(container);
-    const zero = { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() { return {}; } };
+    const zero = { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 };
     svg.getBoundingClientRect = () => zero as DOMRect;
     const chart = container.querySelector('.trend-chart') as HTMLElement;
     chart.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 400, bubbles: true }));
@@ -321,7 +321,7 @@ describe('hover shows the tooltip and diff panel', () => {
       ],
     };
     const { container, svg } = await mount(twoPoint);
-    const rect = { left: 0, top: 0, width: 880, height: 100, right: 880, bottom: 100, x: 0, y: 0, toJSON() { return {}; } };
+    const rect = { left: 0, top: 0, width: 880, height: 100, right: 880, bottom: 100, x: 0, y: 0 };
     svg.getBoundingClientRect = () => rect as DOMRect;
     (container.querySelector('.trend-chart') as HTMLElement).getBoundingClientRect = () => rect as DOMRect;
     svg.dispatchEvent(new MouseEvent('mousemove', { clientX: -5000, buttons: 0, bubbles: true }));
