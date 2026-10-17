@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 // Fresh bundle per test: the logs helpers carry module state (init sequence,
@@ -38,10 +39,6 @@ function captureCalls() {
     },
   };
   return calls;
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 describe('doTabSwitch', () => {

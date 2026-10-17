@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = freshConfigPage();
@@ -40,10 +41,6 @@ function routeTimeline(timeline: unknown) {
     accessToken: () => 't',
     ajax: () => Promise.resolve(timeline),
   };
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 // Drives the real production entry point so attachTrendInteraction runs: loadTrendData

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -17,10 +18,6 @@ function ajaxStub(routes: Record<string, unknown> = {}) {
       return Promise.resolve({});
     },
   };
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 function seedCodecs() {

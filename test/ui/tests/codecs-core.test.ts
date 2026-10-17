@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { freshConfigPage, loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -25,10 +26,6 @@ function ajaxStub(routes: Record<string, unknown> = {}) {
     },
   };
   return calls;
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 // Scaffold the real container fillCodecsData renders into, matching the live tab.

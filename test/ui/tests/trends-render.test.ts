@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -18,10 +19,6 @@ function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
       return Promise.resolve({});
     },
   };
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 function controlledAjax() {

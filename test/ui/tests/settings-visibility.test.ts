@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -33,10 +34,6 @@ function ajaxReturning(payload: unknown) {
     getCurrentUserId: () => '',
     ajax: () => Promise.resolve(payload),
   };
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 describe('isSeerrConfigured', () => {

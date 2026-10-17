@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { ajaxRouter, flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -8,33 +9,6 @@ beforeEach(() => {
 
 afterAll(saveCoverage);
 
-function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
-  const calls: { url: string; body?: unknown; method?: string }[] = [];
-  (globalThis as any).ApiClient = {
-    getUrl: (p: string) => p,
-    getCurrentUserId: () => '',
-    accessToken: () => 't',
-    ajax: (opts: any) => {
-      let body: unknown;
-      try {
-        body = typeof opts.data === 'string' ? JSON.parse(opts.data) : opts.data;
-      } catch {
-        body = opts.data;
-      }
-      calls.push({ url: String(opts.url), body, method: opts.type });
-      if (failures.some((f) => String(opts.url).includes(f))) return Promise.reject(new Error('down'));
-      for (const [key, value] of Object.entries(routes)) {
-        if (String(opts.url).includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
-    },
-  };
-  return calls;
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
-}
 
 function trashForm() {
   document.body.innerHTML =

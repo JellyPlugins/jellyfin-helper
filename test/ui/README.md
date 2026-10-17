@@ -57,3 +57,4 @@ them without a reason in the PR description.
 2. Add a row to the table above (the `tests/docs.test.ts` gate fails otherwise).
 3. If the helper is new, append it to the expected list in `src/loader.ts`
    (test-only wiring; production files stay untouched).
+4. Use `ajaxRouter` / `flush` from `src/apiStub.ts` rather than re-declaring them.

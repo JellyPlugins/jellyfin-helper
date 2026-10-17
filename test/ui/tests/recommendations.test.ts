@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -32,10 +33,6 @@ function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
     },
   };
   return calls;
-}
-
-async function flush() {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 describe('getTopGenresFromDistribution', () => {
