@@ -162,6 +162,24 @@ plugins are a hard prerequisite. The `JFH_E2E_EXTERNAL_PLUGINS` guard only makes
 `discovery-customtab.ui.spec.ts` skip when Playwright runs directly without staging.
 
 
+### UI JavaScript Tests
+
+A third suite (`test/ui/`) runs the **shipped** dashboard scripts
+(`PluginPages/js/`, `js/discovery-sidebar.js`) in jsdom via Vitest, with a
+stubbed `ApiClient`. It pins behavior that only exists in JavaScript e.g.
+visibility rules, validators, tab switching, dialog flows. Runs without a container.
+
+```bash
+cd test/ui
+npm install --ignore-scripts --no-audit --no-fund
+npm test                # single run
+npm run test:coverage   # run + coverage gate, fails below the mark
+```
+
+It runs on every PR (`ui-tests` job in `.github/workflows/pr.yml`) and nightly.
+See [`test/ui/README.md`](test/ui/README.md) for the suite map and
+[`test/ui/CONTRIBUTING.md`](test/ui/CONTRIBUTING.md) for the rules.
+
 ### Test Structure
 
 Tests mirror the source structure:

@@ -42,4 +42,17 @@
     <ProjectReference Include="..\Jellyfin.Plugin.JellyfinHelper\Jellyfin.Plugin.JellyfinHelper.csproj" />
   </ItemGroup>
 
+  <!-- UI JavaScript suite (test/ui). Runs after the xUnit run so a plain
+       `dotnet test` covers backend and frontend in one go. Skips silently when
+       the harness was never installed (no node_modules); CI sets
+       RunVitest=false and uses the dedicated ui-tests job instead. -->
+  <PropertyGroup>
+    <RunVitest Condition="'$(RunVitest)' == ''">true</RunVitest>
+    <UiTestDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../test/ui'))</UiTestDir>
+  </PropertyGroup>
+
+  <Target Name="VitestUi" AfterTargets="VSTest" Condition="'$(RunVitest)' == 'true' And Exists('$(UiTestDir)/node_modules')">
+    <Exec Command="npm --prefix &quot;$(UiTestDir)&quot; run test:coverage" />
+  </Target>
+
 </Project>
