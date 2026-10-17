@@ -33,3 +33,4 @@ test/e2e/setup/auth.json
 # UI Vitest harness (generated, never committed)
 test/ui/node_modules/
 test/ui/coverage/
+*.log
