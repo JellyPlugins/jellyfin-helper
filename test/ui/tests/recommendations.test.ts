@@ -474,28 +474,57 @@ describe('ensemble diagnostics loading variants', () => {
     expect(() => ui.loadEnsembleDiagnostics('u1')).not.toThrow();
   });
 
-  test('stale diagnostics responses cannot overwrite the latest user footnote', async () => {
+  // Deferred responses are what makes these two tests real: resolving in request order
+  // would paint the newest answer last anyway, so the guard could be deleted unnoticed.
+  function deferredEnsemble() {
+    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
     (globalThis as any).ApiClient = {
       getUrl: (p: string) => p,
       getCurrentUserId: () => '',
       accessToken: () => 't',
-      ajax: (opts: any) =>
-        Promise.resolve(String(opts.url).includes('userId=u1')
-          ? { Available: true, Alpha: 0.1 }
-          : { Available: true, Alpha: 0.9 }),
+      ajax: (opts: any) => new Promise((resolve, reject) => {
+        const url = String(opts.url);
+        pending.set(url.slice(url.indexOf('userId=') + 'userId='.length), {
+          resolve: resolve as (v: unknown) => void,
+          reject,
+        });
+      }),
     };
+    return pending;
+  }
+
+  test('stale diagnostics responses cannot overwrite the latest user footnote', async () => {
+    const pending = deferredEnsemble();
     document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
     ui.loadEnsembleDiagnostics('u1');
     ui.loadEnsembleDiagnostics('u2');
+    // Newest answer lands first, the superseded one afterwards - the worst case for the guard.
+    pending.get('u2')!.resolve({ Available: true, Alpha: 0.7 });
     await flush();
-    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('10%');
+    pending.get('u1')!.resolve({ Available: true, Alpha: 0.2 });
+    await flush();
+    const text = document.getElementById('recsEnsembleFootnote')!.textContent!;
+    // u2 renders heuristic 30% / ML 70%; the stale u1 shares (80% / 20%) must not appear.
+    expect(text).toContain('30%');
+    expect(text).toContain('70%');
+    expect(text).not.toContain('80%');
+    expect(text).not.toContain('20%');
   });
 
   test('a stale failure is ignored while the latest failure clears the footnote', async () => {
-    ajaxRouter({}, ['Diagnostics/Ensemble']);
-    document.body.innerHTML = '<div id="recsEnsembleFootnote">stale</div>';
+    const pending = deferredEnsemble();
+    document.body.innerHTML = '<div id="recsEnsembleFootnote"></div>';
     ui.loadEnsembleDiagnostics('u1');
     ui.loadEnsembleDiagnostics('u2');
+    pending.get('u2')!.resolve({ Available: true, Alpha: 0.7 });
+    await flush();
+    // The superseded u1 request fails late: it must leave the painted u2 footnote alone.
+    pending.get('u1')!.reject(new Error('down'));
+    await flush();
+    expect(document.getElementById('recsEnsembleFootnote')!.textContent).toContain('30%');
+    // Only the newest request may clear the footnote when it fails.
+    ui.loadEnsembleDiagnostics('u3');
+    pending.get('u3')!.reject(new Error('down'));
     await flush();
     expect(document.getElementById('recsEnsembleFootnote')!.innerHTML).toBe('');
   });

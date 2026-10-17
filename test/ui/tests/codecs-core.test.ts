@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { freshConfigPage, loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -88,6 +88,12 @@ beforeEach(() => {
   // jsdom implements neither; the panel-open and auto-scroll paths call them.
   (window as any).scrollTo = () => undefined;
   (Element.prototype as any).scrollIntoView = () => undefined;
+});
+
+// stubGrid() overrides matchMedia to force reduced motion. Undo it after every
+// test so later suites keep jsdom's real value and do not depend on run order.
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('fillCodecsData full render', () => {
@@ -297,8 +303,8 @@ function stubGrid() {
   const chartsRow = document.querySelector('#codecsContent .charts-row') as HTMLElement;
   chartsRow.getBoundingClientRect = () => ({ left: 0, right: 420, top: 0, bottom: 400, width: 420, height: 400, x: 0, y: 0, toJSON() {} }) as DOMRect;
   // Reduced motion takes the synchronous FLIP path (plain mutate, no rAF glide) so reorder
-  // assertions settle immediately under fake timers.
-  (window as any).matchMedia = () => ({ matches: true });
+  // assertions settle immediately under fake timers. The global afterEach unstubs it again.
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
   return cards;
 }
 

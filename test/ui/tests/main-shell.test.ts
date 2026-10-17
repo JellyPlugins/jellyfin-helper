@@ -104,9 +104,25 @@ describe('page lifecycle and folder entry points', () => {
   test('bindPageLifecycle attaches once and resets on show', () => {
     ajaxRouter({});
     document.body.innerHTML = '<div id="JellyfinHelperConfigPage"></div>';
+    const pageEl = document.getElementById('JellyfinHelperConfigPage')!;
+    const addSpy = vi.spyOn(pageEl, 'addEventListener');
+    (globalThis as any).window.JellyfinHelper._pageLifecycleBound = false;
     ui.bindPageLifecycle();
     ui.bindPageLifecycle();
     expect((globalThis as any).window.JellyfinHelper._pageLifecycleBound).toBe(true);
+    // The second call must be a no-op: a duplicate listener would run initPage twice per show.
+    for (const type of ['pageshow', 'viewshow', 'pagehide', 'viewhide']) {
+      expect(addSpy.mock.calls.filter((c) => c[0] === type)).toHaveLength(1);
+    }
+    // The registered pageshow listener re-arms a fresh init pass.
+    (globalThis as any).window.JellyfinHelper._pageInitialized = true;
+    (globalThis as any).window.JellyfinHelper._handlersBound = true;
+    pageEl.dispatchEvent(new window.Event('pageshow'));
+    expect((globalThis as any).window.JellyfinHelper._pageInitialized).toBe(false);
+    expect((globalThis as any).window.JellyfinHelper._handlersBound).toBe(false);
+    addSpy.mockRestore();
+    // Drop the initPage timer the listener queued; the shared fake clock stays installed.
+    vi.clearAllTimers();
   });
 
   test('bindPageLifecycle without the page element stays unbound', () => {
@@ -145,13 +161,15 @@ describe('page lifecycle and folder entry points', () => {
 
 describe('loadStatistics guards concurrent scans', () => {
   test('second call while in flight is ignored', async () => {
-    ajaxRouter({ 'ScanLibraries': scanFixture() });
+    const calls = ajaxRouter({ 'ScanLibraries': scanFixture() });
     document.body.innerHTML =
       '<button id="btnScanLibraries"></button><div id="loadingIndicator"></div><div id="statsPlaceholder"></div>';
     (globalThis as any).window.JellyfinHelper._statisticsInFlight = false;
     ui.loadStatistics();
     ui.loadStatistics();
     await flush();
+    // The in-flight guard is what this test covers: exactly one scan leaves the client.
+    expect(calls.filter((u) => u.includes('ScanLibraries'))).toHaveLength(1);
     expect((document.getElementById('btnScanLibraries') as HTMLButtonElement).disabled).toBe(false);
     expect((globalThis as any).window.JellyfinHelper._statisticsInFlight).toBe(false);
   });
@@ -168,12 +186,17 @@ describe('loadLatestStatistics retry and load', () => {
   }
 
   test('loads persisted stats without a rescan', async () => {
-    ajaxRouter({});
-    fetchStub(() => Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ Libraries: [] }) }));
+    const ajaxCalls = ajaxRouter({});
+    const fetchCalls = fetchStub(() =>
+      Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ Libraries: [] }) }));
     document.body.innerHTML = '<div id="overviewContent"></div>';
     (globalThis as any).window.JellyfinHelper._latestStatsAuthRetries = 0;
     ui.loadLatestStatistics();
     await flush();
+    // "Without a rescan": the persisted read must never trigger the expensive scan endpoint.
+    expect(fetchCalls.filter((u) => u.includes('MediaStatistics/Latest'))).toHaveLength(1);
+    expect(ajaxCalls.filter((u) => u.includes('ScanLibraries'))).toHaveLength(0);
+    expect(fetchCalls.filter((u) => u.includes('ScanLibraries'))).toHaveLength(0);
     expect((globalThis as any).window.JellyfinHelper._latestStatsAuthRetries).toBe(0);
   });
 

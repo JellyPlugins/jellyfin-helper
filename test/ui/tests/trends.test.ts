@@ -58,7 +58,11 @@ describe('interpolateDataPoints', () => {
     const out = ui.interpolateDataPoints(pts, 'daily');
     expect(out).toHaveLength(20000);
     expect(out.at(-1).cumulativeSize).toBe(19999);
-    expect(console.warn).toHaveBeenCalled();
+    // Match the exact message: console.warn is not cleared between tests, so a bare
+    // toHaveBeenCalled() could be satisfied by an unrelated earlier warning.
+    expect(console.warn).toHaveBeenCalledWith(
+      '[JellyfinHelper] Trend timeline truncated to 20000 points (granularity: daily).',
+    );
   });
 
   test('a gap larger than the cap truncates while keeping the final point', () => {

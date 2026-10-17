@@ -118,12 +118,18 @@ describe('trakt row follows probe and discovery toggle', () => {
   });
 
   test('a failing probe hides instead of throwing', async () => {
+    // Start from a present plugin so the hidden row below proves the failure handler
+    // resets the flag, instead of inheriting "absent" from the previous test.
+    ajaxReturning({ Present: true });
+    traktDom(true, false);
+    ui.loadTraktOfficialStatus();
+    await flush();
+    expect(document.getElementById('traktSourcingRow')!.style.display).toBe('');
     (globalThis as any).ApiClient = {
       getUrl: (p: string) => p,
       getCurrentUserId: () => '',
       ajax: () => Promise.reject(new Error('down')),
     };
-    traktDom(true, false);
     ui.loadTraktOfficialStatus();
     await flush();
     expect(document.getElementById('traktSourcingRow')!.style.display).toBe('none');

@@ -60,11 +60,17 @@ describe('doTabSwitch', () => {
     const logFetches = () => calls.filter((u) => u.includes('JellyfinHelper/Logs')).length;
     ui.initLogsTab();
     await flush();
+    // Positive control: prove the 10s auto-refresh is actually running before we leave,
+    // otherwise a silently disabled refresh would make the assertion below vacuous.
+    const beforeTick = logFetches();
+    await vi.advanceTimersByTimeAsync(11000);
+    await flush();
+    expect(logFetches()).toBeGreaterThan(beforeTick);
     const btn = document.querySelector('.tab-btn[data-tab="overview"]') as HTMLElement;
     ui.doTabSwitch(btn, 'overview');
     const afterLeave = logFetches();
-    // Auto-refresh fires every 5s; after destroy it must not fetch again.
-    await vi.advanceTimersByTimeAsync(15000);
+    // Auto-refresh fires every 10s; after destroy it must not fetch again.
+    await vi.advanceTimersByTimeAsync(30000);
     await flush();
     expect(logFetches()).toBe(afterLeave);
   });

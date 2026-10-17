@@ -60,8 +60,11 @@ describe('allowSafeHtml keeps only strong and br', () => {
     ['<a href="javascript:z">t</a>'],
     ['<div>hi</div>'],
   ])('never restores %s', (input) => {
-    expect(ui.allowSafeHtml(input)).not.toContain('<script');
-    expect(ui.allowSafeHtml(input)).toContain('&lt;');
+    const out = ui.allowSafeHtml(input);
+    // Only <strong>, </strong> and <br> may survive as raw markup; every other
+    // "<" must still be escaped, otherwise a wrongly restored tag slips through.
+    expect(out).not.toMatch(/<(?!\/?strong>|br>)/i);
+    expect(out).toContain('&lt;');
   });
 
   test('nested markup inside strong stays escaped', () => {

@@ -26,5 +26,7 @@ const gate = spawnSync(
   { stdio: 'inherit' },
 );
 
-if (vitest.status !== 0) process.exit(vitest.status);
+// status is null when the child was killed by a signal or failed to spawn;
+// fall back to 1 so a crashed run can never exit 0.
+if (vitest.status !== 0) process.exit(vitest.status ?? 1);
 process.exit(gate.status ?? 1);

@@ -72,6 +72,38 @@ function fullRoutes(): RouteTable {
   };
 }
 
+type Deferred = { url: string; resolve: (v: unknown) => void; reject: (e: unknown) => void };
+
+// Hands the test control over when selected requests settle. Settling them in request
+// order would paint the newest answer last anyway, so a stale-response guard could be
+// deleted without any test noticing; these suites therefore answer the newest request
+// first and the superseded one afterwards.
+function deferredRouter(shouldDefer: (url: string) => boolean, routes: RouteTable = fullRoutes()) {
+  const pending: Deferred[] = [];
+  (globalThis as any).ApiClient = {
+    getUrl: (p: string) => p,
+    getCurrentUserId: () => '',
+    accessToken: () => 't',
+    ajax: (opts: any) => {
+      const url = String(opts.url);
+      if (shouldDefer(url)) {
+        return new Promise((resolve, reject) => {
+          pending.push({ url, resolve: resolve as (v: unknown) => void, reject });
+        });
+      }
+      for (const [key, value] of Object.entries(routes)) {
+        if (url.includes(key)) return Promise.resolve(value);
+      }
+      return Promise.resolve({});
+    },
+  };
+  return pending;
+}
+
+const waiting = (pending: Deferred[], part: string) => pending.filter((p) => p.url.includes(part));
+
+const activityRow = (name: string) => [{ ItemName: name, TotalPlayCount: 1, AverageCompletionPercent: 100 }];
+
 describe('recommendations tab flow', () => {
   test('loads users, profile, activity, discovery and footnote in one pass', async () => {
     ajaxRouter(fullRoutes());
@@ -468,9 +500,15 @@ describe('recommendations tab render variants', () => {
   });
 
   test('stale profile and activity failures only paint for the latest selection', async () => {
-    ajaxRouter(fullRoutes(), ['WatchProfile/', 'UserActivity/User/']);
+    const pending = deferredRouter((u) => u.includes('WatchProfile/') || u.includes('UserActivity/User/'));
+    const profiles = () => waiting(pending, 'WatchProfile/');
+    const activities = () => waiting(pending, 'UserActivity/User/');
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.initRecommendationsTab();
+    await flush();
+    // Failures are never cached, so the later switch back to u1 really refetches.
+    profiles()[0].reject(new Error('down'));
+    activities()[0].reject(new Error('down'));
     await flush();
     expect(document.getElementById('recsUserProfile')!.textContent).toMatch(/no watch profile/i);
     expect(document.getElementById('recsUserActivity')!.textContent).toMatch(/no watch activity/i);
@@ -480,8 +518,21 @@ describe('recommendations tab render variants', () => {
     select.value = '0';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await flush();
-    expect(document.getElementById('recsUserProfile')!.textContent).toMatch(/no watch profile/i);
-    expect(document.getElementById('recsUserActivity')!.textContent).toMatch(/no watch activity/i);
+    expect(profiles()).toHaveLength(3);
+    // The latest selection (u1) fails and paints the empty states...
+    profiles()[2].reject(new Error('down'));
+    activities()[2].reject(new Error('down'));
+    await flush();
+    // ...then the superseded u2 request succeeds late and must be discarded.
+    profiles()[1].resolve({ WatchedMovieCount: 3, GenreDistribution: {} });
+    activities()[1].resolve(activityRow('StaleItem'));
+    await flush();
+    const profile = document.getElementById('recsUserProfile')!.textContent!;
+    expect(profile).toMatch(/no watch profile/i);
+    expect(profile).not.toContain('3 Watched');
+    const activity = document.getElementById('recsUserActivity')!.textContent!;
+    expect(activity).toMatch(/no watch activity/i);
+    expect(activity).not.toContain('StaleItem');
   });
 
   test('expired discovery caches refetch and later switches reuse the fresh cache', async () => {
@@ -539,32 +590,15 @@ describe('recommendations tab render variants', () => {
   });
 
   test('stale profile and activity successes are dropped', async () => {
-    let watchReq = 0;
-    let actReq = 0;
-    (globalThis as any).ApiClient = {
-      getUrl: (p: string) => p,
-      getCurrentUserId: () => '',
-      accessToken: () => 't',
-      ajax: (opts: any) => {
-        const url = String(opts.url);
-        if (url.includes('WatchProfile/')) {
-          watchReq += 1;
-          if (watchReq === 1) return Promise.reject(new Error('down'));
-          return Promise.resolve({ WatchedMovieCount: watchReq, GenreDistribution: {} });
-        }
-        if (url.includes('UserActivity/User/')) {
-          actReq += 1;
-          if (actReq === 1) return Promise.reject(new Error('down'));
-          return Promise.resolve([]);
-        }
-        if (url.includes('Diagnostics/Ensemble')) return Promise.resolve({ Available: false });
-        if (url.includes('JellyfinHelper/Discovery')) return Promise.resolve([]);
-        if (url.includes('JellyfinHelper/Recommendations')) return Promise.resolve(users());
-        return Promise.resolve({});
-      },
-    };
+    const pending = deferredRouter((u) => u.includes('WatchProfile/') || u.includes('UserActivity/User/'));
+    const profiles = () => waiting(pending, 'WatchProfile/');
+    const activities = () => waiting(pending, 'UserActivity/User/');
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.initRecommendationsTab();
+    await flush();
+    // Fail the initial u1 load: failures are not cached, so switching back refetches.
+    profiles()[0].reject(new Error('down'));
+    activities()[0].reject(new Error('down'));
     await flush();
     const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
     select.value = '1';
@@ -572,8 +606,21 @@ describe('recommendations tab render variants', () => {
     select.value = '0';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await flush();
-    expect(document.getElementById('recsUserProfile')!.textContent).toContain('Watched');
-    expect(document.getElementById('recsUserActivity')!.textContent).toMatch(/no watch activity/i);
+    expect(profiles()).toHaveLength(3);
+    expect(activities()).toHaveLength(3);
+    // The latest selection (u1) answers first, the superseded u2 request afterwards.
+    profiles()[2].resolve({ WatchedMovieCount: 7, GenreDistribution: {} });
+    activities()[2].resolve(activityRow('LatestItem'));
+    await flush();
+    profiles()[1].resolve({ WatchedMovieCount: 3, GenreDistribution: {} });
+    activities()[1].resolve(activityRow('StaleItem'));
+    await flush();
+    const profile = document.getElementById('recsUserProfile')!.textContent!;
+    expect(profile).toContain('7 Watched');
+    expect(profile).not.toContain('3 Watched');
+    const activity = document.getElementById('recsUserActivity')!.textContent!;
+    expect(activity).toContain('LatestItem');
+    expect(activity).not.toContain('StaleItem');
   });
 
   test('undefined discovery payload counts as empty', async () => {
@@ -630,19 +677,38 @@ describe('recommendations loading variants', () => {
   });
 
   test('a stale recommendation response cannot overwrite the newer one', async () => {
-    ajaxRouter(fullRoutes());
+    const pending = deferredRouter((u) => u === 'JellyfinHelper/Recommendations');
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.loadRecommendations();
     ui.loadRecommendations();
     await flush();
+    expect(pending).toHaveLength(2);
+    // The newest list lands first; the superseded three-user payload follows.
+    pending[1].resolve(users());
+    await flush();
+    pending[0].resolve([...users(), { UserId: 'u3', UserName: 'StaleUser', Recommendations: [] }]);
+    await flush();
     expect(document.querySelectorAll('#recsUserSelect option')).toHaveLength(2);
+    expect(document.getElementById('recsContent')!.textContent).not.toContain('StaleUser');
   });
 
   test('a stale recommendation failure is dropped', async () => {
-    ajaxRouter({}, ['JellyfinHelper/Recommendations']);
+    const pending = deferredRouter((u) => u === 'JellyfinHelper/Recommendations');
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.loadRecommendations();
     ui.loadRecommendations();
+    await flush();
+    // The newest request renders the list; the superseded one then fails.
+    pending[1].resolve(users());
+    await flush();
+    pending[0].reject(new Error('down'));
+    await flush();
+    expect(document.getElementById('recsUserSelect')).not.toBeNull();
+    expect(document.getElementById('recsContent')!.textContent).not.toMatch(/failed to load/i);
+    // Only the newest request may paint the error banner.
+    ui.loadRecommendations();
+    await flush();
+    pending[2].reject(new Error('down'));
     await flush();
     expect(document.getElementById('recsContent')!.textContent).toMatch(/failed to load/i);
   });
@@ -660,17 +726,29 @@ describe('recommendations loading variants', () => {
   });
 
   test('stale discovery failures are dropped while the latest paints the error', async () => {
-    ajaxRouter(fullRoutes(), ['JellyfinHelper/Discovery']);
+    const pending = deferredRouter((u) => u.includes('JellyfinHelper/Discovery'));
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.initRecommendationsTab();
     await flush();
+    expect(pending).toHaveLength(1);
     const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
     select.value = '1';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
-    select.value = '0';
-    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush();
+    // Nothing cached yet (the first request is still open), so the switch refetches.
+    expect(pending).toHaveLength(2);
+    // The newest request fails and paints the error...
+    pending[1].reject(new Error('down'));
     await flush();
     expect(document.getElementById('discoveryGrid')!.textContent).toMatch(/could not load/i);
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('0');
+    // ...the superseded one then succeeds late and must not revive the cards.
+    pending[0].resolve([
+      { UserId: 'u1', Recommendations: [{ Title: 'StaleCard', Score: 0.8, MediaType: 'movie', TmdbId: 5 }] },
+    ]);
+    await flush();
+    expect(document.getElementById('discoveryGrid')!.textContent).toMatch(/could not load/i);
+    expect(document.getElementById('discoveryGrid')!.textContent).not.toContain('StaleCard');
     expect(document.getElementById('discoveryCount')!.textContent).toBe('0');
   });
 

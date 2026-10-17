@@ -81,9 +81,20 @@ describe('buildSettingsPayload', () => {
     expect(p.TrashRetentionDays).toBe(3650);
   });
 
-  test('trakt sends null without the plugin, value with it', () => {
+  test('trakt sends null without the plugin', () => {
     fullForm();
     expect(ui.buildSettingsPayload().TraktSourcingEnabled).toBeNull();
+  });
+
+  test('trakt sends the checkbox value once the plugin probe reports it present', async () => {
+    ajaxRouter({ 'Trakt/OfficialPluginStatus': { Present: true } });
+    fullForm();
+    ui.loadTraktOfficialStatus();
+    await flush();
+    (document.getElementById('cfgTraktSourcingEnabled') as HTMLInputElement).checked = true;
+    expect(ui.buildSettingsPayload().TraktSourcingEnabled).toBe(true);
+    (document.getElementById('cfgTraktSourcingEnabled') as HTMLInputElement).checked = false;
+    expect(ui.buildSettingsPayload().TraktSourcingEnabled).toBe(false);
   });
 
   test('discovery forcer drops stale true without prerequisites', () => {
@@ -514,10 +525,13 @@ describe('autosave on change', () => {
     const puts = () => calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     expect(puts()).toBe(0);
     const sel = document.getElementById('cfgTrickplayMode') as HTMLSelectElement;
-    sel.value = 'DryRun';
+    // Must differ from the loaded TrickplayTaskMode, otherwise this asserts that an
+    // unchanged value still saves instead of that a real change does.
+    sel.value = 'Activate';
     sel.dispatchEvent(new window.Event('change', { bubbles: true }));
     await vi.advanceTimersByTimeAsync(300);
     expect(puts()).toBe(1);
+    expect((calls.at(-1)!.body as any).TrickplayTaskMode).toBe('Activate');
   });
 
   test('task description buttons toggle their hints', async () => {

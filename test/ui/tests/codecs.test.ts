@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'vitest';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
@@ -182,11 +182,17 @@ describe('card order helpers', () => {
 describe('persisted card order', () => {
   test('server order wins over canonical, second load is free', async () => {
     ajaxStub({ 'JellyfinHelper/Configuration': { CodecCardOrder: ['watched', 'containers'] } });
+    const ajaxSpy = vi.spyOn((globalThis as any).ApiClient, 'ajax');
     ui.loadCodecCardOrderOnce();
     await flush();
     expect(ui.orderedCodecCardIds({ watched: 1, containers: 1, resolutions: 1 })[0]).toBe('watched');
+    // The cache guard must short-circuit: a second call issues no further request.
+    const callsAfterFirst = ajaxSpy.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
     ui.loadCodecCardOrderOnce();
     await flush();
+    expect(ajaxSpy.mock.calls).toHaveLength(callsAfterFirst);
+    ajaxSpy.mockRestore();
   });
 });
 

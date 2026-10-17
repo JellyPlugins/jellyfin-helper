@@ -69,7 +69,11 @@ describe('renderTrendChart', () => {
   test('an unknown granularity warns and still renders', () => {
     const out = ui.renderTrendChart({ ...timeline(), granularity: 'quarterly' });
     expect(out.html).toContain('<svg');
-    expect(console.warn).toHaveBeenCalled();
+    // Match the exact message: console.warn is not cleared between tests, so a bare
+    // toHaveBeenCalled() could be satisfied by an unrelated earlier warning.
+    expect(console.warn).toHaveBeenCalledWith(
+      '[JellyfinHelper] Unknown granularity "quarterly", falling back to "daily".',
+    );
   });
 
   test('an all-zero series trims to its tail points', () => {
@@ -119,6 +123,21 @@ describe('renderTrendChart', () => {
     const out = ui.renderTrendChart({ granularity: 'daily', dataPoints });
     expect(out.chartState).not.toBeNull();
     expect(out.html).not.toContain('<circle');
+  });
+
+  // Positive control for the test below: without it, a jsdom that never surfaces custom
+  // properties would make the "falls back" assertions pass even with the sanitizer gone.
+  test('safe theme colors are honored', () => {
+    document.documentElement.style.setProperty('--color-primary-light', 'rgba(1,2,3,0.5)');
+    document.documentElement.style.setProperty('--color-primary', '#123456');
+    try {
+      const out = ui.renderTrendChart(timeline());
+      expect(out.html).toContain('rgba(1,2,3,0.5)');
+      expect(out.html).toContain('#123456');
+    } finally {
+      document.documentElement.style.removeProperty('--color-primary-light');
+      document.documentElement.style.removeProperty('--color-primary');
+    }
   });
 
   test('unsafe theme colors fall back to the defaults', () => {

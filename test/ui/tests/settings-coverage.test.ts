@@ -94,9 +94,9 @@ describe('validateTrashPath matrix', () => {
     expect(ui.validateTrashPath('C:\\Windows\\x', true)).toMatch(/protected system/i);
   });
 
-  // A bare drive root has no segment after the stripped C:\ prefix, so the
-  // "at least one real segment" guard (step 5) returns the generic invalid error.
-  test('bare Windows drive root C: has no segment', () => {
+  // A bare drive root ends with a separator, so the trailing-slash check (step 2)
+  // rejects it before the "at least one real segment" guard ever runs.
+  test('bare Windows drive root is rejected by the trailing-separator check', () => {
     expect(ui.validateTrashPath('C:\\', true)).toMatch(/slash or backslash/i);
     expect(ui.validateTrashPath('C:/', true)).toMatch(/slash or backslash/i);
   });
