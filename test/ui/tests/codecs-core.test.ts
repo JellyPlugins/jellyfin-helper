@@ -569,7 +569,6 @@ describe('card order persistence paths', () => {
 
     const row = document.querySelector('#codecsContent .charts-row')!;
     const handle = row.querySelector('.chart-box .codec-card-handle')!;
-    const card = handle.closest('.chart-box')!;
     const kd = (k: string) => handle.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
     kd('Enter');
     kd('ArrowDown');

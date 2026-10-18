@@ -51,7 +51,7 @@ function preparedUnwrapped(absPath: string): string {
   // window.__jfhDiscoverySidebarInitialized is set, so a second fresh scope
   // would return undefined before reaching the test-only return. Tests drive
   // the guard separately via the other loader (loadDiscovery).
-  strip(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard');
+  strip(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*}/, 'double-init guard');
   // Drop the bootstrap tail so nothing auto-mounts at evaluation time.
   strip(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call');
   strip(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap');
