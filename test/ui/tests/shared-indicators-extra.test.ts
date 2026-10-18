@@ -45,7 +45,7 @@ describe('shared extras', () => {
 
   test('pruneFileTreeRegistry with holders', () => {
     document.body.innerHTML = '<div data-tree-render="r1"></div>';
-    ui.pruneFileTreeRegistry();
+    expect(() => ui.pruneFileTreeRegistry()).not.toThrow();
   });
 
   test('renderTreeLevel non-lazy branch', () => {
@@ -75,6 +75,7 @@ describe('shared extras', () => {
     header.appendChild(note);
     container.appendChild(header);
     ui.refreshTreeCappedNote(container);
+    expect(note.hidden).toBe(false);
   });
 
   test('appendMissingUnionLibraries null', () => {
@@ -92,6 +93,7 @@ describe('shared extras', () => {
     document.body.appendChild(el);
     ui.showAutoSaveIndicatorOverlay(el, true);
     ui.showAutoSaveIndicatorOverlay(el, true);
+    expect(span.dataset.saveGuard).toBe('2');
     vi.advanceTimersByTime(2100);
 
     const el2 = document.createElement('div');
@@ -107,6 +109,7 @@ describe('shared extras', () => {
     document.body.appendChild(prev);
     document.body.appendChild(el);
     ui.showAutoSaveIndicatorOverlay(el, true);
+    expect(document.querySelector('.fade-element')).not.toBeNull();
   });
 
   test('showButtonFeedback timeout', () => {
@@ -115,6 +118,7 @@ describe('shared extras', () => {
     document.body.appendChild(btn);
     ui.showButtonFeedback(btn, true, 'msg', 'orig', 10);
     vi.advanceTimersByTime(20);
+    expect(btn.innerHTML).toBe('orig');
   });
 
   test('describeApiError response string', () => {
@@ -147,6 +151,7 @@ describe('shared extras', () => {
     const action = container.querySelector('[data-tree-action]') as HTMLElement;
     action.click();
     vi.advanceTimersByTime(60);
+    expect(container.dataset.treeBound).toBe('1');
   });
 
   test('health toggle panel keydown enter', () => {
@@ -156,5 +161,6 @@ describe('shared extras', () => {
     const item = document.querySelector('.health-clickable') as HTMLElement;
     item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     vi.advanceTimersByTime(60);
+    expect(document.getElementById('healthContent')).not.toBeNull();
   });
 });

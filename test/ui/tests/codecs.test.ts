@@ -567,7 +567,7 @@ describe('drag engine and order persistence edges', () => {
     await flush();
     await flush();
     const puts = calls.filter((c) => String(c.url).includes('CodecCardOrder'));
-    expect(puts.length).toBe(2);
+    expect(puts).toHaveLength(2);
   });
 
   test('failed saves roll back and clear the queue', async () => {

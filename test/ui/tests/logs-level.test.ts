@@ -36,6 +36,7 @@ describe('logs extras', () => {
     source.dispatchEvent(new Event('input'));
     await vi.advanceTimersByTimeAsync(450);
     await flush();
+    expect(level.value).toBe('ERROR');
   });
 
   test('loadLogLevelFromConfig loaded path', async () => {
@@ -56,6 +57,7 @@ describe('logs extras', () => {
     ajaxRouter({}, ['LogLevel']);
     ui.saveLogLevelToConfig('INFO');
     await flush();
+    expect(document.getElementById('logsLevelFilter')).not.toBeNull();
   });
 
   test('loadLogs stale request', async () => {
@@ -65,6 +67,7 @@ describe('logs extras', () => {
     (globalThis as any)._logsLoadSeq = 999;
     ui.loadLogs();
     await flush();
+    expect(document.getElementById('logsTableWrapper')).not.toBeNull();
   });
 
   test('downloadLogs with source', async () => {
@@ -77,6 +80,7 @@ describe('logs extras', () => {
     ui.downloadLogs();
     await flush();
     await vi.advanceTimersByTimeAsync(150);
+    expect(document.getElementById('logsTableWrapper')).not.toBeNull();
   });
 
   test('clearLogs success and failure', async () => {
@@ -93,6 +97,7 @@ describe('logs extras', () => {
     const confirmBtn2 = [...document.querySelectorAll('button')].find((b) => String(b.textContent).trim() === 'Clear') as HTMLElement;
     confirmBtn2.click();
     await flush();
+    expect(document.getElementById('logsTableWrapper')).not.toBeNull();
   });
 
   test('formatLogTimestamp invalid', () => {

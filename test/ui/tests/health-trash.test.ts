@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
@@ -40,14 +40,8 @@ describe('health extras', () => {
     expect(panel.innerHTML).toContain('/');
   });
 
-  test('health unknown type returns empty', async () => {
+  test('unknown health type renders an empty panel', async () => {
     ajaxRouter({});
-    document.body.innerHTML = '<div id="healthContent"><div class="health-clickable" data-health-type="nope"></div><div id="healthDetailPanel"></div></div>';
-    const data = { Libraries: [] };
-    ui.renderHealthChecks(data);
-    (globalThis as any)._lastScanResult = data; // not needed
-    const item = document.querySelector('.health-clickable[data-health-type="nope"]') as HTMLElement;
-    // attach handlers via fillHealthData instead
     document.body.innerHTML = '<div id="healthContent"></div>';
     ui.fillHealthData({ Libraries: [] });
     const fake = document.createElement('div');
@@ -55,8 +49,9 @@ describe('health extras', () => {
     fake.dataset.healthType = 'nope';
     document.getElementById('healthContent')!.appendChild(fake);
     document.getElementById('healthContent')!.insertAdjacentHTML('beforeend', '<div class="file-tree-panel" id="healthDetailPanel"></div>');
-    // rebind
-    ui.attachHealthClickHandlers?.();
+    fake.click();
+    await flush();
+    expect(document.getElementById('healthDetailPanel')!.textContent).toBe('');
   });
 
   test('loadTrashHealthSection stale request', async () => {
@@ -65,7 +60,7 @@ describe('health extras', () => {
     ui.loadTrashHealthSection();
     ui.loadTrashHealthSection();
     await flush();
-    // no throw
+    expect(document.querySelectorAll('#trashHealthSection')).toHaveLength(1);
   });
 
   test('loadTrashHealthSection missing container', async () => {
@@ -73,6 +68,7 @@ describe('health extras', () => {
     document.body.innerHTML = '';
     ui.loadTrashHealthSection();
     await flush();
+    expect(document.getElementById('healthContent')).toBeNull();
   });
 
   test('loadTrashHealthSection removes existing and empty trash', async () => {
@@ -88,6 +84,7 @@ describe('health extras', () => {
     document.body.innerHTML = '<div id="healthContent"></div>';
     ui.loadTrashHealthSection();
     await flush();
+    expect(document.getElementById('trashHealthSection')).toBeNull();
   });
 
   test('loadTrashHealthSection config disabled', async () => {
@@ -95,5 +92,6 @@ describe('health extras', () => {
     document.body.innerHTML = '<div id="healthContent"></div>';
     ui.loadTrashHealthSection();
     await flush();
+    expect(document.getElementById('trashHealthSection')).toBeNull();
   });
 });

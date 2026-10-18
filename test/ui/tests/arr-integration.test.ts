@@ -236,12 +236,13 @@ describe('arr status and compare extras', () => {
     arrShell([{ Name: 'R', Url: '', ApiKey: '' }]);
     ui.testArrConnection('Radarr', 0);
     await flush();
+    expect(document.getElementById('Radarr_0_btnTest')!.textContent).toMatch(/required/i);
   });
 
   test('refreshArrInstanceStatus unknown', async () => {
     ajaxRouter({});
     arrShell([]);
-    ui.refreshArrInstanceStatus('Radarr', 0);
+    expect(() => ui.refreshArrInstanceStatus('Radarr', 0)).not.toThrow();
     await flush();
   });
 
@@ -251,6 +252,7 @@ describe('arr status and compare extras', () => {
     const result = document.getElementById('arrResult');
     if (result) result.innerHTML = '';
     try { ui.compareArr(); } catch (e) { /* ignore */ }
+    expect(document.getElementById('arrResult')!.textContent).toMatch(/invalid/i);
     await flush();
   });
 
@@ -308,6 +310,7 @@ describe('arr status and compare extras', () => {
     await flush();
     ui.syncArrLibraryPickers('Radarr');
     await flush();
+    expect(document.querySelectorAll('.arr-library-wrapper')).toHaveLength(2);
   });
 
   test('repeated test clicks and removal clear pending timers', async () => {

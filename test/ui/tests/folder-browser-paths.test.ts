@@ -47,6 +47,7 @@ describe('folder browser extras', () => {
     ui.browseTo('/root', document.getElementById('listing')!, document.getElementById('bc')!, state);
     await flush();
     const item = document.querySelector('.folder-browser-item') as HTMLElement;
+    expect(item).not.toBeNull();
     item.click();
     await flush();
   });
@@ -72,6 +73,7 @@ describe('folder browser extras', () => {
     await flush();
     await vi.advanceTimersByTimeAsync(2100);
     await flush();
+    expect(document.getElementById('cfgTrashPath')!.value).toBe('C:\\trash\\new');
   });
 
   test('open dialog quick jump click', async () => {
@@ -85,6 +87,7 @@ describe('folder browser extras', () => {
     await vi.advanceTimersByTimeAsync(0);
     await flush();
     const qbtn = document.querySelector('.folder-browser-quick-btn') as HTMLElement;
+    expect(qbtn).not.toBeNull();
     if (qbtn) qbtn.click();
     await flush();
   });
