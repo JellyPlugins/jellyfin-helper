@@ -220,3 +220,218 @@ describe('testArrConnection', () => {
     await flush();
   });
 });
+
+describe('arr status and compare extras', () => {
+  test('testArrConnection failure path', async () => {
+    ajaxRouter({}, ['ArrIntegration/TestConnection']);
+    arrShell([{ Name: 'R', Url: 'http://r', ApiKey: 'k' }]);
+    ui.testArrConnection('Radarr', 0);
+    await flush();
+    const btn = document.getElementById('Radarr_0_btnTest') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  test('testArrConnection missing fields', async () => {
+    ajaxRouter({});
+    arrShell([{ Name: 'R', Url: '', ApiKey: '' }]);
+    ui.testArrConnection('Radarr', 0);
+    await flush();
+  });
+
+  test('refreshArrInstanceStatus unknown', async () => {
+    ajaxRouter({});
+    arrShell([]);
+    ui.refreshArrInstanceStatus('Radarr', 0);
+    await flush();
+  });
+
+  test('compareArr error', async () => {
+    ajaxRouter({}, ['ArrIntegration/Compare']);
+    settingsShell();
+    const result = document.getElementById('arrResult');
+    if (result) result.innerHTML = '';
+    try { ui.compareArr(); } catch (e) { /* ignore */ }
+    await flush();
+  });
+
+  test('collect falls back to the stashed library value', () => {
+    ajaxRouter({});
+    settingsShell();
+    document.getElementById('arrButtons')!.innerHTML =
+      '<div class="arr-instance-row" data-type="Radarr" data-index="0" data-libs-stash="a,b">' +
+      '<input id="Radarr_0_name" value="R"><input id="Radarr_0_url" value="u"><input id="Radarr_0_key" value="k"></div>';
+    expect(ui.collectArrInstances('Radarr')[0].Libraries).toBe('a,b');
+  });
+
+  test('add without the add-button wrapper is a no-op', () => {
+    ajaxRouter({});
+    settingsShell();
+    document.getElementById('arrButtons')!.innerHTML = '';
+    expect(() => ui.addArrInstance('Radarr')).not.toThrow();
+  });
+
+  test('add expands the collapsible section and syncs aria', () => {
+    ajaxRouter({});
+    arrShell([]);
+    const col = document.createElement('div');
+    col.id = 'arrCollapsibleRadarr';
+    col.className = 'arr-collapsible';
+    col.innerHTML =
+      '<div id="arrCollapsibleHeaderRadarr"><button aria-expanded="false"></button></div>' +
+      '<div class="arr-collapsible-body" aria-hidden="true"></div>';
+    document.getElementById('arrButtons')!.appendChild(col);
+    ui.addArrInstance('Radarr');
+    expect(col.classList.contains('arr-expanded')).toBe(true);
+    expect(document.getElementById('arrCollapsibleHeaderRadarr')!.getAttribute('aria-expanded')).toBe('true');
+    expect(col.querySelector('.arr-collapsible-body')!.getAttribute('aria-hidden')).toBe('false');
+  });
+
+  test('library seed failure falls back to a text input', async () => {
+    ajaxRouter({}, ['Configuration/Libraries']);
+    settingsShell();
+    document.getElementById('arrButtons')!.innerHTML =
+      ui.renderArrInstanceRow('Radarr', 0, null, false) + ui.renderArrInstanceRow('Radarr', 1, null, false);
+    ui.syncArrLibraryPickers('Radarr');
+    await flush();
+    const wrap = document.getElementById('Radarr_0_libs');
+    expect(wrap).not.toBeNull();
+    expect(wrap!.innerHTML).toContain('<input');
+  });
+
+  test('sync with existing pickers seeds nothing again', async () => {
+    ajaxRouter({ 'Configuration/Libraries': { Libraries: [] } });
+    arrShell([
+      { Name: 'A', Url: 'http://a', ApiKey: 'k' },
+      { Name: 'B', Url: 'http://b', ApiKey: 'k' },
+    ]);
+    ui.syncArrLibraryPickers('Radarr');
+    await flush();
+    ui.syncArrLibraryPickers('Radarr');
+    await flush();
+  });
+
+  test('repeated test clicks and removal clear pending timers', async () => {
+    ajaxRouter({});
+    arrShell([{ Name: 'A', Url: '', ApiKey: '' }]);
+    ui.testArrConnection('Radarr', 0);
+    ui.testArrConnection('Radarr', 0);
+    ui.removeArrInstance('Radarr', 0);
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]')).toHaveLength(0);
+  });
+
+  test('remove rekeys labels and library checkbox ids', () => {
+    ajaxRouter({});
+    settingsShell();
+    const row = (idx: number) =>
+      '<div class="arr-instance-row" data-type="Radarr" data-index="' + idx + '">' +
+      '<input id="Radarr_' + idx + '_name" value="n"><input id="Radarr_' + idx + '_url" value="u">' +
+      '<input id="Radarr_' + idx + '_key" value="k"><input type="checkbox" id="Radarr_' + idx + '_skipCert">' +
+      '<label>name</label><label>url</label><label>key</label><label>cert</label>' +
+      '<button type="button" class="btnRemoveArr" data-type="Radarr" data-index="' + idx + '"></button>' +
+      '<button type="button" class="btnTestArr" data-type="Radarr" data-index="' + idx + '"></button>' +
+      '<div id="Radarr_' + idx + '_libs" class="arr-library-wrapper">' +
+      '<input type="checkbox" id="Radarr_' + idx + '_libs_lib_0"><label for="Radarr_' + idx + '_libs_lib_0">lib</label>' +
+      '</div></div>';
+    document.getElementById('arrButtons')!.innerHTML = row(0) + row(1) + row(2);
+    ui.removeArrInstance('Radarr', 0);
+    const left = document.querySelector('.arr-instance-row[data-type="Radarr"]')!;
+    expect((left.querySelector('input') as HTMLInputElement).id).toBe('Radarr_0_name');
+    const lib = left.querySelector('.arr-library-wrapper')!;
+    expect((lib.querySelector('input') as HTMLInputElement).id).toBe('Radarr_0_libs_lib_0');
+  });
+
+  test('stale status responses are dropped', async () => {
+    ajaxRouter({ 'TestConnection': { Success: true } });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    const cfg = { RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] };
+    ui.initArrButtons(cfg);
+    ui.initArrButtons(cfg);
+    await flush();
+    expect(document.getElementById('arrStatusRadarr')!.classList.contains('is-ok')).toBe(true);
+  });
+
+  test('refresh paints the error badge when the probe fails', async () => {
+    ajaxRouter({}, ['TestConnection']);
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    expect(document.getElementById('arrStatusRadarr')!.classList.contains('is-error')).toBe(true);
+  });
+
+  test('sonarr block renders and filters incomplete entries', async () => {
+    ajaxRouter({ 'TestConnection': { Success: true } });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({
+      RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }],
+      SonarrInstances: [{ Name: 'S', Url: 'http://s', ApiKey: 'k' }, { Url: 'http://nokey' }],
+    });
+    await flush();
+    expect(document.getElementById('arrSelectSonarr')).not.toBeNull();
+    expect(document.getElementById('arrStatusSonarr')!.classList.contains('is-ok')).toBe(true);
+  });
+
+  test('out-of-range refresh clears an existing badge', async () => {
+    ajaxRouter({ 'TestConnection': { Success: true } });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    ui.refreshArrInstanceStatus('Radarr', 5);
+    expect(document.getElementById('arrStatusRadarr')!.innerHTML).toBe('');
+  });
+
+  test('select change handles NaN and valid indexes', async () => {
+    ajaxRouter({ 'TestConnection': { Success: true } });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    const sel = document.getElementById('arrSelectRadarr') as HTMLSelectElement;
+    sel.value = 'x';
+    sel.dispatchEvent(new Event('change'));
+    sel.value = '0';
+    sel.dispatchEvent(new Event('change'));
+    await flush();
+    expect(sel.value).toBe('0');
+  });
+
+  test('compare falls back to index zero for a bad select value', async () => {
+    const calls = ajaxRouter({ 'TestConnection': { Success: true }, 'ArrIntegration/Compare/Radarr': { InBoth: [] } });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    (document.getElementById('arrSelectRadarr') as HTMLSelectElement).value = 'x';
+    (document.getElementById('btnCompareRadarr') as HTMLButtonElement).click();
+    await flush();
+    expect(calls.some((c) => String(c.url).includes('Compare/Radarr?index=0'))).toBe(true);
+  });
+
+  test('compare failure renders the error card', async () => {
+    ajaxRouter({ 'TestConnection': { Success: true } }, ['ArrIntegration/Compare']);
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    ui.compareArr('Radarr', 0, 'R');
+    await flush();
+    expect(document.getElementById('arrResult')!.textContent).toMatch(/failed to compare|check settings/i);
+  });
+
+  test('attached add, test and remove handlers dispatch', async () => {
+    ajaxRouter({});
+    arrShell([]);
+    ui.attachAddHandlers();
+    (document.getElementById('btnAddRadarr') as HTMLButtonElement).click();
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]')).toHaveLength(1);
+    (document.getElementById('Radarr_0_btnTest') as HTMLButtonElement).click();
+    (document.querySelector('.btnRemoveArr[data-index="0"]') as HTMLButtonElement).click();
+    await flush();
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Radarr"]')).toHaveLength(0);
+  });
+
+  test('sonarr add handler appends a row', () => {
+    ajaxRouter({});
+    settingsShell();
+    document.getElementById('arrButtons')!.innerHTML = '<div id="SonarrAddBtnWrap"><button type="button" id="btnAddSonarr"></button></div>';
+    ui.attachAddHandlers();
+    (document.getElementById('btnAddSonarr') as HTMLButtonElement).click();
+    expect(document.querySelectorAll('.arr-instance-row[data-type="Sonarr"]')).toHaveLength(1);
+  });
+});

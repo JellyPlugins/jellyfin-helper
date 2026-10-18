@@ -61,9 +61,43 @@ function preparedUnwrapped(absPath: string): string {
 
 
 // Evaluates the shipped sources in compose order inside one shared scope.
+// Each fresh evaluation replaces globalThis.__coverage__ entries for every file
+// in the bundle, so counts from the previous scope would be lost. Folding the
+// live counters into an accumulator before every evaluation keeps the union of
+// all scopes in one place for saveCoverage.
+type CoverageFile = {
+  s: Record<string, number>;
+  f: Record<string, number>;
+  b: Record<string, number[]>;
+  statementMap?: unknown;
+  fnMap?: unknown;
+  branchMap?: unknown;
+};
+
+function mergeCoverage(into: Record<string, CoverageFile>, cov: Record<string, any> | undefined): void {
+  for (const [file, data] of Object.entries(cov ?? {})) {
+    const m = (into[file] ??= { s: {}, f: {}, b: {} });
+    for (const [k, v] of Object.entries(data.s ?? {})) m.s[k] = (m.s[k] ?? 0) + (v as number);
+    for (const [k, v] of Object.entries(data.f ?? {})) m.f[k] = (m.f[k] ?? 0) + (v as number);
+    for (const [k, v] of Object.entries(data.b ?? {})) {
+      const counts = v as number[];
+      m.b[k] = (m.b[k] ?? counts.map(() => 0)).map((c, i) => c + counts[i]);
+    }
+    m.statementMap ??= data.statementMap;
+    m.fnMap ??= data.fnMap;
+    m.branchMap ??= data.branchMap;
+  }
+}
+
+function captureCoverage(): void {
+  const g = globalThis as any;
+  mergeCoverage((g.__jfhCoverageAccum ??= {}), g.__coverage__);
+}
+
 // The appended return is test-only wiring and never touches production files.
 // A renamed helper fails loudly here instead of silently untesting code.
 function evaluate(sources: string[], expected: string[]): UiBridge {
+  captureCoverage();
   // The shipped scripts are classic (non-module) scripts that must evaluate in
   // one shared function scope exactly as the browser IIFE does; new Function is
   // the test harness boundary that reproduces that scope. Input is our own
@@ -107,7 +141,7 @@ const CONFIG_EXPECTED = [
         'refreshTraktRowState', 'loadTraktOfficialStatus', 'updateRecsTabVisibility',
         'updateSeerrUIState', 'validateTrashPath', 'isSensitiveSystemPath',
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',
-        'escHtml', 'escAttr', 'allowSafeHtml', 'mi', 'getCssVar',
+        'escHtml', 'escAttr', 'allowSafeHtml', 'mi', 'getCssVar', 'loadTranslations', 'applyStaticTranslations', 'showButtonFeedback', 'apiGetOptional',
         'formatBytes', 'getScoreThresholdClass', 'getPathSegments',
         'collectFlatPaths', 'collectDictPaths', 'buildPathTree', 'countTreeItems',
         'encodeTreeKey', 'resolveTreeNode', 'renderTreeLevel', 'renderTreeFolder',
@@ -141,6 +175,10 @@ const CONFIG_EXPECTED = [
         'restoreCardToIndex', 'moveCardInList', 'announceCodec', 'toggleCodecBreakdown',
         'showDonutTooltip', 'hideDonutTooltip',
         'isSegmentPanelOpen', 'triggerCodecRowForSegment', 'attachCodecClickHandlers',
+        'attachCodecCardDragHandlers', 'beginCodecDrag', 'moveCodecCloneToPointer',
+        'onCodecDragPointerMove', 'onCodecDragPointerUp', 'reorderCodecCardTo',
+        'resetCodecDragForRerender', 'settleCodecFlip', 'flipCodecReorder', 'teardownCodecDrag',
+        'updateCodecAutoScroll', 'saveCodecCardOrder', 'showCodecSaveFeedback',
         'fillCodecsData', 'loadCodecCardOrderOnce', 'renderCodecsExplorer', 'openCodecsExplorer',
         'getBitrateMap', 'getBitrateBounds',
         'applyBitrateRange', 'hasActiveBitrateRange', 'getBitrateHistogram',
@@ -252,9 +290,10 @@ export function saveCoverage(): void {
   // that happened to reuse the pid. Key each report by pid plus a per-process
   // counter so every afterAll writes a distinct file; check-coverage merges them
   // all. coverage/tmp is cleared before each run, so nothing double-counts.
-  const cov = (globalThis as any).__coverage__;
-  if (!cov) return;
   const g = globalThis as any;
+  captureCoverage();
+  const cov = g.__jfhCoverageAccum ?? g.__coverage__;
+  if (!cov) return;
   g.__jfhCoverageSeq = (g.__jfhCoverageSeq ?? 0) + 1;
   const dir = join(REPO_ROOT, 'test', 'ui', 'coverage', 'tmp');
   mkdirSync(dir, { recursive: true });

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test, vi } from 'vitest';
-import { flush } from '../src/apiStub.js';
-import { loadConfigPage, saveCoverage } from '../src/loader.js';
+import { ajaxRouter, flush } from '../src/apiStub.js';
+import { freshConfigPage, loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
 
@@ -308,5 +308,410 @@ describe('donut tooltip and drilldown', () => {
     expect(document.querySelector('.codec-clickable')!.classList.contains('codec-row-active')).toBe(true);
     expect(document.getElementById('codecDetail_videoCodecs')!.textContent).toContain('a.mkv');
     expect(ui.isSegmentPanelOpen(seg)).toBe(true);
+  });
+
+  test('tooltip clamps overflow and viewport edges', () => {
+    document.body.innerHTML = '<div id="c"></div>';
+    const c = document.getElementById('c')!;
+    c.innerHTML = ui.renderDonutSvg(
+      { h264: 2 },
+      [{ LibraryName: 'Movies', VideoCodecs: { h264: 2 } }],
+      'VideoCodecs',
+      'tipx',
+    );
+    (c as HTMLElement).getBoundingClientRect = () => ({ left: 50, right: 150, top: 50, bottom: 150, width: 100, height: 100, x: 50, y: 50, toJSON() {} }) as DOMRect;
+    const tip = c.querySelector('.donut-tooltip') as HTMLElement;
+    tip.getBoundingClientRect = () => ({ left: -10, right: 500, top: -10, bottom: 500, width: 510, height: 510, x: -10, y: -10, toJSON() {} }) as DOMRect;
+    const seg = c.querySelector('[data-segment-id="tipx_0"]') as HTMLElement;
+    ui.showDonutTooltip(c, { clientX: 10, clientY: 10 }, seg);
+    expect(tip.style.left).toBe('-46px');
+    expect(tip.style.top).toBe('-46px');
+  });
+
+  test('segment trigger and panel-open guards', () => {
+    const bare = document.createElement('div');
+    expect(() => ui.triggerCodecRowForSegment(bare, false)).not.toThrow();
+    const box = document.createElement('div');
+    box.className = 'chart-box';
+    document.body.appendChild(box);
+    const noCodec = document.createElement('div');
+    box.appendChild(noCodec);
+    ui.triggerCodecRowForSegment(noCodec, false);
+    const noMatch = document.createElement('div');
+    noMatch.dataset.codec = 'nope';
+    box.appendChild(noMatch);
+    expect(ui.isSegmentPanelOpen(noMatch)).toBe(false);
+    ui.triggerCodecRowForSegment(noMatch, false);
+    expect(ui.isSegmentPanelOpen({} as any)).toBe(false);
+  });
+
+  test('breakdown toggle click and keyboard keep the active row', () => {
+    document.body.innerHTML =
+      '<div class="codec-breakdown">' +
+      '<button data-breakdown-toggle data-expanded="true" data-total="3"></button>' +
+      '<div class="codec-clickable codec-row-active" data-breakdown-hidden></div>' +
+      '<div class="codec-clickable" data-breakdown-hidden></div>' +
+      '</div>';
+    const btn = document.querySelector('[data-breakdown-toggle]') as HTMLElement;
+    const rows = document.querySelectorAll('[data-breakdown-hidden]') as NodeListOf<HTMLElement>;
+    ui.attachCodecClickHandlers();
+    btn.click();
+    expect(rows[0].style.display).toBe('');
+    expect(rows[1].style.display).toBe('none');
+    expect(btn.dataset.expanded).toBe('false');
+    const e = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    btn.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(btn.dataset.expanded).toBe('true');
+  });
+
+  test('collapsed row sync skips expanded boxes', () => {
+    document.body.innerHTML =
+      '<div class="codec-breakdown"><button data-breakdown-toggle data-expanded="true"></button>' +
+      '<div class="codec-clickable codec-row-active" data-breakdown-hidden></div></div>' +
+      '<div class="codec-breakdown"><button data-breakdown-toggle data-expanded="false"></button>' +
+      '<div class="codec-clickable codec-row-active" data-breakdown-hidden></div>' +
+      '<div class="codec-clickable" data-breakdown-hidden></div></div>';
+    ui.attachCodecClickHandlers();
+    document.querySelector('.codec-breakdown .codec-clickable')!.dispatchEvent(new window.Event('click', { bubbles: true }));
+    const second = document.querySelectorAll('.codec-breakdown')[1];
+    const hidden = second.querySelectorAll('[data-breakdown-hidden]') as NodeListOf<HTMLElement>;
+    expect(hidden[0].style.display).toBe('');
+    expect(hidden[1].style.display).toBe('none');
+  });
+
+  test('drilldown before any data renders an empty panel', () => {
+    const local = freshConfigPage();
+    document.body.innerHTML =
+      '<div id="tab-codecs"><div class="charts-row"><div class="chart-box" data-chart-id="videoCodecs">' +
+      local.renderCodecBreakdown({ h264: 1 }, {}, 'videoCodecs') + '</div></div>' +
+      '<div class="file-tree-panel" id="codecDetail_videoCodecs"></div></div>';
+    local.attachCodecClickHandlers();
+    (document.querySelector('.codec-clickable') as HTMLElement).click();
+    expect(document.getElementById('codecDetail_videoCodecs')!.textContent).toBe('');
+  });
+
+  test('watched username row resolves from WatchedByUserPaths', () => {
+    const local = freshConfigPage();
+    local.fillCodecsData({
+      Movies: [{
+        LibraryName: 'Movies',
+        VideoCodecs: { h264: 1 },
+        VideoCodecPaths: { h264: ['/m/a.mkv'] },
+        WatchedByUserPaths: { alice: ['/m/a.mkv'] },
+        WatchedByUserSizes: { alice: 1 },
+      }],
+      TvShows: [], Other: [], Music: [], Books: [], Libraries: [],
+      MovieRootPaths: ['/m'], TvShowRootPaths: [], OtherRootPaths: [], MusicRootPaths: [], BookRootPaths: [],
+    });
+    document.body.innerHTML =
+      '<div id="tab-codecs"><div class="charts-row"><div class="chart-box" data-chart-id="watched">' +
+      local.renderCodecBreakdown({ alice: 1 }, {}, 'watched') + '</div></div>' +
+      '<div class="file-tree-panel" id="codecDetail_watched"></div></div>';
+    local.attachCodecClickHandlers();
+    const row = document.querySelector('.codec-clickable[data-codec="alice"]') as HTMLElement;
+    row.click();
+    expect(document.getElementById('codecDetail_watched')!.textContent).toContain('a.mkv');
+  });
+
+  test('video bitrate card renders from tier data', () => {
+    const local = freshConfigPage();
+    document.body.innerHTML = '<div id="codecsContent"></div>';
+    local.fillCodecsData({
+      Movies: [{
+        LibraryName: 'Movies',
+        VideoBitrateTiers: { low: 1 },
+        VideoBitrateTierSizes: { low: 100 },
+      }],
+      TvShows: [], Other: [], Music: [], Books: [], Libraries: [],
+      MovieRootPaths: ['/m'], TvShowRootPaths: [], OtherRootPaths: [], MusicRootPaths: [], BookRootPaths: [],
+    });
+    expect(document.querySelector('.chart-box[data-chart-id="videoBitrate"]')).not.toBeNull();
+  });
+});
+
+function codecRect(left: number, top: number, width = 100, height = 50): DOMRect {
+  return { left, right: left + width, top, bottom: top + height, width, height, x: left, y: top, toJSON() {} } as DOMRect;
+}
+
+function codecCard(id: string, r: DOMRect): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'chart-box';
+  card.dataset.chartId = id;
+  card.getBoundingClientRect = () => r;
+  const handle = document.createElement('span');
+  handle.className = 'codec-card-handle';
+  card.appendChild(handle);
+  return card;
+}
+
+describe('drag engine and order persistence edges', () => {
+  test('begin, move, reset and teardown manage the clone', () => {
+    const p = freshConfigPage();
+    ajaxRouter({});
+    document.body.innerHTML = '';
+    const host = document.createElement('div');
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    const b = codecCard('b', codecRect(110, 0));
+    row.append(a, b);
+    host.appendChild(row);
+    document.body.appendChild(host);
+    const state: any = {
+      handle: a.querySelector('.codec-card-handle'), card: a, chartsRow: row, pointerId: 1,
+      isTouch: false, startX: 0, startY: 0, lastClientX: 5, lastClientY: 5,
+      active: false, armTimer: null, clone: null, moved: false, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    p.beginCodecDrag(state);
+    expect(state.active).toBe(true);
+    expect(document.querySelector('.codec-drag-clone')).not.toBeNull();
+    p.beginCodecDrag(state);
+    p.moveCodecCloneToPointer(state);
+    p.moveCodecCloneToPointer({ clone: null } as any);
+    p.teardownCodecDrag(state);
+    expect(document.querySelector('.codec-drag-clone')).toBeNull();
+    expect(state.active).toBe(false);
+
+    p.attachCodecCardDragHandlers(host);
+    const handle = a.querySelector('.codec-card-handle') as HTMLElement;
+    handle.dispatchEvent(Object.assign(new window.Event('pointerdown', { bubbles: true }), {
+      pointerType: 'mouse', button: 0, clientX: 5, clientY: 5, pointerId: 9,
+    }));
+    window.dispatchEvent(Object.assign(new window.Event('pointermove'), { pointerId: 9, clientX: 30, clientY: 30 }));
+    expect(document.querySelector('.codec-drag-clone')).not.toBeNull();
+    p.resetCodecDragForRerender();
+    expect(document.querySelector('.codec-drag-clone')).toBeNull();
+  });
+
+  test('begin recovers when the card cannot be measured', () => {
+    const p = freshConfigPage();
+    const card = codecCard('a', codecRect(0, 0));
+    card.getBoundingClientRect = () => { throw new Error('detached'); };
+    document.body.appendChild(card);
+    const state: any = {
+      handle: card.querySelector('.codec-card-handle'), card, chartsRow: document.body, pointerId: 1,
+      isTouch: false, startX: 0, startY: 0, lastClientX: 0, lastClientY: 0,
+      active: false, armTimer: null, clone: null, moved: false, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    expect(() => p.beginCodecDrag(state)).not.toThrow();
+    expect(state.active).toBe(false);
+  });
+
+  test('pointer move cancels touch arming and gates on the mouse lift threshold', () => {
+    const p = freshConfigPage();
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    row.appendChild(a);
+    document.body.appendChild(row);
+    const touchState: any = {
+      handle: a.querySelector('.codec-card-handle'), card: a, chartsRow: row, pointerId: 1,
+      isTouch: true, startX: 0, startY: 0, lastClientX: 0, lastClientY: 0,
+      active: false, armTimer: setTimeout(() => undefined, 500), clone: null, moved: false, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    p.onCodecDragPointerMove({ pointerId: 1, clientX: 100, clientY: 100, preventDefault() {} } as any, touchState);
+    expect(touchState.armTimer).toBeNull();
+    const mouseState: any = {
+      handle: a.querySelector('.codec-card-handle'), card: a, chartsRow: row, pointerId: 2,
+      isTouch: false, startX: 0, startY: 0, lastClientX: 0, lastClientY: 0,
+      active: false, armTimer: null, clone: null, moved: false, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    p.onCodecDragPointerMove({ pointerId: 2, clientX: 2, clientY: 0, preventDefault() {} } as any, mouseState);
+    expect(mouseState.active).toBe(false);
+    p.onCodecDragPointerMove({ pointerId: 2, clientX: 60, clientY: 10, preventDefault() {} } as any, mouseState);
+    expect(mouseState.active).toBe(true);
+    p.teardownCodecDrag(mouseState);
+  });
+
+  test('pointer move returns when arming failed', () => {
+    const p = freshConfigPage();
+    const card = codecCard('a', codecRect(0, 0));
+    card.getBoundingClientRect = () => { throw new Error('detached'); };
+    document.body.appendChild(card);
+    const state: any = {
+      handle: card.querySelector('.codec-card-handle'), card, chartsRow: document.body, pointerId: 1,
+      isTouch: false, startX: 0, startY: 0, lastClientX: 0, lastClientY: 0,
+      active: false, armTimer: null, clone: null, moved: false, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    expect(() => p.onCodecDragPointerMove({ pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} } as any, state)).not.toThrow();
+    expect(state.active).toBe(false);
+  });
+
+  test('pointer up commits, saves and clears arm timers', async () => {
+    const p = freshConfigPage();
+    const calls = ajaxRouter({});
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    const b = codecCard('b', codecRect(110, 0));
+    row.append(a, b);
+    document.body.appendChild(row);
+    const state: any = {
+      handle: a.querySelector('.codec-card-handle'), card: a, chartsRow: row, pointerId: 1,
+      isTouch: true, startX: 0, startY: 0, lastClientX: 0, lastClientY: 0,
+      active: true, armTimer: setTimeout(() => undefined, 500), clone: null, moved: true, autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    p.onCodecDragPointerUp({ pointerId: 1 } as any, state);
+    expect(state.armTimer).toBeNull();
+    expect(state.active).toBe(false);
+    await flush();
+    expect(calls.some((c) => String(c.url).includes('CodecCardOrder'))).toBe(true);
+  });
+
+  test('queued saves flush once the active save settles', async () => {
+    const p = freshConfigPage();
+    const calls = ajaxRouter({ 'CodecCardOrder': { CodecCardOrder: ['c'] } });
+    p.saveCodecCardOrder(['a'], null, ['b']);
+    p.saveCodecCardOrder(['c'], null, ['b']);
+    await flush();
+    await flush();
+    const puts = calls.filter((c) => String(c.url).includes('CodecCardOrder'));
+    expect(puts.length).toBe(2);
+  });
+
+  test('failed saves roll back and clear the queue', async () => {
+    const p = freshConfigPage();
+    const calls = ajaxRouter({}, ['CodecCardOrder']);
+    p.saveCodecCardOrder(['a'], null, ['b']);
+    await flush();
+    expect(calls.some((c) => String(c.url).includes('CodecCardOrder'))).toBe(true);
+  });
+
+  test('attach handles without charts-row and consume contextmenu', () => {
+    const p = freshConfigPage();
+    document.body.innerHTML = '';
+    const empty = document.createElement('div');
+    expect(() => p.attachCodecCardDragHandlers(empty)).not.toThrow();
+    const host = document.createElement('div');
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    row.appendChild(a);
+    host.appendChild(row);
+    document.body.appendChild(host);
+    p.attachCodecCardDragHandlers(host);
+    const handle = a.querySelector('.codec-card-handle')!;
+    const ev = new window.Event('contextmenu', { bubbles: true, cancelable: true });
+    handle.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  test('reorderFullOrder rebases new ids onto the full order', () => {
+    const p = freshConfigPage();
+    expect(p.reorderFullOrder(['a', 'b', 'c'], ['c', 'a', 'z'])).toEqual(['c', 'b', 'a', 'z']);
+    expect(p.reorderFullOrder(['a', 'b', 'c'], ['b'])).toEqual(['a', 'b', 'c']);
+  });
+
+  test('groupCardsIntoRows groups by top and grows to the tallest card', () => {
+    const p = freshConfigPage();
+    const rows = p.groupCardsIntoRows([
+      { el: {}, left: 200, right: 300, top: 0, bottom: 10, cx: 250 },
+      { el: {}, left: 0, right: 100, top: 0, bottom: 40, cx: 50 },
+      { el: {}, left: 0, right: 100, top: 50, bottom: 60, cx: 50 },
+    ] as any);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].bottom).toBe(40);
+    expect((rows[0].cards[0] as any).left).toBe(0);
+  });
+
+  test('findSlotIndex covers ends, row bands and nearest centre', () => {
+    const p = freshConfigPage();
+    const rows = [
+      { top: 0, bottom: 10, cards: [{ left: 10, right: 40, cx: 25 }, { left: 60, right: 90, cx: 75 }] },
+      { top: 20, bottom: 30, cards: [{ left: 10, right: 40, cx: 25 }] },
+    ] as any;
+    expect(p.findSlotIndex(rows, 3, 50, -5)).toBe(0);
+    expect(p.findSlotIndex(rows, 3, 50, 100)).toBe(3);
+    expect(p.findSlotIndex(rows, 3, 100, 25)).toBe(3);
+    expect(p.findSlotIndex(rows, 3, 25, 25)).toBe(2);
+    expect(p.findSlotIndex(rows, 3, 70, 5)).toBe(1);
+    expect(p.findSlotIndex(rows, 3, 25, 18)).toBe(2);
+    expect(p.colsOf(rows)).toBe(2);
+  });
+
+  test('reorderCodecCardTo bails on tiny grids and settled slots', () => {
+    const p = freshConfigPage();
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    row.appendChild(a);
+    document.body.appendChild(row);
+    const single: any = { card: a, chartsRow: row, moved: false };
+    p.reorderCodecCardTo(single, 100, 100);
+    expect(single.moved).toBe(false);
+    const b = codecCard('b', codecRect(110, 0));
+    row.appendChild(b);
+    const state: any = { card: b, chartsRow: row, moved: false };
+    p.reorderCodecCardTo(state, 5, 100);
+    expect(state.moved).toBe(false);
+  });
+
+  test('flip honors reduced motion and settles pending transforms', () => {
+    const p = freshConfigPage();
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    const b = codecCard('b', codecRect(110, 0));
+    row.append(a, b);
+    document.body.appendChild(row);
+    let mutated = false;
+    p.flipCodecReorder(row, a, () => { mutated = true; });
+    expect(mutated).toBe(true);
+    b.style.transform = 'translate(5px, 0)';
+    b.style.transition = 'transform 160ms ease';
+    (b as any)._codecFlipTimer = setTimeout(() => undefined, 160);
+    p.settleCodecFlip([b]);
+    expect(b.style.transform).toBe('');
+    expect((b as any)._codecFlipTimer).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  test('auto scroll runs, reverses and stops with the drag', () => {
+    const p = freshConfigPage();
+    (window as any).scrollBy = () => undefined;
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    const b = codecCard('b', codecRect(110, 0));
+    row.append(a, b);
+    document.body.appendChild(row);
+    const state: any = {
+      handle: a.querySelector('.codec-card-handle'), card: a, chartsRow: row, pointerId: 1,
+      lastClientX: 5, lastClientY: 5, active: true, armTimer: null, clone: null,
+      autoScrollRaf: 0, autoScrollSpeed: 0,
+    };
+    p.updateCodecAutoScroll(state);
+    expect(state.autoScrollSpeed).toBeLessThan(0);
+    vi.advanceTimersByTime(20);
+    state.lastClientY = 100000;
+    state.lastClientX = 5;
+    p.updateCodecAutoScroll(state);
+    state.autoScrollSpeed = 0;
+    vi.advanceTimersByTime(20);
+    p.teardownCodecDrag(state);
+    expect(state.autoScrollSpeed).toBe(0);
+  });
+
+  test('keyboard arrows reorder and focus stays on the handle', () => {
+    const p = freshConfigPage();
+    document.body.innerHTML = '';
+    const host = document.createElement('div');
+    const row = document.createElement('div');
+    row.className = 'charts-row';
+    const a = codecCard('a', codecRect(0, 0));
+    const b = codecCard('b', codecRect(110, 0));
+    const c = codecCard('c', codecRect(220, 0));
+    row.append(a, b, c);
+    host.appendChild(row);
+    document.body.appendChild(host);
+    p.attachCodecCardDragHandlers(host);
+    const handle = b.querySelector('.codec-card-handle') as HTMLElement;
+    handle.setAttribute('aria-grabbed', 'true');
+    handle.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    const boxes = [...row.querySelectorAll('.chart-box[data-chart-id]')];
+    expect(boxes[0]).toBe(b);
+    expect(handle.getAttribute('aria-grabbed')).toBe('true');
   });
 });
