@@ -1,9 +1,16 @@
-import { afterAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { loadConfigPage, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
 
-afterAll(saveCoverage);
+beforeAll(() => {
+  vi.useFakeTimers();
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+  saveCoverage();
+});
 
 function scanData(): any {
   return {
