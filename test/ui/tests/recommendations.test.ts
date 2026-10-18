@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { flush } from '../src/apiStub.js';
+import { ajaxRouter, flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -8,32 +8,6 @@ beforeEach(() => {
 });
 
 afterAll(saveCoverage);
-
-function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
-  const calls: { url: string; body?: unknown }[] = [];
-  (globalThis as any).ApiClient = {
-    getUrl: (p: string) => p,
-    getCurrentUserId: () => '',
-    accessToken: () => 't',
-    ajax: (opts: any) => {
-      // Mirror the wire: apiPost serializes to a JSON string, so parse it back to
-      // the object the server receives and assertions can match on the real shape.
-      let body: unknown;
-      try {
-        body = typeof opts.data === 'string' ? JSON.parse(opts.data) : opts.data;
-      } catch {
-        body = opts.data;
-      }
-      calls.push({ url: String(opts.url), body });
-      if (failures.some((f) => String(opts.url).includes(f))) return Promise.reject(new Error('down'));
-      for (const [key, value] of Object.entries(routes)) {
-        if (String(opts.url).includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
-    },
-  };
-  return calls;
-}
 
 describe('getTopGenresFromDistribution', () => {
   test('sorts by count and caps', () => {

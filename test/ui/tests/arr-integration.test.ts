@@ -51,7 +51,9 @@ describe('renderArrInstances', () => {
   });
 
   test('skip-cert accepts both casings and never renders checked wrongly', () => {
+    expect(ui.renderArrInstanceRow('Radarr', 0, { SkipCertificateValidation: true }, false)).toContain('checked');
     expect(ui.renderArrInstanceRow('Radarr', 0, { skipCertificateValidation: true }, false)).toContain('checked');
+    expect(ui.renderArrInstanceRow('Radarr', 0, { SkipCertificateValidation: false }, false)).not.toContain('checked');
     expect(ui.renderArrInstanceRow('Radarr', 0, {}, false)).not.toContain('checked');
   });
 

@@ -28,12 +28,26 @@ describe('file tree key decoding is crash-safe', () => {
 
   // ensureTreeChildren only reaches its own key.split().map(decodeURIComponent)
   // after resolveTreeNode decoded the same key, so a bad key short-circuits to 0
-  // before the second decode can run. Proven here through the real DOM path.
+  // before the second decode can run. Proven here through the real DOM path with
+  // a registered tree, so the test exercises the registry lookup instead of
+  // bailing out before it.
   test('ensureTreeChildren returns 0 for an undecodable node key without throwing', () => {
-    document.body.innerHTML =
-      '<div class="tree-node" data-tree-render="r" data-tree-section="movies" data-tree-key="%zz">' +
-      '<div class="tree-children"></div></div>';
+    document.body.innerHTML = ui.renderFileTree(
+      {
+        movies: ['/m/dir/a.mkv'],
+        tvShows: [],
+        music: [],
+        books: [],
+        other: [],
+        rootPaths: { movies: ['/m'] },
+      },
+      'title',
+    );
     const node = document.querySelector('.tree-node') as HTMLElement;
+    expect(node).not.toBeNull();
+    // Corrupt the key only after the tree was registered: the lookup now has to
+    // decode it, which must fail closed instead of throwing.
+    node.dataset.treeKey = '%zz';
     expect(() => ui.ensureTreeChildren(node)).not.toThrow();
     expect(ui.ensureTreeChildren(node)).toBe(0);
   });

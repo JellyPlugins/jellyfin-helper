@@ -127,7 +127,8 @@ describe('wheel zoom narrows the window', () => {
     }
     const levelAfter = container.querySelector('.trend-meta-level')!.textContent;
     const order = ['daily', 'weekly', 'monthly', 'yearly'];
-    expect(order.indexOf(levelAfter!)).toBeLessThanOrEqual(order.indexOf(levelBefore!));
+    expect(order.indexOf(levelBefore!)).toBeGreaterThan(-1);
+    expect(order.indexOf(levelAfter!)).toBeLessThan(order.indexOf(levelBefore!));
   });
 
   test('pinch zoom-out widens the window back', async () => {

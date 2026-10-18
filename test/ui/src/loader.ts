@@ -41,19 +41,21 @@ function preparedUnwrapped(absPath: string): string {
     throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
   }
   let body = src.slice(open + '(function () {'.length, close);
+  const strip = (re: RegExp, what: string) => {
+    if (!re.test(body)) {
+      throw new Error(`discovery-sidebar ${what} not found - prod shape changed?`);
+    }
+    body = body.replace(re, '');
+  };
   // Drop the double-init guard: it early-returns the whole IIFE once
   // window.__jfhDiscoverySidebarInitialized is set, so a second fresh scope
   // would return undefined before reaching the test-only return. Tests drive
   // the guard separately via the other loader (loadDiscovery).
-  body = body.replace(
-    /if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/,
-    '',
-  );
+  strip(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard');
   // Drop the bootstrap tail so nothing auto-mounts at evaluation time.
-  body = body
-    .replace(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, '')
-    .replace(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, '')
-    .replace(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, '');
+  strip(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call');
+  strip(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap');
+  strip(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, 'popstate bootstrap');
   return instrumenter.instrumentSync(body, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 

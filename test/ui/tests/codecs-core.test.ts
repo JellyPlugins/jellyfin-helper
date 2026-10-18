@@ -207,14 +207,13 @@ describe('keyboard card reorder lifecycle (drag engine via fillCodecsData)', () 
   // Fresh scope so persisted-order state starts clean for grab/move/drop assertions.
   const fresh = freshConfigPage();
 
-  async function render(calls?: any[]) {
+  async function render() {
     codecsHost(fresh);
     const c = ajaxStub({
       'JellyfinHelper/Configuration/CodecCardOrder': (opts: any) =>
         Promise.resolve({ codecCardOrder: JSON.parse(opts.data).codecCardOrder }),
       'JellyfinHelper/Configuration': {},
     });
-    if (calls) calls.push(...[]);
     fresh.fillCodecsData(richData());
     await flush();
     return c;

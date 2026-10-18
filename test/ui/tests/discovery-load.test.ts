@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'vitest';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 import { loadDiscovery, reloadDiscoveryBundle, saveCoverage } from '../src/loader.js';
 
 afterAll(saveCoverage);
@@ -13,7 +13,10 @@ describe('discovery sidebar bundle', () => {
   });
 
   test('second evaluation is a no-op through the guard', () => {
+    const addListener = vi.spyOn(window, 'addEventListener');
     expect(() => reloadDiscoveryBundle()).not.toThrow();
+    expect(addListener).not.toHaveBeenCalled();
+    addListener.mockRestore();
     expect((globalThis as any).window.__jfhDiscoverySidebarInitialized).toBe(true);
   });
 });

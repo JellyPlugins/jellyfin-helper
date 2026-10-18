@@ -470,7 +470,9 @@ describe('prune on rescan drops phantom selections', () => {
     const ui = freshConfigPage();
     openExplorer(ui);
     ui.openCodecsExplorer('Collections');
-    // Boxsets are dropped from the scope picker, so the resolved scope is empty.
+    // Boxsets are dropped from the scope picker, so the resolved scope is an
+    // explicit empty selection - not null, which would mean all libraries.
+    expect(ui.getCodecsExplorerState().libraries).toEqual([]);
     expect(ui.getCodecsExplorerSelectedRoots()).toEqual([]);
   });
 });

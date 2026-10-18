@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { flush } from '../src/apiStub.js';
+import { ajaxRouter, flush, matchRoute } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -11,35 +11,6 @@ beforeEach(() => {
 });
 
 afterAll(saveCoverage);
-
-function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
-  const calls: { url: string; body?: unknown }[] = [];
-  (globalThis as any).ApiClient = {
-    getUrl: (p: string) => p,
-    getCurrentUserId: () => '',
-    accessToken: () => 't',
-    ajax: (opts: any) => {
-      let body: unknown;
-      try {
-        body = typeof opts.data === 'string' ? JSON.parse(opts.data) : opts.data;
-      } catch {
-        body = opts.data;
-      }
-      calls.push({ url: String(opts.url), body });
-      if (failures.some((f) => String(opts.url).includes(f))) return Promise.reject(new Error('down'));
-      const url = String(opts.url);
-      const exact = Object.entries(routes).find(([key]) => url === key);
-      if (exact) return Promise.resolve(exact[1]);
-      // Insertion order decides substring matches, so a caller lists a specific
-      // route (e.g. Discovery/Request) before the generic one it extends.
-      for (const [key, value] of Object.entries(routes)) {
-        if (url.includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
-    },
-  };
-  return calls;
-}
 
 // Loose on purpose: inference would lock the map to the happy-path fixture and
 // reject the degraded payloads these tests reshape it into.
@@ -88,10 +59,7 @@ function deferredRouter(shouldDefer: (url: string) => boolean, routes: RouteTabl
           pending.push({ url, resolve: resolve as (v: unknown) => void, reject });
         });
       }
-      for (const [key, value] of Object.entries(routes)) {
-        if (url.includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
+      return Promise.resolve(matchRoute(url, routes));
     },
   };
   return pending;
@@ -207,15 +175,21 @@ describe('discovery request through the profile popup', () => {
   });
 
   test('switching users reloads profile, activity and discovery', async () => {
-    ajaxRouter(fullRoutes());
+    const calls = ajaxRouter(fullRoutes());
     document.body.innerHTML = '<div id="recsContent"></div>';
     ui.initRecommendationsTab();
     await flush();
+    const before = calls.length;
     const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
     select.value = '1';
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     await flush();
     expect(document.getElementById('recsUserGrid')!.textContent).toMatch(/no recommendations/i);
+    const after = calls.slice(before).map((c) => c.url);
+    expect(after.some((u) => u.includes('WatchProfile/') && u.includes('u2'))).toBe(true);
+    expect(after.some((u) => u.includes('UserActivity/User/') && u.includes('u2'))).toBe(true);
+    // Discovery comes from the fresh all-users cache, but the grid must repaint for u2.
+    expect(document.getElementById('discoveryGrid')!.textContent).toMatch(/no suggestions/i);
   });
 
   test('cached services reopen the popup and replace any existing overlay', async () => {
