@@ -246,14 +246,12 @@ describe('arr status and compare extras', () => {
     await flush();
   });
 
-  test('compareArr error', async () => {
-    ajaxRouter({}, ['ArrIntegration/Compare']);
+  test('compareArr without a type reports invalid input', () => {
+    const calls = ajaxRouter({});
     settingsShell();
-    const result = document.getElementById('arrResult');
-    if (result) result.innerHTML = '';
-    try { ui.compareArr(); } catch (e) { /* ignore */ }
+    ui.compareArr();
     expect(document.getElementById('arrResult')!.textContent).toMatch(/invalid/i);
-    await flush();
+    expect(calls).toHaveLength(0);
   });
 
   test('collect falls back to the stashed library value', () => {
@@ -344,11 +342,25 @@ describe('arr status and compare extras', () => {
   });
 
   test('stale status responses are dropped', async () => {
-    ajaxRouter({ 'TestConnection': { Success: true } });
+    let resolveFirst!: (v: unknown) => void;
+    let n = 0;
+    (globalThis as any).ApiClient = {
+      getUrl: (p: string) => p,
+      getCurrentUserId: () => '',
+      accessToken: () => 't',
+      ajax: (opts: any) => {
+        if (!String(opts.url).includes('TestConnection')) return Promise.resolve({});
+        n++;
+        if (n === 1) return new Promise((r) => { resolveFirst = r; });
+        return Promise.resolve({ Success: true });
+      },
+    };
     document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
     const cfg = { RadarrInstances: [{ Name: 'R', Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] };
     ui.initArrButtons(cfg);
     ui.initArrButtons(cfg);
+    await flush();
+    resolveFirst({ Success: false });
     await flush();
     expect(document.getElementById('arrStatusRadarr')!.classList.contains('is-ok')).toBe(true);
   });

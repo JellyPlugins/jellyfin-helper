@@ -8,17 +8,20 @@ beforeEach(() => { ui = freshConfigPage(); });
 afterAll(saveCoverage);
 
 function ajaxRouter(routes: Record<string, unknown> = {}) {
+  const calls: { url: string }[] = [];
   (globalThis as any).ApiClient = {
     getUrl: (p: string) => p,
     getCurrentUserId: () => '',
     accessToken: () => 't',
     ajax: (opts: any) => {
+      calls.push({ url: String(opts.url) });
       for (const [key, value] of Object.entries(routes)) {
         if (String(opts.url).includes(key)) return Promise.resolve(value);
       }
       return Promise.resolve({});
     },
   };
+  return calls;
 }
 
 describe('folder browser extras', () => {
@@ -41,7 +44,7 @@ describe('folder browser extras', () => {
   });
 
   test('browseTo item click go to roots', async () => {
-    ajaxRouter({ 'BrowseFolders': { CurrentPath: '/root', CanGoUp: false, Directories: [] } });
+    const calls = ajaxRouter({ 'BrowseFolders': { CurrentPath: '/root', CanGoUp: false, Directories: [] } });
     document.body.innerHTML = '<div id="listing"></div><div id="bc"></div>';
     const state: any = {};
     ui.browseTo('/root', document.getElementById('listing')!, document.getElementById('bc')!, state);
@@ -50,6 +53,7 @@ describe('folder browser extras', () => {
     expect(item).not.toBeNull();
     item.click();
     await flush();
+    expect(calls.some((c) => c.url === 'JellyfinHelper/Configuration/BrowseFolders')).toBe(true);
   });
 
   test('open dialog windows path select with new folder', async () => {
@@ -73,11 +77,11 @@ describe('folder browser extras', () => {
     await flush();
     await vi.advanceTimersByTimeAsync(2100);
     await flush();
-    expect(document.getElementById('cfgTrashPath')!.value).toBe('C:\\trash\\new');
+    expect((document.getElementById('cfgTrashPath') as HTMLInputElement).value).toBe('C:\\trash\\new');
   });
 
   test('open dialog quick jump click', async () => {
-    ajaxRouter({
+    const calls = ajaxRouter({
       'Configuration/LibraryPaths': { libraryPaths: [{ path: '/lib', name: 'Lib' }] },
       'Configuration/BrowseFolders': { CurrentPath: null, CanGoUp: false, Directories: [] },
     });
@@ -88,7 +92,8 @@ describe('folder browser extras', () => {
     await flush();
     const qbtn = document.querySelector('.folder-browser-quick-btn') as HTMLElement;
     expect(qbtn).not.toBeNull();
-    if (qbtn) qbtn.click();
+    qbtn.click();
     await flush();
+    expect(calls.some((c) => c.url.includes('BrowseFolders?path=' + encodeURIComponent('/lib')))).toBe(true);
   });
 });

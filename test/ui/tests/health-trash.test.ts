@@ -76,7 +76,9 @@ describe('health extras', () => {
     document.body.innerHTML = '<div id="healthContent"><div id="trashHealthSection"></div></div>';
     ui.loadTrashHealthSection();
     await flush();
-    expect(document.getElementById('trashHealthSection')).not.toBeNull();
+    const sections = document.querySelectorAll('#trashHealthSection');
+    expect(sections).toHaveLength(1);
+    expect(sections[0].innerHTML).not.toBe('');
   });
 
   test('loadTrashHealthSection contents error', async () => {

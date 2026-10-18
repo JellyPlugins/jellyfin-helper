@@ -149,9 +149,12 @@ describe('codecExplorerPathInRoots separators and boundaries', () => {
     expect(ui.codecExplorerPathInRoots('/movies2/a', ['/movies'])).toBe(false);
   });
 
-  test('empty or blank roots match everything', () => {
+  test('empty or null roots match everything', () => {
     expect(ui.codecExplorerPathInRoots('/any', [])).toBe(true);
     expect(ui.codecExplorerPathInRoots('/any', null)).toBe(true);
+  });
+
+  test('a roots array of only blank entries never matches', () => {
     // A roots array of only blanks skips every entry and never matches.
     expect(ui.codecExplorerPathInRoots('/any', ['', '  '])).toBe(false);
   });

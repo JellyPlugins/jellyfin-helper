@@ -573,9 +573,14 @@ describe('drag engine and order persistence edges', () => {
   test('failed saves roll back and clear the queue', async () => {
     const p = freshConfigPage();
     const calls = ajaxRouter({}, ['CodecCardOrder']);
+    const before = p.orderedCodecCardIds({ containers: 1, resolutions: 1, watched: 1 });
     p.saveCodecCardOrder(['a'], null, ['b']);
+    p.saveCodecCardOrder(['c'], null, ['b']);
     await flush();
-    expect(calls.some((c) => String(c.url).includes('CodecCardOrder'))).toBe(true);
+    await flush();
+    // The queued save is dropped after the failure.
+    expect(calls.filter((c) => String(c.url).includes('CodecCardOrder'))).toHaveLength(1);
+    expect(p.orderedCodecCardIds({ containers: 1, resolutions: 1, watched: 1 })).toEqual(before);
   });
 
   test('attach handles without charts-row and consume contextmenu', () => {

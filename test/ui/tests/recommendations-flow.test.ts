@@ -763,8 +763,13 @@ describe('recommendations loading variants', () => {
     select.dispatchEvent(new window.Event('change', { bubbles: true }));
     expect(pending).toHaveLength(2);
     pending[1]([{ UserId: 'u2', Recommendations: [] }]);
-    pending[0]([{ UserId: 'u1', Recommendations: [{ Title: 'D1', MediaType: 'movie', TmdbId: 5 }] }]);
+    pending[0]([
+      { UserId: 'u1', Recommendations: [{ Title: 'D1', MediaType: 'movie', TmdbId: 5 }] },
+      { UserId: 'u2', Recommendations: [{ Title: 'StaleU2', MediaType: 'movie', TmdbId: 8 }] },
+    ]);
     await flush();
     expect(document.getElementById('discoveryGrid')!.textContent).toMatch(/no suggestions/i);
+    expect(document.getElementById('discoveryGrid')!.textContent).not.toContain('StaleU2');
+    expect(document.getElementById('discoveryGrid')!.textContent).not.toContain('D1');
   });
 });
