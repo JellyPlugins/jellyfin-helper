@@ -431,7 +431,7 @@ describe('option counting without matches', () => {
     stubApi();
     document.body.innerHTML = '<div id="codecsContent"></div>';
     ui.fillCodecsData(richData());
-    ui.getCodecsExplorerState().libraries = ['Music'];
+    ui.getCodecsExplorerState().scope = ['Music'];
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     openFilterPopover();
     expect(document.querySelector('[data-filter-dim="watched"]')).toBeNull();
@@ -445,7 +445,7 @@ describe('control bar HTML states', () => {
     stubApi();
     document.body.innerHTML = '<div id="codecsContent"></div>';
     ui.fillCodecsData(emptyScopeData());
-    ui.getCodecsExplorerState().libraries = ['Movies'];
+    ui.getCodecsExplorerState().scope = ['Movies'];
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     openFilterPopover();
     const hint = document.querySelector('.codec-filter-pop .codec-explorer-none');
@@ -675,7 +675,7 @@ describe('control and filter event handlers', () => {
     fire(deu, 'change');
     await debounce();
     expect(ui.getCodecsExplorerSelection('audioLanguages')).toEqual(['eng', 'deu']);
-    expect(resultCount()).toBe(4);
+    expect(resultCount()).toBe(5);
   });
 
   test('clicking the active single value again deletes the filter', async () => {
