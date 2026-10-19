@@ -6,9 +6,18 @@ codecov:
     after_n_builds: 3
     wait_for_ci: true
 
-# `frontend` = Vitest coverage of the shipped plugin JS; carryforward holds the last real value when a commit ships no UI upload.
+# Flags are scoped to disjoint file sets, so a flag's percentage is measured
+# against its own code instead of every file known to the commit. `frontend`
+# also carries forward the last real value when a commit ships no UI upload.
 flags:
+  backend:
+    paths:
+      - "Jellyfin.Plugin.JellyfinHelper/*.cs"
+      - "Jellyfin.Plugin.JellyfinHelper/**/*.cs"
   frontend:
+    paths:
+      - "Jellyfin.Plugin.JellyfinHelper/PluginPages/js/"
+      - "Jellyfin.Plugin.JellyfinHelper/js/"
     carryforward: true
 
 coverage:

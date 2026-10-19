@@ -223,17 +223,17 @@ jobs:
           echo "::warning::No coverage report found for the ${{ matrix.bucket.name }} bucket."
         fi
 
-    # Codecov merges reports that share a repo/commit, so all three buckets (Unit,
-    # Security, Performance) roll up into one figure; the flag keeps per-bucket
-    # breakdowns available on the Codecov UI. Skipped when the collect step found
-    # no report (e.g. the Performance bucket soft-failed before producing one).
+    # All backend buckets upload under the same `backend` flag, so Codecov merges
+    # Unit/Security/Performance into one meaningful figure instead of three
+    # low-percentage flags. Skipped when the collect step found no report (e.g.
+    # the Performance bucket soft-failed before producing one).
     - name: Upload coverage to Codecov
       if: always() && env.COVERAGE_FILE != ''
       uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ env.COVERAGE_FILE }}
-        flags: ${{ matrix.bucket.name }}
+        flags: backend
         name: ${{ matrix.bucket.name }}
         disable_search: true
         fail_ci_if_error: false
