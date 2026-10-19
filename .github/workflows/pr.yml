@@ -113,6 +113,43 @@ jobs:
           echo "[PASS] **No vulnerable packages detected.**" >> $GITHUB_STEP_SUMMARY
         fi
 
+  ui-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        # This job never pushes, so the token must not stay in .git/config.
+        persist-credentials: false
+
+    - name: Setup Node
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24
+
+    # npm ci: installs exactly the committed lockfile, so CI never resolves
+    # unpinned dependency versions at run time.
+    - name: Install UI test dependencies
+      run: npm ci --ignore-scripts --no-audit --no-fund
+      working-directory: test/ui
+
+    - name: Run UI tests with coverage gate
+      run: npm run test:coverage
+      working-directory: test/ui
+
+    - name: Upload UI coverage to Codecov
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: test/ui/coverage/lcov.info
+        flags: frontend
+        name: ui-tests
+        disable_search: true
+        fail_ci_if_error: false
+
   test:
     runs-on: ubuntu-latest
     needs: build
@@ -153,6 +190,9 @@ jobs:
     - name: "Run ${{ matrix.bucket.name }} tests"
       env:
         TEST_FILTER: ${{ matrix.bucket.filter }}
+        # The dedicated ui-tests job above owns the Vitest suite; running it
+        # again inside every bucket would triple the runtime for no signal.
+        RunVitest: "false"
       run: |
         dotnet test --configuration Release --no-build --verbosity normal \
           --filter "$TEST_FILTER" \
@@ -183,17 +223,17 @@ jobs:
           echo "::warning::No coverage report found for the ${{ matrix.bucket.name }} bucket."
         fi
 
-    # Codecov merges reports that share a repo/commit, so all three buckets (Unit,
-    # Security, Performance) roll up into one figure; the flag keeps per-bucket
-    # breakdowns available on the Codecov UI. Skipped when the collect step found
-    # no report (e.g. the Performance bucket soft-failed before producing one).
+    # All backend buckets upload under the same `backend` flag, so Codecov merges
+    # Unit/Security/Performance into one meaningful figure instead of three
+    # low-percentage flags. Skipped when the collect step found no report (e.g.
+    # the Performance bucket soft-failed before producing one).
     - name: Upload coverage to Codecov
       if: always() && env.COVERAGE_FILE != ''
       uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ env.COVERAGE_FILE }}
-        flags: ${{ matrix.bucket.name }}
+        flags: backend
         name: ${{ matrix.bucket.name }}
         disable_search: true
         fail_ci_if_error: false
@@ -209,6 +249,8 @@ jobs:
       SONAR_PROJECT_KEY: JellyPlugins_jellyfin-helper
       SONAR_ORG: jellyplugins
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # UI coverage is reported to Codecov by the ui-tests job, not Sonar.
+      RunVitest: "false"
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -241,6 +283,8 @@ jobs:
         # Coverage is imported from the C# unit-test run only. E2E, PluginPages and demo have no
         # instrumentation, so exclusions prevent 0% scores. They stay in normal analysis, only
         # coverage denominator is affected. Generated configPage.html and docs/ are dropped entirely.
+        # test/ui is excluded completely: it is a JavaScript test surface (Vitest) with its own
+        # Codecov upload, and Sonar would treat it as un-instrumented product code.
         #
         # sonar.tests marks the xUnit project and the E2E harness as TEST sources rather than
         # production code, so SonarCloud applies its (much lighter) test rule set to them instead
@@ -252,8 +296,8 @@ jobs:
           /d:sonar.host.url="https://sonarcloud.io" \
           /d:sonar.token="$SONAR_TOKEN" \
           /d:sonar.tests="Jellyfin.Plugin.JellyfinHelper.Tests,test/e2e" \
-          /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,**/bin/**,**/obj/**,**/node_modules/**" \
-          /d:sonar.coverage.exclusions="test/e2e/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
+          /d:sonar.exclusions="**/PluginPages/configPage.html,docs/**,test/ui/**,**/bin/**,**/obj/**,**/node_modules/**" \
+          /d:sonar.coverage.exclusions="test/e2e/**,test/ui/**,**/PluginPages/js/**,**/PluginPages/css/**,**/PluginPages/configPage.html,Jellyfin.Plugin.JellyfinHelper/js/**,docs/**" \
           /d:sonar.cs.cobertura.reportsPaths="**/coverage.cobertura.xml"
         dotnet build --configuration Release --no-incremental
         dotnet test --configuration Release --no-build --verbosity normal \

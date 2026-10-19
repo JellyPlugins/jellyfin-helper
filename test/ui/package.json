@@ -1,0 +1,22 @@
+{
+  "name": "jellyfin-helper-ui-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vitest suite for the Jellyfin Helper config page scripts and discovery sidebar (runs against the real shipped sources).",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "node scripts/test-coverage.mjs",
+    "coverage:check": "node scripts/check-coverage.mjs --lines=85 --branches=80"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "istanbul-lib-instrument": "6.0.3",
+    "jsdom": "30.0.1",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
