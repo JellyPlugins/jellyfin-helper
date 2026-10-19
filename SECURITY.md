@@ -2,10 +2,10 @@
 
 | Version | Jellyfin Compatibility | Support Status |
 | :--- | :--- | :--- |
-| **3.0.x.x** | Jellyfin 12.0+ | :white_check_mark: Supported (Active) |
+| **3.x.x.x** | Jellyfin 12.x | :white_check_mark: Supported (Active) |
 | **<= 2.1.0.6** | Jellyfin <= 10.11.x | :x: End of Life (No Fixes / Unsupported) |
 
-> **Breaking Change & EOL Policy:** With the release of version 3.0.0.0, the entire 2.x branch (including version 2.1.0.6) has reached End of Life (EOL). No further updates, security patches, or backports will be provided for 2.x. Jellyfin Helper 3.0.0+ exclusively supports Jellyfin v12 and newer.
+> **Breaking Change & EOL Policy:** With the release of version 3.0.0.0, the entire 2.x branch (including version 2.1.0.6) has reached End of Life (EOL). No further updates, security patches, or backports will be provided for 2.x. Jellyfin Helper 3.x.x.x exclusively supports Jellyfin v12 and newer.
 
 ---
 
