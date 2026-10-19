@@ -1,8 +1,23 @@
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
 
+// jsdom only ships "not implemented" shims for these; every call is logged to
+// the virtual console. Production code uses them for scroll restore and
+// auto-scroll, so replace them with inert stubs once per file. Assign via
+// defineProperty so vi.spyOn (scroll-behavior assertions) can still wrap them.
+function inertMethod(target: object, name: string): void {
+  Object.defineProperty(target, name, {
+    value: () => undefined,
+    writable: true,
+    configurable: true,
+  });
+}
+
 beforeAll(() => {
   vi.useFakeTimers();
   window.location.hash = '#/nowhere';
+  inertMethod(window, 'scrollTo');
+  inertMethod(window, 'scrollBy');
+  inertMethod(Element.prototype, 'scrollIntoView');
   (globalThis as any).ApiClient = {
     getUrl: (p: string) => p,
     getCurrentUserId: () => '',
