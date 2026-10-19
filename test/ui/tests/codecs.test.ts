@@ -693,10 +693,11 @@ describe('drag engine and order persistence edges', () => {
     state.lastClientY = 100000;
     state.lastClientX = 5;
     p.updateCodecAutoScroll(state);
-    state.autoScrollSpeed = 0;
+    expect(state.autoScrollSpeed).toBeGreaterThan(0);
     vi.advanceTimersByTime(20);
     p.teardownCodecDrag(state);
     expect(state.autoScrollSpeed).toBe(0);
+    expect(state.autoScrollRaf).toBe(0);
   });
 
   test('keyboard arrows reorder and focus stays on the handle', () => {
