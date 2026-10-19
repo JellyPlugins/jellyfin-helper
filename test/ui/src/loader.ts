@@ -36,27 +36,31 @@ function preparedUnwrapped(absPath: string): string {
   const rel = relative(REPO_ROOT, absPath).replaceAll('\\', '/');
   let src = readFileSync(absPath, 'utf8');
   const open = src.indexOf('(function () {');
-  const close = src.lastIndexOf('})();');
-  if (open === -1 || close === -1 || close <= open) {
+  if (open === -1) {
     throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
   }
-  let body = src.slice(open + '(function () {'.length, close);
-  const strip = (re: RegExp, what: string) => {
-    if (!re.test(body)) {
+  src = src.slice(0, open) + '\n' + src.slice(open + '(function () {'.length);
+  const close = src.lastIndexOf('})();');
+  if (close === -1) {
+    throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
+  }
+  src = src.slice(0, close) + '\n' + src.slice(close + '})();'.length);
+  const replacePreservingLines = (re: RegExp, what: string) => {
+    if (!re.test(src)) {
       throw new Error(`discovery-sidebar ${what} not found - prod shape changed?`);
     }
-    body = body.replace(re, '');
+    src = src.replace(re, (m) => '\n'.repeat(m.split('\n').length));
   };
   // Drop the double-init guard: it early-returns the whole IIFE once
   // window.__jfhDiscoverySidebarInitialized is set, so a second fresh scope
   // would return undefined before reaching the test-only return. Tests drive
   // the guard separately via the other loader (loadDiscovery).
-  strip(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*}/, 'double-init guard');
+  replacePreservingLines(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard');
   // Drop the bootstrap tail so nothing auto-mounts at evaluation time.
-  strip(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call');
-  strip(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap');
-  strip(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, 'popstate bootstrap');
-  return instrumenter.instrumentSync(body, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
+  replacePreservingLines(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call');
+  replacePreservingLines(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap');
+  replacePreservingLines(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, 'popstate bootstrap');
+  return instrumenter.instrumentSync(src, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 
 
@@ -180,6 +184,7 @@ const CONFIG_EXPECTED = [
         'resetCodecDragForRerender', 'settleCodecFlip', 'flipCodecReorder', 'teardownCodecDrag',
         'updateCodecAutoScroll', 'saveCodecCardOrder', 'showCodecSaveFeedback',
         'fillCodecsData', 'loadCodecCardOrderOnce', 'renderCodecsExplorer', 'openCodecsExplorer',
+        'commitCodecCardOrderFromDom',
         'getBitrateMap', 'getBitrateBounds',
         'applyBitrateRange', 'hasActiveBitrateRange', 'getBitrateHistogram',
         'getExplorerFileBitrate', 'getTrackLabelMap', 'getExplorerFileTrackLabels',
@@ -213,7 +218,7 @@ const CONFIG_EXPECTED = [
         'submitDiscoveryRequest', 'submitDiscoveryRequestWithProfile',
         'markDiscoveryItemRequested', 'showSeerrUserPopup',
         'showLibraryMultiSelectIndicator',
-        'getCodecsExplorerState', 'intersectPathMaps', 'findExplorerFocusBox',
+        'getCodecsExplorerState', 'getDimPathIndex', 'intersectPathMaps', 'findExplorerFocusBox',
         'commitBitrateOnEnter',
 ];
 

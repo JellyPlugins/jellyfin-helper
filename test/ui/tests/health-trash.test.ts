@@ -37,7 +37,7 @@ describe('health extras', () => {
     item.click();
     await flush();
     const panel = document.getElementById('healthDetailPanel')!;
-    expect(panel.innerHTML).toContain('/');
+    expect(panel.textContent).toContain('o');
   });
 
   test('unknown health type renders an empty panel', async () => {
@@ -55,12 +55,33 @@ describe('health extras', () => {
   });
 
   test('loadTrashHealthSection stale request', async () => {
-    ajaxRouter({ Configuration: { UseTrash: true }, 'Trash/Contents': { Libraries: [], RetentionDays: 5 } });
+    let releaseFirst!: (v: unknown) => void;
+    let contents = 0;
+    (globalThis as any).ApiClient = {
+      getUrl: (p: string) => p,
+      getCurrentUserId: () => '',
+      accessToken: () => 't',
+      ajax: (opts: any) => {
+        const url = String(opts.url);
+        if (url.includes('Configuration')) return Promise.resolve({ UseTrash: true });
+        if (url.includes('Trash/Contents')) {
+          contents++;
+          if (contents === 1) return new Promise((r) => { releaseFirst = r; });
+          return Promise.resolve({ Libraries: [], RetentionDays: 5 });
+        }
+        return Promise.resolve({});
+      },
+    };
     document.body.innerHTML = '<div id="healthContent"></div>';
     ui.loadTrashHealthSection();
     ui.loadTrashHealthSection();
     await flush();
-    expect(document.querySelectorAll('#trashHealthSection')).toHaveLength(1);
+    releaseFirst({ Libraries: [], RetentionDays: 99 });
+    await flush();
+    const sections = document.querySelectorAll('#trashHealthSection');
+    expect(sections).toHaveLength(1);
+    expect(sections[0].textContent).toContain('5d');
+    expect(sections[0].textContent).not.toContain('99d');
   });
 
   test('loadTrashHealthSection missing container', async () => {

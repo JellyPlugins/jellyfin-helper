@@ -53,14 +53,15 @@ describe('logs extras', () => {
   });
 
   test('saveLogLevelToConfig success and failure', async () => {
-    ajaxRouter({ 'LogLevel': {} });
+    const okCalls = ajaxRouter({ 'LogLevel': {} });
     document.body.innerHTML = ui.renderLogsTab();
     ui.saveLogLevelToConfig('DEBUG');
     await flush();
-    ajaxRouter({}, ['LogLevel']);
+    expect(okCalls.filter((c) => c.url.includes('LogLevel'))).toHaveLength(1);
+    const failCalls = ajaxRouter({}, ['LogLevel']);
     ui.saveLogLevelToConfig('INFO');
     await flush();
-    expect(document.getElementById('logsLevelFilter')).not.toBeNull();
+    expect(failCalls.filter((c) => c.url.includes('LogLevel'))).toHaveLength(1);
   });
 
   test('loadLogs stale request', async () => {

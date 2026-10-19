@@ -273,6 +273,7 @@ describe('showTrashDeleteConfirmation cancel path', () => {
     await flush();
     expect((document.getElementById('cfgTrash') as HTMLInputElement).checked).toBe(true);
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(calls.some((c) => String(c.url).includes('JellyfinHelper/Configuration'))).toBe(false);
   });
 });
 

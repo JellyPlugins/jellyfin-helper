@@ -109,7 +109,7 @@ describe('shared extras', () => {
     document.body.appendChild(prev);
     document.body.appendChild(el);
     ui.showAutoSaveIndicatorOverlay(el, true);
-    expect(document.querySelector('.fade-element')).not.toBeNull();
+    expect(prev.isConnected).toBe(false);
   });
 
   test('showButtonFeedback timeout', () => {
@@ -161,6 +161,7 @@ describe('shared extras', () => {
     const item = document.querySelector('.health-clickable') as HTMLElement;
     item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     vi.advanceTimersByTime(60);
-    expect(document.getElementById('healthContent')).not.toBeNull();
+    expect(item.classList.contains('health-active')).toBe(true);
+    expect(document.getElementById('healthDetailPanel')?.classList.contains('file-tree-panel-visible')).toBe(true);
   });
 });
