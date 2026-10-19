@@ -1,29 +1,11 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { flush } from '../src/apiStub.js';
+import { ajaxRouter, flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
 beforeEach(() => { ui = freshConfigPage(); });
 
 afterAll(saveCoverage);
-
-function ajaxRouter(routes: Record<string, unknown> = {}, failures: string[] = []) {
-  const calls: { url: string }[] = [];
-  (globalThis as any).ApiClient = {
-    getUrl: (p: string) => p,
-    getCurrentUserId: () => '',
-    accessToken: () => 't',
-    ajax: (opts: any) => {
-      calls.push({ url: String(opts.url) });
-      if (failures.some((f) => String(opts.url).includes(f))) return Promise.reject(new Error('down'));
-      for (const [key, value] of Object.entries(routes)) {
-        if (String(opts.url).includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
-    },
-  };
-  return calls;
-}
 
 describe('logs extras', () => {
   test('initLogsTab handlers and level/source changes', async () => {
@@ -109,20 +91,25 @@ describe('logs extras', () => {
   });
 
   test('clearLogs success and failure', async () => {
-    ajaxRouter({ 'JellyfinHelper/Logs': {} });
+    const okCalls = ajaxRouter({ 'JellyfinHelper/Logs': {} });
     document.body.innerHTML = ui.renderLogsTab();
     ui.clearLogs();
-    const confirmBtn = [...document.querySelectorAll('button')].find((b) => String(b.textContent).trim() === 'Clear') as HTMLElement;
+    const okOverlay = document.getElementById('logsClearDialogOverlay')!;
+    const confirmBtn = [...okOverlay.querySelectorAll('button')].find((b) => String(b.textContent).trim() === 'Clear') as HTMLElement;
     confirmBtn.click();
     await flush();
+    expect(okCalls.filter((c) => c.method === 'DELETE' && String(c.url) === 'JellyfinHelper/Logs')).toHaveLength(1);
+    expect(document.getElementById('btnLogsClear')!.classList.contains('success')).toBe(true);
 
-    ajaxRouter({}, ['JellyfinHelper/Logs']);
+    const failCalls = ajaxRouter({}, ['JellyfinHelper/Logs']);
     document.body.innerHTML = ui.renderLogsTab();
     ui.clearLogs();
-    const confirmBtn2 = [...document.querySelectorAll('button')].find((b) => String(b.textContent).trim() === 'Clear') as HTMLElement;
+    const failOverlay = document.getElementById('logsClearDialogOverlay')!;
+    const confirmBtn2 = [...failOverlay.querySelectorAll('button')].find((b) => String(b.textContent).trim() === 'Clear') as HTMLElement;
     confirmBtn2.click();
     await flush();
-    expect(document.getElementById('logsTableWrapper')).not.toBeNull();
+    expect(failCalls.filter((c) => c.method === 'DELETE' && String(c.url) === 'JellyfinHelper/Logs')).toHaveLength(1);
+    expect(document.getElementById('btnLogsClear')!.classList.contains('error')).toBe(true);
   });
 
   test('formatLogTimestamp invalid', () => {

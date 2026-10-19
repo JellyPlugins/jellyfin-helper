@@ -417,6 +417,7 @@ describe('result computation paths', () => {
     ui.getCodecsExplorerState().filters.videoCodecs = { values: ['h264'], exclude: false };
     click(document.querySelector('[data-filter-add-btn]')!);
     expect(document.getElementById('codecExplorerResults')!.textContent).toBe('');
+    expect(document.querySelector('.codec-filter-pop .codec-explorer-none')).not.toBeNull();
   });
 
   test('a scope without filters lists the scoped library files', () => {

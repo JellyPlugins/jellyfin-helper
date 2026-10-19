@@ -505,7 +505,8 @@ describe('autosave on change', () => {
     sel.dispatchEvent(new window.Event('change', { bubbles: true }));
     await vi.advanceTimersByTimeAsync(300);
     expect(puts()).toBe(1);
-    expect((calls.at(-1)!.body as any).TrickplayTaskMode).toBe('Activate');
+    const lastPut = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).at(-1);
+    expect((lastPut!.body as any).TrickplayTaskMode).toBe('Activate');
   });
 
   test('task description buttons toggle their hints', async () => {

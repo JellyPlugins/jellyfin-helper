@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { ajaxRouter, flush } from '../src/apiStub.js';
+import { ajaxRouter, flush, type AjaxCall } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -38,13 +38,13 @@ function trashRoutes(extra: Record<string, unknown> = {}) {
   return { 'JellyfinHelper/Configuration': SAVED_TRASH_CONFIG, ...extra };
 }
 
-async function enableTrash(calls: { url: string }[]) {
+async function enableTrash(calls: AjaxCall[]) {
   ui.takeSettingsSnapshot();
   const ok = vi.fn();
   ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null, onSuccess: ok });
   await flush();
   expect(ok).toHaveBeenCalled();
-  expect(calls.some((c) => String(c.url).includes('JellyfinHelper/Configuration'))).toBe(true);
+  expect(calls.some((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined)).toBe(true);
 }
 
 describe('trash path change dialog', () => {
@@ -52,7 +52,7 @@ describe('trash path change dialog', () => {
     const calls = ajaxRouter(trashRoutes({ 'FoldersForPath': { Paths: [] } }));
     trashForm();
     await enableTrash(calls);
-    const puts = () => calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const puts = () => calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     const before = puts();
     (document.getElementById('cfgTrashPath') as HTMLInputElement).value = '/t/new';
     ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null });
@@ -65,7 +65,7 @@ describe('trash path change dialog', () => {
     const calls = ajaxRouter(trashRoutes({ 'FoldersForPath': { Paths: ['/t/old/x'] } }));
     trashForm();
     await enableTrash(calls);
-    const puts = () => calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const puts = () => calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     const before = puts();
     (document.getElementById('cfgTrashPath') as HTMLInputElement).value = '/t/new';
     ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null });
@@ -135,7 +135,7 @@ describe('trash path change dialog', () => {
     const calls = ajaxRouter(trashRoutes(), ['FoldersForPath']);
     trashForm();
     await enableTrash(calls);
-    const puts = () => calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const puts = () => calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     const before = puts();
     (document.getElementById('cfgTrashPath') as HTMLInputElement).value = '/t/new';
     ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null });
@@ -150,7 +150,7 @@ describe('misc settings entries', () => {
     const calls = ajaxRouter(trashRoutes({ 'Trash/Folders': { Deleted: 2, Failed: 0 } }));
     trashForm();
     await enableTrash(calls);
-    const configCallsBefore = calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const configCallsBefore = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     ui.showTrashDeleteConfirmation(ui.buildSettingsPayload(), ['/t/a']);
     await flush();
     const overlay = document.getElementById('trashDialogOverlay')!;
@@ -159,7 +159,7 @@ describe('misc settings entries', () => {
     await flush();
     expect(calls.some((c) => String(c.url).includes('Trash/Folders') && c.method === 'DELETE')).toBe(true);
     expect(document.getElementById('settingsMsg')!.textContent).toMatch(/deleted/i);
-    const configCallsAfter = calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const configCallsAfter = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     expect(configCallsAfter).toBeGreaterThan(configCallsBefore);
   });
 
@@ -167,7 +167,7 @@ describe('misc settings entries', () => {
     const calls = ajaxRouter(trashRoutes(), ['Trash/Folders']);
     trashForm();
     await enableTrash(calls);
-    const configCallsBefore = calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const configCallsBefore = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     ui.showTrashDeleteConfirmation(ui.buildSettingsPayload(), ['/t/a']);
     await flush();
     const overlay = document.getElementById('trashDialogOverlay')!;
@@ -176,7 +176,7 @@ describe('misc settings entries', () => {
     await flush();
     expect(document.getElementById('settingsMsg')!.textContent).toMatch(/failed to delete/i);
     // A failed delete must not fall through to persisting the new config.
-    const configCallsAfter = calls.filter((c) => String(c.url).includes('JellyfinHelper/Configuration')).length;
+    const configCallsAfter = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     expect(configCallsAfter).toBe(configCallsBefore);
   });
   test('saveSettings entry saves the built payload', async () => {
@@ -187,7 +187,7 @@ describe('misc settings entries', () => {
     ui.takeSettingsSnapshot();
     ui.saveSettings();
     await flush();
-    expect(calls.some((c) => String(c.url).includes('JellyfinHelper/Configuration'))).toBe(true);
+    expect(calls.some((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined)).toBe(true);
   });
 
   test('removeTrashDialog clears a stale overlay', () => {

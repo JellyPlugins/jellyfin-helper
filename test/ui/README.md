@@ -19,7 +19,7 @@ validators are pinned without a browser.
 | Codecs math, donuts, drilldown, reorder | `tests/codecs.test.ts`, `tests/codecs-core.test.ts` |
 | Codecs interactions (tooltips, drag & drop, keyboard reorder, card-order saves) | `tests/codecs-interactions.test.ts` |
 | Explorer bitrate maps, pills, paths, render | `tests/explorer-bitrate.test.ts`, `tests/codecs-explorer.test.ts` |
-| Explorer interactions (pills, tooltips, deep links) and path-count coverage | `tests/codecs-explorer-interactions.test.ts`, `tests/codecs-explorer-coverage.test.ts` |
+| Explorer helper edge cases (dimension index, filter intersection) and full behavioral coverage | `tests/codecs-explorer-interactions.test.ts`, `tests/codecs-explorer-coverage.test.ts` |
 | Arr instances render, collect, add, remove, test | `tests/arr-integration.test.ts` |
 | Recommendations cards, requests, diagnostics | `tests/recommendations.test.ts`, `tests/recommendations-flow.test.ts` |
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |

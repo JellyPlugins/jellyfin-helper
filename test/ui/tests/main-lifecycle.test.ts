@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { flush } from '../src/apiStub.js';
+import { ajaxRouter, flush } from '../src/apiStub.js';
 import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
@@ -8,20 +8,6 @@ beforeEach(() => {
 });
 
 afterAll(saveCoverage);
-
-function ajaxRouter(routes: Record<string, unknown> = {}) {
-  (globalThis as any).ApiClient = {
-    getUrl: (p: string) => p,
-    getCurrentUserId: () => '',
-    accessToken: () => 't',
-    ajax: (opts: any) => {
-      for (const [key, value] of Object.entries(routes)) {
-        if (String(opts.url).includes(key)) return Promise.resolve(value);
-      }
-      return Promise.resolve({});
-    },
-  };
-}
 
 describe('main extras', () => {
   test('initTabs settings dirty discard proceeds', () => {
@@ -43,17 +29,16 @@ describe('main extras', () => {
     expect(document.getElementById('tab-overview')!.classList.contains('active')).toBe(true);
   });
 
-  test('doTabSwitch cleanup and recommendations/logs', () => {
+  test('doTabSwitch activates the target tab button', () => {
     ajaxRouter({});
     document.body.innerHTML = '<div class="tab-content active" id="tab-logs"></div><button id="b"></button>';
     (globalThis as any).window.JellyfinHelper = (globalThis as any).window.JellyfinHelper || {};
-    (globalThis as any).destroyLogsTab = () => undefined;
     ui.doTabSwitch(document.getElementById('b') as any, 'recommendations');
     expect(document.getElementById('b')!.classList.contains('active')).toBe(true);
   });
 
-  test('loadLatestStatistics 204 path', async () => {
-    ajaxRouter({});
+  test('loadLatestStatistics 204 path triggers a scan', async () => {
+    const calls = ajaxRouter({});
     (globalThis as any).fetch = () => Promise.resolve({ status: 204, ok: true });
     document.body.innerHTML = '<div id="overviewContent"></div>';
     (globalThis as any).window.JellyfinHelper._latestStatsAuthRetries = 0;
@@ -62,6 +47,7 @@ describe('main extras', () => {
     await vi.advanceTimersByTimeAsync(10);
     await flush();
     expect((globalThis as any).window.JellyfinHelper._latestStatsAuthRetries).toBe(0);
+    expect(calls.some((c) => String(c.url).includes('JellyfinHelper/MediaStatistics/ScanLibraries'))).toBe(true);
   });
 
   test('loadLatestStatistics transient exhausted', async () => {

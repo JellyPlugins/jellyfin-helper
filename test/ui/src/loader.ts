@@ -39,17 +39,17 @@ function preparedUnwrapped(absPath: string): string {
   if (open === -1) {
     throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
   }
-  src = src.slice(0, open) + '\n' + src.slice(open + '(function () {'.length);
+  src = src.slice(0, open) + src.slice(open + '(function () {'.length);
   const close = src.lastIndexOf('})();');
   if (close === -1) {
     throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
   }
-  src = src.slice(0, close) + '\n' + src.slice(close + '})();'.length);
+  src = src.slice(0, close) + src.slice(close + '})();'.length);
   const replacePreservingLines = (re: RegExp, what: string) => {
     if (!re.test(src)) {
       throw new Error(`discovery-sidebar ${what} not found - prod shape changed?`);
     }
-    src = src.replace(re, (m) => '\n'.repeat(m.split('\n').length));
+    src = src.replace(re, (m) => '\n'.repeat(m.split('\n').length - 1));
   };
   // Drop the double-init guard: it early-returns the whole IIFE once
   // window.__jfhDiscoverySidebarInitialized is set, so a second fresh scope
