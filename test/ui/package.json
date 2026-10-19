@@ -14,7 +14,7 @@
     "@types/node": "22.20.1",
     "istanbul-lib-instrument": "6.0.3",
     "jsdom": "30.0.1",
-    "vitest": "4.1.10"
+    "vitest": "5.0.5"
   },
   "engines": {
     "node": ">=22.12.0"
