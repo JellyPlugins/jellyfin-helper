@@ -99,7 +99,19 @@ describe('shared extras', () => {
     const el2 = document.createElement('div');
     document.body.appendChild(el2);
     ui.showAutoSaveIndicatorOverlay(el2, false);
-    vi.advanceTimersByTime(3100);
+    const errContainer = el2.previousElementSibling as HTMLElement;
+    expect(errContainer).not.toBeNull();
+    expect(errContainer.classList.contains('fade-element')).toBe(true);
+    const errorIcon = document.createElement('div');
+    errorIcon.innerHTML = ui.mi('error');
+    expect(errContainer.querySelector('svg path')!.getAttribute('d'))
+      .toBe(errorIcon.querySelector('path')!.getAttribute('d'));
+    vi.advanceTimersByTime(2000);
+    expect(errContainer.style.opacity).toBe('1');
+    vi.advanceTimersByTime(1100);
+    expect(errContainer.style.opacity).toBe('0');
+    vi.advanceTimersByTime(500);
+    expect(errContainer.isConnected).toBe(false);
   });
 
   test('showAutoSaveIndicatorOverlay fallback remove existing', () => {

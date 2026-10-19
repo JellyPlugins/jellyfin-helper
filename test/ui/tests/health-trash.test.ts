@@ -37,7 +37,15 @@ describe('health extras', () => {
     item.click();
     await flush();
     const panel = document.getElementById('healthDetailPanel')!;
-    expect(panel.textContent).toContain('o');
+    ui.runTreeAction(panel, 'expand', panel);
+    const leaves = [...panel.querySelectorAll('.tree-leaf')] as HTMLElement[];
+    expect(leaves).toHaveLength(1);
+    expect(leaves[0].querySelector('.tree-leaf-file-name')!.textContent).toBe('o');
+    expect(leaves[0].getAttribute('title')).toBe('/o/');
+    const folderIcon = document.createElement('div');
+    folderIcon.innerHTML = ui.mi('folder');
+    expect(leaves[0].querySelector('.tree-leaf-icon svg path')!.getAttribute('d'))
+      .toBe(folderIcon.querySelector('path')!.getAttribute('d'));
   });
 
   test('unknown health type renders an empty panel', async () => {

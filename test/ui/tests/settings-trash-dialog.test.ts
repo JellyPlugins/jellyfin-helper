@@ -125,10 +125,14 @@ describe('trash path change dialog', () => {
     await flush();
     const overlay = document.getElementById('trashDialogOverlay')!;
     const del = [...overlay.querySelectorAll('button')].find((b) => b.textContent === 'Delete & Start Fresh')!;
+    const puts = () => calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined);
+    const before = puts().length;
     del.click();
     await flush();
     expect(calls.some((c) => String(c.url).includes('Trash/Folders') && c.method === 'DELETE')).toBe(true);
-    expect((document.getElementById('cfgTrashPath') as HTMLInputElement).value).toBe('/t/new');
+    expect(puts().length).toBeGreaterThan(before);
+    const lastPut = puts().at(-1)!;
+    expect((lastPut.body as any).TrashFolderPath).toBe('/t/new');
   });
 
   test('folders lookup failure still saves', async () => {

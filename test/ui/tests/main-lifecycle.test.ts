@@ -115,7 +115,13 @@ describe('main extras', () => {
     document.body.innerHTML = '<div id="JellyfinHelperConfigPage"></div>';
     ui.bindPageLifecycle();
     const pageEl = document.getElementById('JellyfinHelperConfigPage')!;
+    (globalThis as any).window.JellyfinHelper._pageInitialized = true;
+    (globalThis as any).window.JellyfinHelper._handlersBound = true;
+    (globalThis as any).window.JellyfinHelper._initRetries = 5;
     pageEl.dispatchEvent(new window.Event('viewshow'));
+    expect((globalThis as any).window.JellyfinHelper._pageInitialized).toBe(false);
+    expect((globalThis as any).window.JellyfinHelper._handlersBound).toBe(false);
+    expect((globalThis as any).window.JellyfinHelper._initRetries).toBe(0);
     pageEl.dispatchEvent(new window.Event('pagehide'));
     pageEl.dispatchEvent(new window.Event('viewhide'));
     expect((globalThis as any).window.JellyfinHelper._pageLifecycleBound).toBe(true);

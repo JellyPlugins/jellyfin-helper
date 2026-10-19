@@ -477,7 +477,7 @@ describe('seerr connection test button', () => {
     (document.getElementById('btnTestSeerr') as HTMLButtonElement).click();
     await flush();
     expect(calls.some((c) => String(c.url).includes('Seerr/Test'))).toBe(true);
-    expect(calls.some((c) => String(c.url) === 'JellyfinHelper/Configuration')).toBe(true);
+    expect(calls.some((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined)).toBe(true);
     expect((document.getElementById('cfgSeerrMode') as HTMLSelectElement).disabled).toBe(false);
   });
 });

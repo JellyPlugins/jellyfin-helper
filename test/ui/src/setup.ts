@@ -12,8 +12,12 @@ function inertMethod(target: object, name: string): void {
   });
 }
 
+// Install the fake clock before the test modules evaluate: Main.js's top-level
+// bootstrap can schedule real setTimeouts during import, which beforeAll would
+// install too late to capture.
+vi.useFakeTimers();
+
 beforeAll(() => {
-  vi.useFakeTimers();
   window.location.hash = '#/nowhere';
   inertMethod(window, 'scrollTo');
   inertMethod(window, 'scrollBy');
