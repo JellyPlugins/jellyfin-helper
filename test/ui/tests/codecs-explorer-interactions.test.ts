@@ -624,7 +624,7 @@ describe('search host guards and focus restore', () => {
     openDim('bitrate');
     const minInput = document.getElementById('codecBitrateMin') as HTMLInputElement;
     minInput.focus();
-    minInput.value = '10';
+    minInput.value = '5';
     fire(minInput, 'change');
     expect(document.activeElement).toBe(document.getElementById('codecBitrateMin'));
 
