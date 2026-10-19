@@ -142,7 +142,6 @@ function richData(): any {
     BookFormatPaths: { epub: ['/bk/x.epub'] },
     FileSizes: { '/bk/x.epub': 1 },
   };
-  const boxset = { LibraryName: 'Collections', CollectionType: 'boxsets', RootPaths: ['/box'], FileSizes: {} };
   return {
     Movies: [movies],
     TvShows: [tv],
@@ -270,7 +269,7 @@ describe('cached explorer maps respect the library scope', () => {
     expect(maps.bitrates['/t/e.mkv']).toBeUndefined();
     expect(maps.sizes['/m/b.mkv']).toBe(200);
     expect(maps.sizes['/t/e.mkv']).toBeUndefined();
-    expect(maps.watchers['/m/a.mkv'].length).toBe(2);
+    expect(maps.watchers['/m/a.mkv']).toHaveLength(2);
     expect(maps.watchers['/t/e.mkv']).toBeUndefined();
   });
 });

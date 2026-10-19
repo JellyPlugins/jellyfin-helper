@@ -883,7 +883,6 @@ describe('drag teardown paths', () => {
     ui.fillCodecsData(richData());
     await flush();
     const vc = document.querySelector('.chart-box[data-chart-id="videoCodecs"]') as HTMLElement;
-    const card = vc.querySelector('.chart-box') ?? vc;
     const state = fakeDragState({
       card: vc,
       handle: vc.querySelector('.codec-card-handle') as HTMLElement,
@@ -946,7 +945,7 @@ describe('keyboard reorder edges', () => {
   }
 
   test('Escape restores the grabbed card to its origin slot', async () => {
-    const ui = await render();
+    await render();
     const row = document.querySelector('#codecsContent .charts-row')!;
     const ids = () => [...row.querySelectorAll('.chart-box')].map((b) => (b as HTMLElement).dataset.chartId);
     const origin = ids();
@@ -961,7 +960,7 @@ describe('keyboard reorder edges', () => {
   });
 
   test('ArrowUp moves the grabbed card one slot up and announces the position', async () => {
-    const ui = await render();
+    await render();
     const row = document.querySelector('#codecsContent .charts-row')!;
     const ids = () => [...row.querySelectorAll('.chart-box')].map((b) => (b as HTMLElement).dataset.chartId);
     const second = row.querySelectorAll('.chart-box')[1] as HTMLElement;
@@ -973,7 +972,7 @@ describe('keyboard reorder edges', () => {
   });
 
   test('grabbing a card creates the aria-live region', async () => {
-    const ui = await render();
+    await render();
     const handle = document.querySelector('#codecsContent .codec-card-handle')!;
     keydown(handle, 'Enter');
     const live = document.getElementById('codecCardLiveRegion');
