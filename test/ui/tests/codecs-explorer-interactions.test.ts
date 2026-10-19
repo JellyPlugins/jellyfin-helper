@@ -28,7 +28,11 @@ function openFilterPopover() {
 }
 
 function openDim(dimId: string) {
-  openFilterPopover();
+  const pop = document.querySelector('[data-filter-pop]');
+  if (!pop?.querySelector(`[data-filter-dim="${dimId}"]`)) {
+    if (pop) openFilterPopover();
+    openFilterPopover();
+  }
   click(document.querySelector(`[data-filter-dim="${dimId}"]`)!);
 }
 
@@ -124,10 +128,24 @@ function richData(): any {
     Books: [books],
     Other: [],
     Libraries: [
-      { LibraryName: 'Movies', CollectionType: 'movies', RootPaths: ['/m'], ContainerFormats: { mkv: 4 } },
-      { LibraryName: 'TV', CollectionType: 'tvshows', RootPaths: ['/t'], ContainerFormats: { mkv: 1 } },
-      { LibraryName: 'Music', CollectionType: 'music', RootPaths: ['/mus'], ContainerFormats: { flac: 2 } },
-      { LibraryName: 'Books', CollectionType: 'books', RootPaths: ['/bk'] },
+      {
+        LibraryName: 'Movies', CollectionType: 'movies', RootPaths: ['/m'], ContainerFormats: { mkv: 4 },
+        FileSizes: { '/m/a.mkv': 100, '/m/b.mkv': 200, '/m/c.mkv': 300, '/m/sub/d.mkv': 150 },
+        WatchedDetails: {
+          '/m/a.mkv': [
+            { Username: 'alice', PlayCount: 1, LastPlayedDate: '2024-01-02T00:00:00Z' },
+            { Username: 'bob', PlayCount: 3 },
+          ],
+          '/m/sub/d.mkv': [{ Username: 'alice', PlayCount: 2 }],
+        },
+      },
+      {
+        LibraryName: 'TV', CollectionType: 'tvshows', RootPaths: ['/t'], ContainerFormats: { mkv: 1 },
+        FileSizes: { '/t/e.mkv': 50 },
+        WatchedDetails: { '/t/e.mkv': [{ Username: 'alice', PlayCount: 1 }] },
+      },
+      { LibraryName: 'Music', CollectionType: 'music', RootPaths: ['/mus'], ContainerFormats: { flac: 2 }, FileSizes: { '/mus/s1.flac': 10, '/mus/s2.flac': 12 } },
+      { LibraryName: 'Books', CollectionType: 'books', RootPaths: ['/bk'], FileSizes: { '/bk/x.epub': 1 } },
       { LibraryName: 'Collections', CollectionType: 'boxsets', RootPaths: ['/box'] },
     ],
     ContainerFormats: { mkv: 5, flac: 2 },
@@ -323,7 +341,7 @@ describe('scoping stale library names', () => {
     stubApi();
     document.body.innerHTML = '<div id="codecsContent"></div>';
     ui.fillCodecsData(richData());
-    ui.getCodecsExplorerState().libraries = ['Ghost'];
+    ui.getCodecsExplorerState().scope = ['Ghost'];
     ui.getCodecsExplorerState().filters.videoCodecs = { values: ['h264'], exclude: false };
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     expect(resultCount()).toBe(0);
@@ -337,8 +355,6 @@ describe('path subset computation with an active bitrate range', () => {
     const maxInput = document.getElementById('codecBitrateMax') as HTMLInputElement;
     maxInput.value = '30';
     fire(maxInput, 'change');
-    openFilterPopover();
-    openFilterPopover();
     openDim('videoCodecs');
   }
 
@@ -348,7 +364,7 @@ describe('path subset computation with an active bitrate range', () => {
     await commitRangeAndOpenVideoCodecs(ui);
     expect(ui.hasActiveBitrateRange()).toBe(true);
     const h264 = document.querySelector('[data-single-value="h264"]')!;
-    expect(h264.textContent).toContain('(3)');
+    expect(h264.textContent).toContain('(4)');
     expect(document.querySelector('[data-single-value="hevc"]')).toBeNull();
     const hist = ui.getBitrateHistogram();
     expect(hist.bins.reduce((a: number, b: number) => a + b, 0)).toBe(5);
@@ -371,7 +387,8 @@ describe('result computation paths', () => {
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     ui.getCodecsExplorerState().filters.videoCodecs = { values: ['h264'], exclude: false };
     click(document.querySelector('[data-filter-add-btn]')!);
-    expect(document.getElementById('codecExplorerResults')!.textContent).toContain('No files found.');
+    expect(document.getElementById('codecExplorerResults')!.textContent).toBe('');
+    expect(document.querySelector('.codec-filter-pop .codec-explorer-none')).not.toBeNull();
   });
 
   test('a scope without filters lists the scoped library files', () => {
@@ -379,7 +396,7 @@ describe('result computation paths', () => {
     stubApi();
     document.body.innerHTML = '<div id="codecsContent"></div>';
     ui.fillCodecsData(richData());
-    ui.getCodecsExplorerState().libraries = ['Movies'];
+    ui.getCodecsExplorerState().scope = ['Movies'];
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     expect(resultCount()).toBe(4);
   });
@@ -400,7 +417,7 @@ describe('option counting without matches', () => {
     stubApi();
     document.body.innerHTML = '<div id="codecsContent"></div>';
     ui.fillCodecsData(richData());
-    ui.getCodecsExplorerState().libraries = ['Music'];
+    ui.getCodecsExplorerState().scope = ['Music'];
     ui.renderCodecsExplorer(document.getElementById('codecsContent')!);
     openFilterPopover();
     expect(document.querySelector('[data-filter-dim="videoCodecs"]')).toBeNull();
@@ -618,8 +635,6 @@ describe('search host guards and focus restore', () => {
     await debounce();
     expect(document.activeElement).toBe(document.querySelector('[data-library-option][value="TV"]'));
 
-    openFilterPopover();
-    openFilterPopover();
     openDim('audioLanguages');
     const engBox = document.querySelector('[data-multi-dim="audioLanguages"] input[type="checkbox"][value="eng"]') as HTMLInputElement;
     engBox.focus();

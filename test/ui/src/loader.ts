@@ -218,7 +218,7 @@ const CONFIG_EXPECTED = [
         'submitDiscoveryRequest', 'submitDiscoveryRequestWithProfile',
         'markDiscoveryItemRequested', 'showSeerrUserPopup',
         'showLibraryMultiSelectIndicator',
-        'getCodecsExplorerState', 'getDimPathIndex', 'intersectPathMaps', 'findExplorerFocusBox',
+        'getCodecsExplorerState', 'getDimPathIndex', 'intersectPathMaps', 'intersectExplorerFilters', 'findExplorerFocusBox',
         'commitBitrateOnEnter',
 ];
 
