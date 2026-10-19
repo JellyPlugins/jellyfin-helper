@@ -375,6 +375,7 @@ describe('trash disable dialog', () => {
     const overlay = document.getElementById('trashDialogOverlay')!;
     const cancel = [...overlay.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!;
     cancel.click();
+    await flush();
     expect((document.getElementById('cfgTrash') as HTMLInputElement).checked).toBe(true);
     expect(calls.some((c) => String(c.url).includes('JellyfinHelper/Configuration'))).toBe(false);
   });

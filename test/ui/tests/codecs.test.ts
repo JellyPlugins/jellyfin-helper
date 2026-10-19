@@ -574,8 +574,9 @@ describe('drag engine and order persistence edges', () => {
     const p = freshConfigPage();
     const calls = ajaxRouter({}, ['CodecCardOrder']);
     const before = p.orderedCodecCardIds({ containers: 1, resolutions: 1, watched: 1 });
-    p.saveCodecCardOrder(['a'], null, ['b']);
-    p.saveCodecCardOrder(['c'], null, ['b']);
+    expect(before[0]).toBe('containers');
+    p.saveCodecCardOrder(['watched', 'containers', 'resolutions'], null, before);
+    p.saveCodecCardOrder(['resolutions', 'watched', 'containers'], null, before);
     await flush();
     await flush();
     // The queued save is dropped after the failure.

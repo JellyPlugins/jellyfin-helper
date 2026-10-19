@@ -73,6 +73,7 @@ describe('trash path change dialog', () => {
     const overlay = document.getElementById('trashDialogOverlay')!;
     const cancel = [...overlay.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!;
     cancel.click();
+    await flush();
     expect((document.getElementById('cfgTrashPath') as HTMLInputElement).value).toBe('/t/old');
     expect(puts()).toBe(before);
   });
