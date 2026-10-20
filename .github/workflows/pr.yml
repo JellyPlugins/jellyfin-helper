@@ -324,7 +324,7 @@ jobs:
 
     steps:
     - name: Checkout PR head branch
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         # Check out the PR's source branch (not the merge ref) so the badge reflects its specs.
         ref: ${{ github.event.pull_request.head.ref }}
@@ -367,7 +367,7 @@ jobs:
 
     steps:
     - name: Checkout PR head branch
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         # Check out the PR's source branch (not the merge ref) so we can commit back to it.
         ref: ${{ github.event.pull_request.head.ref }}
