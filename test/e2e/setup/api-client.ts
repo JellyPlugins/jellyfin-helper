@@ -27,8 +27,16 @@ export interface AuthInfo {
   normalUser: NormalUser | null;
 }
 
-/** Load the auth info persisted by global-setup. */
+/**
+ * Load the auth info persisted by global-setup.
+ *
+ * `playwright test --list` imports every spec without running global-setup, so auth.json does
+ * not exist yet. Listing never talks to Jellyfin, so a placeholder keeps enumeration working.
+ */
 export function loadAuth(): AuthInfo {
+  if (process.argv.includes('--list')) {
+    return { baseUrl: 'http://localhost:8096', token: '', userId: '', userName: '', normalUser: null };
+  }
   const raw = readFileSync(join(__dirname, '..', 'setup', 'auth.json'), 'utf-8');
   return JSON.parse(raw) as AuthInfo;
 }
