@@ -16,8 +16,8 @@ set -euo pipefail
 STAGE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGINS_DIR="${1:?usage: stage-external-plugins.sh <plugins-dir>}"
 
-# Jellyfin major the test image runs (compose.yml: 12.2). Asset selection prefers
-# the highest Release-12.* zip, so a future 12.2/12.3 asset is picked up for free.
+# Jellyfin major the test image runs. Asset selection prefers
+# the highest Release-12.* zip, so a future 12.x asset is picked up for free.
 EXTERNAL_PLUGIN_JF_MAJOR="${EXTERNAL_PLUGIN_JF_MAJOR:-12}"
 
 # Optional pins (empty = track latest). Keep these UNSET in CI so coverage always
