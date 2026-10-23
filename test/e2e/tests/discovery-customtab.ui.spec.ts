@@ -65,7 +65,7 @@ async function openHome(page: Page): Promise<string> {
   return base;
 }
 
-// The "Seerr Discovery" tab in the header. Jellyfin 12.2 renders BOTH a legacy
+// The "Seerr Discovery" tab in the header. Jellyfin renders BOTH a legacy
 // `.emby-tab-button` (hidden) and a modern MUI `<a>` (visible) with the same
 // id/text in the DOM, so an unfiltered locator matches two elements and trips
 // Playwright strict mode. Scope to the visible one - that is the tab a user

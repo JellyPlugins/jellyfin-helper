@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.1.3] - 2026-10-23
+
+### Changed
+
+- **Updated to Jellyfin 12.3.** The plugin is built, tested, and released against Jellyfin 12.3 and now declares ABI `12.3.0.0`, so it installs and loads on 12.3 servers. All server references (`Jellyfin.Controller`, `Jellyfin.Model`, `Jellyfin.Database.Implementations`) moved to `12.3.0`, and the dependency lock file was regenerated accordingly.
+- **End-to-end suite runs on Jellyfin 12.3.** The Docker stack pins `jellyfin/jellyfin:12.3` and the generated plugin metadata targets `12.3.0.0`, so every release is verified against the exact server version it ships for.
+- **Documentation reflects the new baseline.** README badges, compatibility notes, and the contributor setup instructions now name Jellyfin 12.3 as the required server version. Jellyfin 10.x users stay on v2.1.0.6.
+
+### Tests
+
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 369 end-to-end Docker tests.
+
 ## [3.0.1.2] - 2026-10-15
 
 ### Added

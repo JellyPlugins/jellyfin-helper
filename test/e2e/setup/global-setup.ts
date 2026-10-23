@@ -75,7 +75,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   }
 
   if (!wizardAlreadyDone) {
-    // 12.0: EnableAutomaticPortMapping was removed - send only EnableRemoteAccess.
+    // EnableAutomaticPortMapping was removed - send only EnableRemoteAccess.
     await step('Startup/RemoteAccess', () =>
       ctx.post('/Startup/RemoteAccess', {
         headers: { 'Content-Type': 'application/json' },
