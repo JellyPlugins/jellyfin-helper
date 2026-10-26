@@ -112,7 +112,7 @@ internal static partial class DirectoryLinkTestHelper
     private static partial bool DeviceIoControl(
         SafeFileHandle device,
         uint controlCode,
-        byte[] inputBuffer,
+        [In] byte[] inputBuffer,
         uint inputBufferSize,
         nint outputBuffer,
         uint outputBufferSize,
