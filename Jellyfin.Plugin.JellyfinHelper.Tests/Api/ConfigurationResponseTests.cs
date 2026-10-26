@@ -57,8 +57,8 @@ public class ConfigurationResponseTests
 
         var response = ConfigurationResponse.FromConfig(config);
 
-        Assert.Single(response.RadarrInstances);
-        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.RadarrInstances[0].ApiKey);
+        var radarrInstance = Assert.Single(response.RadarrInstances);
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, radarrInstance.ApiKey);
     }
 
     [Fact]
@@ -94,8 +94,8 @@ public class ConfigurationResponseTests
 
         var response = ConfigurationResponse.FromConfig(config);
 
-        Assert.Single(response.SonarrInstances);
-        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.SonarrInstances[0].ApiKey);
+        var sonarrInstance = Assert.Single(response.SonarrInstances);
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, sonarrInstance.ApiKey);
     }
 
     [Fact]

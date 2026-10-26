@@ -109,9 +109,9 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         Assert.Equal(original.TotalItemsWithActivity, loaded.TotalItemsWithActivity);
         Assert.Equal(original.TotalUsersAnalyzed, loaded.TotalUsersAnalyzed);
         Assert.Equal(original.TotalPlayCount, loaded.TotalPlayCount);
-        Assert.Single(loaded.Items);
+        var loadedItem = Assert.Single(loaded.Items);
 
-        var item = loaded.Items[0];
+        var item = loadedItem;
         Assert.Equal("Test Movie", item.ItemName);
         Assert.Equal("Movie", item.ItemType);
         Assert.Equal(2024, item.Year);
@@ -121,9 +121,9 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         Assert.Equal(2, item.UniqueViewers);
         Assert.Equal(85.5, item.AverageCompletionPercent);
         Assert.Equal(1, item.FavoriteCount);
-        Assert.Single(item.UserActivities);
+        var userActivity = Assert.Single(item.UserActivities);
 
-        var activity = item.UserActivities[0];
+        var activity = userActivity;
         // UserName is [JsonIgnore] - not persisted to disk; resolves from IUserManager at API layer
         Assert.Equal(string.Empty, activity.UserName);
         Assert.Equal(5, activity.PlayCount);

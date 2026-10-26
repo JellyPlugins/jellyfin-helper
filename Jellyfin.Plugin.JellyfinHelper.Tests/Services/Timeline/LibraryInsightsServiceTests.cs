@@ -114,8 +114,8 @@ public class LibraryInsightsServiceTests
 
         var result = LibraryInsightsService.BuildResult(entries);
 
-        Assert.Single(result.Recent);
-        Assert.Equal("Recent", result.Recent[0].Name);
+        var recentItem = Assert.Single(result.Recent);
+        Assert.Equal("Recent", recentItem.Name);
         Assert.Equal(1, result.RecentTotalCount);
     }
 
@@ -141,8 +141,8 @@ public class LibraryInsightsServiceTests
 
         var result = LibraryInsightsService.BuildResult(entries);
 
-        Assert.Single(result.Recent);
-        Assert.Equal("Edited", result.Recent[0].Name);
+        var resultRecentItem = Assert.Single(result.Recent);
+        Assert.Equal("Edited", resultRecentItem.Name);
     }
 
     [Fact]
@@ -210,8 +210,8 @@ public class LibraryInsightsServiceTests
 
         var result = LibraryInsightsService.BuildResult(entries);
 
-        Assert.Single(result.Largest);
-        Assert.Equal("MixedItem", result.Largest[0].Name);
+        var largestItem = Assert.Single(result.Largest);
+        Assert.Equal("MixedItem", largestItem.Name);
     }
 
     [Fact]
@@ -497,7 +497,7 @@ public class LibraryInsightsServiceTests
 
         public string Path { get; }
 
-        public string CreateSubDirectory(string name)
+        public void CreateSubDirectory(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -511,10 +511,9 @@ public class LibraryInsightsServiceTests
 
             var dir = SafeCombinePath(name, nameof(name));
             Directory.CreateDirectory(dir);
-            return dir;
         }
 
-        public string CreateFile(string relativePath, long size)
+        public void CreateFile(string relativePath, long size)
         {
             if (string.IsNullOrWhiteSpace(relativePath))
             {
@@ -542,7 +541,6 @@ public class LibraryInsightsServiceTests
             using var fs = File.Create(fullPath);
             fs.SetLength(size);
 
-            return fullPath;
         }
 
         private string SafeCombinePath(string relativePath, string paramName)

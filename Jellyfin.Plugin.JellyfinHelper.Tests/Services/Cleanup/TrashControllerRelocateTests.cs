@@ -109,8 +109,8 @@ public class TrashControllerRelocateTests : IDisposable
         var pathsProp = value.GetType().GetProperty("Paths");
         var paths = (IEnumerable<string>)pathsProp!.GetValue(value)!;
         var pathsList = paths.ToList();
-        Assert.Single(pathsList);
-        Assert.Equal(trashDir, pathsList[0]);
+        var path = Assert.Single(pathsList);
+        Assert.Equal(trashDir, path);
     }
 
     [Fact]
@@ -132,8 +132,8 @@ public class TrashControllerRelocateTests : IDisposable
         var pathsProp = value.GetType().GetProperty("Paths");
         var paths = (IEnumerable<string>)pathsProp!.GetValue(value)!;
         var pathsList = paths.ToList();
-        Assert.Single(pathsList);
-        Assert.Equal(absoluteTrash, pathsList[0]);
+        var path = Assert.Single(pathsList);
+        Assert.Equal(absoluteTrash, path);
     }
 
     [Fact]

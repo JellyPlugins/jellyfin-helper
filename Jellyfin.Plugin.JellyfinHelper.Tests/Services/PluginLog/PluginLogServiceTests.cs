@@ -1,4 +1,4 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -45,11 +45,11 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogDebug(src, "Debug message");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("DEBUG", entries[0].Level);
-        Assert.Equal(src, entries[0].Source);
-        Assert.Equal("Debug message", entries[0].Message);
-        Assert.Null(entries[0].Exception);
+        var entry = Assert.Single(entries);
+        Assert.Equal("DEBUG", entry.Level);
+        Assert.Equal(src, entry.Source);
+        Assert.Equal("Debug message", entry.Message);
+        Assert.Null(entry.Exception);
     }
 
     /// <summary>
@@ -109,8 +109,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogDebug(src, "Should be stored");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("DEBUG", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("DEBUG", entry.Level);
     }
 
     /// <summary>
@@ -153,11 +153,11 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogInfo(src, "Info message");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
-        Assert.Equal(src, entries[0].Source);
-        Assert.Equal("Info message", entries[0].Message);
-        Assert.Null(entries[0].Exception);
+        var entry = Assert.Single(entries);
+        Assert.Equal("INFO", entry.Level);
+        Assert.Equal(src, entry.Source);
+        Assert.Equal("Info message", entry.Message);
+        Assert.Null(entry.Exception);
     }
 
     /// <summary>
@@ -202,8 +202,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogInfo(src, "Should be stored");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("INFO", entry.Level);
     }
 
     /// <summary>
@@ -218,8 +218,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogInfo(src, "Should be stored");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("INFO", entry.Level);
     }
 
     /// <summary>
@@ -262,11 +262,11 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogWarning(src, "Warning message");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("WARN", entries[0].Level);
-        Assert.Equal(src, entries[0].Source);
-        Assert.Equal("Warning message", entries[0].Message);
-        Assert.Null(entries[0].Exception);
+        var entry = Assert.Single(entries);
+        Assert.Equal("WARN", entry.Level);
+        Assert.Equal(src, entry.Source);
+        Assert.Equal("Warning message", entry.Message);
+        Assert.Null(entry.Exception);
     }
 
     /// <summary>
@@ -280,10 +280,10 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogWarning(src, "Warning occurred", ex);
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("WARN", entries[0].Level);
-        Assert.NotNull(entries[0].Exception);
-        Assert.Contains("Access denied", entries[0].Exception, StringComparison.Ordinal);
+        var entry = Assert.Single(entries);
+        Assert.Equal("WARN", entry.Level);
+        Assert.NotNull(entry.Exception);
+        Assert.Contains("Access denied", entry.Exception, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -313,8 +313,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogWarning(src, "Should be stored");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("WARN", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("WARN", entry.Level);
     }
 
     /// <summary>
@@ -368,11 +368,11 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "Test error message");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("ERROR", entries[0].Level);
-        Assert.Equal(src, entries[0].Source);
-        Assert.Equal("Test error message", entries[0].Message);
-        Assert.Null(entries[0].Exception);
+        var entry = Assert.Single(entries);
+        Assert.Equal("ERROR", entry.Level);
+        Assert.Equal(src, entry.Source);
+        Assert.Equal("Test error message", entry.Message);
+        Assert.Null(entry.Exception);
     }
 
     /// <summary>
@@ -386,9 +386,9 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "Error occurred", ex);
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.NotNull(entries[0].Exception);
-        Assert.Contains("Something failed", entries[0].Exception, StringComparison.Ordinal);
+        var entry = Assert.Single(entries);
+        Assert.NotNull(entry.Exception);
+        Assert.Contains("Something failed", entry.Exception, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -403,8 +403,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "Should be stored");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("ERROR", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("ERROR", entry.Level);
     }
 
     /// <summary>
@@ -757,8 +757,8 @@ public class PluginLogServiceTests : IDisposable
         Assert.Equal(2, warnAndAbove.Count);
 
         var errorOnly = _sut.GetEntries("ERROR", src);
-        Assert.Single(errorOnly);
-        Assert.Equal("ERROR", errorOnly[0].Level);
+        var errorEntry = Assert.Single(errorOnly);
+        Assert.Equal("ERROR", errorEntry.Level);
     }
 
     /// <summary>
@@ -789,8 +789,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError("__PLT_Trsh__", "Trash error");
 
         var entries = _sut.GetEntries("WARN", "__PLT_Cfg__");
-        Assert.Single(entries);
-        Assert.Equal("Config warning", entries[0].Message);
+        var entry = Assert.Single(entries);
+        Assert.Equal("Config warning", entry.Message);
     }
 
     /// <summary>
@@ -869,10 +869,10 @@ public class PluginLogServiceTests : IDisposable
         for (var i = 0; i < PluginLogService.MaxEntries + 50; i++) _sut.LogError(src, $"Message {i}");
 
         var entries = _sut.GetEntries(source: src, limit: 1);
-        Assert.Single(entries);
+        var entry = Assert.Single(entries);
 
         // The newest entry should be the last one logged
-        Assert.Equal($"Message {PluginLogService.MaxEntries + 49}", entries[0].Message);
+        Assert.Equal($"Message {PluginLogService.MaxEntries + 49}", entry.Message);
     }
 
     /// <summary>
@@ -1065,8 +1065,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "After");
 
         // Original snapshot should still have only 1 entry
-        Assert.Single(snapshot);
-        Assert.Equal("Before", snapshot[0].Message);
+        var entry = Assert.Single(snapshot);
+        Assert.Equal("Before", entry.Message);
 
         // New query should have 2
         Assert.Equal(2, _sut.GetEntries(source: src).Count);
@@ -1088,8 +1088,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogError(src, "error-phase1");
 
         var phase1 = _sut.GetEntries(source: src);
-        Assert.Single(phase1);
-        Assert.Equal("error-phase1", phase1[0].Message);
+        var phaseOneEntry = Assert.Single(phase1);
+        Assert.Equal("error-phase1", phaseOneEntry.Message);
 
         // Phase 2: User changes level to DEBUG - all levels now stored
         _sut.TestMinLevelOverride = "DEBUG";
@@ -1132,8 +1132,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.TestMinLevelOverride = "DEBUG";
         _sut.LogDebug(src, "visible");
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("visible", entries[0].Message);
+        var entry = Assert.Single(entries);
+        Assert.Equal("visible", entry.Message);
     }
 
     /// <summary>
@@ -1157,8 +1157,8 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogWarning(src, "blocked-warn");
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries); // only the original "stored"
-        Assert.Equal("stored", entries[0].Message);
+        var storedEntry = Assert.Single(entries); // only the original "stored"
+        Assert.Equal("stored", storedEntry.Message);
     }
 
     /// <summary>
@@ -1200,8 +1200,8 @@ public class PluginLogServiceTests : IDisposable
         sut.LogError(src, "should-be-stored");
 
         var entries = sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("ERROR", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("ERROR", entry.Level);
     }
 
     /// <summary>
@@ -1218,8 +1218,8 @@ public class PluginLogServiceTests : IDisposable
         sut.LogInfo(src, "should-be-stored");
 
         var entries = sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
+        var entry = Assert.Single(entries);
+        Assert.Equal("INFO", entry.Level);
     }
 
     [Fact]
@@ -1231,9 +1231,9 @@ public class PluginLogServiceTests : IDisposable
         _sut.LogWarning(src, "msg", ex);
 
         var entries = _sut.GetEntries(source: src);
-        Assert.Single(entries);
-        Assert.NotNull(entries[0].Exception);
-        var exStr = entries[0].Exception!;
+        var entry = Assert.Single(entries);
+        Assert.NotNull(entry.Exception);
+        var exStr = entry.Exception!;
         Assert.DoesNotContain('\n', exStr);
         Assert.DoesNotContain('\r', exStr);
         Assert.Contains("line1", exStr, StringComparison.Ordinal);

@@ -547,10 +547,8 @@ internal static class TrainingDataBuilder
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
         // Use latest episode for series temporal signals.
-        List<WatchedItemInfo>? episodesForSeries = null;
-        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var eps))
+        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
         {
-            episodesForSeries = eps;
             watchedItemForRec = episodesForSeries
                 .Where(e => e.HasPlaybackActivity())
                 .OrderByDescending(e => e.LastPlayedDate)
@@ -561,7 +559,7 @@ internal static class TrainingDataBuilder
         // Exclude the series id and every watched record of that series so the example cannot draw genre
         // engagement from its own history. At inference a scored series is filtered out upstream and
         // contributes nothing, so training must match by excluding it here too. Built from the profile
-        // (not episodesForSeries) so a movie example, or a series whose episodes are absent from the
+        // (not the episode lookup) so a movie example, or a series whose episodes are absent from the
         // lookup, still excludes exactly its own records.
         var engagementExclude = isSeries
             ? ContentScoring.BuildSeriesExcludeSet(rec.ItemId, userProfile)

@@ -849,8 +849,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         // Hoisted so values are readable after the write-lock finally block when publishing
         // _lastValidationLoss outside the lock (avoids nested _syncRoot-inside-write-lock).
-        var capturedUseEarlyStopping = false;
-        var capturedBestLoss = double.MaxValue;
+        bool capturedUseEarlyStopping;
+        double capturedBestLoss;
 
         try
         {

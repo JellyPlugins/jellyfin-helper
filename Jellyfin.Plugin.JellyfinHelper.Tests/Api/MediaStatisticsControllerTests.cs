@@ -1,4 +1,3 @@
-using System;
 using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;

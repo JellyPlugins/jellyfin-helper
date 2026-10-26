@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -61,8 +61,8 @@ public class BackupServiceTests
         var result = BackupValidator.Validate(null);
 
         Assert.False(result.IsValid);
-        Assert.Single(result.Errors);
-        Assert.Contains("null", result.Errors[0]);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("null", error);
     }
 
     [Fact]
@@ -554,8 +554,8 @@ public class BackupServiceTests
         Assert.Equal(backup.UseTrash, restored.UseTrash);
         Assert.Equal(backup.TrashFolderPath, restored.TrashFolderPath);
         Assert.Equal(backup.TrashRetentionDays, restored.TrashRetentionDays);
-        Assert.Single(restored.RadarrInstances);
-        Assert.Equal("Radarr", restored.RadarrInstances[0].Name);
+        var radarrInstance = Assert.Single(restored.RadarrInstances);
+        Assert.Equal("Radarr", radarrInstance.Name);
         Assert.NotNull(restored.GrowthTimeline);
         Assert.Single(restored.GrowthTimeline!.DataPoints);
         Assert.Equal(123456789, restored.GrowthTimeline.DataPoints[0].CumulativeSize);
@@ -1040,8 +1040,8 @@ public class BackupServiceTests
             Assert.True(summary.TimelineRestored);
             var written = JsonSerializer.Deserialize<GrowthTimelineResult>(
                 File.ReadAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json")))!;
-            Assert.Single(written.DataPoints);
-            Assert.Equal(100, written.DataPoints[0].CumulativeSize);
+            var dataPoint = Assert.Single(written.DataPoints);
+            Assert.Equal(100, dataPoint.CumulativeSize);
         }
         finally
         {

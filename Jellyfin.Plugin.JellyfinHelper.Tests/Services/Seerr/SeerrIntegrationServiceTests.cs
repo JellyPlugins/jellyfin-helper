@@ -1143,12 +1143,6 @@ public partial class SeerrIntegrationServiceTests : IDisposable
 
         var capturedUrls = new List<string>();
         var mock = new Mock<HttpMessageHandler>();
-        var seq = mock.Protected()
-            .SetupSequence<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>());
-
         // Track every outgoing request URI before returning the canned responses.
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -1336,7 +1330,7 @@ public partial class SeerrIntegrationServiceTests : IDisposable
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .Returns<HttpRequestMessage, CancellationToken>((req, ct) =>
+            .Returns<HttpRequestMessage, CancellationToken>((_, _) =>
             {
                 callCount++;
                 if (callCount == 1)

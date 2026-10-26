@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -110,12 +107,12 @@ public class UserActivityControllerTests
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
 
         // Only Movie A has activity for userId
-        Assert.Single(data);
-        Assert.Equal("Movie A", data[0].ItemName);
+        var dataItem = Assert.Single(data);
+        Assert.Equal("Movie A", dataItem.ItemName);
 
         // UserActivities must be narrowed to the requested user
-        Assert.Single(data[0].UserActivities);
-        Assert.Equal(userId, data[0].UserActivities[0].UserId);
+        var userActivity = Assert.Single(dataItem.UserActivities);
+        Assert.Equal(userId, userActivity.UserId);
     }
 
     /// <summary>
@@ -276,10 +273,10 @@ public class UserActivityControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal("Frieren: Beyond Journey's End", data[0].SeriesName);
-        Assert.Equal("S01E03", data[0].EpisodeLabel);
-        Assert.Equal("Folge 3", data[0].ItemName);
+        var dataItem = Assert.Single(data);
+        Assert.Equal("Frieren: Beyond Journey's End", dataItem.SeriesName);
+        Assert.Equal("S01E03", dataItem.EpisodeLabel);
+        Assert.Equal("Folge 3", dataItem.ItemName);
     }
 
     // Helpers

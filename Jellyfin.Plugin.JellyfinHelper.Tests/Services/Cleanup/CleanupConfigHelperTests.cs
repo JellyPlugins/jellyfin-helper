@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -339,8 +337,8 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/movies", result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/media/movies", resultItem);
     }
 
     [Fact]
@@ -365,8 +363,8 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/tvshows", result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/media/tvshows", resultItem);
     }
 
     [Fact]
@@ -397,8 +395,8 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/movies", result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/media/movies", resultItem);
     }
 
     [Fact]
@@ -452,8 +450,8 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/movies", result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/media/movies", resultItem);
     }
 
     [Fact]
@@ -472,8 +470,8 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/movies", result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/media/movies", resultItem);
     }
 
     [Fact]
@@ -651,8 +649,8 @@ public class CleanupConfigHelperTests
         try
         {
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, trash);
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(trash), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(trash), resultItem);
         }
         finally
         {
@@ -701,8 +699,8 @@ public class CleanupConfigHelperTests
             ]);
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(Path.Join(lib1, ".trash")), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(lib1, ".trash")), resultItem);
         }
         finally
         {
@@ -874,8 +872,8 @@ public class CleanupConfigHelperTests
             ]);
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, trash);
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(trash), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(trash), resultItem);
         }
         finally
         {
@@ -930,8 +928,8 @@ public class CleanupConfigHelperTests
             ]);
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), resultItem);
         }
         finally
         {
@@ -960,8 +958,8 @@ public class CleanupConfigHelperTests
             ]);
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), resultItem);
         }
         finally
         {
@@ -989,8 +987,8 @@ public class CleanupConfigHelperTests
             ]);
 
             var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
-            Assert.Single(result);
-            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), result[0]);
+            var resultItem = Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(movies, ".trash")), resultItem);
         }
         finally
         {

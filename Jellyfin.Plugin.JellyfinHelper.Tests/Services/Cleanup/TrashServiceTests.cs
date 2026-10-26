@@ -78,8 +78,8 @@ public class TrashServiceTests : IDisposable
 
         // Verify trash folder contains one timestamped directory
         var trashDirs = Directory.GetDirectories(trashPath);
-        Assert.Single(trashDirs);
-        Assert.Contains("source_movie", Path.GetFileName(trashDirs[0]));
+        var trashDirectory = Assert.Single(trashDirs);
+        Assert.Contains("source_movie", Path.GetFileName(trashDirectory));
     }
 
     [Fact]
@@ -109,8 +109,8 @@ public class TrashServiceTests : IDisposable
         Assert.True(Directory.Exists(trashPath));
 
         var trashFiles = Directory.GetFiles(trashPath);
-        Assert.Single(trashFiles);
-        Assert.Contains("subtitle.srt", Path.GetFileName(trashFiles[0]));
+        var trashFile = Assert.Single(trashFiles);
+        Assert.Contains("subtitle.srt", Path.GetFileName(trashFile));
     }
 
     [Fact]
@@ -479,8 +479,8 @@ public class TrashServiceTests : IDisposable
 
         var result = _trashService.GetTrashContents(trashPath, 30);
 
-        Assert.Single(result);
-        var item = result[0];
+        var item = Assert.Single(result);
+
         Assert.Equal("MyMovie", item.Name);
         Assert.Equal(dirName, item.FullName);
         Assert.Equal(2048, item.Size);
@@ -502,8 +502,8 @@ public class TrashServiceTests : IDisposable
 
         var result = _trashService.GetTrashContents(trashPath, 7);
 
-        Assert.Single(result);
-        var item = result[0];
+        var item = Assert.Single(result);
+
         Assert.Equal("subtitle.srt", item.Name);
         Assert.Equal(fileName, item.FullName);
         Assert.Equal(512, item.Size);
@@ -551,8 +551,8 @@ public class TrashServiceTests : IDisposable
 
         var result = _trashService.GetTrashContents(trashPath, 30);
 
-        Assert.Single(result);
-        var item = result[0];
+        var item = Assert.Single(result);
+
         Assert.Equal("no-timestamp-folder", item.Name);
         Assert.True(item.IsDirectory);
         Assert.Null(item.TrashedAt);
@@ -569,9 +569,9 @@ public class TrashServiceTests : IDisposable
 
         var result = _trashService.GetTrashContents(trashPath, 0);
 
-        Assert.Single(result);
-        Assert.NotNull(result[0].TrashedAt);
-        Assert.Null(result[0].PurgesAt);
+        var resultItem = Assert.Single(result);
+        Assert.NotNull(resultItem.TrashedAt);
+        Assert.Null(resultItem.PurgesAt);
     }
 
     [Fact]
@@ -587,8 +587,8 @@ public class TrashServiceTests : IDisposable
 
         var result = _trashService.GetTrashContents(trashPath, 0);
 
-        Assert.Single(result);
-        var item = result[0];
+        var item = Assert.Single(result);
+
         Assert.NotNull(item.TrashedAt);
         Assert.Null(item.PurgesAt);
     }

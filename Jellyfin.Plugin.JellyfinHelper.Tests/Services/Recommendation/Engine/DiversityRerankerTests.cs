@@ -232,9 +232,9 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal(highEpisode.Id, result[0].Item.Id);
-        Assert.Equal(0.9, result[0].Score);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(highEpisode.Id, resultItem.Item.Id);
+        Assert.Equal(0.9, resultItem.Score);
     }
 
     [Fact]
@@ -253,8 +253,8 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal(high.Id, result[0].Item.Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(high.Id, resultItem.Item.Id);
     }
 
     [Fact]
@@ -272,8 +272,8 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal(first.Id, result[0].Item.Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(first.Id, resultItem.Item.Id);
     }
 
     [Fact]
@@ -327,8 +327,8 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal(episode.Id, result[0].Item.Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(episode.Id, resultItem.Item.Id);
     }
 
     [Fact]
@@ -346,8 +346,8 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal(series.Id, result[0].Item.Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(series.Id, resultItem.Item.Id);
     }
 
     [Fact]
@@ -408,10 +408,10 @@ public class DiversityRerankerTests
 
         var result = DiversityReranker.DeduplicateSeries(candidates);
 
-        Assert.Single(result);
-        Assert.Equal("winnerReason", result[0].Reason);
-        Assert.Equal("winner.key", result[0].ReasonKey);
-        Assert.Equal("winnerRelated", result[0].RelatedItem);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("winnerReason", resultItem.Reason);
+        Assert.Equal("winner.key", resultItem.ReasonKey);
+        Assert.Equal("winnerRelated", resultItem.RelatedItem);
     }
 
     [Fact]

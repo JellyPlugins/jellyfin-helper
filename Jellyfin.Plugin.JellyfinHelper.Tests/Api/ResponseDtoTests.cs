@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Xunit;
@@ -419,7 +418,7 @@ public class TrashAccessResponseTests
         {
             Results = new TrashAccessEntry[] { new() { Path = "/x" } },
         };
-        Assert.Single(dto.Results);
-        Assert.Equal("/x", dto.Results[0].Path);
+        var resultItem = Assert.Single(dto.Results);
+        Assert.Equal("/x", resultItem.Path);
     }
 }

@@ -828,8 +828,8 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        var ex = examples[0];
+        var ex = Assert.Single(examples);
+
         // Fully-played series must produce a positive engagement label (> 0.5).
         Assert.True(ex.Label > 0.5, $"Expected engagement label > 0.5 for fully-watched series, got {ex.Label}.");
         Assert.True(ex.Features.IsSeries);
@@ -886,8 +886,8 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        Assert.Equal(0.65, examples[0].Label);
+        var example = Assert.Single(examples);
+        Assert.Equal(0.65, example.Label);
     }
 
     [Fact]
@@ -923,8 +923,8 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        Assert.Equal(EngineConstants.AbandonedLabel, examples[0].Label);
+        var example = Assert.Single(examples);
+        Assert.Equal(EngineConstants.AbandonedLabel, example.Label);
     }
 
     [Fact]
@@ -979,8 +979,8 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        Assert.Equal(newest, examples[0].GeneratedAtUtc);
+        var example = Assert.Single(examples);
+        Assert.Equal(newest, example.GeneratedAtUtc);
     }
 
     [Fact]
@@ -1022,9 +1022,9 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        Assert.False(examples[0].Features.StudioMatch);
-        Assert.Equal(0.0, examples[0].Features.TagSimilarity);
+        var example = Assert.Single(examples);
+        Assert.False(example.Features.StudioMatch);
+        Assert.Equal(0.0, example.Features.TagSimilarity);
     }
 
     [Fact]
@@ -1073,8 +1073,8 @@ public class TrainingFeatureComputerTests
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
-        Assert.Single(examples);
-        var ex = examples[0];
+        var ex = Assert.Single(examples);
+
         // Each affinity would collapse to 0.0 if its aggregation loop body were skipped.
         Assert.True(ex.Features.FranchiseAffinity > 0.0, "Franchise name was not captured from episode 0.");
         Assert.True(ex.Features.ProductionLocationAffinity > 0.0, "Production countries were not aggregated across episodes.");

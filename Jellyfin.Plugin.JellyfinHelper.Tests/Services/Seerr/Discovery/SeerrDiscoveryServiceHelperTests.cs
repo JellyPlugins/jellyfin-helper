@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -85,10 +83,10 @@ public sealed class SeerrDiscoveryServiceHelperTests
     {
         // BUG GUARD: on some locales integer.ToString() would add thousands separators or use non-Arabic digits.
         var result = InvokeBuildGenreIdList(["G"], _ => 12345);
-        Assert.Single(result);
-        Assert.Equal("12345", result[0]);
-        Assert.DoesNotContain(",", result[0], StringComparison.Ordinal);
-        Assert.DoesNotContain(".", result[0], StringComparison.Ordinal);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("12345", resultItem);
+        Assert.DoesNotContain(",", resultItem, StringComparison.Ordinal);
+        Assert.DoesNotContain(".", resultItem, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -217,8 +215,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
             new() { Id = 42, VoteAverage = 8.0 }
         };
         var result = InvokeDeduplicateAndFilter(candidates, [], null, 5.0, 0, false);
-        Assert.Single(result);
-        Assert.Equal(42, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(42, resultItem.Id);
     }
 
     [Fact]
@@ -335,8 +333,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
             minVoteAverage: 5.0,
             avgYear: 2020, // modern viewer
             isChildAccount: true);
-        Assert.Single(result);
-        Assert.Equal(100, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(100, resultItem.Id);
     }
 
     [Fact]
@@ -365,8 +363,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
             minVoteAverage: 5.0,
             avgYear: currentYear - 3, // >= currentYear - 6 -> 12-year window kicks in
             isChildAccount: false);
-        Assert.Single(result);
-        Assert.Equal(2, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(2, resultItem.Id);
     }
 
     [Fact]
@@ -418,8 +416,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
             avgYear: 2005,
             isChildAccount: false);
 
-        Assert.Single(result);
-        Assert.Equal(2, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(2, resultItem.Id);
     }
 
     [Fact]

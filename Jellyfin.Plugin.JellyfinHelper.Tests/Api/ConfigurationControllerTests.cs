@@ -104,6 +104,7 @@ public class ConfigurationControllerTests : IDisposable
     /// <summary>
     ///     Locks the deliberate design decision documented on ConfigurationController.ApplyRequestToConfig: the Settings POST payload MUST NOT be able to overwrite PluginLogLevel.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task UpdateConfiguration_PluginLogLevel_IsIgnoredByDesignAndSurfacesWarning()
     {
@@ -262,8 +263,8 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Single(_config.RadarrInstances);
-        Assert.Equal("Movies 4K", _config.RadarrInstances[0].Libraries);
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.Equal("Movies 4K", radarrInstance.Libraries);
     }
 
     [Fact]
@@ -282,8 +283,8 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Single(_config.RadarrInstances);
-        Assert.True(_config.RadarrInstances[0].SkipCertificateValidation);
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.True(radarrInstance.SkipCertificateValidation);
     }
 
     [Fact]
@@ -1243,8 +1244,8 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.RadarrInstances);
-        Assert.Equal("original-radarr-secret", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.Equal("original-radarr-secret", _secretProtector.Unprotect(radarrInstance.ApiKey));
     }
 
     [Fact]
@@ -1274,8 +1275,8 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.SonarrInstances);
-        Assert.Equal("original-sonarr-secret", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
+        var sonarrInstance = Assert.Single(_config.SonarrInstances);
+        Assert.Equal("original-sonarr-secret", _secretProtector.Unprotect(sonarrInstance.ApiKey));
     }
 
     [Fact]
@@ -1338,6 +1339,7 @@ public class ConfigurationControllerTests : IDisposable
     /// <summary>
     ///     Validator-level errors (as opposed to model-binding errors) must also produce a plugin-log entry.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task UpdateConfiguration_ValidatorRejects_LogsWarning()
     {
@@ -1448,8 +1450,8 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key-kept", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.Equal("key-kept", _secretProtector.Unprotect(radarrInstance.ApiKey));
     }
 
     [Fact]
@@ -1479,6 +1481,7 @@ public class ConfigurationControllerTests : IDisposable
     /// <summary>
     ///     When the admin renames a Radarr instance (Name changes) but keeps the same URL, and the client echoes the mask sentinel for the key, the stored key must be preserved.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task ApplyRequestToConfig_RenameRadarrInstance_WithSentinel_PreservesApiKey()
     {
@@ -1507,14 +1510,15 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.RadarrInstances);
-        Assert.Equal("real-secret-key", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
-        Assert.Equal("Primary Radarr", _config.RadarrInstances[0].Name);
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.Equal("real-secret-key", _secretProtector.Unprotect(radarrInstance.ApiKey));
+        Assert.Equal("Primary Radarr", radarrInstance.Name);
     }
 
     /// <summary>
     ///     Same rename-with-sentinel contract for Sonarr.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task ApplyRequestToConfig_RenameSonarrInstance_WithSentinel_PreservesApiKey()
     {
@@ -1542,14 +1546,15 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.SonarrInstances);
-        Assert.Equal("sonarr-secret-key", _secretProtector.Unprotect(_config.SonarrInstances[0].ApiKey));
-        Assert.Equal("Primary Sonarr", _config.SonarrInstances[0].Name);
+        var sonarrInstance = Assert.Single(_config.SonarrInstances);
+        Assert.Equal("sonarr-secret-key", _secretProtector.Unprotect(sonarrInstance.ApiKey));
+        Assert.Equal("Primary Sonarr", sonarrInstance.Name);
     }
 
     /// <summary>
     ///     When the URL changes, the sentinel cannot find a prior match and must NOT restore a stale key - the result must be an empty API key, signalling that the new instance needs its real key supplied.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task ApplyRequestToConfig_ChangeRadarrUrl_WithSentinel_ClearsApiKey()
     {
@@ -1577,9 +1582,9 @@ public class ConfigurationControllerTests : IDisposable
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);
 
-        Assert.Single(_config.RadarrInstances);
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
         // No prior instance at http://new:7878, so the sentinel resolves to empty string.
-        Assert.Equal(string.Empty, _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        Assert.Equal(string.Empty, _secretProtector.Unprotect(radarrInstance.ApiKey));
     }
 
     // Two Radarr instances share the same URL but have different names.
@@ -1740,8 +1745,8 @@ public class ConfigurationControllerTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
         Assert.Empty(payload.Warnings);
-        Assert.Single(_config.RadarrInstances);
-        Assert.Equal("key1", _secretProtector.Unprotect(_config.RadarrInstances[0].ApiKey));
+        var radarrInstance = Assert.Single(_config.RadarrInstances);
+        Assert.Equal("key1", _secretProtector.Unprotect(radarrInstance.ApiKey));
     }
 
     [Fact]

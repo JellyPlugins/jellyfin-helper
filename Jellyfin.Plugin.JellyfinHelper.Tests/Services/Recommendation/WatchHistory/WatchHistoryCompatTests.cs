@@ -62,8 +62,8 @@ public sealed class WatchHistoryCompatTests
         var result = _service.GetAllUserWatchProfiles();
 
         Assert.NotNull(result);
-        Assert.Single(result);
-        Assert.Equal("testuser", result[0].UserName);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("testuser", resultItem.UserName);
     }
 
     [Fact]

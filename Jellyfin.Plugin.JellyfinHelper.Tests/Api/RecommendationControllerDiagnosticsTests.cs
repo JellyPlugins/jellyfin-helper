@@ -1,4 +1,3 @@
-using System;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -18,7 +17,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 /// </summary>
 public class RecommendationControllerDiagnosticsTests
 {
-    private readonly Mock<IRecommendationCacheService> _mockCache;
     private readonly Mock<IPluginConfigurationService> _mockConfigService;
     private readonly RecommendationController _controller;
     private readonly Mock<IRecommendationEngine> _mockEngine;
@@ -27,7 +25,7 @@ public class RecommendationControllerDiagnosticsTests
     public RecommendationControllerDiagnosticsTests()
     {
         _mockEngine = new Mock<IRecommendationEngine>();
-        _mockCache = new Mock<IRecommendationCacheService>();
+        var mockCache = new Mock<IRecommendationCacheService>();
         _mockWatchHistory = new Mock<IWatchHistoryService>();
         _mockConfigService = new Mock<IPluginConfigurationService>();
 
@@ -37,7 +35,7 @@ public class RecommendationControllerDiagnosticsTests
 
         _controller = new RecommendationController(
             _mockEngine.Object,
-            _mockCache.Object,
+            mockCache.Object,
             _mockWatchHistory.Object,
             _mockConfigService.Object);
     }

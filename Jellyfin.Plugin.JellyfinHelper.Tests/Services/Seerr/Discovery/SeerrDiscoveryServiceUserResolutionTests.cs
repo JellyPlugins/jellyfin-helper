@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Xunit;
@@ -165,10 +162,10 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
             profiles: [MakeProfile(100, "HD"), MakeProfile(200, "4K")]);
         var result = InvokeBuildAllowedProfileList([server], filterToDefault: true);
 
-        Assert.Single(result);
-        Assert.Equal(100, result[0].ProfileId);
-        Assert.Equal("HD", result[0].ProfileName);
-        Assert.True(result[0].IsDefault);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(100, resultItem.ProfileId);
+        Assert.Equal("HD", resultItem.ProfileName);
+        Assert.True(resultItem.IsDefault);
     }
 
     [Fact]
@@ -215,8 +212,8 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
 
         var result = InvokeBuildAllowedProfileList([server], filterToDefault: false);
 
-        Assert.Single(result);
-        Assert.Equal("/movies", result[0].RootFolder);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/movies", resultItem.RootFolder);
     }
 
     [Fact]
@@ -230,8 +227,8 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
             activeDirectory: "/movies");
 
         var result = InvokeBuildAllowedProfileList([server], filterToDefault: false);
-        Assert.Single(result);
-        Assert.Equal("/movies", result[0].RootFolder);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/movies", resultItem.RootFolder);
     }
 
     [Fact]
@@ -246,9 +243,9 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
             activeDirectory: "/fallback");
 
         var result = InvokeBuildAllowedProfileList([server], filterToDefault: false);
-        Assert.Single(result);
-        Assert.Equal("/fallback", result[0].RootFolder);
-        Assert.True(result[0].IsDefault);
+        var resultItem = Assert.Single(result);
+        Assert.Equal("/fallback", resultItem.RootFolder);
+        Assert.True(resultItem.IsDefault);
     }
 
     [Fact]
@@ -263,8 +260,8 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
             activeDirectory: "");
 
         var result = InvokeBuildAllowedProfileList([server], filterToDefault: false);
-        Assert.Single(result);
-        Assert.Equal(string.Empty, result[0].RootFolder);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(string.Empty, resultItem.RootFolder);
     }
 
     [Fact]

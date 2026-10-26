@@ -303,8 +303,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(movieId, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(movieId, resultItem);
     }
 
     [Fact]
@@ -322,8 +322,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(episodeId, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(episodeId, resultItem);
     }
 
     [Fact]
@@ -1001,8 +1001,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(pilotEpisode.Id, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(pilotEpisode.Id, resultItem);
     }
 
     [Fact]
@@ -1031,8 +1031,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(s1e1.Id, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(s1e1.Id, resultItem);
     }
 
     [Fact]
@@ -1059,8 +1059,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(playableEpisode.Id, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(playableEpisode.Id, resultItem);
     }
 
     [Theory]
@@ -1083,8 +1083,8 @@ public class RecommendationPlaylistServiceTests
 
         var result = sut.ResolvePlaylistItemIds(recs, 100);
 
-        Assert.Single(result);
-        Assert.Equal(episodeId, result[0]);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(episodeId, resultItem);
     }
 
     [Fact]

@@ -163,8 +163,8 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(1, profile!.WatchedMovieCount);
         Assert.Equal(0, profile.WatchedEpisodeCount);
         Assert.Equal(0, profile.WatchedSeriesCount);
-        Assert.Single(profile.WatchedItems);
-        Assert.Equal("Test Movie", profile.WatchedItems[0].Name);
+        var watchedItem = Assert.Single(profile.WatchedItems);
+        Assert.Equal("Test Movie", watchedItem.Name);
         Assert.True(profile.TotalWatchTimeTicks > 0);
     }
 

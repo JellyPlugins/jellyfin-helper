@@ -1096,8 +1096,8 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
-        Assert.Single(reportedValues);
-        Assert.Equal(100, reportedValues[0]);
+        var reportedValue = Assert.Single(reportedValues);
+        Assert.Equal(100, reportedValue);
         MockConfigHelper.Verify(x => x.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()), Times.Never);
         _fileSystemMock.Verify(f => f.GetDirectories(It.IsAny<string>()), Times.Never);
         VerifyLogNeverContains("Task started", LogLevel.Information);

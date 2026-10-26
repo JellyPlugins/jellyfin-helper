@@ -97,11 +97,11 @@ public class MediaStatisticsServiceTests
 
         var result = _service.CalculateStatistics();
 
-        Assert.Single(result.Libraries);
+        var library = Assert.Single(result.Libraries);
         Assert.Single(result.Movies);
         Assert.Empty(result.TvShows);
         Assert.Equal(3_500_000_000, result.TotalMovieVideoSize);
-        Assert.Equal(2, result.Libraries[0].VideoFileCount);
+        Assert.Equal(2, library.VideoFileCount);
     }
 
     [Fact]
@@ -136,8 +136,8 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
         sw.Stop();
 
-        Assert.Single(result.Libraries);
-        Assert.Equal(10_000, result.Libraries[0].VideoFileCount);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(10_000, resultLibrary.VideoFileCount);
         if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
         {
             Assert.True(sw.ElapsedMilliseconds < 3000, "Scan took too long: " + sw.ElapsedMilliseconds + "ms");
@@ -1246,8 +1246,8 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
 
         // Should not throw, stats should be zero
-        Assert.Single(result.Libraries);
-        Assert.Equal(0, result.Libraries[0].VideoSize);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(0, resultLibrary.VideoSize);
     }
 
     [Fact]
@@ -1267,8 +1267,8 @@ public class MediaStatisticsServiceTests
 
         var result = _service.CalculateStatistics();
 
-        Assert.Single(result.Libraries);
-        Assert.Equal(0, result.Libraries[0].VideoSize);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(0, resultLibrary.VideoSize);
     }
 
     [Fact]
@@ -1537,10 +1537,10 @@ public class MediaStatisticsServiceTests
 
         var result = _service.CalculateStatistics();
 
-        Assert.Single(result.Libraries);
-        Assert.Equal(2, result.Libraries[0].RootPaths.Count);
-        Assert.Contains(libraryPath1, result.Libraries[0].RootPaths);
-        Assert.Contains(libraryPath2, result.Libraries[0].RootPaths);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(2, resultLibrary.RootPaths.Count);
+        Assert.Contains(libraryPath1, resultLibrary.RootPaths);
+        Assert.Contains(libraryPath2, resultLibrary.RootPaths);
 
         Assert.Contains(libraryPath1, result.MovieRootPaths);
         Assert.Contains(libraryPath2, result.MovieRootPaths);
@@ -2576,10 +2576,10 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
 
         // musicvideos library should be in Movies, not Music
-        Assert.Single(result.Movies);
+        var movie = Assert.Single(result.Movies);
         Assert.Empty(result.Music);
 
-        var stats = result.Movies[0];
+        var stats = movie;
         Assert.Contains("M4V", stats.ContainerFormats.Keys);
     }
 
@@ -3029,19 +3029,14 @@ public class EmbeddedSubtitleDetectionTests
         : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
     {
         private readonly Dictionary<string, bool> _embeddedSubtitles = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
-
         public void SetHasEmbeddedSubtitles(string filePath, bool value)
             => _embeddedSubtitles[filePath] = value;
-
-        public void SetItemLookup(string filePath, BaseItem item)
-            => _itemLookup[filePath] = item;
 
         internal override bool HasEmbeddedSubtitles(string filePath, IReadOnlyList<MediaStream>? streams)
             => _embeddedSubtitles.TryGetValue(filePath, out var result) && result;
 
         internal override Dictionary<string, BaseItem> BuildItemLookup()
-            => new(_itemLookup, StringComparer.OrdinalIgnoreCase);
+            => new(StringComparer.OrdinalIgnoreCase);
     }
 }
 

@@ -1,4 +1,3 @@
-using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -80,8 +79,8 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
 
         var result = service.LoadAllVideoItems();
 
-        Assert.Single(result);
-        Assert.Equal(allowed.Id, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(allowed.Id, resultItem.Id);
         Assert.DoesNotContain(result, i => i.Id == excluded.Id);
     }
 
@@ -117,8 +116,8 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
 
         var result = service.LoadAllSeriesItems();
 
-        Assert.Single(result);
-        Assert.Equal(allowed.Id, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(allowed.Id, resultItem.Id);
         Assert.DoesNotContain(result, i => i.Id == excluded.Id);
     }
 
@@ -170,8 +169,8 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
 
         var result = service.LoadAllVideoItems();
 
-        Assert.Single(result);
-        Assert.Equal(allowed.Id, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(allowed.Id, resultItem.Id);
         _mockPluginLog.Verify(
             l => l.LogDebug(
                 It.IsAny<string>(),
@@ -215,8 +214,8 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
 
         var result = service.LoadAllVideoItems();
 
-        Assert.Single(result);
-        Assert.Equal(kept.Id, result[0].Id);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(kept.Id, resultItem.Id);
         Assert.DoesNotContain(result, i => i.Id == dropped.Id);
     }
 }

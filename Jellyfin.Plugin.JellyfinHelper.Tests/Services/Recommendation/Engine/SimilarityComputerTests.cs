@@ -658,8 +658,8 @@ public sealed class SimilarityComputerTests
 
         var (names, weights) = SimilarityComputer.ExtractBilledPeople(people);
 
-        Assert.Single(names);
-        Assert.Equal("Sigourney Weaver", names[0]);
+        var name = Assert.Single(names);
+        Assert.Equal("Sigourney Weaver", name);
         Assert.Equal(EngineConstants.ComputeBillingWeight(0), weights[0]);
     }
 

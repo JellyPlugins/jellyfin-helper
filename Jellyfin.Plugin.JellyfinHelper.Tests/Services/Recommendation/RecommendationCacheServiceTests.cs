@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using MediaBrowser.Common.Configuration;
@@ -101,10 +100,10 @@ public sealed class RecommendationCacheServiceTests : IDisposable
         Assert.Equal(userId, loaded[0].UserId);
         Assert.Equal("TestUser", loaded[0].UserName);
         Assert.Equal("Ensemble", loaded[0].ScoringStrategy);
-        Assert.Single(loaded[0].Recommendations);
-        Assert.Equal("Test Movie", loaded[0].Recommendations[0].Name);
-        Assert.Equal(0.85, loaded[0].Recommendations[0].Score);
-        Assert.Equal(new[] { "Action", "Thriller" }, loaded[0].Recommendations[0].Genres);
+        var recommendation = Assert.Single(loaded[0].Recommendations);
+        Assert.Equal("Test Movie", recommendation.Name);
+        Assert.Equal(0.85, recommendation.Score);
+        Assert.Equal(new[] { "Action", "Thriller" }, recommendation.Genres);
     }
 
     [Fact]

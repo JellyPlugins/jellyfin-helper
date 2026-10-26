@@ -131,7 +131,7 @@ public class FolderBrowserDtoTests
     {
         // IReadOnlyList<T> is exposed - arrays and lists should both fit.
         var result = new FolderBrowseResult { Directories = new FolderEntry[] { new() { Name = "arr" } } };
-        Assert.Single(result.Directories);
-        Assert.Equal("arr", result.Directories[0].Name);
+        var directory = Assert.Single(result.Directories);
+        Assert.Equal("arr", directory.Name);
     }
 }
