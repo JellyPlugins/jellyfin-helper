@@ -1336,12 +1336,27 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .chart-box.codec-dragging {
+    .donut-svg .donut-segment,
+    .donut-tooltip,
+    .codec-show-more,
+    .codec-row,
+    .codec-row-bar-fill,
+    .codec-row-arrow,
+    .codec-multi-chevron,
+    .codec-card-handle,
+    .codec-save-icon {
+        transition: none;
+    }
+
+    .donut-svg .donut-segment:has(path:hover),
+    .donut-svg .donut-segment.donut-segment-hover,
+    .donut-svg .donut-segment:focus-visible,
+    .codec-row:active {
         transform: none;
     }
 
-    .codec-save-icon {
-        transition: none;
+    .chart-box.codec-dragging {
+        transform: none;
     }
 }
 
