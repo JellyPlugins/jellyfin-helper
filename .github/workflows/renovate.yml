@@ -1,22 +1,6 @@
 name: Renovate
 
-# Self-hosted Renovate run. Keeps every dependency surface of this repository
-# up to date (NuGet + packages.lock.json, the two npm test harnesses, the e2e
-# Dockerfile/compose images, SHA-pinned GitHub Actions and the .NET SDK pin in
-# global.json) and maintains the "Dependency Dashboard" issue.
-#
-# Configuration lives in .github/renovate.json5 - the cadence lives HERE.
-#
-# Credentials - add ONE of these. Without them the bot is skipped with a
-# warning (the run stays green), so this workflow can be merged before the
-# token exists:
-#   RENOVATE_TOKEN  - classic PAT with `repo` + `workflow` scope
-#                     (`workflow` is required so Renovate may update the action
-#                     digests in .github/workflows/).
-#   vars.RENOVATE_APP_CLIENT_ID + secrets.RENOVATE_APP_PRIVATE_KEY  (GitHub App, preferred)
-#                     App permissions: Contents RW, Pull requests RW, Issues RW,
-#                     Workflows RW, Commit statuses RW.
-#                     The legacy numeric App ID works too, as vars.RENOVATE_APP_ID.
+# Self-hosted Renovate run.
 
 on:
   schedule:
@@ -184,7 +168,6 @@ jobs:
       - name: Renovate
         uses: renovatebot/github-action@2804199d260ad00c1fae0e9e842888369391c776 # v46.3.10
         with:
-          configurationFile: .github/renovate.json5
           token: ${{ steps.app-token.outputs.token || secrets.RENOVATE_TOKEN }}
         env:
           RENOVATE_PLATFORM: github
