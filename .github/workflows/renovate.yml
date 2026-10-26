@@ -61,19 +61,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          # Renovate itself requires Node >= 24.11, which .nvmrc satisfies.
-          node-version-file: .nvmrc
-
-      - name: Install Renovate validator
-        run: npm install --no-save renovate@44
-
       - name: Validate .github/renovate.json5
-        # --no prevents npx from installing packages on-demand, satisfying static analysis security rules.
-        # --strict turns warnings (deprecated/unknown options) into failures.
-        run: npx --no -- renovate-config-validator --strict
+        uses: suzuki-shunsuke/github-action-renovate-config-validator@v1.1.0
+        with:
+          strict: "true"
 
   preflight:
     name: Check credentials
