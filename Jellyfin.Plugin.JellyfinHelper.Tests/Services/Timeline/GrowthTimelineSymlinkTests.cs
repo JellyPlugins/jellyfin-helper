@@ -80,16 +80,8 @@ public class GrowthTimelineSymlinkTests : IDisposable
         File.WriteAllBytes(Path.Join(dirA, "a.mkv"), new byte[512]);
         File.WriteAllBytes(Path.Join(dirB, "b.mkv"), new byte[256]);
 
-        try
-        {
-            Directory.CreateSymbolicLink(linkAToB, dirB);
-            Directory.CreateSymbolicLink(linkBToA, dirA);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            _ = ex;
-            return;
-        }
+        DirectoryLinkTestHelper.Create(linkAToB, dirB);
+        DirectoryLinkTestHelper.Create(linkBToA, dirA);
 
         // Should terminate without StackOverflowException.
         // Only a.mkv (512 bytes) should be counted; link_to_b is a ReparsePoint and is skipped.
@@ -110,15 +102,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Directory.CreateDirectory(realDir);
         File.WriteAllBytes(Path.Join(realDir, "movie.mkv"), new byte[4096]);
 
-        try
-        {
-            Directory.CreateSymbolicLink(linkDir, realDir);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            _ = ex;
-            return;
-        }
+        DirectoryLinkTestHelper.Create(linkDir, realDir);
 
         // The root is a symlink - files inside the target are counted normally.
         var size = _service.GetDirectorySize(linkDir, string.Empty, string.Empty, CancellationToken.None);
@@ -174,15 +158,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Directory.CreateDirectory(movieDir);
         File.WriteAllBytes(Path.Join(movieDir, "movie.mkv"), new byte[2048]);
 
-        try
-        {
-            Directory.CreateSymbolicLink(linkDir, realDir);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            _ = ex;
-            return;
-        }
+        DirectoryLinkTestHelper.Create(linkDir, realDir);
 
         var service = BuildServiceForLocation(linkDir);
 
@@ -207,15 +183,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Directory.CreateDirectory(externalTarget);
         File.WriteAllBytes(Path.Join(externalTarget, "movie.mkv"), new byte[4096]);
 
-        try
-        {
-            Directory.CreateSymbolicLink(linkSubDir, externalTarget);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            _ = ex;
-            return;
-        }
+        DirectoryLinkTestHelper.Create(linkSubDir, externalTarget);
 
         var service = BuildServiceForLocation(libRoot);
 
