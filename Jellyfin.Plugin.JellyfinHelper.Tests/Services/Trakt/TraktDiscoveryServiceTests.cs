@@ -703,7 +703,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             && e.Message.Contains("/recommendations/", StringComparison.Ordinal));
         // The shows call is skipped after the movies auth-failure, so exactly ONE forbidden fetch is logged -
         // one Forbidden response stays un-consumed in the queue.
-        Assert.Single(traktEntries, e => e.Message.Contains("403", StringComparison.Ordinal));
+        Assert.Single(traktEntries, e =>
+            e.Level == "DEBUG"
+            && e.Message.StartsWith("Trakt fetch failed: 403", StringComparison.Ordinal));
         Assert.Single(_responses);
     }
 

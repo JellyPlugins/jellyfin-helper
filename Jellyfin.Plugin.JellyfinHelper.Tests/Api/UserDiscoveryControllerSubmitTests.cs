@@ -816,7 +816,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so IMemoryCache evicts it.
         var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
         _memoryCache.Set(rateLimitKey, DateTime.UtcNow, TimeSpan.FromMilliseconds(1));
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         Assert.False(_memoryCache.TryGetValue(rateLimitKey, out _));
 
         var result = await CreateController(userId).SubmitMyRequest(

@@ -65,8 +65,8 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.Equal("TV", loaded.Libraries[1].LibraryName);
         Assert.Equal(42, loaded.Libraries[1].VideoSize);
         Assert.Equal(3, loaded.Libraries[1].VideoFileCount);
-        Assert.Single(loaded.Movies);
-        Assert.Equal(100, loaded.Movies[0].VideoSize);
+        var loadedMovie = Assert.Single(loaded.Movies);
+        Assert.Equal(100, loadedMovie.VideoSize);
         Assert.Single(loaded.TvShows);
         Assert.Equal(123_456, loaded.InternalTrickplaySize);
     }
@@ -403,7 +403,7 @@ public class StatisticsCacheServiceTests : IDisposable
                 }
             })).ToArray();
 
-        var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks));
+        var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks, TestContext.Current.CancellationToken));
         Assert.Null(exception);
     }
 

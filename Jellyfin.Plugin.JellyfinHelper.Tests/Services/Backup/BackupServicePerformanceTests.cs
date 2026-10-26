@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
@@ -11,6 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 ///     Performance tests for BackupService static methods (Sanitize, Validate).
 ///     Run with: dotnet test --filter "Category=Performance".
 /// </summary>
+/// <param name="output">The xUnit test output writer.</param>
 public class BackupServicePerformanceTests(ITestOutputHelper output)
 {
     [Fact]

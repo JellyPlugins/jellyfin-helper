@@ -95,10 +95,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.True(saved);
 
         var loaded = _sut.Load();
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
-        Assert.Single(loaded[0].Recommendations);
-        Assert.Equal(42, loaded[0].Recommendations[0].TmdbId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal(42, loadedRecommendation.TmdbId);
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             }
         ]);
 
-        await _sut.MarkAsRequestedAsync(7, "movie");
+        await _sut.MarkAsRequestedAsync(7, "movie", TestContext.Current.CancellationToken);
 
         var loaded = _sut.Load();
         Assert.True(loaded[0].Recommendations[0].AlreadyRequested);
@@ -314,7 +314,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             }
         ]);
 
-        await _sut.RemoveItemAsync(12, "movie", userId);
+        await _sut.RemoveItemAsync(12, "movie", userId, TestContext.Current.CancellationToken);
 
         var loaded = _sut.Load();
         Assert.Empty(loaded[0].Recommendations);
@@ -442,8 +442,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
                 _sut.RemoveItemAsync(99, "movie", userId, cts.Token));
 
             var loaded = _sut.Load();
-            Assert.Single(loaded[0].Recommendations);
-            Assert.Equal(99, loaded[0].Recommendations[0].TmdbId);
+            var loadedRecommendation = Assert.Single(loaded[0].Recommendations);
+            Assert.Equal(99, loadedRecommendation.TmdbId);
         }
         finally
         {
@@ -538,8 +538,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var loaded = _sut.Load();
         var recs = loaded[0].Recommendations;
-        Assert.Single(recs);
-        Assert.Equal(6, recs[0].TmdbId);
+        var recommendation = Assert.Single(recs);
+        Assert.Equal(6, recommendation.TmdbId);
     }
 
     [Fact]
@@ -558,8 +558,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var results = freshSut.Load();
 
-        Assert.Single(results);
-        Assert.Equal(userId, results[0].UserId);
+        var result = Assert.Single(results);
+        Assert.Equal(userId, result.UserId);
     }
 
     [Fact]
@@ -789,14 +789,15 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         Assert.True(saved);
         var loaded = recoveringSut.Load();
-        Assert.Single(loaded);
-        Assert.Equal("PostRecovery", loaded[0].Recommendations[0].Title);
+        var loadedUser = Assert.Single(loaded);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal("PostRecovery", loadedRecommendation.Title);
     }
 
     [Fact]
     public async Task LoadAsync_NoFileOnDisk_ReturnsEmpty()
     {
-        var results = await _sut.LoadAsync();
+        var results = await _sut.LoadAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(results);
         Assert.Empty(results);
     }
@@ -813,12 +814,12 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             }
         ]);
 
-        var loaded = await _sut.LoadAsync();
+        var loaded = await _sut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
-        Assert.Single(loaded[0].Recommendations);
-        Assert.Equal(42, loaded[0].Recommendations[0].TmdbId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal(42, loadedRecommendation.TmdbId);
     }
 
     [Fact]
@@ -833,10 +834,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryCacheService>>().Object);
 
-        var loaded = await freshSut.LoadAsync();
+        var loaded = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
     }
 
     [Fact]
@@ -845,7 +846,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
         File.WriteAllText(_cacheFilePath, "{ this is not valid json ");
 
-        var results = await _sut.LoadAsync();
+        var results = await _sut.LoadAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(results);
     }
@@ -868,7 +869,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryCacheService>>().Object);
 
-        var results = await freshSut.LoadAsync();
+        var results = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(results);
         Assert.False(File.Exists(_cacheFilePath),
@@ -887,10 +888,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryCacheService>>().Object);
 
-        var results = await freshSut.LoadAsync();
+        var results = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(results);
-        Assert.Equal(userId, results[0].UserId);
+        var result = Assert.Single(results);
+        Assert.Equal(userId, result.UserId);
     }
 
     [Fact]
@@ -904,16 +905,16 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             new Mock<ILogger<DiscoveryCacheService>>().Object);
 
         // First read populates the in-memory cache from disk.
-        var first = await freshSut.LoadAsync();
+        var first = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
         Assert.Single(first);
 
         // Deleting the backing file must not affect a subsequent load: the in-memory
         // cache serves the second read without touching disk.
         SafeDelete(_cacheFilePath);
 
-        var second = await freshSut.LoadAsync();
-        Assert.Single(second);
-        Assert.Equal(userId, second[0].UserId);
+        var second = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
+        var secondUser = Assert.Single(second);
+        Assert.Equal(userId, secondUser.UserId);
     }
 
     [Fact]
@@ -928,10 +929,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             }
         ]);
 
-        var first = await _sut.LoadAsync();
+        var first = await _sut.LoadAsync(TestContext.Current.CancellationToken);
         first[0].Recommendations[0].AlreadyRequested = true;
 
-        var second = await _sut.LoadAsync();
+        var second = await _sut.LoadAsync(TestContext.Current.CancellationToken);
         Assert.False(second[0].Recommendations[0].AlreadyRequested);
     }
 

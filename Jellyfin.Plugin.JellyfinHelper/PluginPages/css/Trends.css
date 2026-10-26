@@ -371,6 +371,22 @@
     background: var(--color-warning-soft, rgba(229, 160, 13, 0.12));
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .trend-tooltip,
+    .trend-crosshair,
+    .trend-active-dot,
+    .trend-diff-panel,
+    .insight-card,
+    .insight-panel {
+        transition: none;
+    }
+
+    .insight-card:hover,
+    .insight-card:focus-visible {
+        transform: none;
+    }
+}
+
 /* Touch / small-screen optimisations */
 @media (max-width: 600px) {
     .trend-container {

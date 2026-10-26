@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
@@ -73,7 +74,7 @@ public sealed class PluginResolveRealPathTests
 
         try
         {
-            await task.WaitAsync(TimeSpan.FromSeconds(5));
+            await task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Assert.NotNull(result);
         }
         catch (TimeoutException)
@@ -106,7 +107,7 @@ public sealed class PluginResolveRealPathTests
 
         try
         {
-            await task.WaitAsync(TimeSpan.FromSeconds(5));
+            await task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
         catch (TimeoutException)
         {
@@ -163,8 +164,7 @@ public sealed class PluginResolveRealPathTests
     [Fact]
     public void ResolveRealPath_RealSymlinkChain_ResolvesToFinalTarget()
     {
-        // Creating symlinks on Windows typically needs elevation or developer mode; skip there when it
-        // is not permitted and rely on the injectable-resolver tests for the bounded traversal logic.
+        // Windows uses a junction here because creating directory symlinks requires an extra privilege.
         var tempRoot = Path.Combine(Path.GetTempPath(), "JhResolveRealPath_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
         try
@@ -173,18 +173,7 @@ public sealed class PluginResolveRealPathTests
             Directory.CreateDirectory(targetDir);
             var linkPath = Path.Combine(tempRoot, "link");
 
-            try
-            {
-                Directory.CreateSymbolicLink(linkPath, targetDir);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Symlink creation requires elevated privileges on some Windows configurations, and
-                // xUnit 2.x has no Assert.Skip. Returning early keeps the test green but un-asserted,
-                // which is acceptable because the bounded-traversal logic is fully covered by the
-                // injectable-resolver tests above; this test only adds coverage where symlinks work.
-                return;
-            }
+            DirectoryLinkTestHelper.Create(linkPath, targetDir);
 
             var result = Plugin.ResolveRealPathCore(linkPath, Plugin.RealLeafResolver);
 
@@ -222,17 +211,8 @@ public sealed class PluginResolveRealPathTests
             var firstLink = Path.Combine(tempRoot, "link1");
             var secondLink = Path.Combine(tempRoot, "link2");
 
-            try
-            {
-                Directory.CreateSymbolicLink(firstLink, targetDir);
-                Directory.CreateSymbolicLink(secondLink, firstLink);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Symlink creation needs elevation on some Windows configurations, and xUnit 2.x has no
-                // Assert.Skip. Returning early keeps the test green where symlinks are unavailable.
-                return;
-            }
+            DirectoryLinkTestHelper.Create(firstLink, targetDir);
+            DirectoryLinkTestHelper.Create(secondLink, firstLink);
 
             // One hop from the outer link lands on the inner link, not on the real directory.
             var oneHop = Plugin.RealLeafResolver(secondLink);

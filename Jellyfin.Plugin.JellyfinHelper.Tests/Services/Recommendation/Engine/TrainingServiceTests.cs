@@ -114,7 +114,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy();
         using var sut = CreateSut();
 
-        var result = sut.Train(strategy, previousResults: Array.Empty<RecommendationResult>());
+        var result = sut.Train(strategy, previousResults: Array.Empty<RecommendationResult>(), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         Assert.Equal(0, strategy.TrainInvocationCount);
@@ -140,9 +140,9 @@ public class TrainingServiceTests
         var background = Task.Run(() => sut.Train(blocking, previous));
         try
         {
-            Assert.True(entered.Wait(TimeSpan.FromSeconds(30)), "Background training never started.");
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), "Background training never started.");
             var registryMock = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
-            Assert.False(sut.TrainPerUser(registryMock.Object, previous));
+            Assert.False(sut.TrainPerUser(registryMock.Object, previous, cancellationToken: TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -181,7 +181,7 @@ public class TrainingServiceTests
             CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)),
             CreateLargeResult(Guid.Empty, 5, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
         };
-        sut.TrainPerUser(registryMock.Object, previous);
+        sut.TrainPerUser(registryMock.Object, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(Guid.Empty), Times.Never);
         registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(userId), Times.Once);
@@ -200,7 +200,7 @@ public class TrainingServiceTests
         using var sut = CreateSut();
         var previous = new[] { CreateLargeResult(userId, 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
-        Assert.True(sut.Train(new LearnedScoringStrategy(), previous));
+        Assert.True(sut.Train(new LearnedScoringStrategy(), previous, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public class TrainingServiceTests
         using var sut = CreateSut();
         var strategy = new NonTrainableStrategy();
 
-        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
     }
@@ -229,7 +229,7 @@ public class TrainingServiceTests
         using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
-        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         Assert.Equal(1, strategy.TrainInvocationCount);
@@ -264,7 +264,7 @@ public class TrainingServiceTests
         using var sut = CreateSut();
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
-        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         // The training path was still exercised (strategy.Train called once).
@@ -346,7 +346,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy { NextTrainReturns = true };
 
         var previous = new[] { CreateResultWithRecommendations(userId) };
-        var result = sut.Train(strategy, previous);
+        var result = sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result);
         Assert.Equal(1, strategy.TrainInvocationCount);
@@ -369,8 +369,8 @@ public class TrainingServiceTests
         var baselineStrategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
 
-        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false);
-        var incrementalResult = sut.Train(strategy, previous, incremental: true);
+        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false, cancellationToken: TestContext.Current.CancellationToken);
+        var incrementalResult = sut.Train(strategy, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(baselineResult);
         Assert.True(incrementalResult);
@@ -413,7 +413,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
 
-        var result = sut.Train(strategy, previous);
+        var result = sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result);
         _feedbackStoreMock.Verify(s => s.LoadAll(), Times.Once);
@@ -433,7 +433,7 @@ public class TrainingServiceTests
 
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
-        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         // The strategy was still consulted with an empty example set - proving the
@@ -483,9 +483,7 @@ public class TrainingServiceTests
             // Data-rich run for the idle user creates their per-user model.
             _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
                 .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(idleUser, watchedCount: 30) });
-            sut.TrainPerUser(
-                registry,
-                new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            sut.TrainPerUser(registry, new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(registry.HasPerUserModel(idleUser));
 
             // Rewind the idle user's persisted last-trained time to well beyond the idle window so the sweep
@@ -609,7 +607,7 @@ public class TrainingServiceTests
             using var sut = CreateSut();
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var trained = sut.Train(global, previous);
+            var trained = sut.Train(global, previous, cancellationToken: TestContext.Current.CancellationToken);
             sw.Stop();
 
             Assert.True(trained);
@@ -648,7 +646,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy { NextTrainReturns = true };
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
-        var result = sut.Train(strategy, previous);
+        var result = sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result);
         Assert.NotNull(strategy.LastReceivedTrainSet);
@@ -680,7 +678,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy();
         var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
 
-        sut.Train(strategy, previous);
+        sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.NotNull(strategy.LastReceivedTrainSet);
@@ -716,11 +714,11 @@ public class TrainingServiceTests
 
         // Non-incremental baseline
         var strategyBaseline = new RecordingStrategy();
-        sut.Train(strategyBaseline, previous, incremental: false);
+        sut.Train(strategyBaseline, previous, incremental: false, cancellationToken: TestContext.Current.CancellationToken);
         var baselineCount = strategyBaseline.LastReceivedTrainSet?.Count ?? 0;
 
         // Incremental - should subsample the older set
-        sut.Train(strategy, previous, incremental: true);
+        sut.Train(strategy, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
         var incrementalCount = strategy.LastReceivedTrainSet?.Count ?? 0;
 
         // The incremental path must produce >= 1 example. If both counts happen to fall below IncrementalMinExamplesThreshold the incremental branch is skipped and both paths return the same set - that is a valid outcome, not a bug.
@@ -781,7 +779,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy { NextTrainReturns = false };
 
         // Empty fixture => false; the point is that disposal of the prior SUT did not corrupt shared state.
-        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result);
         Assert.Equal(1, strategy.TrainInvocationCount);
@@ -801,7 +799,7 @@ public class TrainingServiceTests
         ReentrantStrategy? strategy = null;
         strategy = new ReentrantStrategy(() => sut!.Train(strategy!, previous));
 
-        var outerResult = sut.Train(strategy, previous);
+        var outerResult = sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(strategy.NestedReturnValue);
         Assert.Equal(1, strategy.TrainInvocationCount);
@@ -821,7 +819,7 @@ public class TrainingServiceTests
         var strategy = new RecordingStrategy();
 
         Assert.Throws<OperationCanceledException>(() =>
-            sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]));
+            sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }], cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(0, strategy.TrainInvocationCount);
     }
@@ -841,8 +839,8 @@ public class TrainingServiceTests
         var baselineStrategy = new RecordingStrategy();
         var incrementalStrategy = new RecordingStrategy();
 
-        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false);
-        var incrementalResult = sut.Train(incrementalStrategy, previous, incremental: true);
+        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false, cancellationToken: TestContext.Current.CancellationToken);
+        var incrementalResult = sut.Train(incrementalStrategy, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(baselineResult);
         Assert.True(incrementalResult);
@@ -906,7 +904,7 @@ public class TrainingServiceTests
                 _pluginLogMock.Object);
 
             using var sut = CreateSut();
-            var trained = sut.TrainPerUser(registry, previous, incremental: true);
+            var trained = sut.TrainPerUser(registry, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.True(trained);
             // Both users cleared the threshold on their full slices, so both must have a dedicated per-user
@@ -955,7 +953,7 @@ public class TrainingServiceTests
                 _pluginLogMock.Object);
             using var sut = CreateSut();
 
-            var trained = sut.TrainPerUser(registry, Array.Empty<RecommendationResult>());
+            var trained = sut.TrainPerUser(registry, Array.Empty<RecommendationResult>(), cancellationToken: TestContext.Current.CancellationToken);
 
             // An empty result set has nothing to train on, so no model file is written and false is returned.
             Assert.False(trained);
@@ -1014,7 +1012,7 @@ public class TrainingServiceTests
                 _pluginLogMock.Object);
             using var sut = CreateSut();
 
-            sut.TrainPerUser(registry, previous);
+            sut.TrainPerUser(registry, previous, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.False(registry.HasPerUserModel(user));
         }
@@ -1068,18 +1066,14 @@ public class TrainingServiceTests
             // Data-rich run: the user clears the threshold and gets a dedicated per-user model.
             _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
                 .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 30) });
-            sut.TrainPerUser(
-                registry,
-                new[] { CreateLargeResult(user, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) });
+            sut.TrainPerUser(registry, new[] { CreateLargeResult(user, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(registry.HasPerUserModel(user));
             Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
 
             // Later lean run: the same user falls below the threshold, so the model is evicted.
             _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
                 .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) });
-            sut.TrainPerUser(
-                registry,
-                new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) });
+            sut.TrainPerUser(registry, new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.False(registry.HasPerUserModel(user));
             Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{user:N}.json")));

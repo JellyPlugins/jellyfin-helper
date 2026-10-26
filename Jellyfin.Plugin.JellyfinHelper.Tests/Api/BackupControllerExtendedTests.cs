@@ -32,7 +32,7 @@ public class BackupControllerExtendedTests
         try
         {
             const string malformedJson = "{ \"backupVersion\": 1, ,";
-            var controller = CreateControllerWithJsonBody(tempDir, malformedJson);
+            var controller = CreateControllerWithJsonBody(tempDir, malformedJson, requestAborted: TestContext.Current.CancellationToken);
 
             var result = await controller.ImportBackupAsync();
 
@@ -64,7 +64,7 @@ public class BackupControllerExtendedTests
         var tempDir = CreateTempDir();
         try
         {
-            var controller = CreateControllerWithJsonBody(tempDir, "null");
+            var controller = CreateControllerWithJsonBody(tempDir, "null", requestAborted: TestContext.Current.CancellationToken);
 
             var result = await controller.ImportBackupAsync();
 
@@ -94,7 +94,7 @@ public class BackupControllerExtendedTests
             // Body exceeds MaxBackupSizeBytes but we omit Content-Length so the pre-check passes.
             var oversized = new string('a', (int)BackupService.MaxBackupSizeBytes + 100);
             // Pass contentLength: 0 so the early Content-Length guard does NOT reject before the chunk loop runs. HttpContext.Request.ContentLength = 0 makes the pre-check a no-op and forces the chunk-loop path to be exercised.
-            var controller = CreateControllerWithJsonBody(tempDir, oversized, contentLength: 0);
+            var controller = CreateControllerWithJsonBody(tempDir, oversized, contentLength: 0, requestAborted: TestContext.Current.CancellationToken);
 
             var result = await controller.ImportBackupAsync();
 
@@ -125,7 +125,7 @@ public class BackupControllerExtendedTests
         var tempDir = CreateTempDir();
         try
         {
-            var controller = CreateControllerWithJsonBody(tempDir, "   \n\t  ");
+            var controller = CreateControllerWithJsonBody(tempDir, "   \n\t  ", requestAborted: TestContext.Current.CancellationToken);
 
             var result = await controller.ImportBackupAsync();
 
@@ -254,7 +254,7 @@ public class BackupControllerExtendedTests
         try
         {
             var backupJson = JsonSerializer.Serialize(new { backupVersion = 2, useTrash = false });
-            var controller = CreateControllerWithJsonBody(tempDir, backupJson);
+            var controller = CreateControllerWithJsonBody(tempDir, backupJson, requestAborted: TestContext.Current.CancellationToken);
 
             var result = await controller.ImportBackupAsync();
 

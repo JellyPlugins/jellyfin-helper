@@ -6,13 +6,13 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 
 /// <summary>
 ///     Performance tests for LinkRepairService with large directory trees. Tests both .strm and symlink scenarios, including mixed-mode.
 /// </summary>
+/// <param name="output">The xUnit test output writer.</param>
 public class LinkRepairPerformanceTests(ITestOutputHelper output)
 {
     [Fact]
@@ -41,7 +41,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new StrmLinkHandler(fs));
 
         var sw = Stopwatch.StartNew();
-        var result = service.FindLinkFiles(new List<string> { basePath });
+        var result = service.FindLinkFiles(new List<string> { basePath }, TestContext.Current.CancellationToken);
         sw.Stop();
 
         output.WriteLine(
@@ -73,7 +73,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new StrmLinkHandler(fs));
 
         var sw = Stopwatch.StartNew();
-        var result = service.RepairLinks(new List<string> { basePath }, true);
+        var result = service.RepairLinks(new List<string> { basePath }, true, TestContext.Current.CancellationToken);
         sw.Stop();
 
         output.WriteLine(
@@ -115,7 +115,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new StrmLinkHandler(fs));
 
         var sw = Stopwatch.StartNew();
-        var result = service.FindLinkFiles(new List<string> { basePath });
+        var result = service.FindLinkFiles(new List<string> { basePath }, TestContext.Current.CancellationToken);
         sw.Stop();
 
         output.WriteLine(
@@ -155,7 +155,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
         var sw = Stopwatch.StartNew();
-        var result = service.FindLinkFiles(new List<string> { basePath });
+        var result = service.FindLinkFiles(new List<string> { basePath }, TestContext.Current.CancellationToken);
         sw.Stop();
 
         output.WriteLine(
@@ -195,7 +195,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
         var sw = Stopwatch.StartNew();
-        var result = service.RepairLinks(new List<string> { basePath }, true);
+        var result = service.RepairLinks(new List<string> { basePath }, true, TestContext.Current.CancellationToken);
         sw.Stop();
 
         output.WriteLine(
@@ -249,7 +249,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateServiceMultiHandler(fs, handlers);
 
         var sw = Stopwatch.StartNew();
-        var result = service.FindLinkFiles(new List<string> { basePath });
+        var result = service.FindLinkFiles(new List<string> { basePath }, TestContext.Current.CancellationToken);
         sw.Stop();
 
         var strmResults = result.Count(r => r.Handler is StrmLinkHandler);

@@ -1393,7 +1393,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 var score = strategy.Score(features);
                 Assert.InRange(score, 0.0, 1.0);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         await Task.WhenAll(trainTask, scoreTask);
     }
@@ -1435,7 +1435,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 {
                     exceptions.Add(ex);
                 }
-            });
+            }, TestContext.Current.CancellationToken);
 
             var scoreTasks = Enumerable.Range(0, scorersPerRound).Select(_ => Task.Run(() =>
             {
@@ -1756,7 +1756,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
             {
                 strategy.Train(examples);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         var scoreTask = Task.Run(() =>
         {
@@ -1765,7 +1765,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
                 var v = (double[])vector.Clone();
                 scores.Add(strategy.ScoreVector(v));
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         await Task.WhenAll(trainTask, scoreTask);
 
@@ -1807,6 +1807,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
     /// <summary>
     ///     Concurrent Train() + Score() must never produce NaN and scores must stay in [0,1].
     /// </summary>
+    /// <returns>A task representing the concurrent training and scoring test.</returns>
     [Fact]
     public async Task ConcurrentTrainAndScore_NoNanAndScoresInRange()
     {
@@ -1847,7 +1848,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
             }
 
             cts.Cancel();
-        });
+        }, TestContext.Current.CancellationToken);
 
         await Task.WhenAll(scoreTasks.Append(trainTask));
 

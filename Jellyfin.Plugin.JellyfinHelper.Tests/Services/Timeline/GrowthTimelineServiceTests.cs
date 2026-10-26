@@ -466,7 +466,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     {
         // A corrupted or truncated timeline file must not blow up the caller.
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(timelinePath, "{ not valid json");
+        await File.WriteAllTextAsync(timelinePath, "{ not valid json", TestContext.Current.CancellationToken);
 
         var loaded = await _sut.LoadTimelineAsync(CancellationToken.None);
 
@@ -519,9 +519,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Directory.CreateDirectory(movieDir);
 
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(
-            baselinePath,
-            "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{\"lib|M\":{\"createdUtc\":\"2020-01-01T00:00:00Z\",\"size\":10,\"count\":3}}}");
+        await File.WriteAllTextAsync(baselinePath, "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{\"lib|M\":{\"createdUtc\":\"2020-01-01T00:00:00Z\",\"size\":10,\"count\":3}}}", TestContext.Current.CancellationToken);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
@@ -538,7 +536,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Assert.Equal(1, result.TotalDirectoriesScanned);
 
         // The persisted baseline must no longer contain any grouped '|' key - it was rebuilt per-directory.
-        var rewritten = await File.ReadAllTextAsync(baselinePath);
+        var rewritten = await File.ReadAllTextAsync(baselinePath, TestContext.Current.CancellationToken);
         using var doc = System.Text.Json.JsonDocument.Parse(rewritten);
         var dirs = doc.RootElement.GetProperty("directories");
         foreach (var entry in dirs.EnumerateObject())
@@ -560,10 +558,8 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         var seededTs = new DateTime(2021, 6, 1, 0, 0, 0, DateTimeKind.Utc);
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(
-            baselinePath,
-            "{\"firstScanTimestamp\":\"2021-06-01T00:00:00Z\",\"directories\":{" +
-            "\"" + movieDir.Replace("\\", "\\\\") + "\":{\"createdUtc\":\"2021-01-01T00:00:00Z\",\"size\":500,\"count\":1}}}");
+        await File.WriteAllTextAsync(baselinePath, "{\"firstScanTimestamp\":\"2021-06-01T00:00:00Z\",\"directories\":{" +
+            "\"" + movieDir.Replace("\\", "\\\\") + "\":{\"createdUtc\":\"2021-01-01T00:00:00Z\",\"size\":500,\"count\":1}}}", TestContext.Current.CancellationToken);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
@@ -588,15 +584,11 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // A prior non-zero point on disk plus zero libraries now: the empty-library branch must merge a zero snapshot onto the surviving historical point and persist that, so the chart shows a drop-to-zero rather than losing the history or keeping stale data.
         var oldDate = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(
-            timelinePath,
-            "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
-            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+        await File.WriteAllTextAsync(timelinePath, "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}", TestContext.Current.CancellationToken);
 
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(
-            baselinePath,
-            "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}");
+        await File.WriteAllTextAsync(baselinePath, "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}", TestContext.Current.CancellationToken);
 
         // No libraries configured (default mock returns empty).
 
@@ -622,9 +614,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // A cancelled read must surface as OperationCanceledException, NOT be swallowed to null
         // the way a corrupt-file read is - callers need to distinguish "aborted" from "no data".
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(
-            timelinePath,
-            "{\"granularity\":\"monthly\",\"dataPoints\":[]}");
+        await File.WriteAllTextAsync(timelinePath, "{\"granularity\":\"monthly\",\"dataPoints\":[]}", TestContext.Current.CancellationToken);
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -735,7 +725,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // A corrupt baseline must not throw: LoadBaselineAsync returns null on JsonException,
         // the run is treated as a first scan, and a fresh valid baseline is written.
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(baselinePath, "{ truncated baseline");
+        await File.WriteAllTextAsync(baselinePath, "{ truncated baseline", TestContext.Current.CancellationToken);
 
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
@@ -757,7 +747,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Assert.Equal(1, result.TotalDirectoriesScanned);
 
         // Baseline was rewritten to valid JSON, proving corruption was recovered rather than surfaced.
-        var rewritten = await File.ReadAllTextAsync(baselinePath);
+        var rewritten = await File.ReadAllTextAsync(baselinePath, TestContext.Current.CancellationToken);
         using var doc = System.Text.Json.JsonDocument.Parse(rewritten);
         Assert.NotNull(doc);
     }
@@ -925,7 +915,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
         Assert.True(File.Exists(baselinePath), "Baseline file was not written to disk.");
 
-        var json = await File.ReadAllTextAsync(baselinePath);
+        var json = await File.ReadAllTextAsync(baselinePath, TestContext.Current.CancellationToken);
         Assert.False(string.IsNullOrWhiteSpace(json));
         var doc = System.Text.Json.JsonDocument.Parse(json);
         Assert.NotNull(doc);
@@ -953,7 +943,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
         Assert.True(File.Exists(timelinePath), "Timeline file was not written to disk.");
 
-        var json = await File.ReadAllTextAsync(timelinePath);
+        var json = await File.ReadAllTextAsync(timelinePath, TestContext.Current.CancellationToken);
         Assert.False(string.IsNullOrWhiteSpace(json));
         var doc = System.Text.Json.JsonDocument.Parse(json);
         Assert.NotNull(doc);
@@ -1049,15 +1039,11 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // A pre-upgrade monthly timeline on disk must be discarded once and rebuilt daily from
         // the baseline, never merged into a mixed coarse+daily series.
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(
-            timelinePath,
-            "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
-            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+        await File.WriteAllTextAsync(timelinePath, "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}", TestContext.Current.CancellationToken);
 
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(
-            baselinePath,
-            "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}");
+        await File.WriteAllTextAsync(baselinePath, "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}", TestContext.Current.CancellationToken);
 
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
@@ -1088,10 +1074,8 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // marker and preserves the surviving history while appending a zero snapshot.
         var oldDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(
-            timelinePath,
-            "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2024-01-01T00:00:00Z\"," +
-            "\"dataPoints\":[{\"date\":\"2024-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+        await File.WriteAllTextAsync(timelinePath, "{\"granularity\":\"daily\",\"firstScanTimestamp\":\"2024-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2024-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}", TestContext.Current.CancellationToken);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
@@ -1109,16 +1093,12 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // coarse file, persists an empty daily marker so the stale file is not re-read, and drops
         // the old coarse point entirely.
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
-        await File.WriteAllTextAsync(
-            timelinePath,
-            "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
-            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}");
+        await File.WriteAllTextAsync(timelinePath, "{\"granularity\":\"monthly\",\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\"," +
+            "\"dataPoints\":[{\"date\":\"2020-01-01T00:00:00Z\",\"cumulativeSize\":9999,\"cumulativeFileCount\":5}]}", TestContext.Current.CancellationToken);
 
         // A baseline carries the original first-scan time, which must survive the legacy discard.
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
-        await File.WriteAllTextAsync(
-            baselinePath,
-            "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}");
+        await File.WriteAllTextAsync(baselinePath, "{\"firstScanTimestamp\":\"2020-01-01T00:00:00Z\",\"directories\":{}}", TestContext.Current.CancellationToken);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 

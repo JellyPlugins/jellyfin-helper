@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <!-- Test projects use Default analysis mode; AllEnabledByDefault from Directory.Build.props
@@ -25,7 +27,9 @@
     <PackageReference Include="Jellyfin.Model" Version="12.3.0" />
     <PackageReference Include="Jellyfin.Database.Implementations" Version="12.3.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
-    <PackageReference Include="xunit" Version="2.9.3" />
+    <!-- Keep the established VSTest pipeline (TRX, Coverlet collector and category filters).
+         xUnit v3's MTP integration is disabled deliberately until the CI pipeline migrates. -->
+    <PackageReference Include="xunit.v3.mtp-off" Version="4.0.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

@@ -171,9 +171,9 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Join(_tempDir, "async-target.txt");
         var payload = "Async payload with special chars: äöü";
 
-        await AtomicFile.WriteAllTextAsync(path, payload);
+        await AtomicFile.WriteAllTextAsync(path, payload, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal(payload, await File.ReadAllTextAsync(path));
+        Assert.Equal(payload, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -182,9 +182,9 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Join(_tempDir, "async-no-bom.txt");
         var payload = "🎬 no-bom test";
 
-        await AtomicFile.WriteAllTextAsync(path, payload);
+        await AtomicFile.WriteAllTextAsync(path, payload, cancellationToken: TestContext.Current.CancellationToken);
 
-        var bytes = await File.ReadAllBytesAsync(path);
+        var bytes = await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken);
         Assert.False(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF);
         Assert.Equal(payload, Encoding.UTF8.GetString(bytes));
     }
@@ -193,11 +193,11 @@ public sealed class AtomicFileTests : IDisposable
     public async Task WriteAllTextAsync_OverwritesExistingFile()
     {
         var path = Path.Join(_tempDir, "async-overwrite.txt");
-        await File.WriteAllTextAsync(path, "OLD");
+        await File.WriteAllTextAsync(path, "OLD", TestContext.Current.CancellationToken);
 
-        await AtomicFile.WriteAllTextAsync(path, "NEW");
+        await AtomicFile.WriteAllTextAsync(path, "NEW", cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal("NEW", await File.ReadAllTextAsync(path));
+        Assert.Equal("NEW", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -221,14 +221,14 @@ public sealed class AtomicFileTests : IDisposable
     public async Task WriteAllTextAsync_NullPath_Throws()
     {
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => AtomicFile.WriteAllTextAsync(null!, "data"));
+            () => AtomicFile.WriteAllTextAsync(null!, "data", cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task WriteAllTextAsync_EmptyPath_Throws()
     {
         await Assert.ThrowsAsync<ArgumentException>(
-            () => AtomicFile.WriteAllTextAsync(string.Empty, "data"));
+            () => AtomicFile.WriteAllTextAsync(string.Empty, "data", cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public sealed class AtomicFileTests : IDisposable
     {
         var path = Path.Join(_tempDir, "null-async.txt");
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => AtomicFile.WriteAllTextAsync(path, null!));
+            () => AtomicFile.WriteAllTextAsync(path, null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -244,9 +244,9 @@ public sealed class AtomicFileTests : IDisposable
     {
         var path = Path.Join(_tempDir, "async-clamp.txt");
 
-        await AtomicFile.WriteAllTextAsync(path, "async-clamped", maxAttempts: 0);
+        await AtomicFile.WriteAllTextAsync(path, "async-clamped", maxAttempts: 0, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal("async-clamped", await File.ReadAllTextAsync(path));
+        Assert.Equal("async-clamped", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -256,16 +256,16 @@ public sealed class AtomicFileTests : IDisposable
         // so a missing parent directory is created rather than causing an exception.
         var path = Path.Join(_tempDir, "no-such-subdir", "file.txt");
 
-        await AtomicFile.WriteAllTextAsync(path, "x", maxAttempts: 2);
+        await AtomicFile.WriteAllTextAsync(path, "x", maxAttempts: 2, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Equal("x", await File.ReadAllTextAsync(path));
+        Assert.Equal("x", await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task WriteAllTextAsync_LeavesNoOrphanTempFiles_OnSuccess()
     {
         var path = Path.Join(_tempDir, "async-orphan.txt");
-        await AtomicFile.WriteAllTextAsync(path, "async-data");
+        await AtomicFile.WriteAllTextAsync(path, "async-data", cancellationToken: TestContext.Current.CancellationToken);
 
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
         Assert.Empty(orphans);
@@ -278,7 +278,7 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Join(_tempDir, "big.txt");
         var payload = new string('A', 5 * 1024 * 1024);
 
-        await AtomicFile.WriteAllTextAsync(path, payload);
+        await AtomicFile.WriteAllTextAsync(path, payload, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(5 * 1024 * 1024, new FileInfo(path).Length);
     }
@@ -335,7 +335,7 @@ public sealed class AtomicFileTests : IDisposable
             // Invariant #2: target file always exists, and only ever holds OLD or the
             // full new payload - never a partial or truncated write.
             Assert.True(File.Exists(path));
-            var final = await File.ReadAllTextAsync(path);
+            var final = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
             Assert.True(
                 final == "OLD" || final == payload,
                 $"target must never contain partial content (iteration {iteration}, length {final.Length})");
@@ -375,10 +375,10 @@ public sealed class AtomicFileTests : IDisposable
         {
             Assert.False(Directory.Exists(subdir), "Precondition: directory must not exist before the call.");
 
-            await AtomicFile.WriteAllTextAsync(path, expectedContent);
+            await AtomicFile.WriteAllTextAsync(path, expectedContent, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.True(File.Exists(path), "File should have been created.");
-            Assert.Equal(expectedContent, await File.ReadAllTextAsync(path));
+            Assert.Equal(expectedContent, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -411,7 +411,7 @@ public sealed class AtomicFileTests : IDisposable
         Directory.CreateDirectory(path);
 
         await Assert.ThrowsAnyAsync<IOException>(
-            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 2));
+            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 2, cancellationToken: TestContext.Current.CancellationToken));
 
         // The destination must still be the untouched directory - the failed write must neither
         // replace it with a file nor corrupt it.
@@ -430,7 +430,7 @@ public sealed class AtomicFileTests : IDisposable
         Directory.CreateDirectory(path);
 
         await Assert.ThrowsAnyAsync<IOException>(
-            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 1));
+            () => AtomicFile.WriteAllTextAsync(path, "NEW", maxAttempts: 1, cancellationToken: TestContext.Current.CancellationToken));
 
         // The failed write must not have clobbered the destination: the directory is still there.
         Assert.True(Directory.Exists(path));
@@ -470,7 +470,7 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Join(_tempDir, new string('x', 40_000));
 
         await Assert.ThrowsAnyAsync<IOException>(
-            () => AtomicFile.WriteAllTextAsync(path, "data", maxAttempts: 1));
+            () => AtomicFile.WriteAllTextAsync(path, "data", maxAttempts: 1, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.False(File.Exists(path));
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);

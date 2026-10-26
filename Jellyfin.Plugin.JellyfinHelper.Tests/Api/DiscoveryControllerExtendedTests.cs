@@ -163,8 +163,8 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var returned = Assert.IsAssignableFrom<IReadOnlyList<SeerrServiceInfo>>(ok.Value);
-        Assert.Single(returned);
-        Assert.Equal(5, returned[0].Id);
+        var returnedItem = Assert.Single(returned);
+        Assert.Equal(5, returnedItem.Id);
     }
 
     [Fact]
@@ -339,13 +339,13 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
         var user = Assert.Single(filtered);
-        Assert.Single(user.Recommendations);
-        Assert.Equal(111, user.Recommendations[0].TmdbId);
+        var recommendation = Assert.Single(user.Recommendations);
+        Assert.Equal(111, recommendation.TmdbId);
     }
 
     [Fact]
@@ -374,13 +374,13 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
         var user = Assert.Single(filtered);
-        Assert.Single(user.Recommendations);
-        Assert.Equal(222, user.Recommendations[0].TmdbId);
+        var recommendation = Assert.Single(user.Recommendations);
+        Assert.Equal(222, recommendation.TmdbId);
     }
 
     [Fact]
@@ -408,13 +408,13 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
         var user = Assert.Single(filtered);
-        Assert.Single(user.Recommendations);
-        Assert.Equal(2, user.Recommendations[0].TmdbId);
+        var recommendation = Assert.Single(user.Recommendations);
+        Assert.Equal(2, recommendation.TmdbId);
     }
 
     [Fact]
@@ -439,7 +439,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -465,7 +465,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save([new DiscoveryResult { UserId = userId, UserName = "u", Recommendations = recs }]);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);

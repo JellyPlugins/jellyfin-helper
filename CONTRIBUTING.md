@@ -444,6 +444,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       └── RecommendedItemTests.cs                     # Setter null-coalescing on the RecommendedItem DTO: SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, BoxSetIds) MUST swallow a null assignment and expose an empty list instead. Cache round-trips through JsonSerializer can null any of them; downstream training/scoring code iterates with foreach without null-guards. Reassignment (non-null → null) must actively replace the backing field so a re-clear doesn't leak the previous list.
 └── TestFixtures/                  # Shared test helpers
     ├── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
+    ├── DirectoryLinkTestHelper.cs # Creates directory symlinks or Windows junctions for filesystem tests without requiring elevated symlink privileges
     └── PluginSingletonLifecycleTests.cs  # Verifies Plugin.Instance singleton lifecycle (InitializePluginInstance, TeardownPluginInstance, ResetPluginConfiguration): null/non-null state transitions, idempotency, and fresh-config guarantee after teardown+reinit
 ```
 
@@ -1036,6 +1037,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `CleanupTaskTestBase.cs` - Base class for cleanup task tests providing mocked config/tracking/trash and log helpers
 - `ConfigOverrideCollection.cs` - xUnit collection definition serializing tests that mutate shared plugin configuration
 - `ControllerTestFactory.cs` - Factory building API controllers and plugin instances with mocked dependencies for tests
+- `DirectoryLinkTestHelper.cs` - Creates directory symlinks or Windows junctions for filesystem tests without requiring elevated symlink privileges
 - `EngineTestFactory.cs`
 - `PluginSingletonLifecycleTests.cs`
 - `TestDataGenerator.cs` - Central generator for test data objects like VirtualFolderInfo and LibraryStatistics
