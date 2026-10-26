@@ -63,12 +63,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  # Only one Renovate run at a time; queue rather than cancel so a run is never
-  # killed halfway through writing branches.
-  group: renovate
-  cancel-in-progress: false
-
 jobs:
   validate-config:
     name: Validate Renovate config
@@ -95,7 +89,7 @@ jobs:
         # and repo-only options would be reported wrongly).
         # --strict turns warnings (deprecated/unknown options) into failures, so
         # a config that silently stops matching cannot reach main.
-        run: npx --yes --package renovate -- renovate-config-validator --strict
+        run: npx --yes --package renovate@44 -- renovate-config-validator --strict
 
   preflight:
     name: Check credentials
@@ -108,11 +102,6 @@ jobs:
       has-credentials: ${{ steps.check.outputs.has-credentials }}
 
     steps:
-      # The `secrets` context is not available in a job-level `if:`, so the
-      # check has to happen inside a job and be exposed as an output. This keeps
-      # a repository without credentials GREEN (the bot is skipped with a
-      # warning) instead of failing every push - while still being impossible
-      # to overlook in the run summary.
       - name: Check for a Renovate token
         id: check
         env:
@@ -147,13 +136,14 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 60
+    concurrency:
+      group: renovate-bot
+      cancel-in-progress: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Renovate authenticates with its own token; the checkout is only here
-          # so the action can read .github/renovate.json5.
           persist-credentials: false
 
       - name: Mint GitHub App token
@@ -161,11 +151,14 @@ jobs:
         if: vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          # The action's `app-id` input accepts a Client ID ("Iv23li...") just as
-          # well as the legacy numeric App ID. GitHub now points at the Client ID
-          # for App authentication, so that one wins when both are set.
           app-id: ${{ vars.RENOVATE_APP_CLIENT_ID || vars.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+          permission-statuses: write
+          permission-checks: read
 
       - name: Resolve bot identity
         id: bot
@@ -174,10 +167,6 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
-          # Commits must be authored by the App's own bot user, otherwise they
-          # appear as an unknown author and GitHub cannot verify them. The
-          # canonical identity is "<user-id>+<slug>[bot]@users.noreply.github.com";
-          # the numeric id has to be looked up via the API.
           user_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
           echo "git-author=${APP_SLUG}[bot] <${user_id}+${APP_SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
 
@@ -198,26 +187,12 @@ jobs:
           configurationFile: .github/renovate.json5
           token: ${{ steps.app-token.outputs.token || secrets.RENOVATE_TOKEN }}
         env:
-          # --- target ----------------------------------------------------
           RENOVATE_PLATFORM: github
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: 'false'
           RENOVATE_REQUIRE_CONFIG: 'required'
-
-          # --- commit identity -------------------------------------------
-          # GitHub App mode: commit as the App's bot user. Falls back to a
-          # generic identity when authenticating with a classic PAT.
           RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author || 'Renovate Bot <bot@renovate.local>' }}
-
-          # --- tooling ----------------------------------------------------
-          # `install` lets Renovate provision the exact dotnet/node toolchain it
-          # needs (from global.json / package.json engines) to refresh
-          # packages.lock.json and package-lock.json. Without it the NuGet lock
-          # files would silently go stale.
           RENOVATE_BINARY_SOURCE: install
-
-
-          # --- logging ------------------------------------------------------
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
 
       - name: Summary
@@ -234,4 +209,3 @@ jobs:
             echo "- Config: \`.github/renovate.json5\`"
             echo "- Dependency Dashboard: see the repository issue titled **Dependency Dashboard**"
           } >> "$GITHUB_STEP_SUMMARY"
-

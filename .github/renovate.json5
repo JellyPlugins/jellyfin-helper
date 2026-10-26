@@ -192,6 +192,7 @@
       matchPackageNames: ["jellyfin/jellyfin"],
       groupName: "Jellyfin Dependencies",
       semanticCommitScope: "jellyfin",
+      labels: ["dependencies", "jellyfin"],
     },
     {
       description: "GitHub Action digest refreshes are noise - batch them",
