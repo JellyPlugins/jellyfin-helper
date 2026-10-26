@@ -534,6 +534,12 @@ describe('search host guards and focus restore', () => {
     fire(minInput, 'change');
     expect(document.activeElement).toBe(document.getElementById('codecBitrateMin'));
 
+    click(document.querySelector('[data-bitrate-clear]') as HTMLElement);
+
+    // The library options live in a collapsible panel: open it first, exactly as a
+    // user would. jsdom only focuses rendered elements, so a hidden checkbox is
+    // (correctly) not focusable - the panel must be expanded before focusing TV.
+    click(document.getElementById('codecMultiToggle_libraries')!);
     const libBox = document.querySelector('[data-library-option][value="TV"]') as HTMLInputElement;
     libBox.focus();
     libBox.checked = true;
@@ -541,8 +547,7 @@ describe('search host guards and focus restore', () => {
     await debounce();
     expect(document.activeElement).toBe(document.querySelector('[data-library-option][value="TV"]'));
 
-    click(document.querySelector('[data-bitrate-clear]') as HTMLElement);
-    openDimFromList('audioLanguages');
+    openDim('audioLanguages');
     const engBox = document.querySelector('[data-multi-dim="audioLanguages"] input[type="checkbox"][value="eng"]') as HTMLInputElement;
     engBox.focus();
     engBox.checked = true;
