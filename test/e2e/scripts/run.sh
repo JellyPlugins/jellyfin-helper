@@ -14,7 +14,7 @@ RUNTIME="$E2E_DIR/runtime"
 # so version bumps need no changes here. Falls back to a sane default if absent.
 PROPS_FILE="$REPO_ROOT/Directory.Build.props"
 PLUGIN_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$PROPS_FILE" 2>/dev/null | head -1)"
-PLUGIN_VERSION="${PLUGIN_VERSION:-3.0.1.3}"
+PLUGIN_VERSION="${PLUGIN_VERSION:-3.0.1.4}"
 export PLUGIN_VERSION
 export PLUGIN_NAME="Jellyfin Helper"
 
@@ -137,7 +137,7 @@ if [[ "$(uname -s)" = "Linux" ]]; then
 fi
 
 # --- 4. bring up the stack --------------------------------------------------
-log "Starting stack (Jellyfin 12.3 + mock Arr/Seerr)"
+log "Starting stack (Jellyfin 12.4 + mock Arr/Seerr)"
 "${COMPOSE[@]}" up -d --build
 
 log "Waiting for Jellyfin to become healthy"

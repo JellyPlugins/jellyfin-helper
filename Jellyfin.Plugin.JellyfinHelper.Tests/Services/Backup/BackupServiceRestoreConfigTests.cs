@@ -1212,7 +1212,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     {
         // Backups predating the Trakt flag default to false, matching the live default.
         var json = "{ \"backupVersion\": 1, \"createdAt\": \"2026-10-14T13:19:44Z\","
-            + " \"pluginVersion\": \"3.0.1.0\", \"language\": \"de\", \"discoveryUserAccessEnabled\": true }";
+            + " \"pluginVersion\": \"3.0.1.4\", \"language\": \"de\", \"discoveryUserAccessEnabled\": true }";
         var backup = BackupService.DeserializeBackup(json);
         Assert.NotNull(backup);
         Assert.False(backup.TraktSourcingEnabled);
