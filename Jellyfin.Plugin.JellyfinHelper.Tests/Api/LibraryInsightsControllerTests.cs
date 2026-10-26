@@ -106,7 +106,7 @@ public class LibraryInsightsControllerTests
         // loser time to park in WaitAsync before releasing the gate.
         await started.Task;
         var second = Task.Run(() => _controller.GetInsightsAsync(CancellationToken.None));
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         gate.SetResult();
 
         var firstResult = await first;

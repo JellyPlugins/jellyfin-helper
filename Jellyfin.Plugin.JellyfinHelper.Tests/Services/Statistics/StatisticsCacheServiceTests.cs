@@ -403,7 +403,7 @@ public class StatisticsCacheServiceTests : IDisposable
                 }
             })).ToArray();
 
-        var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks));
+        var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks, TestContext.Current.CancellationToken));
         Assert.Null(exception);
     }
 

@@ -43,7 +43,7 @@ public class LinkRepairServiceTests
         _fileSystem.AddFile(videoFile, new MockFileData("video"));
         _fileSystem.AddFile(linkFile2, new MockFileData("target2"));
 
-        var result = _service.FindLinkFiles([seriesDir]);
+        var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.Count);
         Assert.Contains(result, r => r.FilePath == linkFile1);
@@ -57,7 +57,7 @@ public class LinkRepairServiceTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("target1"));
 
-        var result = _service.FindLinkFiles([seriesDir]);
+        var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.Same(_strmHandler, result[0].Handler);
@@ -121,7 +121,7 @@ public class LinkRepairServiceTests
         _fileSystem.AddFile(symlinkFile, new MockFileData("video"));
         _symlinkHelper.Setup(h => h.IsSymlink(symlinkFile)).Returns(true);
 
-        var result = _service.FindLinkFiles([seriesDir]);
+        var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.Same(_symlinkHandler, result[0].Handler);
@@ -137,7 +137,7 @@ public class LinkRepairServiceTests
         _fileSystem.AddFile(strmFile, new MockFileData("target"));
         _symlinkHelper.Setup(h => h.IsSymlink(strmFile)).Returns(true); // even if also symlink
 
-        var result = _service.FindLinkFiles([seriesDir]);
+        var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.Same(_strmHandler, result[0].Handler); // strm handler wins (registered first)
@@ -158,7 +158,7 @@ public class LinkRepairServiceTests
         _symlinkHelper.Setup(h => h.IsSymlink(symlinkFile)).Returns(true);
         _symlinkHelper.Setup(h => h.IsSymlink(regularFile)).Returns(false);
 
-        var result = _service.FindLinkFiles([seriesDir]);
+        var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.Count);
         Assert.Contains(result, r => r.FilePath == strmFile && r.Handler == _strmHandler);
@@ -168,14 +168,14 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_SkipsNonExistentLibraryPaths()
     {
-        var result = _service.FindLinkFiles([_fileSystem.Path.GetFullPath("/nonexistent")]);
+        var result = _service.FindLinkFiles([_fileSystem.Path.GetFullPath("/nonexistent")], TestContext.Current.CancellationToken);
         Assert.Empty(result);
     }
 
     [Fact]
     public void FindLinkFiles_EmptyLibraryList_ReturnsEmpty()
     {
-        var result = _service.FindLinkFiles([]);
+        var result = _service.FindLinkFiles([], TestContext.Current.CancellationToken);
         Assert.Empty(result);
     }
 
@@ -514,7 +514,7 @@ public class LinkRepairServiceTests
         var linkFile2 = _fileSystem.Path.GetFullPath("/series/Show2/movie.strm");
         _fileSystem.AddFile(linkFile2, new MockFileData(validMovie));
 
-        var result = _service.RepairLinks([seriesDir], true);
+        var result = _service.RepairLinks([seriesDir], true, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.ValidCount);
         Assert.Equal(1, result.RepairedCount); // Dry-run: Repaired signals "would repair" (matches summary label)
@@ -535,7 +535,7 @@ public class LinkRepairServiceTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
 
-        var result = _service.RepairLinks([_fileSystem.Path.GetFullPath("/series")], false);
+        var result = _service.RepairLinks([_fileSystem.Path.GetFullPath("/series")], false, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.RepairedCount);
         Assert.Equal(movieFile, _fileSystem.File.ReadAllText(linkFile));
@@ -552,7 +552,7 @@ public class LinkRepairServiceTests
         _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series1/Show1/movie.strm"), new MockFileData(movieFile));
         _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series2/Show2/movie.strm"), new MockFileData(movieFile));
 
-        var result = _service.RepairLinks([seriesDir1, seriesDir2], true);
+        var result = _service.RepairLinks([seriesDir1, seriesDir2], true, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.ValidCount);
         Assert.Equal(2, result.FileResults.Count);
@@ -579,7 +579,7 @@ public class LinkRepairServiceTests
         _symlinkHelper.Setup(h => h.IsSymlink(symlinkFile)).Returns(true);
         _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(validTarget);
 
-        var result = _service.RepairLinks([seriesDir], true);
+        var result = _service.RepairLinks([seriesDir], true, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.FileResults.Count);
         Assert.Equal(1, result.ValidCount);
@@ -787,7 +787,7 @@ public class LinkRepairServiceTests
 
         var missing = _fileSystem.Path.GetFullPath("/does-not-exist");
 
-        var result = _service.RepairLinks([missing, validDir], dryRun: true);
+        var result = _service.RepairLinks([missing, validDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(result.FileResults);
         Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
@@ -808,7 +808,7 @@ public class LinkRepairServiceTests
         _fileSystem.AddFile(strmPath, new MockFileData("/media/movie.mkv"));
 
         // Should complete without StackOverflowException
-        var found = _service.FindLinkFiles([root]);
+        var found = _service.FindLinkFiles([root], TestContext.Current.CancellationToken);
 
         Assert.Single(found);
         Assert.Equal(strmPath, found[0].FilePath);
@@ -828,7 +828,7 @@ public class LinkRepairServiceTests
             strmPaths.Add(strm);
         }
 
-        var found = _service.FindLinkFiles([root]);
+        var found = _service.FindLinkFiles([root], TestContext.Current.CancellationToken);
 
         // All 10 .strm files should be found (well within the visited-directory limit)
         Assert.Equal(10, found.Count);
@@ -856,7 +856,7 @@ public class LinkRepairServiceTests
             yield return libDir;
         }
 
-        var result = _service.RepairLinks(YieldPaths(), dryRun: true);
+        var result = _service.RepairLinks(YieldPaths(), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(result.FileResults);
         Assert.Equal(LinkFileStatus.InvalidContent, result.FileResults[0].Status);
@@ -884,7 +884,7 @@ public class LinkRepairServiceTests
         var lib2 = fs.Path.GetFullPath("/lib2");
         fs.AddFile(fs.Path.Combine(lib2, "c.strm"), new MockFileData("/t.mkv"));
 
-        var found = service.FindLinkFiles([lib1, lib2]);
+        var found = service.FindLinkFiles([lib1, lib2], TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(found, r => r.FilePath.StartsWith(lib2, StringComparison.OrdinalIgnoreCase));
     }
@@ -898,7 +898,7 @@ public class LinkRepairServiceTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/empty.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("")); // empty -> InvalidContent
 
-        var result = _service.RepairLinks([seriesDir], dryRun: true);
+        var result = _service.RepairLinks([seriesDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.InvalidContentCount);
         Assert.Equal(0, result.BrokenCount);
@@ -918,7 +918,7 @@ public class LinkRepairServiceTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
 
-        var result = _service.RepairLinks([seriesDir], dryRun: true);
+        var result = _service.RepairLinks([seriesDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.AmbiguousCount);
         Assert.Equal(0, result.BrokenCount);
@@ -933,7 +933,7 @@ public class LinkRepairServiceTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(_fileSystem.Path.GetFullPath("/movies/DeletedDir/movie.mkv")));
 
-        var result = _service.RepairLinks([seriesDir], dryRun: true);
+        var result = _service.RepairLinks([seriesDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.BrokenCount);
         Assert.Equal(0, result.ValidCount);
@@ -1204,7 +1204,7 @@ public class LinkRepairServiceTests
         // 5. InvalidContent (empty file)
         _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/Invalid/ep.strm"), new MockFileData(""));
 
-        var result = _service.RepairLinks([seriesDir], dryRun: false);
+        var result = _service.RepairLinks([seriesDir], dryRun: false, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(5, result.FileResults.Count);
         Assert.Equal(1, result.ValidCount);
@@ -1226,7 +1226,7 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
 
-        var result = service.RepairLinks(["bad\0path"], dryRun: true);
+        var result = service.RepairLinks(["bad\0path"], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Empty(result.FileResults);
     }
@@ -1251,7 +1251,7 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
 
-        var result = service.RepairLinks([badPath, validDir], dryRun: true);
+        var result = service.RepairLinks([badPath, validDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(result.FileResults);
         Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
@@ -1318,7 +1318,7 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
 
-        var result = service.FindLinkFiles([seriesDir]);
+        var result = service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
         Assert.Contains(result, r => r.FilePath == goodFile);
         Assert.DoesNotContain(result, r => r.FilePath == badFile);
@@ -1367,7 +1367,7 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
 
-        var result = service.FindLinkFiles([dir]);
+        var result = service.FindLinkFiles([dir], TestContext.Current.CancellationToken);
 
         Assert.Empty(result);
     }
@@ -1390,7 +1390,7 @@ public class LinkRepairServiceTests
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
 
-        var result = service.FindLinkFiles([link]);
+        var result = service.FindLinkFiles([link], TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.Equal(strmFile, result[0].FilePath);

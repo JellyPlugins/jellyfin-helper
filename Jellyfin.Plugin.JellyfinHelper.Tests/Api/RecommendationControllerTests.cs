@@ -48,7 +48,7 @@ public class RecommendationControllerTests
         };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = await _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<Collection<RecommendationResult>>(ok.Value);
@@ -67,7 +67,7 @@ public class RecommendationControllerTests
         };
         _mockEngine.Setup(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>())).Returns(generated);
 
-        var result = await _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<OkObjectResult>(result.Result);
         // Activate mode: persist to disk
@@ -89,7 +89,7 @@ public class RecommendationControllerTests
 
         // The API parameter maxPerUser=200 is only used for response trimming.
         // The engine always receives the configured MaxRecommendationsPerUser (20).
-        await _controller.GetAllRecommendations(200);
+        await _controller.GetAllRecommendations(200, TestContext.Current.CancellationToken);
 
         _mockEngine.Verify(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -105,7 +105,7 @@ public class RecommendationControllerTests
         };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = _controller.GetUserRecommendations(userId);
+        var result = _controller.GetUserRecommendations(userId, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<RecommendationResult>(ok.Value);
@@ -122,7 +122,7 @@ public class RecommendationControllerTests
         var generated = new RecommendationResult { UserId = userId, UserName = "Alice" };
         _mockEngine.Setup(e => e.GetRecommendations(userId, 20, It.IsAny<CancellationToken>())).Returns(generated);
 
-        var result = _controller.GetUserRecommendations(userId);
+        var result = _controller.GetUserRecommendations(userId, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal("Alice", ((RecommendationResult)ok.Value!).UserName);
@@ -135,7 +135,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
         _mockEngine.Setup(e => e.GetRecommendations(userId, 20, It.IsAny<CancellationToken>())).Returns((RecommendationResult?)null);
 
-        var result = _controller.GetUserRecommendations(userId);
+        var result = _controller.GetUserRecommendations(userId, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<NotFoundResult>(result.Result);
     }
@@ -143,7 +143,7 @@ public class RecommendationControllerTests
     [Fact]
     public void GetUserRecommendations_EmptyGuid_Returns400()
     {
-        var result = _controller.GetUserRecommendations(Guid.Empty);
+        var result = _controller.GetUserRecommendations(Guid.Empty, cancellationToken: TestContext.Current.CancellationToken);
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.NotNull(badRequest.Value);
@@ -259,7 +259,7 @@ public class RecommendationControllerTests
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate });
 
-        var result = await _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
 
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, status.StatusCode);
@@ -271,7 +271,7 @@ public class RecommendationControllerTests
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate });
 
-        var result = _controller.GetUserRecommendations(Guid.NewGuid());
+        var result = _controller.GetUserRecommendations(Guid.NewGuid(), cancellationToken: TestContext.Current.CancellationToken);
 
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, status.StatusCode);
@@ -314,7 +314,7 @@ public class RecommendationControllerTests
         };
         _mockEngine.Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>())).Returns(generated);
 
-        var result = await _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.IsType<OkObjectResult>(result.Result);
         // DryRun should NOT persist to disk - the UI caches in the browser instead
@@ -368,7 +368,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
         // Ask for a smaller max than the cached count.
-        var result = await _controller.GetAllRecommendations(maxPerUser: 5);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 5, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -395,7 +395,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { original });
 
-        var result = await _controller.GetAllRecommendations(maxPerUser: 10);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 10, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -426,7 +426,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { original });
 
-        var result = _controller.GetUserRecommendations(userId, maxResults: 3);
+        var result = _controller.GetUserRecommendations(userId, maxResults: 3, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<RecommendationResult>(ok.Value);
@@ -462,7 +462,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { original });
 
-        var result = await _controller.GetAllRecommendations(maxPerUser: 4);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 4, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -504,7 +504,7 @@ public class RecommendationControllerTests
         };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = await _controller.GetAllRecommendations(maxPerUser);
+        var result = await _controller.GetAllRecommendations(maxPerUser, TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -545,7 +545,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { cachedUser });
 
-        var result = _controller.GetUserRecommendations(userId, maxResults);
+        var result = _controller.GetUserRecommendations(userId, maxResults, TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<RecommendationResult>(ok.Value);
@@ -572,8 +572,8 @@ public class RecommendationControllerTests
             .Returns(new Collection<RecommendationResult> { new() { UserId = Guid.NewGuid() } });
 
         // Fire two concurrent requests; the semaphore serialises them.
-        var t1 = _controller.GetAllRecommendations();
-        var t2 = _controller.GetAllRecommendations();
+        var t1 = _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
+        var t2 = _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
         var results = await Task.WhenAll(t1, t2);
 
         // Both should succeed with OK.
@@ -606,7 +606,7 @@ public class RecommendationControllerTests
             .Returns((Collection<RecommendationResult>?)null) // pre-lock miss
             .Returns(filled); // re-check under lock hits
 
-        var result = await _controller.GetAllRecommendations(maxPerUser: 5);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 5, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -646,7 +646,7 @@ public class RecommendationControllerTests
         var cached = new Collection<RecommendationResult> { oversized, underLimit };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = await _controller.GetAllRecommendations(maxPerUser: 3);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 3, cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);

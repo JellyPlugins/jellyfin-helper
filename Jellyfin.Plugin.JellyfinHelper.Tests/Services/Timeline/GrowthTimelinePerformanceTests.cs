@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
 ///     Performance tests for GrowthTimelineService pure methods. These tests verify that timeline computation stays within acceptable time bounds even with large datasets.
 /// </summary>
+/// <param name="output">The xUnit test output writer.</param>
 public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
 {
     [Fact]

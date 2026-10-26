@@ -56,16 +56,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         File.WriteAllBytes(Path.Join(realDir, "movie.mkv"), new byte[1024]);
         File.WriteAllBytes(Path.Join(targetDir, "extra.mkv"), new byte[2048]);
 
-        try
-        {
-            Directory.CreateSymbolicLink(linkDir, targetDir);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            // Symlink creation requires elevated privileges on some Windows configurations. xUnit 2.x has no Assert.Skip - early return keeps the test green but un-asserted, which is acceptable: the test runs and asserts on runners that support symlinks.
-            _ = ex;
-            return;
-        }
+        DirectoryLinkTestHelper.Create(linkDir, targetDir);
 
         // Only the 1 024-byte file in realDir should be counted; the symlink is skipped.
         var size = _service.GetDirectorySize(realDir, string.Empty, string.Empty, CancellationToken.None);

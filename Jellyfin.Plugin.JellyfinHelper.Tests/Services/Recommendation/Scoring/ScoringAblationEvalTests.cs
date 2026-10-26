@@ -1,9 +1,6 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
@@ -14,6 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 ///     measures whether the newer genre-engagement + SeriesAffinity signals actually improve ranking
 ///     quality (NDCG@10) versus an ablated feature set where those signals are reset to neutral.
 /// </summary>
+/// <param name="output">The xUnit test output writer.</param>
 public class ScoringAblationEvalTests(ITestOutputHelper output)
 {
     /// <summary>Number of synthetic users in the small (heuristic / learned) population.</summary>
@@ -166,7 +164,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 var isLiked = e % 2 == 0;
 
                 // --- Label: derived from taste category only (independent of the feature math) ---
-                var labelNoise = (rng.NextDouble() * 0.2) - 0.1; // +/-0.1 seeded jitter
+                var labelNoise = rng.NextDouble() * 0.2 - 0.1; // +/-0.1 seeded jitter
                 var label = isLiked
                     ? Math.Clamp(0.9 + labelNoise, 0.0, 1.0) // liked -> ~0.8-1.0
                     : Math.Clamp(0.1 + labelNoise, 0.0, 1.0); // disliked -> ~0.0-0.2
@@ -174,13 +172,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 // --- Features: derived from the SAME taste category via realistic quantities ---
                 // Independent seeded noise per feature so features are not a copy of the label.
                 var completion = isLiked
-                    ? 0.85 + ((rng.NextDouble() - 0.5) * 0.2) // high completion for liked genre
-                    : 0.10 + ((rng.NextDouble() - 0.5) * 0.15); // low completion (abandoned) for disliked
+                    ? 0.85 + (rng.NextDouble() - 0.5) * 0.2 // high completion for liked genre
+                    : 0.10 + (rng.NextDouble() - 0.5) * 0.15; // low completion (abandoned) for disliked
                 completion = Math.Clamp(completion, 0.0, 1.0);
 
                 var abandonRate = isLiked
-                    ? 0.05 + (rng.NextDouble() * 0.10) // rarely abandons liked genre
-                    : 0.80 + (rng.NextDouble() * 0.15); // frequently abandons disliked genre
+                    ? 0.05 + rng.NextDouble() * 0.10 // rarely abandons liked genre
+                    : 0.80 + rng.NextDouble() * 0.15; // frequently abandons disliked genre
                 abandonRate = Math.Clamp(abandonRate, 0.0, 1.0);
 
                 // GenreSimilarity is deliberately AMBIGUOUS: liked and disliked overlap heavily
@@ -189,13 +187,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 // signals to disambiguate - which is exactly what the ablation measures. It still
                 // correlates weakly with taste (a slight lift for liked) because both share the cause.
                 var genreSimilarity = isLiked
-                    ? 0.55 + (rng.NextDouble() * 0.10)
-                    : 0.45 + (rng.NextDouble() * 0.10);
+                    ? 0.55 + rng.NextDouble() * 0.10
+                    : 0.45 + rng.NextDouble() * 0.10;
                 genreSimilarity = Math.Clamp(genreSimilarity, 0.0, 1.0);
 
                 var seriesAffinity = isLiked
-                    ? 0.70 + (rng.NextDouble() * 0.25)
-                    : 0.05 + (rng.NextDouble() * 0.15);
+                    ? 0.70 + rng.NextDouble() * 0.25
+                    : 0.05 + rng.NextDouble() * 0.15;
                 seriesAffinity = Math.Clamp(seriesAffinity, 0.0, 1.0);
 
                 var features = new CandidateFeatures
@@ -211,7 +209,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                     GenreSimilarity = genreSimilarity,
 
                     // A few neutral / shared background signals so the vectors are not degenerate.
-                    CombinedCriticScore = 0.5 + ((rng.NextDouble() - 0.5) * 0.2),
+                    CombinedCriticScore = 0.5 + (rng.NextDouble() - 0.5) * 0.2,
                     CollaborativeScore = 0.5,
                     PopularityScore = 0.5,
                     GenreCount = 3,
@@ -242,9 +240,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <param name="source">The real-feature population.</param>
     /// <returns>The ablated population.</returns>
     private static List<TrainingExample> Ablate(List<TrainingExample> source)
-    {
-        var ablated = new List<TrainingExample>(source.Count);
-        foreach (var ex in source)
+        => source.Select(ex =>
         {
             var f = ex.Features;
             var copy = new CandidateFeatures
@@ -264,18 +260,15 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 IsSeries = f.IsSeries
             };
 
-            ablated.Add(new TrainingExample
+            return new TrainingExample
             {
                 Features = copy,
                 Label = ex.Label,
                 UserId = ex.UserId,
                 SampleWeight = ex.SampleWeight,
                 GeneratedAtUtc = ex.GeneratedAtUtc
-            });
-        }
-
-        return ablated;
-    }
+            };
+        }).ToList();
 
     /// <summary>
     ///     Writes one row of the ablation table (tier, NDCG real, NDCG ablated, delta) to test output.

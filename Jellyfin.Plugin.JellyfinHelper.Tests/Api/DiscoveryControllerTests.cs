@@ -61,7 +61,7 @@ public class DiscoveryControllerTests : IDisposable
     public async Task Get_ReturnsOkWithResults()
     {
         var controller = CreateController();
-        var result = await controller.GetDiscoveryResults();
+        var result = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
         Assert.IsType<OkObjectResult>(result.Result);
     }
 

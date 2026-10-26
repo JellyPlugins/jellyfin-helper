@@ -256,7 +256,7 @@ public class LinkRepairSecurityTests
     [Trait("Category", "Security")]
     public void FindLinkFiles_EmptyLibraryList_ReturnsEmpty()
     {
-        var result = _service.FindLinkFiles([]);
+        var result = _service.FindLinkFiles([], TestContext.Current.CancellationToken);
         Assert.Empty(result);
     }
 
@@ -268,7 +268,7 @@ public class LinkRepairSecurityTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show (2024) [HEVC]/Specials/ep.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("target"));
 
-        var result = _service.FindLinkFiles([specialDir]);
+        var result = _service.FindLinkFiles([specialDir], TestContext.Current.CancellationToken);
 
         Assert.Single(result);
         Assert.Contains(result, r => r.FilePath == linkFile);

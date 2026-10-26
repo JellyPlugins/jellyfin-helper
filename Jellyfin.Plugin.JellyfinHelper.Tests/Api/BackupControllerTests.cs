@@ -154,15 +154,9 @@ public class BackupControllerTests
         var tempDir = CreateTempDir();
         try
         {
-            await File.WriteAllTextAsync(
-                Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"),
-                "{\"granularity\":\"monthly\",\"dataPoints\":[{\"date\":\"2024-06-01T00:00:00Z\",\"cumulativeSize\":1000,\"cumulativeFileCount\":1}]}",
-                Encoding.UTF8);
+            await File.WriteAllTextAsync(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"), "{\"granularity\":\"monthly\",\"dataPoints\":[{\"date\":\"2024-06-01T00:00:00Z\",\"cumulativeSize\":1000,\"cumulativeFileCount\":1}]}", Encoding.UTF8, TestContext.Current.CancellationToken);
 
-            await File.WriteAllTextAsync(
-                Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
-                "{\"firstScanTimestamp\":\"2024-04-01T00:00:00Z\",\"directories\":{\"/media/movie-1\":{\"createdUtc\":\"2024-04-01T00:00:00Z\",\"size\":2000}}}",
-                Encoding.UTF8);
+            await File.WriteAllTextAsync(Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"), "{\"firstScanTimestamp\":\"2024-04-01T00:00:00Z\",\"directories\":{\"/media/movie-1\":{\"createdUtc\":\"2024-04-01T00:00:00Z\",\"size\":2000}}}", Encoding.UTF8, TestContext.Current.CancellationToken);
 
             var exportController = CreateController(tempDir);
             var exportResult = exportController.ExportBackup();

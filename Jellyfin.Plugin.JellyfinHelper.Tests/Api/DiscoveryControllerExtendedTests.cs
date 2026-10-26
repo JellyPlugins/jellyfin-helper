@@ -339,7 +339,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -374,7 +374,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -408,7 +408,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -439,7 +439,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save(results);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
@@ -465,7 +465,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         _cache.Save([new DiscoveryResult { UserId = userId, UserName = "u", Recommendations = recs }]);
 
         var controller = CreateController();
-        var response = await controller.GetDiscoveryResults();
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
 
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);

@@ -62,7 +62,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync(string.Empty, "apikey123");
+        var (success, message) = await service.TestConnectionAsync(string.Empty, "apikey123", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("URL", message, StringComparison.OrdinalIgnoreCase);
@@ -74,7 +74,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", string.Empty);
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", string.Empty, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("API", message, StringComparison.OrdinalIgnoreCase);
@@ -86,7 +86,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, _) = await service.TestConnectionAsync(null!, "apikey123");
+        var (success, _) = await service.TestConnectionAsync(null!, "apikey123", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
     }
@@ -97,7 +97,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, _) = await service.TestConnectionAsync("http://localhost:7878", null!);
+        var (success, _) = await service.TestConnectionAsync("http://localhost:7878", null!, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
     }
@@ -109,7 +109,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, _) = await service.TestConnectionAsync("http://169.254.169.254", "testapikey");
+        var (success, _) = await service.TestConnectionAsync("http://169.254.169.254", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         handler.Protected().Verify(
@@ -128,7 +128,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync(url, "testapikey");
+        var (success, message) = await service.TestConnectionAsync(url, "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(success);
         Assert.Contains(appName, message);
@@ -141,7 +141,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, "Unauthorized");
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "wrongkey");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "wrongkey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("failed", message, StringComparison.OrdinalIgnoreCase);
@@ -153,7 +153,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.InternalServerError, "Error");
         var service = CreateService(handler.Object);
 
-        var (success, _) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
+        var (success, _) = await service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
     }
@@ -164,7 +164,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "not-json");
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.False(string.IsNullOrWhiteSpace(message));
@@ -176,7 +176,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(success);
         Assert.Contains("Unknown", message);
@@ -204,7 +204,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(mockHandler.Object);
 
-        var (success, _) = await service.TestConnectionAsync("http://localhost:7878/", "testapikey");
+        var (success, _) = await service.TestConnectionAsync("http://localhost:7878/", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(success);
         mockHandler.Verify();
@@ -231,7 +231,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(mockHandler.Object);
 
-        await service.TestConnectionAsync("http://localhost:7878", "my-secret-key");
+        await service.TestConnectionAsync("http://localhost:7878", "my-secret-key", cancellationToken: TestContext.Current.CancellationToken);
 
         mockHandler.Verify();
     }
@@ -258,7 +258,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(mockHandler.Object);
 
-        await service.TestConnectionAsync("http://localhost:7878", "testapikey");
+        await service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         mockHandler.Verify();
     }
@@ -291,7 +291,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var movies = await service.GetRadarrMoviesAsync(string.Empty, "apikey");
+        var movies = await service.GetRadarrMoviesAsync(string.Empty, "apikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(movies);
         Assert.Empty(movies);
@@ -303,7 +303,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", string.Empty);
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", string.Empty, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(movies);
         Assert.Empty(movies);
@@ -321,7 +321,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey");
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(movies);
         Assert.Equal(2, movies.Count);
@@ -338,7 +338,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.InternalServerError, "Error");
         var service = CreateService(handler.Object);
 
-        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey");
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(movies);
     }
@@ -349,7 +349,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var series = await service.GetSonarrSeriesAsync(string.Empty, "apikey");
+        var series = await service.GetSonarrSeriesAsync(string.Empty, "apikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(series);
         Assert.Empty(series);
@@ -367,7 +367,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey");
+        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(series);
         Assert.Equal(2, series.Count);
@@ -383,7 +383,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.InternalServerError, "Error");
         var service = CreateService(handler.Object);
 
-        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey");
+        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(series);
     }
@@ -402,7 +402,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
 
-        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey");
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(movies);
 
@@ -430,7 +430,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
 
-        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey");
+        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(series);
 
@@ -575,8 +575,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
 
-        var (success, message) = await service.TestConnectionAsync(
-            "http://localhost:7878", "testapikey");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
@@ -917,7 +916,7 @@ public class ArrIntegrationServiceTests
             .ThrowsAsync(new HttpRequestException("Connection refused: 192.168.1.100:7878 internal host"));
 
         var service = CreateService(handler.Object);
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.DoesNotContain("192.168.1.100", message);
@@ -937,7 +936,7 @@ public class ArrIntegrationServiceTests
             .ThrowsAsync(new HttpRequestException("ECONNREFUSED 10.0.0.5:7878"));
 
         var service = CreateService(handler.Object);
-        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
@@ -989,7 +988,7 @@ public class ArrIntegrationServiceTests
                 new AuthenticationException("PartialChain")));
 
         var service = CreateService(handler.Object);
-        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key");
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.Contains("Skip certificate validation", message);
@@ -1059,7 +1058,7 @@ public class ArrIntegrationServiceTests
             .ThrowsAsync(new HttpRequestException("Connection refused"));
 
         var service = CreateService(handler.Object);
-        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key");
+        var (success, message) = await service.TestConnectionAsync("https://arr.local", "key", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(success);
         Assert.DoesNotContain("certificate", message, StringComparison.OrdinalIgnoreCase);
@@ -1131,7 +1130,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var folders = await service.GetRootFoldersAsync(string.Empty, "apikey");
+        var folders = await service.GetRootFoldersAsync(string.Empty, "apikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(folders);
         Assert.Empty(folders);
@@ -1143,7 +1142,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", string.Empty);
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", string.Empty, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(folders);
         Assert.Empty(folders);
@@ -1161,7 +1160,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(folders);
         Assert.Equal(2, folders.Count);
@@ -1176,7 +1175,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
         var service = CreateService(handler.Object);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(folders);
         Assert.Single(folders);
@@ -1205,7 +1204,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(mockHandler.Object);
 
-        await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         mockHandler.Verify();
     }
@@ -1216,7 +1215,7 @@ public class ArrIntegrationServiceTests
         var handler = CreateMockHandler(HttpStatusCode.InternalServerError, "Error");
         var service = CreateService(handler.Object);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(folders);
     }
@@ -1243,7 +1242,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(folders);
     }
@@ -1295,7 +1294,7 @@ public class ArrIntegrationServiceTests
 
         var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
 
-        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey");
+        var folders = await service.GetRootFoldersAsync("http://localhost:7878", "testapikey", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(folders);
         pluginLogMock.Verify(
@@ -1511,7 +1510,7 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
-        await service.TestConnectionAsync("http://localhost:7878", "key");
+        await service.TestConnectionAsync("http://localhost:7878", "key", cancellationToken: TestContext.Current.CancellationToken);
 
         factoryMock.Verify(f => f.CreateClient("ArrIntegration"), Times.AtLeastOnce);
         factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.Never);
@@ -1528,7 +1527,7 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegrationInsecure")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
-        await service.TestConnectionAsync("http://localhost:7878", "key", skipCertificateValidation: true);
+        await service.TestConnectionAsync("http://localhost:7878", "key", skipCertificateValidation: true, cancellationToken: TestContext.Current.CancellationToken);
 
         factoryMock.Verify(f => f.CreateClient("ArrIntegrationInsecure"), Times.AtLeastOnce);
     }
