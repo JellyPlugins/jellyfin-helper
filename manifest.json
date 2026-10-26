@@ -13,8 +13,8 @@
         "changelog": "v3.0.1.4 - Updated to Jellyfin 12.4\n\n- Switched from Dependabot to Renovate\n- Updated dependencies and code for compatibility, with no behavior changes\n- Verified by 94% backend unit test coverage, 97% UI test coverage, and 369 end-to-end Docker tests\n- Requires Jellyfin 12.4 - if you are on Jellyfin 10.x, stay on v2.1.0.6",
         "targetAbi": "12.4.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/3.0.1.4/JellyfinHelper_3.0.1.4.zip",
-        "checksum": "",
-        "timestamp": ""
+        "checksum": "e8d1a3fa92178737e68777d791fd136f",
+        "timestamp": "2026-10-26T23:20:42Z"
       },
       {
         "version": "3.0.1.3",
