@@ -342,12 +342,12 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IEnumerable<UserWatchProfile>>(ok.Value).ToList();
-        Assert.Single(data);
-        Assert.Empty(data[0].WatchedItems); // stripped for lean response
+        var returnedProfile = Assert.Single(data);
+        Assert.Empty(returnedProfile.WatchedItems); // stripped for lean response
 
         // Verify the source profiles were not mutated (lean copy, not in-place strip)
-        Assert.Single(profiles[0].WatchedItems);
-        Assert.Equal("Movie A", profiles[0].WatchedItems[0].Name);
+        var originalWatchedItem = Assert.Single(profiles[0].WatchedItems);
+        Assert.Equal("Movie A", originalWatchedItem.Name);
     }
 
     [Fact]
@@ -372,8 +372,8 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal(5, data[0].Recommendations.Count);
+        var recommendation = Assert.Single(data);
+        Assert.Equal(5, recommendation.Recommendations.Count);
         // Critical: the original cache entry must NOT have been shortened.
         Assert.Equal(15, original.Recommendations.Count);
     }
@@ -399,9 +399,9 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
-        Assert.Single(data);
+        var recommendation = Assert.Single(data);
         // Same reference passthrough - no unnecessary allocation.
-        Assert.Same(original, data[0]);
+        Assert.Same(original, recommendation);
     }
 
     [Fact]
@@ -466,9 +466,9 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal(4, data[0].Recommendations.Count);
-        Assert.Equal("explore-low", data[0].Cohort);
+        var recommendation = Assert.Single(data);
+        Assert.Equal(4, recommendation.Recommendations.Count);
+        Assert.Equal("explore-low", recommendation.Cohort);
     }
 
     [Theory]
@@ -508,8 +508,8 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal(expectedTrimmedCount, data[0].Recommendations.Count);
+        var recommendation = Assert.Single(data);
+        Assert.Equal(expectedTrimmedCount, recommendation.Recommendations.Count);
         // Cache must never be mutated by trimming.
         Assert.Equal(150, cached[0].Recommendations.Count);
     }
@@ -610,8 +610,8 @@ public class RecommendationControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal(5, data[0].Recommendations.Count);
+        var recommendation = Assert.Single(data);
+        Assert.Equal(5, recommendation.Recommendations.Count);
         // Under-lock re-check short-circuits generation entirely.
         _mockEngine.Verify(
             e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),

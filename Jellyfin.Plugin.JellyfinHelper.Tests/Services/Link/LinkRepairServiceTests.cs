@@ -59,8 +59,8 @@ public class LinkRepairServiceTests
 
         var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
-        Assert.Single(result);
-        Assert.Same(_strmHandler, result[0].Handler);
+        var fileResult = Assert.Single(result);
+        Assert.Same(_strmHandler, fileResult.Handler);
     }
 
     [Fact]
@@ -123,8 +123,8 @@ public class LinkRepairServiceTests
 
         var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
-        Assert.Single(result);
-        Assert.Same(_symlinkHandler, result[0].Handler);
+        var fileResult = Assert.Single(result);
+        Assert.Same(_symlinkHandler, fileResult.Handler);
         _symlinkHelper.Verify(h => h.IsSymlink(symlinkFile), Times.Once);
     }
 
@@ -139,8 +139,8 @@ public class LinkRepairServiceTests
 
         var result = _service.FindLinkFiles([seriesDir], TestContext.Current.CancellationToken);
 
-        Assert.Single(result);
-        Assert.Same(_strmHandler, result[0].Handler); // strm handler wins (registered first)
+        var fileResult = Assert.Single(result);
+        Assert.Same(_strmHandler, fileResult.Handler); // strm handler wins (registered first)
     }
 
     [Fact]
@@ -476,8 +476,8 @@ public class LinkRepairServiceTests
 
         var result = _service.FindMediaFilesInDirectory(movieDir);
 
-        Assert.Single(result);
-        Assert.EndsWith(".mkv", result[0]);
+        var mediaFile = Assert.Single(result);
+        Assert.EndsWith(".mkv", mediaFile);
     }
 
     [Fact]
@@ -789,8 +789,8 @@ public class LinkRepairServiceTests
 
         var result = _service.RepairLinks([missing, validDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Single(result.FileResults);
-        Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
+        var fileResult = Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.Valid, fileResult.Status);
     }
 
     [Fact]
@@ -810,8 +810,8 @@ public class LinkRepairServiceTests
         // Should complete without StackOverflowException
         var found = _service.FindLinkFiles([root], TestContext.Current.CancellationToken);
 
-        Assert.Single(found);
-        Assert.Equal(strmPath, found[0].FilePath);
+        var fileResult = Assert.Single(found);
+        Assert.Equal(strmPath, fileResult.FilePath);
     }
 
     [Fact]
@@ -858,8 +858,8 @@ public class LinkRepairServiceTests
 
         var result = _service.RepairLinks(YieldPaths(), dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Single(result.FileResults);
-        Assert.Equal(LinkFileStatus.InvalidContent, result.FileResults[0].Status);
+        var fileResult = Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.InvalidContent, fileResult.Status);
     }
 
     // MaxVisitedDirectories cap stops outer foreach in FindLinkFiles =====
@@ -1253,8 +1253,8 @@ public class LinkRepairServiceTests
 
         var result = service.RepairLinks([badPath, validDir], dryRun: true, cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.Single(result.FileResults);
-        Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
+        var fileResult = Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.Valid, fileResult.Status);
     }
 
     private sealed class ThrowingPathFileSystem : MockFileSystem
@@ -1392,8 +1392,8 @@ public class LinkRepairServiceTests
 
         var result = service.FindLinkFiles([link], TestContext.Current.CancellationToken);
 
-        Assert.Single(result);
-        Assert.Equal(strmFile, result[0].FilePath);
+        var fileResult = Assert.Single(result);
+        Assert.Equal(strmFile, fileResult.FilePath);
     }
 
     // ProcessLinkFile: link-file directory null & normalization exceptions

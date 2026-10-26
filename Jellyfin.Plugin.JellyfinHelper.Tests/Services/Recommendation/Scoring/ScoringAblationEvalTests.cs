@@ -240,7 +240,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <param name="source">The real-feature population.</param>
     /// <returns>The ablated population.</returns>
     private static List<TrainingExample> Ablate(List<TrainingExample> source)
-        => source.Select(ex =>
+        => [.. source.Select(ex =>
         {
             var f = ex.Features;
             var copy = new CandidateFeatures
@@ -268,7 +268,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 SampleWeight = ex.SampleWeight,
                 GeneratedAtUtc = ex.GeneratedAtUtc
             };
-        }).ToList();
+        })];
 
     /// <summary>
     ///     Writes one row of the ablation table (tier, NDCG real, NDCG ablated, delta) to test output.

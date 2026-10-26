@@ -319,8 +319,8 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
 
         VerifyLogContains(_loggerMock, "No library folders configured", LogLevel.Information);
         // Fast-path reports 100% exactly once.
-        Assert.Single(reported);
-        Assert.Equal(100, reported[0]);
+        var reportedValue = Assert.Single(reported);
+        Assert.Equal(100, reportedValue);
     }
 
     [Fact]
@@ -352,10 +352,9 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         const string grandchild = "/media/movies/Show/Season 01";
         SetupLibrary(lib);
         SetupRecursiveDirs(lib, child);
-        _fileSystemMock.Setup(f => f.GetDirectories(child)).Returns(new[]
-        {
+        _fileSystemMock.Setup(f => f.GetDirectories(child)).Returns([
             new FileSystemMetadata { FullName = grandchild, Name = "Season 01", IsDirectory = true }
-        });
+        ]);
         _fileSystemMock.Setup(f => f.GetDirectories(grandchild)).Returns([]);
         SetupFilesInDir(lib);
         SetupFilesInDir(child);
@@ -392,6 +391,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     /// <summary>
     ///     When the seed-phase GetDirectories(libraryPath) call inside TryGetSubdirectories throws, the method must log a warning and return an empty list.
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task Execute_TryGetSubdirectoriesSeedThrows_LogsWarningAndContinues()
     {
@@ -414,6 +414,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     /// <summary>
     ///     When GetDirectories throws for a nested directory during the loop phase of TryGetSubdirectories, the method must log a warning and continue processing the remaining directories (not abort the whole scan).
     /// </summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
     [Fact]
     public async Task Execute_TryGetSubdirectoriesLoopThrows_LogsWarningAndContinues()
     {

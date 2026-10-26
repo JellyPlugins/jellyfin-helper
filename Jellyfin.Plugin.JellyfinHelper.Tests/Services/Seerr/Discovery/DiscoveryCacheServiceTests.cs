@@ -95,10 +95,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.True(saved);
 
         var loaded = _sut.Load();
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
-        Assert.Single(loaded[0].Recommendations);
-        Assert.Equal(42, loaded[0].Recommendations[0].TmdbId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal(42, loadedRecommendation.TmdbId);
     }
 
     [Fact]
@@ -442,8 +442,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
                 _sut.RemoveItemAsync(99, "movie", userId, cts.Token));
 
             var loaded = _sut.Load();
-            Assert.Single(loaded[0].Recommendations);
-            Assert.Equal(99, loaded[0].Recommendations[0].TmdbId);
+            var loadedRecommendation = Assert.Single(loaded[0].Recommendations);
+            Assert.Equal(99, loadedRecommendation.TmdbId);
         }
         finally
         {
@@ -538,8 +538,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var loaded = _sut.Load();
         var recs = loaded[0].Recommendations;
-        Assert.Single(recs);
-        Assert.Equal(6, recs[0].TmdbId);
+        var recommendation = Assert.Single(recs);
+        Assert.Equal(6, recommendation.TmdbId);
     }
 
     [Fact]
@@ -558,8 +558,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var results = freshSut.Load();
 
-        Assert.Single(results);
-        Assert.Equal(userId, results[0].UserId);
+        var result = Assert.Single(results);
+        Assert.Equal(userId, result.UserId);
     }
 
     [Fact]
@@ -789,8 +789,9 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         Assert.True(saved);
         var loaded = recoveringSut.Load();
-        Assert.Single(loaded);
-        Assert.Equal("PostRecovery", loaded[0].Recommendations[0].Title);
+        var loadedUser = Assert.Single(loaded);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal("PostRecovery", loadedRecommendation.Title);
     }
 
     [Fact]
@@ -815,10 +816,10 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var loaded = await _sut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
-        Assert.Single(loaded[0].Recommendations);
-        Assert.Equal(42, loaded[0].Recommendations[0].TmdbId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
+        var loadedRecommendation = Assert.Single(loadedUser.Recommendations);
+        Assert.Equal(42, loadedRecommendation.TmdbId);
     }
 
     [Fact]
@@ -835,8 +836,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var loaded = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(loaded);
-        Assert.Equal(userId, loaded[0].UserId);
+        var loadedUser = Assert.Single(loaded);
+        Assert.Equal(userId, loadedUser.UserId);
     }
 
     [Fact]
@@ -889,8 +890,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
 
         var results = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
 
-        Assert.Single(results);
-        Assert.Equal(userId, results[0].UserId);
+        var result = Assert.Single(results);
+        Assert.Equal(userId, result.UserId);
     }
 
     [Fact]
@@ -912,8 +913,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         SafeDelete(_cacheFilePath);
 
         var second = await freshSut.LoadAsync(TestContext.Current.CancellationToken);
-        Assert.Single(second);
-        Assert.Equal(userId, second[0].UserId);
+        var secondUser = Assert.Single(second);
+        Assert.Equal(userId, secondUser.UserId);
     }
 
     [Fact]
