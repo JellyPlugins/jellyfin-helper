@@ -109,7 +109,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Show Docker versions
         run: docker --version && docker compose version
@@ -172,7 +172,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
 
       - name: Install UI test dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund

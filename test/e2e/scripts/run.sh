@@ -14,7 +14,7 @@ RUNTIME="$E2E_DIR/runtime"
 # so version bumps need no changes here. Falls back to a sane default if absent.
 PROPS_FILE="$REPO_ROOT/Directory.Build.props"
 PLUGIN_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$PROPS_FILE" 2>/dev/null | head -1)"
-PLUGIN_VERSION="${PLUGIN_VERSION:-3.0.0.0}"
+PLUGIN_VERSION="${PLUGIN_VERSION:-3.0.1.3}"
 export PLUGIN_VERSION
 export PLUGIN_NAME="Jellyfin Helper"
 

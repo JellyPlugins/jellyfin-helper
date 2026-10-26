@@ -1,0 +1,330 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+
+  extends: [
+    "config:recommended",
+    ":dependencyDashboard",
+    // Keep the repo's "uses: owner/action@<sha> # vX" convention intact and
+    // automatically pin any action that slips in as a floating tag.
+    "helpers:pinGitHubActionDigests",
+    // No semver ranges anywhere: every npm dependency is an exact version, so
+    // the manifest alone tells you what is installed (no "^" surprises).
+    ":pinVersions",
+  ],
+
+  timezone: "Europe/Berlin",
+
+  // The workflow decides when Renovate runs - never self-throttle here.
+  schedule: ["at any time"],
+  prHourlyLimit: 0,
+  prConcurrentLimit: 10,
+  branchConcurrentLimit: 0,
+
+  // ---------------------------------------------------------------------------
+  // Commit / PR conventions: chore(deps): ... (overridden per group below)
+  // ---------------------------------------------------------------------------
+  semanticCommits: "enabled",
+  semanticCommitType: "chore",
+  semanticCommitScope: "deps",
+  labels: ["dependencies"],
+  rebaseWhen: "conflicted",
+
+  // Don't jump on releases that get yanked hours later.
+  minimumReleaseAge: "3 days",
+  internalChecksFilter: "strict",
+
+  // ---------------------------------------------------------------------------
+  // Dependency Dashboard (GitHub issue)
+  // ---------------------------------------------------------------------------
+  dependencyDashboard: true,
+  dependencyDashboardTitle: "Dependency Dashboard",
+  dependencyDashboardLabels: ["dependencies", "dashboard"],
+  dependencyDashboardOSVVulnerabilitySummary: "unresolved",
+  osvVulnerabilityAlerts: true,
+
+  // ---------------------------------------------------------------------------
+  // Scanning scope
+  // ---------------------------------------------------------------------------
+  ignorePaths: [
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "graphify-out/**",
+    "docs/mock/**",
+  ],
+
+  // Keep lockfiles (packages.lock.json, package-lock.json) from rotting.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 6am on monday"],
+    commitMessageAction: "Refresh lock files",
+  },
+
+  // Security fixes bypass the quarantine window and get their own label.
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ["dependencies", "security"],
+    minimumReleaseAge: null,
+    schedule: ["at any time"],
+  },
+
+  packageRules: [
+    // -------------------------------------------------------------------------
+    // 1. Jellyfin server surface - NuGet packages AND the e2e server image must
+    //    move together, otherwise the plugin compiles against an API the e2e
+    //    container does not have. One grouped PR keeps them in lockstep.
+    // -------------------------------------------------------------------------
+    {
+      description: "Jellyfin server dependencies (NuGet + e2e container image)",
+      matchDatasources: ["nuget", "docker"],
+      matchPackageNames: ["/^Jellyfin\\./", "jellyfin/jellyfin"],
+      groupName: "Jellyfin Dependencies",
+      semanticCommitScope: "jellyfin",
+      labels: ["dependencies", "jellyfin"],
+      // Server majors are breaking for plugins - never silently bundle them.
+      separateMajorMinor: true,
+    },
+
+    // -------------------------------------------------------------------------
+    // 2. C# test stack
+    // -------------------------------------------------------------------------
+    {
+      description: "C# unit test libraries",
+      matchDatasources: ["nuget"],
+      matchPackageNames: [
+        "/^xunit/",
+        "/^coverlet\\./",
+        "Microsoft.NET.Test.Sdk",
+        "Moq",
+      ],
+      groupName: "Test Dependencies (C#)",
+      semanticCommitScope: "test",
+    },
+
+    // -------------------------------------------------------------------------
+    // 3. Roslyn analyzers - build-time only, but TreatWarningsAsErrors=true
+    //    means a new rule can break the build. Keep them in their own PR.
+    // -------------------------------------------------------------------------
+    {
+      description: "Roslyn analyzers (build-time, can break TreatWarningsAsErrors)",
+      matchDatasources: ["nuget"],
+      matchPackageNames: [
+        "StyleCop.Analyzers",
+        "SerilogAnalyzer",
+        "SmartAnalyzers.MultithreadingAnalyzer",
+      ],
+      groupName: "Analyzers (C#)",
+      semanticCommitScope: "analyzers",
+    },
+    {
+      description: "StyleCop ships only prereleases on 1.2.x - allow them",
+      matchDatasources: ["nuget"],
+      matchPackageNames: ["StyleCop.Analyzers"],
+      ignoreUnstable: false,
+    },
+
+    // -------------------------------------------------------------------------
+    // 4. .NET SDK pin (global.json). Bumping this usually means touching
+    //    `dotnet-version:` in the workflows too, so flag it loudly.
+    // -------------------------------------------------------------------------
+    {
+      description: ".NET SDK pin in global.json",
+      matchDatasources: ["dotnet-version"],
+      matchPackageNames: ["dotnet-sdk"],
+      groupName: ".NET SDK",
+      semanticCommitScope: "dotnet",
+      labels: ["dependencies", "dotnet-sdk"],
+      addLabels: ["needs-manual-check"],
+    },
+
+    // -------------------------------------------------------------------------
+    // 5. Node test harnesses (test/ui = Vitest, test/e2e = Playwright)
+    // -------------------------------------------------------------------------
+    {
+      description: "UI & E2E test dependencies (Node)",
+      matchManagers: ["npm"],
+      groupName: "UI & E2E Test Dependencies (Node)",
+      semanticCommitScope: "test",
+      // Exact versions only - never write a "^x.y.z" range back into a
+      // package.json. Both harnesses are pinned, and they stay pinned.
+      rangeStrategy: "pin",
+      postUpdateOptions: ["npmDedupe"],
+    },
+    {
+      description: "@types/node must track the lowest supported Node major (engines)",
+      matchManagers: ["npm"],
+      matchPackageNames: ["@types/node"],
+      matchUpdateTypes: ["major"],
+      enabled: false,
+    },
+    {
+      // `engines.node: ">=22.12.0"` is a minimum-version FLOOR, not a dependency.
+      // Without this, the global pin strategy would happily rewrite it to an exact
+      // version and lock the harness to a single Node release.
+      description: "Never touch engines ranges",
+      matchManagers: ["npm"],
+      matchDepTypes: ["engines"],
+      enabled: false,
+    },
+    {
+      description: "Playwright bumps also need the browser image refreshed - keep separate",
+      matchManagers: ["npm"],
+      matchPackageNames: ["/^@playwright\\//", "playwright"],
+      groupName: "Playwright",
+      semanticCommitScope: "test",
+    },
+
+    // -------------------------------------------------------------------------
+    // 6. Infrastructure & CI
+    // -------------------------------------------------------------------------
+    {
+      description: "Docker & CI infrastructure",
+      matchManagers: ["dockerfile", "docker-compose", "github-actions"],
+      groupName: "Infrastructure & CI",
+      semanticCommitScope: "ci",
+      labels: ["dependencies", "ci"],
+    },
+    {
+      // The Jellyfin image is handled by rule 1 above; make sure the broader
+      // infra rule does not swallow it back into the CI group.
+      description: "Keep the Jellyfin e2e image in the Jellyfin group",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["jellyfin/jellyfin"],
+      groupName: "Jellyfin Dependencies",
+      semanticCommitScope: "jellyfin",
+      labels: ["dependencies", "jellyfin"],
+    },
+    {
+      description: "GitHub Action digest refreshes are noise - batch them",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["digest", "pin", "pinDigest"],
+      groupName: "Infrastructure & CI",
+      semanticCommitScope: "ci",
+      automerge: false,
+    },
+    {
+      // `.nvmrc` is the ONE place the Node version is declared - every
+      // setup-node step uses `node-version-file: .nvmrc`, and nvm/fnm pick it
+      // up locally. Renovate's built-in `nvm` manager keeps it current.
+      //
+      // The `node` versioning scheme treats ONLY LTS releases as stable, and
+      // ignoreUnstable (on by default) is left alone - so a brand-new "Current"
+      // major (e.g. 26 before it goes LTS) is never proposed. Production CI
+      // stays on Active LTS automatically.
+      description: "Node runtime (.nvmrc) - LTS only",
+      matchManagers: ["nvm"],
+      groupName: "Node runtime",
+      semanticCommitScope: "ci",
+      labels: ["dependencies", "ci"],
+    },
+    {
+      description: "node base image: stay on the Node major the harnesses declare",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["node"],
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      // Picked up by the custom manager from the `# renovate:` comment in
+      // pr.yml. This JDK exists purely to run SonarScanner for .NET - it never
+      // ships with the plugin.
+      //
+      // `versioning=docker` is deliberate: it understands the bare major "21"
+      // and keeps that precision, instead of rewriting it to "21.0.9+10".
+      //
+      // Adoptium publishes EVERY GA feature release - as of writing that is
+      // 8, 11, 16-27, of which only 8, 11, 17, 21 and 25 are LTS. Drifting onto
+      // a short-lived non-LTS JDK in CI is pure downside, so allowedVersions
+      // restricts the candidates to the LTS cadence (every 4th release since
+      // 21). Extend the list if Java ever changes that cadence.
+      //
+      // On top of that this never opens a PR on its own: it is parked on the
+      // Dependency Dashboard and you tick it when you want the jump.
+      description: "Java / JDK for the SonarCloud scanner - LTS only, dashboard only",
+      matchDepNames: ["java"],
+      allowedVersions: "/^(?:21|25|29|33|37|41)$/",
+      groupName: "Java (SonarCloud scanner)",
+      semanticCommitScope: "ci",
+      labels: ["dependencies", "ci"],
+      addLabels: ["needs-manual-check"],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        "> [!NOTE]",
+        "> This JDK only runs SonarScanner for .NET in `pr.yml` - it is not part of the shipped plugin.",
+        "> Only LTS releases are offered here (21 -> 25 -> 29 ...), non-LTS majors are filtered out.",
+        "> Check that the SonarScanner version in use still supports the chosen JDK.",
+      ],
+    },
+    {
+      // Picked up by the custom manager from the `# renovate:` comment in
+      // pr.yml, where the SonarCloud scanner is pinned instead of installed
+      // as "whatever is newest right now".
+      description: "SonarScanner for .NET",
+      matchDepNames: ["dotnet-sonarscanner"],
+      groupName: "Infrastructure & CI",
+      semanticCommitScope: "ci",
+      labels: ["dependencies", "ci"],
+    },
+    {
+      // Picked up by the custom manager from the `# renovate:` comment in
+      // release.yml. The download is checksum-gated with YQ_SHA256, which
+      // Renovate cannot compute - so never open this PR unattended. It is
+      // parked on the Dependency Dashboard until you tick it.
+      description: "yq release binary - checksum must be updated by hand",
+      matchDepNames: ["mikefarah/yq"],
+      groupName: "Infrastructure & CI",
+      semanticCommitScope: "ci",
+      labels: ["dependencies", "ci"],
+      addLabels: ["needs-manual-check"],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        "> [!WARNING]",
+        "> `YQ_SHA256` in `.github/workflows/release.yml` is **not** updated by this PR.",
+        "> Compute it before merging, otherwise the release workflow aborts at the checksum gate:",
+        "> `curl -fsSL https://github.com/mikefarah/yq/releases/download/<new-tag>/yq_linux_amd64 | sha256sum`",
+      ],
+    },
+
+    // -------------------------------------------------------------------------
+    // 7. Majors always get their own PR and an explicit nudge.
+    // -------------------------------------------------------------------------
+    {
+      description: "Surface majors individually",
+      matchUpdateTypes: ["major"],
+      addLabels: ["major-update"],
+      minimumReleaseAge: "7 days",
+    },
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Opt-in custom manager.
+  //
+  // Annotate any literal version in a workflow / script with:
+  //
+  //   # renovate: datasource=node-version depName=node
+  //   node-version: 22.12.0
+  //
+  // ...and Renovate will keep it updated. Nothing is touched without the
+  // comment, so an unannotated literal version stays exactly where it is.
+  // (The Node version is NOT handled here - it lives in .nvmrc and is owned by
+  // the built-in `nvm` manager.)
+  // ---------------------------------------------------------------------------
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Versions explicitly annotated with a `# renovate:` comment",
+      managerFilePatterns: [
+        "/^\\.github/workflows/.+\\.ya?ml$/",
+        "/^\\.github/scripts/.+\\.ps1$/",
+        "/^test/e2e/scripts/.+\\.sh$/",
+        "/^scripts/.+\\.ps1$/",
+        "/^build\\.yaml$/",
+      ],
+      matchStrings: [
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+?)\\s+depName=(?<depName>[^\\s]+?)(?:\\s+versioning=(?<versioning>[^\\s]+?))?\\s*\\n[^\\n]*?[:=]\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?",
+      ],
+      versioningTemplate: "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
+    },
+  ],
+}
+

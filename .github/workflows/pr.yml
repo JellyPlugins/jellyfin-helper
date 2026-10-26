@@ -128,7 +128,7 @@ jobs:
     - name: Setup Node
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: 24
+        node-version-file: .nvmrc
 
     # npm ci: installs exactly the committed lockfile, so CI never resolves
     # unpinned dependency versions at run time.
@@ -269,10 +269,16 @@ jobs:
       uses: actions/setup-java@v6
       with:
         distribution: temurin
+        # renovate: datasource=java-version depName=java versioning=docker
         java-version: 21
 
     - name: Install SonarScanner tool
-      run: dotnet tool install --global dotnet-sonarscanner
+      env:
+        # renovate: datasource=nuget depName=dotnet-sonarscanner
+        SONARSCANNER_VERSION: 12.0.0
+      # Pinned: an unpinned `dotnet tool install` pulls whatever is newest at run
+      # time, so a scanner release could turn a PR red without a single commit.
+      run: dotnet tool install --global dotnet-sonarscanner --version "$SONARSCANNER_VERSION"
 
     - name: SonarCloud analysis
       # No secret -> skip cleanly (forks / when SONAR_TOKEN is not yet configured) instead of
@@ -334,7 +340,7 @@ jobs:
     - name: Setup Node
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: 22
+        node-version-file: .nvmrc
 
     - name: Install E2E test dependencies
       run: npm ci --ignore-scripts --no-audit --no-fund
