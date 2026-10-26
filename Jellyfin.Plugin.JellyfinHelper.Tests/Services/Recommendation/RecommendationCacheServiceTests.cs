@@ -96,11 +96,11 @@ public sealed class RecommendationCacheServiceTests : IDisposable
         var loaded = _cacheService.LoadResults();
 
         Assert.NotNull(loaded);
-        Assert.Single(loaded!);
-        Assert.Equal(userId, loaded[0].UserId);
-        Assert.Equal("TestUser", loaded[0].UserName);
-        Assert.Equal("Ensemble", loaded[0].ScoringStrategy);
-        var recommendation = Assert.Single(loaded[0].Recommendations);
+        var result = Assert.Single(loaded!);
+        Assert.Equal(userId, result.UserId);
+        Assert.Equal("TestUser", result.UserName);
+        Assert.Equal("Ensemble", result.ScoringStrategy);
+        var recommendation = Assert.Single(result.Recommendations);
         Assert.Equal("Test Movie", recommendation.Name);
         Assert.Equal(0.85, recommendation.Score);
         Assert.Equal(new[] { "Action", "Thriller" }, recommendation.Genres);
@@ -141,9 +141,9 @@ public sealed class RecommendationCacheServiceTests : IDisposable
         var loaded = _cacheService.LoadResults();
 
         Assert.NotNull(loaded);
-        Assert.Single(loaded!);
-        Assert.Equal("User2", loaded[0].UserName);
-        Assert.Equal("Movie2", loaded[0].Recommendations[0].Name);
+        var result = Assert.Single(loaded!);
+        Assert.Equal("User2", result.UserName);
+        Assert.Equal("Movie2", result.Recommendations[0].Name);
     }
 
     [Fact]
