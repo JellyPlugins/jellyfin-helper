@@ -1612,10 +1612,11 @@ public class MediaStatisticsService : IMediaStatisticsService
                 ? "TrueHD Atmos"
                 : "TrueHD",
 
-            "EAC3" or "E-AC-3" => upperProfile.Contains("ATMOS", StringComparison.Ordinal) ||
-                                  upperProfile.Contains("JOC", StringComparison.Ordinal)
-                ? "EAC3 Atmos"
-                : "EAC3",
+            "EAC3" or "E-AC-3" =>
+                upperProfile.Contains("ATMOS", StringComparison.Ordinal) ||
+                upperProfile.Contains("JOC", StringComparison.Ordinal)
+                    ? "EAC3 Atmos"
+                    : "EAC3",
 
             "AC3" or "A_AC3" => "AC3",
 

@@ -68,10 +68,12 @@ internal static class ExternalCandidateFeatureBuilder
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
             CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
-            RecencyScore = candidate.EffectiveReleaseDate is { } releaseDate
-                                 && releaseDate.Year is >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
-                : 0.5,
+            RecencyScore =
+                candidate.EffectiveReleaseDate is { } releaseDate
+                && releaseDate.Year is >= 1 and <= 9999
+                    ? ContentScoring.ComputeRecencyScore(
+                        new DateTime(releaseDate.Year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
+                    : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(
                 candidate.EffectiveReleaseDate?.Year, avgYear),
             GenreCount = genres.Count,

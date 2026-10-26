@@ -402,15 +402,17 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
-            [new ExternalDiscoveryCandidate
-            {
-                TmdbId = 101,
-                MediaType = "movie",
-                Title = "Movie 101",
-                Year = 2020,
-                VoteAverage = 8.5,
-                PosterPath = null,
-            }],
+            [
+                new ExternalDiscoveryCandidate
+                {
+                    TmdbId = 101,
+                    MediaType = "movie",
+                    Title = "Movie 101",
+                    Year = 2020,
+                    VoteAverage = 8.5,
+                    PosterPath = null,
+                }
+            ],
             CancellationToken.None);
 
         Assert.NotNull(result);
@@ -429,16 +431,18 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
-            [new ExternalDiscoveryCandidate
-            {
-                TmdbId = 101,
-                MediaType = "movie",
-                Title = "Movie 101",
-                Year = 2020,
-                VoteAverage = 8.5,
-                GenreIds = [28],
-                Overview = "English overview from Trakt",
-            }],
+            [
+                new ExternalDiscoveryCandidate
+                {
+                    TmdbId = 101,
+                    MediaType = "movie",
+                    Title = "Movie 101",
+                    Year = 2020,
+                    VoteAverage = 8.5,
+                    GenreIds = [28],
+                    Overview = "English overview from Trakt",
+                }
+            ],
             CancellationToken.None);
 
         Assert.NotNull(result);
@@ -456,16 +460,18 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
-            [new ExternalDiscoveryCandidate
-            {
-                TmdbId = 101,
-                MediaType = "movie",
-                Title = "Movie 101",
-                Year = 2020,
-                VoteAverage = 8.5,
-                GenreIds = [28],
-                Overview = "English overview from Trakt",
-            }],
+            [
+                new ExternalDiscoveryCandidate
+                {
+                    TmdbId = 101,
+                    MediaType = "movie",
+                    Title = "Movie 101",
+                    Year = 2020,
+                    VoteAverage = 8.5,
+                    GenreIds = [28],
+                    Overview = "English overview from Trakt",
+                }
+            ],
             CancellationToken.None);
 
         Assert.NotNull(result);
@@ -484,16 +490,18 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         var result = await CreateService().ScoreExternalCandidatesAsync(
             userId,
-            [new ExternalDiscoveryCandidate
-            {
-                TmdbId = 101,
-                MediaType = "movie",
-                Title = "Movie 101",
-                Year = 2020,
-                VoteAverage = 8.5,
-                GenreIds = [28],
-                Overview = "English overview from Trakt",
-            }],
+            [
+                new ExternalDiscoveryCandidate
+                {
+                    TmdbId = 101,
+                    MediaType = "movie",
+                    Title = "Movie 101",
+                    Year = 2020,
+                    VoteAverage = 8.5,
+                    GenreIds = [28],
+                    Overview = "English overview from Trakt",
+                }
+            ],
             CancellationToken.None);
 
         Assert.NotNull(result);

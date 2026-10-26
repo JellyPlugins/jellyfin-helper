@@ -712,11 +712,13 @@ internal static class TrainingDataBuilder
                     }
             }
 
-            return baseLabel > EngineConstants.AbandonedLabel
-                    && watchedItemForRec?.LastPlayedDate is not null
-                    && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
+            var isRecommendationInfluenced = baseLabel > EngineConstants.AbandonedLabel
+                && watchedItemForRec?.LastPlayedDate is not null
+                && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                     <= EngineConstants.RecommendationInfluenceWindowDays
-                    && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt
+                && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt;
+
+            return isRecommendationInfluenced
                 ? Math.Max(baseLabel, EngineConstants.RecommendationInfluencedLabel)
                 : baseLabel;
         }

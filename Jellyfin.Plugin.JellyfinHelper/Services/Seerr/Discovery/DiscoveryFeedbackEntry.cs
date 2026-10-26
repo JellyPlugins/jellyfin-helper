@@ -22,7 +22,11 @@ public sealed class DiscoveryFeedbackEntry
     /// </summary>
     public string MediaType
     {
-        get => _mediaType;
+        get
+        {
+            return _mediaType;
+        }
+
         set => _mediaType = string.IsNullOrWhiteSpace(value)
             ? "movie"
             : value.Trim().ToLowerInvariant();
