@@ -25,12 +25,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        dotnet-version: 10.0.x
+        dotnet-version: 10.0.403
 
     - name: Restore
       run: dotnet restore
@@ -88,12 +88,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        dotnet-version: 10.0.x
+        dotnet-version: 10.0.403
 
     - name: Restore
       run: dotnet restore
@@ -111,7 +111,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: test-results-${{ matrix.bucket.name }}
         path: "**/TestResults/**/*.trx"
@@ -126,7 +126,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
         persist-credentials: false
@@ -151,9 +151,9 @@ jobs:
 
     - name: Setup .NET
       if: env.TAG_EXISTS == 'false'
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
-        dotnet-version: 10.0.x
+        dotnet-version: 10.0.403
 
     - name: Restore
       if: env.TAG_EXISTS == 'false'
@@ -236,7 +236,7 @@ jobs:
 
     - name: Upload build artifact
       if: env.TAG_EXISTS == 'false'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
         path: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip
@@ -252,7 +252,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
 
@@ -278,7 +278,7 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       env:
         # renovate: datasource=github-releases depName=mikefarah/yq
-        YQ_VERSION: v4.53.2
+        YQ_VERSION: v4.54.1
         # NOTE: Renovate cannot compute this hash. Bumping YQ_VERSION ALWAYS means
         # updating YQ_SHA256 by hand - the checksum gate below fails loudly otherwise.
         YQ_SHA256: "d56bf5c6819e8e696340c312bd70f849dc1678a7cda9c2ad63eebd906371d56b"
@@ -340,7 +340,7 @@ jobs:
 
     - name: Create GitHub Release
       if: env.TAG_EXISTS == 'false'
-      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         tag_name: ${{ env.VERSION }}
         name: v${{ env.VERSION }}
