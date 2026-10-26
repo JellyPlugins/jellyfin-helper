@@ -13,8 +13,10 @@ name: Renovate
 #   RENOVATE_TOKEN  - classic PAT with `repo` + `workflow` scope
 #                     (`workflow` is required so Renovate may update the action
 #                     digests in .github/workflows/).
-#   vars.RENOVATE_APP_ID + secrets.RENOVATE_APP_PRIVATE_KEY  (GitHub App, preferred)
-#                     App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW.
+#   vars.RENOVATE_APP_CLIENT_ID + secrets.RENOVATE_APP_PRIVATE_KEY  (GitHub App, preferred)
+#                     App permissions: Contents RW, Pull requests RW, Issues RW,
+#                     Workflows RW, Commit statuses RW.
+#                     The legacy numeric App ID works too, as vars.RENOVATE_APP_ID.
 
 on:
   schedule:
@@ -114,7 +116,7 @@ jobs:
       - name: Check for a Renovate token
         id: check
         env:
-          APP_ID: ${{ vars.RENOVATE_APP_ID }}
+          APP_ID: ${{ vars.RENOVATE_APP_CLIENT_ID || vars.RENOVATE_APP_ID }}
           PAT: ${{ secrets.RENOVATE_TOKEN }}
         run: |
           if [ -n "$APP_ID" ] || [ -n "$PAT" ]; then
@@ -130,8 +132,8 @@ jobs:
             echo ""
             echo "Add **one** of the following, then re-run this workflow:"
             echo ""
-            echo "1. **GitHub App (preferred)** - repository variable \`RENOVATE_APP_ID\` + secret \`RENOVATE_APP_PRIVATE_KEY\`."
-            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW."
+            echo "1. **GitHub App (preferred)** - repository variable \`RENOVATE_APP_CLIENT_ID\` (or the legacy \`RENOVATE_APP_ID\`) + secret \`RENOVATE_APP_PRIVATE_KEY\`."
+            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW, Commit statuses RW."
             echo "2. **PAT** - secret \`RENOVATE_TOKEN\`, classic token with \`repo\` + \`workflow\` scope."
             echo ""
             echo "\`workflow\` scope is required so Renovate may update the action digests in \`.github/workflows/\`."
@@ -156,10 +158,13 @@ jobs:
 
       - name: Mint GitHub App token
         id: app-token
-        if: vars.RENOVATE_APP_ID != ''
+        if: vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          app-id: ${{ vars.RENOVATE_APP_ID }}
+          # The action's `app-id` input accepts a Client ID ("Iv23li...") just as
+          # well as the legacy numeric App ID. GitHub now points at the Client ID
+          # for App authentication, so that one wins when both are set.
+          app-id: ${{ vars.RENOVATE_APP_CLIENT_ID || vars.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
 
       - name: Resolve bot identity
