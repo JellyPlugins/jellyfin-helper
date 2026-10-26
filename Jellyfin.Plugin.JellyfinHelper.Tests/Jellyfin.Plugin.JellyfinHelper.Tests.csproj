@@ -23,9 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.3.0" />
-    <PackageReference Include="Jellyfin.Model" Version="12.3.0" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.3.0" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.4.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.4.0" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.4.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <!-- Keep the established VSTest pipeline (TRX, Coverlet collector and category filters).
          xUnit v3's MTP integration is disabled deliberately until the CI pipeline migrates. -->
