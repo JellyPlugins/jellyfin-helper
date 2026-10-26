@@ -271,12 +271,12 @@ public class GrowthTimelineSymlinkTests : IDisposable
             bool recursive)
             => GetFiles(path);
 
-        public IEnumerable<FileSystemMetadata> GetFiles(string path, string pattern, bool recursive)
+        public IEnumerable<FileSystemMetadata> GetFiles(string path, string searchPattern, bool recursive)
             => throw new NotImplementedException();
 
         public IEnumerable<FileSystemMetadata> GetFiles(
             string path,
-            string pattern,
+            string searchPattern,
             IReadOnlyList<string>? extensions,
             bool enableCaseSensitiveExtensions,
             bool recursive)

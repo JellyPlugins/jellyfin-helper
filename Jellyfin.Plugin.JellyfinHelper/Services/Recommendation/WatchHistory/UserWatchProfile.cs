@@ -64,7 +64,11 @@ public sealed class UserWatchProfile
     /// </summary>
     public Dictionary<string, int> GenreDistribution
     {
-        get => _genreDistribution;
+        get
+        {
+            return _genreDistribution;
+        }
+
         set => _genreDistribution = value is null
             ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase);
@@ -105,7 +109,11 @@ public sealed class UserWatchProfile
     /// </summary>
     public Dictionary<string, LanguageProfileEntry> LanguageProfile
     {
-        get => _languageProfile;
+        get
+        {
+            return _languageProfile;
+        }
+
         set
         {
             _languageProfile = value is null
@@ -149,7 +157,11 @@ public sealed class UserWatchProfile
     /// </summary>
     public Dictionary<string, LanguageProfileEntry> SubtitleLanguageProfile
     {
-        get => _subtitleLanguageProfile;
+        get
+        {
+            return _subtitleLanguageProfile;
+        }
+
         set
         {
             _subtitleLanguageProfile = value is null
@@ -190,7 +202,11 @@ public sealed class UserWatchProfile
     /// </summary>
     public Dictionary<string, int> PeopleProfile
     {
-        get => _peopleProfile;
+        get
+        {
+            return _peopleProfile;
+        }
+
         set
         {
             _peopleProfile = value is null

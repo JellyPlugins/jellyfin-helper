@@ -336,12 +336,10 @@ internal static class TrainingFeatureComputer
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
             TagSimilarity = tagSimilarity,
-            LibraryAddedRecency = episodes
-                .Select(e => e.DateCreated)
-                .Where(d => d.HasValue)
-                .Min() is { } minDate
-                ? ContentScoring.ComputeRecencyScore(minDate)
-                : 0.5,
+            LibraryAddedRecency =
+                episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
+                    ? ContentScoring.ComputeRecencyScore(minDate)
+                    : 0.5,
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
@@ -370,10 +368,10 @@ internal static class TrainingFeatureComputer
         // Label from aggregated completion.
         var label = playedEps switch
         {
-            0 when episodes.Any(e => e.PlaybackPositionTicks > 0) => completionRatio <
-                                                                     EngineConstants.AbandonedCompletionThreshold
-                ? EngineConstants.AbandonedLabel
-                : ContentScoring.ComputeEngagementLabel(completionRatio),
+            0 when episodes.Any(e => e.PlaybackPositionTicks > 0) =>
+                completionRatio < EngineConstants.AbandonedCompletionThreshold
+                    ? EngineConstants.AbandonedLabel
+                    : ContentScoring.ComputeEngagementLabel(completionRatio),
             0 when episodes.Any(e => e.IsFavorite) => 0.65,
             _ => ContentScoring.ComputeEngagementLabel(completionRatio)
         };

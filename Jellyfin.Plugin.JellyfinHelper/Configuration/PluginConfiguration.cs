@@ -217,7 +217,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public double EnsembleAlphaMin
     {
-        get => _ensembleAlphaMin;
+        get
+        {
+            return _ensembleAlphaMin;
+        }
+
         set
         {
             _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
@@ -230,7 +234,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public double EnsembleAlphaMax
     {
-        get => _ensembleAlphaMax;
+        get
+        {
+            return _ensembleAlphaMax;
+        }
+
         set
         {
             _ensembleAlphaMax = ClampAndReport(nameof(EnsembleAlphaMax), value, 0.0, 1.0);

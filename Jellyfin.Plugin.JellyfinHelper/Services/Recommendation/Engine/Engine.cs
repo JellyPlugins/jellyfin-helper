@@ -2671,11 +2671,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     cold-start hit fills it in via <see cref="GetOrBuildCommunityPopularity"/>, which republishes
     ///     onto <see cref="_cachedSnapshot"/> so subsequent hits short-circuit.
     /// </param>
-    /// <param name="CreatedAtUtc">
-    ///     UTC publish timestamp. With <see cref="CandidateSnapshotMaxAge"/> it bounds the reuse window
-    ///     for the on-demand <see cref="GetRecommendations(Guid, int, CancellationToken)"/> path so
-    ///     library mutations between batches do not leave the live path serving stale candidates.
-    /// </param>
     /// <param name="BatchGeneration">
     ///     The <see cref="_batchGeneration"/> value at publication, or <c>0</c> for live-refresh
     ///     snapshots (not part of any batch lineage). Consumed by the exploration-seed derivation
@@ -2695,6 +2690,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     landed a strictly-newer sequence after this builder observed the counter, the batch is stale
     ///     and dropped. Capturing at build-start (rather than re-reading inside the lock, where it would
     ///     equal the cached value and make the guard unreachable) is what gives the guard teeth.
+    /// </param>
+    /// <param name="CreatedAtUtc">
+    ///     UTC publish timestamp. With <see cref="CandidateSnapshotMaxAge"/> it bounds the reuse window
+    ///     for the on-demand <see cref="GetRecommendations(Guid, int, CancellationToken)"/> path so
+    ///     library mutations between batches do not leave the live path serving stale candidates.
     /// </param>
     /// <param name="ContentAffinityLookup">Item ID -> per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     /// <param name="GenreStudioIdf">Library-wide genre/studio IDF rarity table built over exactly these Candidates. It travels with the snapshot so scoring always reads the table that describes the same candidate population being scored, even when a stale-publish guard rejects a competing snapshot write. Null degrades the GenreStudioIdfPrior feature to a neutral 0.0.</param>
