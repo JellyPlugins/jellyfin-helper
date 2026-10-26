@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.1.4] - 2026-10-26
+
+### Changed
+
+- **Updated to Jellyfin 12.4.** The plugin is built, tested, and released against Jellyfin 12.4 and now declares ABI `12.4.0.0`, so it installs and loads on 12.4 servers.
+- **Switched** from Dependabot to Renovate
+- **Updated** TypeScript, Vitest, Playwright, StyleCop, Node, and xUnit dependencies to the latest versions
+- **Adjusted** the code to accommodate the dependency upgrades without changing the plugin’s behavior
+- **Documentation reflects the new baseline.** README badges, compatibility notes, and the contributor setup instructions now name Jellyfin 12.4 as the required server version. Jellyfin 10.x users stay on v2.1.0.6.
+
+### Tests
+
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 369 end-to-end Docker tests.
+
 ## [3.0.1.3] - 2026-10-23
 
 ### Changed

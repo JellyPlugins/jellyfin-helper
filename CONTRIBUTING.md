@@ -22,7 +22,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Jellyfin Server 12.3.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
+- [Jellyfin Server 12.4.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
 - Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
 

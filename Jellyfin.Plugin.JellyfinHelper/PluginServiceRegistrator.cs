@@ -105,7 +105,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // down to the service account (0700) - same trust boundary as Jellyfin's own config and database.
         serviceCollection.AddSingleton<ISecretProtector>(sp =>
         {
-            // Resolved lazily: Jellyfin 12.3 runs RegisterServices before plugin instances exist, so
+            // Resolved lazily: Jellyfin 12 runs RegisterServices before plugin instances exist, so
             // Plugin.Instance is null during eager DI construction and would force the ephemeral provider
             // (secrets unreadable after restart). The factory runs on first resolution, by which point the
             // data path is available.

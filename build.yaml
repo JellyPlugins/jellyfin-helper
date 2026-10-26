@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.0.1.3"
+version: "3.0.1.4"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,10 +13,9 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.1.3 - Updated to Jellyfin 12.3
+  v3.0.1.4 - Updated to Jellyfin 12.4
 
-  - The plugin is built, tested, and released against Jellyfin 12.3 and now targets ABI 12.3.0.0
-  - All server references (Jellyfin.Controller, Jellyfin.Model, Jellyfin.Database.Implementations) moved to 12.3.0
-  - The end-to-end suite runs inside a real Jellyfin 12.3 container, so every release is verified on the version it ships for
+  - Switched from Dependabot to Renovate
+  - Updated dependencies and code for compatibility, with no behavior changes
   - Verified by 94% backend unit test coverage, 97% UI test coverage, and 369 end-to-end Docker tests
-  - Requires Jellyfin 12.3 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - Requires Jellyfin 12.4 - if you are on Jellyfin 10.x, stay on v2.1.0.6
