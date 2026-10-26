@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate .github/renovate.json5
-        uses: suzuki-shunsuke/github-action-renovate-config-validator@v1.1.0
+        uses: suzuki-shunsuke/github-action-renovate-config-validator@1e1604219a6b38ae9a10aff42a28a3656322c31a # v2.4.1
         with:
           strict: "true"
 
