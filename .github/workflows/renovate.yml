@@ -67,13 +67,13 @@ jobs:
           # Renovate itself requires Node >= 24.11, which .nvmrc satisfies.
           node-version-file: .nvmrc
 
+      - name: Install Renovate validator
+        run: npm install --no-save renovate@44
+
       - name: Validate .github/renovate.json5
-        # No file argument on purpose: that makes the validator auto-detect the
-        # repository config (otherwise it would be checked as a *global* config
-        # and repo-only options would be reported wrongly).
-        # --strict turns warnings (deprecated/unknown options) into failures, so
-        # a config that silently stops matching cannot reach main.
-        run: npx --yes --package renovate@44 -- renovate-config-validator --strict
+        # --no prevents npx from installing packages on-demand, satisfying static analysis security rules.
+        # --strict turns warnings (deprecated/unknown options) into failures.
+        run: npx --no -- renovate-config-validator --strict
 
   preflight:
     name: Check credentials
