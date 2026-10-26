@@ -1,15 +1,10 @@
 name: Renovate
 
 # Self-hosted Renovate run. Keeps every dependency surface of this repository
-# up to date (NuGet + packages.lock.json, the two npm test harnesses, the e2e
-# Dockerfile/compose images, SHA-pinned GitHub Actions and the .NET SDK pin in
-# global.json) and maintains the "Dependency Dashboard" issue.
+# up to date and maintains the "Dependency Dashboard" issue.
 
 on:
   schedule:
-    # 03:42 UTC daily - well clear of the nightly test suite (00:17 UTC) so the
-    # two never fight over runners, and late enough that any nightly failure is
-    # already visible before dependency PRs land.
     - cron: '42 3 * * *'
 
   workflow_dispatch:
@@ -34,7 +29,6 @@ on:
         default: false
         type: boolean
 
-  # Re-run immediately after the config changes on main instead of waiting a day.
   push:
     branches:
       - main
@@ -42,7 +36,6 @@ on:
       - '.github/renovate.json5'
       - '.github/workflows/renovate.yml'
 
-  # On PRs we only validate the config - never run the bot itself.
   pull_request:
     paths:
       - '.github/renovate.json5'
@@ -93,18 +86,7 @@ jobs:
           fi
 
           echo "has-credentials=false" >> "$GITHUB_OUTPUT"
-          echo "::warning::Renovate is installed but has no credentials yet - the bot was skipped. See the job summary for setup steps."
-          {
-            echo "## Renovate skipped - no credentials"
-            echo ""
-            echo "Add **one** of the following, then re-run this workflow:"
-            echo ""
-            echo "1. **GitHub App (preferred)** - repository variable \`RENOVATE_APP_CLIENT_ID\` (or the legacy \`RENOVATE_APP_ID\`) + secret \`RENOVATE_APP_PRIVATE_KEY\`."
-            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW, Commit statuses RW, Checks R, Dependabot alerts R."
-            echo "2. **PAT** - secret \`RENOVATE_TOKEN\`, classic token with \`repo\` + \`workflow\` scope."
-            echo ""
-            echo "\`workflow\` scope is required so Renovate may update the action digests in \`.github/workflows/\`."
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Renovate is installed but has no credentials yet - the bot was skipped."
 
   renovate:
     name: Run Renovate
@@ -117,6 +99,8 @@ jobs:
     concurrency:
       group: renovate-bot
       cancel-in-progress: false
+    env:
+      HAS_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY != '' && 'true' || 'false' }}
 
     steps:
       - name: Checkout repository
@@ -126,7 +110,7 @@ jobs:
 
       - name: Mint GitHub App token
         id: app-token
-        if: (vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != '') && secrets.RENOVATE_APP_PRIVATE_KEY != ''
+        if: (vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != '') && env.HAS_PRIVATE_KEY == 'true'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.RENOVATE_APP_CLIENT_ID || vars.RENOVATE_APP_ID }}
@@ -185,5 +169,4 @@ jobs:
             echo "- Trigger: \`$TRIGGER\`"
             echo "- Mode: $MODE"
             echo "- Config: \`.github/renovate.json5\`"
-            echo "- Dependency Dashboard: see the repository issue titled **Dependency Dashboard**"
           } >> "$GITHUB_STEP_SUMMARY"
