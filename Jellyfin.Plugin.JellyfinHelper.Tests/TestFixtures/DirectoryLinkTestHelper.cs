@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 ///     Creates directory links for filesystem tests. Windows junctions avoid the symlink privilege
 ///     requirement and exercise the same reparse-point behavior these tests cover.
 /// </summary>
-internal static class DirectoryLinkTestHelper
+internal static partial class DirectoryLinkTestHelper
 {
     private const uint FsctlSetReparsePoint = 0x000900A4;
     private const uint IoReparseTagMountPoint = 0xA0000003;
@@ -97,8 +97,8 @@ internal static class DirectoryLinkTestHelper
         return reparseData;
     }
 
-    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFileW(
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial SafeFileHandle CreateFileW(
         string fileName,
         uint desiredAccess,
         uint shareMode,
@@ -107,9 +107,9 @@ internal static class DirectoryLinkTestHelper
         uint flagsAndAttributes,
         nint templateFile);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeviceIoControl(
+    private static partial bool DeviceIoControl(
         SafeFileHandle device,
         uint controlCode,
         byte[] inputBuffer,
