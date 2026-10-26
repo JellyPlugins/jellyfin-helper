@@ -1,6 +1,9 @@
 name: Renovate
 
-# Self-hosted Renovate run.
+# Self-hosted Renovate run. Keeps every dependency surface of this repository
+# up to date (NuGet + packages.lock.json, the two npm test harnesses, the e2e
+# Dockerfile/compose images, SHA-pinned GitHub Actions and the .NET SDK pin in
+# global.json) and maintains the "Dependency Dashboard" issue.
 
 on:
   schedule:
@@ -97,7 +100,7 @@ jobs:
             echo "Add **one** of the following, then re-run this workflow:"
             echo ""
             echo "1. **GitHub App (preferred)** - repository variable \`RENOVATE_APP_CLIENT_ID\` (or the legacy \`RENOVATE_APP_ID\`) + secret \`RENOVATE_APP_PRIVATE_KEY\`."
-            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW, Commit statuses RW."
+            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW, Commit statuses RW, Checks R, Dependabot alerts R."
             echo "2. **PAT** - secret \`RENOVATE_TOKEN\`, classic token with \`repo\` + \`workflow\` scope."
             echo ""
             echo "\`workflow\` scope is required so Renovate may update the action digests in \`.github/workflows/\`."
@@ -123,7 +126,7 @@ jobs:
 
       - name: Mint GitHub App token
         id: app-token
-        if: vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != ''
+        if: (vars.RENOVATE_APP_CLIENT_ID != '' || vars.RENOVATE_APP_ID != '') && secrets.RENOVATE_APP_PRIVATE_KEY != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.RENOVATE_APP_CLIENT_ID || vars.RENOVATE_APP_ID }}
@@ -134,6 +137,7 @@ jobs:
           permission-workflows: write
           permission-statuses: write
           permission-checks: read
+          permission-vulnerability-alerts: read
 
       - name: Resolve bot identity
         id: bot
