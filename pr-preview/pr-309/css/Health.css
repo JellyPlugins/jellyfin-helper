@@ -70,6 +70,16 @@
     box-shadow: 0 0 0 2px var(--color-primary-scrollbar);
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .health-clickable {
+        transition: none;
+    }
+
+    .health-clickable:active {
+        transform: none;
+    }
+}
+
 /* Health detail list */
 .health-detail-list {
     background: rgba(255, 255, 255, 0.03);
