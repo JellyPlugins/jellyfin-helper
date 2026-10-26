@@ -1,0 +1,232 @@
+name: Renovate
+
+# Self-hosted Renovate run. Keeps every dependency surface of this repository
+# up to date (NuGet + packages.lock.json, the two npm test harnesses, the e2e
+# Dockerfile/compose images, SHA-pinned GitHub Actions and the .NET SDK pin in
+# global.json) and maintains the "Dependency Dashboard" issue.
+#
+# Configuration lives in .github/renovate.json5 - the cadence lives HERE.
+#
+# Credentials - add ONE of these. Without them the bot is skipped with a
+# warning (the run stays green), so this workflow can be merged before the
+# token exists:
+#   RENOVATE_TOKEN  - classic PAT with `repo` + `workflow` scope
+#                     (`workflow` is required so Renovate may update the action
+#                     digests in .github/workflows/).
+#   vars.RENOVATE_APP_ID + secrets.RENOVATE_APP_PRIVATE_KEY  (GitHub App, preferred)
+#                     App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW.
+
+on:
+  schedule:
+    # 03:42 UTC daily - well clear of the nightly test suite (00:17 UTC) so the
+    # two never fight over runners, and late enough that any nightly failure is
+    # already visible before dependency PRs land.
+    - cron: '42 3 * * *'
+
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Renovate log level'
+        required: false
+        default: 'info'
+        type: choice
+        options:
+          - info
+          - debug
+          - trace
+      dryRun:
+        description: 'Dry run (analyse only, create no branches/PRs/issues)'
+        required: false
+        default: false
+        type: boolean
+      ignoreSchedules:
+        description: 'Ignore all schedules in renovate.json5 (e.g. force lock file maintenance)'
+        required: false
+        default: false
+        type: boolean
+
+  # Re-run immediately after the config changes on main instead of waiting a day.
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/renovate.json5'
+      - '.github/workflows/renovate.yml'
+
+  # On PRs we only validate the config - never run the bot itself.
+  pull_request:
+    paths:
+      - '.github/renovate.json5'
+      - '.github/workflows/renovate.yml'
+
+permissions: {}
+
+concurrency:
+  # Only one Renovate run at a time; queue rather than cancel so a run is never
+  # killed halfway through writing branches.
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  validate-config:
+    name: Validate Renovate config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Renovate itself requires Node >= 24.11, which .nvmrc satisfies.
+          node-version-file: .nvmrc
+
+      - name: Validate .github/renovate.json5
+        # No file argument on purpose: that makes the validator auto-detect the
+        # repository config (otherwise it would be checked as a *global* config
+        # and repo-only options would be reported wrongly).
+        # --strict turns warnings (deprecated/unknown options) into failures, so
+        # a config that silently stops matching cannot reach main.
+        run: npx --yes --package renovate -- renovate-config-validator --strict
+
+  preflight:
+    name: Check credentials
+    runs-on: ubuntu-latest
+    needs: validate-config
+    if: github.event_name != 'pull_request'
+    permissions: {}
+    timeout-minutes: 5
+    outputs:
+      has-credentials: ${{ steps.check.outputs.has-credentials }}
+
+    steps:
+      # The `secrets` context is not available in a job-level `if:`, so the
+      # check has to happen inside a job and be exposed as an output. This keeps
+      # a repository without credentials GREEN (the bot is skipped with a
+      # warning) instead of failing every push - while still being impossible
+      # to overlook in the run summary.
+      - name: Check for a Renovate token
+        id: check
+        env:
+          APP_ID: ${{ vars.RENOVATE_APP_ID }}
+          PAT: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          if [ -n "$APP_ID" ] || [ -n "$PAT" ]; then
+            echo "has-credentials=true" >> "$GITHUB_OUTPUT"
+            echo "Renovate credentials found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "has-credentials=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::Renovate is installed but has no credentials yet - the bot was skipped. See the job summary for setup steps."
+          {
+            echo "## Renovate skipped - no credentials"
+            echo ""
+            echo "Add **one** of the following, then re-run this workflow:"
+            echo ""
+            echo "1. **GitHub App (preferred)** - repository variable \`RENOVATE_APP_ID\` + secret \`RENOVATE_APP_PRIVATE_KEY\`."
+            echo "   App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW."
+            echo "2. **PAT** - secret \`RENOVATE_TOKEN\`, classic token with \`repo\` + \`workflow\` scope."
+            echo ""
+            echo "\`workflow\` scope is required so Renovate may update the action digests in \`.github/workflows/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  renovate:
+    name: Run Renovate
+    runs-on: ubuntu-latest
+    needs: [validate-config, preflight]
+    if: needs.preflight.outputs.has-credentials == 'true'
+    permissions:
+      contents: read
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Renovate authenticates with its own token; the checkout is only here
+          # so the action can read .github/renovate.json5.
+          persist-credentials: false
+
+      - name: Mint GitHub App token
+        id: app-token
+        if: vars.RENOVATE_APP_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      - name: Resolve bot identity
+        id: bot
+        if: steps.app-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          # Commits must be authored by the App's own bot user, otherwise they
+          # appear as an unknown author and GitHub cannot verify them. The
+          # canonical identity is "<user-id>+<slug>[bot]@users.noreply.github.com";
+          # the numeric id has to be looked up via the API.
+          user_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          echo "git-author=${APP_SLUG}[bot] <${user_id}+${APP_SLUG}[bot]@users.noreply.github.com>" >> "$GITHUB_OUTPUT"
+
+      - name: Enable dry run
+        if: inputs.dryRun
+        run: echo "RENOVATE_DRY_RUN=full" >> "$GITHUB_ENV"
+
+      - name: Ignore schedules
+        if: inputs.ignoreSchedules
+        run: |
+          {
+            echo "RENOVATE_FORCE={\"schedule\":null}"
+          } >> "$GITHUB_ENV"
+
+      - name: Renovate
+        uses: renovatebot/github-action@2804199d260ad00c1fae0e9e842888369391c776 # v46.3.10
+        with:
+          configurationFile: .github/renovate.json5
+          token: ${{ steps.app-token.outputs.token || secrets.RENOVATE_TOKEN }}
+        env:
+          # --- target ----------------------------------------------------
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: 'required'
+
+          # --- commit identity -------------------------------------------
+          # GitHub App mode: commit as the App's bot user. Falls back to a
+          # generic identity when authenticating with a classic PAT.
+          RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author || 'Renovate Bot <bot@renovate.local>' }}
+
+          # --- tooling ----------------------------------------------------
+          # `install` lets Renovate provision the exact dotnet/node toolchain it
+          # needs (from global.json / package.json engines) to refresh
+          # packages.lock.json and package-lock.json. Without it the NuGet lock
+          # files would silently go stale.
+          RENOVATE_BINARY_SOURCE: install
+
+
+          # --- logging ------------------------------------------------------
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ inputs.dryRun && 'dry run (no PRs created)' || 'live' }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          {
+            echo "## Renovate"
+            echo ""
+            echo "- Trigger: \`$TRIGGER\`"
+            echo "- Mode: $MODE"
+            echo "- Config: \`.github/renovate.json5\`"
+            echo "- Dependency Dashboard: see the repository issue titled **Dependency Dashboard**"
+          } >> "$GITHUB_STEP_SUMMARY"
+

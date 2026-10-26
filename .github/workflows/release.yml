@@ -277,7 +277,10 @@ jobs:
     - name: Install jq and yq
       if: env.TAG_EXISTS == 'false'
       env:
+        # renovate: datasource=github-releases depName=mikefarah/yq
         YQ_VERSION: v4.53.2
+        # NOTE: Renovate cannot compute this hash. Bumping YQ_VERSION ALWAYS means
+        # updating YQ_SHA256 by hand - the checksum gate below fails loudly otherwise.
         YQ_SHA256: "d56bf5c6819e8e696340c312bd70f849dc1678a7cda9c2ad63eebd906371d56b"
       run: |
         sudo apt-get update && sudo apt-get install -y jq
