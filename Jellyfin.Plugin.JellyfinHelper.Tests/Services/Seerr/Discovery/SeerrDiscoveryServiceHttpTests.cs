@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -13,10 +7,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using Moq;
-using Moq.Protected;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
@@ -733,8 +725,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             LinkedJellyfinUserId, "tv", "sonarr", CancellationToken.None);
 
         Assert.True(result.CanRequest);
-        Assert.Single(result.Profiles);
-        Assert.Equal(10, result.Profiles[0].ProfileId);
+        var resultProfile = Assert.Single(result.Profiles);
+        Assert.Equal(10, resultProfile.ProfileId);
     }
 
     // Config-boundary guards, cancellation, pagination and header-injection defence

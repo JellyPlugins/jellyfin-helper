@@ -46,7 +46,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         }
     }
 
-    private PluginConfiguration ConfigWithRadarr(params (string Url, string Key, string Name)[] instances)
+    private void ConfigWithRadarr(params (string Url, string Key, string Name)[] instances)
     {
         var config = new PluginConfiguration();
         foreach (var (url, key, name) in instances)
@@ -54,10 +54,9 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
             config.RadarrInstances.Add(new ArrInstanceConfig { Url = url, ApiKey = key, Name = name });
         }
         _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
-        return config;
     }
 
-    private PluginConfiguration ConfigWithSonarr(params (string Url, string Key, string Name)[] instances)
+    private void ConfigWithSonarr(params (string Url, string Key, string Name)[] instances)
     {
         var config = new PluginConfiguration();
         foreach (var (url, key, name) in instances)
@@ -65,7 +64,6 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
             config.SonarrInstances.Add(new ArrInstanceConfig { Url = url, ApiKey = key, Name = name });
         }
         _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
-        return config;
     }
 
     [Fact]

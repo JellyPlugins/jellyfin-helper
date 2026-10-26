@@ -142,8 +142,7 @@ public sealed class DiscoveryRegressionTests
 
         var result = (List<SeerrServiceInfo>)method!.Invoke(null, new object[] { (IReadOnlyList<AllowedQualityProfile>)allowedProfiles })!;
 
-        Assert.Single(result); // One server
-        var server = result[0];
+        var server = Assert.Single(result); // One server
 
         // MUST have exactly 3 unique profiles (not 6 duplicates!)
         Assert.Equal(3, server.Profiles.Count);
@@ -175,8 +174,8 @@ public sealed class DiscoveryRegressionTests
 
         var result = (List<SeerrServiceInfo>)method!.Invoke(null, new object[] { (IReadOnlyList<AllowedQualityProfile>)allowedProfiles })!;
 
-        Assert.Single(result);
-        Assert.Equal(3, result[0].Profiles.Count);
+        var resultItem = Assert.Single(result);
+        Assert.Equal(3, resultItem.Profiles.Count);
     }
 
     [Fact]

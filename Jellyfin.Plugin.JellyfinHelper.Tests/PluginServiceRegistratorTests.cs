@@ -9,7 +9,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
-using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -58,9 +57,6 @@ public class PluginServiceRegistratorTests : IDisposable
         sut.RegisterServices(sc, host.Object);
         return sc;
     }
-
-    private static bool ContainsSingleton<TService>(IServiceCollection sc)
-        => sc.Any(d => d.ServiceType == typeof(TService) && d.Lifetime == ServiceLifetime.Singleton);
 
     // Contract: RegisterServices does not throw regardless of Plugin.Instance state
 

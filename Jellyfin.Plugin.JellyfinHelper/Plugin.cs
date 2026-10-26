@@ -191,7 +191,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private void ReportClampedConfigValues()
     {
         // BasePlugin<T>.Configuration is lazily materialised - in the real host it is populated before this ctor runs, but tests spin up a bare Plugin instance without a serializer wiring, so Configuration may still be null here.
-        PluginConfiguration? config = null;
+        PluginConfiguration? config;
         try
         {
             config = Configuration;

@@ -1,6 +1,3 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -81,8 +78,8 @@ public sealed class PluginTests : IDisposable
         // a doubled menu entry in Jellyfin's sidebar; a wrong name would break the URL routing.
         var plugin = CreatePlugin();
         var pages = plugin.GetPages().ToList();
-        Assert.Single(pages);
-        var page = pages[0];
+        var page = Assert.Single(pages);
+
         Assert.Equal("Jellyfin Helper", page.Name);
         Assert.Equal("Jellyfin Helper", page.DisplayName);
         Assert.True(page.EnableInMainMenu);

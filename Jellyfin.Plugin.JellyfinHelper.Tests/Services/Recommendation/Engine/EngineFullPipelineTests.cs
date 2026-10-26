@@ -1,14 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Controller.Library;
 using Moq;
 using Xunit;
 
@@ -488,7 +484,7 @@ public sealed class EngineFullPipelineTests
 
         // Batch completes with one result for the single user - the guard absorbed the failure.
         Assert.NotNull(results);
-        Assert.Single(results);
-        Assert.Equal(userId, results[0].UserId);
+        var resultItem = Assert.Single(results);
+        Assert.Equal(userId, resultItem.UserId);
     }
 }

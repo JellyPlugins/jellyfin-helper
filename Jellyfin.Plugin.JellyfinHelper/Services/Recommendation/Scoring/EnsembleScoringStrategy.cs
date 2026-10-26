@@ -647,8 +647,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
             var qualityGatePassed = !double.IsNaN(validationLoss) && validationLoss <= ValidationLossThreshold;
-            var trend = MetricsTrend.Stable;
-
+            MetricsTrend trend;
             lock (_syncRoot)
             {
                 // Track examples seen across training rounds.

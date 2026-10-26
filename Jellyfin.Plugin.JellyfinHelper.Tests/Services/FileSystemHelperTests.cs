@@ -1,8 +1,5 @@
 using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Services;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
@@ -12,8 +9,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 /// </summary>
 public class FileSystemHelperTests
 {
-    private readonly Mock<ILogger> _loggerMock = TestMockFactory.CreateLogger();
-
     /// <summary>Creates a temp directory, runs the action, then deletes it.</summary>
     private static string CreateTempDir()
     {
@@ -209,8 +204,8 @@ public class FileSystemHelperTests
         FileSystemHelper.AddPath(dict, "HEVC", "/media/movie.mkv");
 
         Assert.True(dict.TryGetValue("HEVC", out var paths));
-        Assert.Single(paths);
-        Assert.Equal("/media/movie.mkv", paths[0]);
+        var path = Assert.Single(paths);
+        Assert.Equal("/media/movie.mkv", path);
     }
 
     [Fact]

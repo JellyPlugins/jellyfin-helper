@@ -97,8 +97,8 @@ public sealed class TrashServiceGuardTests
 
             // Verify the trashed item exists with timestamp prefix
             var trashedItems = Directory.GetDirectories(trashBasePath);
-            Assert.Single(trashedItems);
-            Assert.Contains("Orphan.trickplay", Path.GetFileName(trashedItems[0]));
+            var trashedItem = Assert.Single(trashedItems);
+            Assert.Contains("Orphan.trickplay", Path.GetFileName(trashedItem));
         }
         finally
         {

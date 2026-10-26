@@ -1,4 +1,4 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -157,9 +157,9 @@ public class HelperCleanupTaskTests
     public void GetDefaultTriggers_ReturnsSundayWeeklyTrigger()
     {
         var triggers = _task.GetDefaultTriggers().ToList();
-        Assert.Single(triggers);
-        Assert.Equal(TaskTriggerInfoType.WeeklyTrigger, triggers[0].Type);
-        Assert.Equal(DayOfWeek.Sunday, triggers[0].DayOfWeek);
+        var trigger = Assert.Single(triggers);
+        Assert.Equal(TaskTriggerInfoType.WeeklyTrigger, trigger.Type);
+        Assert.Equal(DayOfWeek.Sunday, trigger.DayOfWeek);
     }
 
     [Fact]

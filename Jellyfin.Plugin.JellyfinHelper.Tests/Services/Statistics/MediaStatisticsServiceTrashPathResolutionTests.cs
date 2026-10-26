@@ -1,4 +1,3 @@
-using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -75,8 +74,8 @@ public sealed class MediaStatisticsServiceTrashPathResolutionTests
         var result = service.CalculateStatistics();
 
         // The failed trash resolution is swallowed: the library is still scanned end-to-end.
-        Assert.Single(result.Libraries);
-        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        var library = Assert.Single(result.Libraries);
+        Assert.Equal(1, library.VideoFileCount);
 
         // Exactly one warning is emitted for the offending root, carrying the resolution exception.
         _pluginLogMock.Verify(
@@ -122,8 +121,8 @@ public sealed class MediaStatisticsServiceTrashPathResolutionTests
 
         var result = service.CalculateStatistics();
 
-        Assert.Single(result.Libraries);
-        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(1, resultLibrary.VideoFileCount);
     }
 
     [Fact]
@@ -156,7 +155,7 @@ public sealed class MediaStatisticsServiceTrashPathResolutionTests
 
         var result = service.CalculateStatistics();
 
-        Assert.Single(result.Libraries);
-        Assert.Equal(1, result.Libraries[0].VideoFileCount);
+        var resultLibrary = Assert.Single(result.Libraries);
+        Assert.Equal(1, resultLibrary.VideoFileCount);
     }
 }

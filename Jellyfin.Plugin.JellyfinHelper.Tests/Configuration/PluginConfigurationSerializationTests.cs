@@ -39,10 +39,10 @@ public class PluginConfigurationSerializationTests
 
         var restored = RoundTrip(config);
 
-        Assert.Single(restored.RadarrInstances);
-        Assert.Equal("Radarr", restored.RadarrInstances[0].Name);
-        Assert.Equal("http://localhost:7878", restored.RadarrInstances[0].Url);
-        Assert.Equal("key1", restored.RadarrInstances[0].ApiKey);
+        var radarrInstance = Assert.Single(restored.RadarrInstances);
+        Assert.Equal("Radarr", radarrInstance.Name);
+        Assert.Equal("http://localhost:7878", radarrInstance.Url);
+        Assert.Equal("key1", radarrInstance.ApiKey);
     }
 
     [Fact]
@@ -166,11 +166,11 @@ public class PluginConfigurationSerializationTests
         var restored = RoundTrip(config);
 
         Assert.Equal(2, restored.RadarrInstances.Count);
-        Assert.Single(restored.SonarrInstances);
+        var sonarrInstance = Assert.Single(restored.SonarrInstances);
 
         Assert.Equal("Radarr", restored.RadarrInstances[0].Name);
         Assert.Equal("Radarr 4K", restored.RadarrInstances[1].Name);
-        Assert.Equal("Sonarr", restored.SonarrInstances[0].Name);
+        Assert.Equal("Sonarr", sonarrInstance.Name);
     }
 
     [Fact]
@@ -213,8 +213,8 @@ public class PluginConfigurationSerializationTests
         Assert.True(restored.UseTrash);
         Assert.Equal("/tmp/trash", restored.TrashFolderPath);
         Assert.Equal(14, restored.TrashRetentionDays);
-        Assert.Single(restored.RadarrInstances);
-        Assert.Equal("Radarr", restored.RadarrInstances[0].Name);
+        var restoredRadarrInstance = Assert.Single(restored.RadarrInstances);
+        Assert.Equal("Radarr", restoredRadarrInstance.Name);
     }
 
     [Fact]

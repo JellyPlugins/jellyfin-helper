@@ -133,8 +133,8 @@ public class TrashControllerTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.True(data.IsAbsolute);
-        Assert.Single(data.Paths);
-        Assert.Equal(trashPath, data.Paths[0]);
+        var path = Assert.Single(data.Paths);
+        Assert.Equal(trashPath, path);
     }
 
     [Fact]
@@ -175,8 +175,8 @@ public class TrashControllerTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.False(data.IsAbsolute);
-        Assert.Single(data.Paths);
-        Assert.Equal(trash1, data.Paths[0]);
+        var dataPath = Assert.Single(data.Paths);
+        Assert.Equal(trash1, dataPath);
     }
 
     [Fact]

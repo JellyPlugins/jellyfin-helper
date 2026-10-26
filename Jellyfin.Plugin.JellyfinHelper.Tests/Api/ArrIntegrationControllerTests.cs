@@ -278,8 +278,8 @@ public class ArrIntegrationControllerTests : IDisposable
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<ArrComparisonResult>(okResult.Value);
-        Assert.Single(data.InBoth);
-        Assert.Equal("Movie1", data.InBoth[0]);
+        var matchingItem = Assert.Single(data.InBoth);
+        Assert.Equal("Movie1", matchingItem);
     }
 
     [Theory]
@@ -369,7 +369,7 @@ public class ArrIntegrationControllerTests : IDisposable
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<ArrComparisonResult>(okResult.Value);
-        Assert.Single(data.InBoth);
-        Assert.Equal("Show1", data.InBoth[0]);
+        var dataMatchingItem = Assert.Single(data.InBoth);
+        Assert.Equal("Show1", dataMatchingItem);
     }
 }

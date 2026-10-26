@@ -206,8 +206,8 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal(movie.Id, s.ItemId);
         Assert.Equal("Played Movie", s.ItemName);
         Assert.Equal("Movie", s.ItemType);
@@ -216,9 +216,9 @@ public class UserActivityInsightsServiceTests
         Assert.Equal(100.0, s.AverageCompletionPercent);
         Assert.Equal(0, s.FavoriteCount);
         Assert.Equal(lastPlayed, s.MostRecentWatch);
-        Assert.Single(s.UserActivities);
-        Assert.Equal(alice.Id, s.UserActivities[0].UserId);
-        Assert.True(s.UserActivities[0].Played);
+        var userActivity = Assert.Single(s.UserActivities);
+        Assert.Equal(alice.Id, userActivity.UserId);
+        Assert.True(userActivity.Played);
         Assert.Equal(3L, r.TotalPlayCount);
     }
 
@@ -234,15 +234,15 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal(1, s.FavoriteCount);
         Assert.Equal(0, s.UniqueViewers);
         Assert.Equal(0, s.TotalPlayCount);
         Assert.Equal(0.0, s.AverageCompletionPercent);
         Assert.Null(s.MostRecentWatch);
-        Assert.Single(s.UserActivities);
-        Assert.True(s.UserActivities[0].IsFavorite);
+        var sUserActivity = Assert.Single(s.UserActivities);
+        Assert.True(sUserActivity.IsFavorite);
     }
 
     [Fact]
@@ -259,8 +259,8 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal(1, s.UniqueViewers);
         Assert.Equal(50.0, s.AverageCompletionPercent);
     }
@@ -283,8 +283,8 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal(3, s.TotalPlayCount);
         Assert.Equal(2, s.UniqueViewers);          // carol excluded (idle)
         Assert.Equal(2, s.UserActivities.Count);   // one entry per active user
@@ -326,8 +326,8 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal("Episode", s.ItemType);
         Assert.Equal("Breaking Bad", s.SeriesName);
         Assert.Equal("S03E07", s.EpisodeLabel);
@@ -349,10 +349,10 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
-        Assert.Single(s.UserActivities);
-        Assert.Equal(alice.Id, s.UserActivities[0].UserId);
+        var s = Assert.Single(r.Items);
+
+        var sUserActivity = Assert.Single(s.UserActivities);
+        Assert.Equal(alice.Id, sUserActivity.UserId);
     }
 
     // Locks in the same contract that SimilarityComputerTests enforces for GetPeopleNamesByItems: non-cancellation failures degrade gracefully to per-item GetUserData, but OperationCanceledException must propagate.
@@ -373,8 +373,8 @@ public class UserActivityInsightsServiceTests
 
         var r = svc.BuildActivityReport();
 
-        Assert.Single(r.Items);
-        Assert.Equal(1, r.Items.Single().TotalPlayCount);
+        var rItem = Assert.Single(r.Items);
+        Assert.Equal(1, rItem.TotalPlayCount);
         // Fallback path was exercised: per-item GetUserData was called for the affected user.
         ud.Verify(m => m.GetUserData(alice, movie), Times.AtLeastOnce);
     }
@@ -448,12 +448,12 @@ public class UserActivityInsightsServiceTests
         var r = svc.BuildActivityReport();
 
         // The report must not throw and must include user2's activity.
-        Assert.Single(r.Items);
-        var s = r.Items.Single();
+        var s = Assert.Single(r.Items);
+
         Assert.Equal(movie.Id, s.ItemId);
         Assert.Equal(1, s.UniqueViewers);
-        Assert.Single(s.UserActivities);
-        Assert.Equal(user2.Id, s.UserActivities[0].UserId);
+        var sUserActivity = Assert.Single(s.UserActivities);
+        Assert.Equal(user2.Id, sUserActivity.UserId);
         // user1 must be absent from the item's activity list.
         Assert.DoesNotContain(s.UserActivities, a => a.UserId == user1.Id);
     }

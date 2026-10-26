@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -397,8 +396,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.Equal("live-key", _secretProtector.Unprotect(liveConfig.RadarrInstances[0].ApiKey));
+        var radarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal("live-key", _secretProtector.Unprotect(radarrInstance.ApiKey));
     }
 
     [Fact]
@@ -413,8 +412,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.SonarrInstances);
-        Assert.Equal("sonarr-live-key", _secretProtector.Unprotect(liveConfig.SonarrInstances[0].ApiKey));
+        var sonarrInstance = Assert.Single(liveConfig.SonarrInstances);
+        Assert.Equal("sonarr-live-key", _secretProtector.Unprotect(sonarrInstance.ApiKey));
     }
 
     [Fact]
@@ -441,8 +440,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.Equal("Movies 4K", liveConfig.RadarrInstances[0].Libraries);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal("Movies 4K", liveConfigRadarrInstance.Libraries);
     }
 
     [Fact]
@@ -470,8 +469,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.True(liveConfigRadarrInstance.SkipCertificateValidation);
     }
 
     [Fact]
@@ -496,8 +495,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.True(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.True(liveConfigRadarrInstance.SkipCertificateValidation);
     }
 
     [Fact]
@@ -521,8 +520,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.False(liveConfig.RadarrInstances[0].SkipCertificateValidation);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.False(liveConfigRadarrInstance.SkipCertificateValidation);
     }
 
     [Fact]
@@ -669,11 +668,11 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.Equal("NewRadarr", liveConfig.RadarrInstances[0].Name);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal("NewRadarr", liveConfigRadarrInstance.Name);
         Assert.DoesNotContain(liveConfig.RadarrInstances, i => i.Name == "OldRadarr");
-        Assert.Single(liveConfig.SonarrInstances);
-        Assert.Equal("NewSonarr", liveConfig.SonarrInstances[0].Name);
+        var liveConfigSonarrInstance = Assert.Single(liveConfig.SonarrInstances);
+        Assert.Equal("NewSonarr", liveConfigSonarrInstance.Name);
     }
 
     [Fact]
@@ -876,8 +875,8 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         service.RestoreBackup(backup);
 
-        Assert.Single(liveConfig.RadarrInstances);
-        Assert.Equal(string.Empty, liveConfig.RadarrInstances[0].ApiKey);
+        var liveConfigRadarrInstance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal(string.Empty, liveConfigRadarrInstance.ApiKey);
     }
 
     [Fact]

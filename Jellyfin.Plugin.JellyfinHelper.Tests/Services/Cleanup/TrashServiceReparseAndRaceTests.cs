@@ -128,8 +128,8 @@ public sealed class TrashServiceReparseAndRaceTests : IDisposable
         Assert.False(Directory.Exists(source));
 
         var trashed = Directory.GetDirectories(trashBase);
-        Assert.Single(trashed);
-        Assert.Contains("Orphan", Path.GetFileName(trashed[0]), StringComparison.Ordinal);
+        var trashedItem = Assert.Single(trashed);
+        Assert.Contains("Orphan", Path.GetFileName(trashedItem), StringComparison.Ordinal);
     }
 
     [Fact]

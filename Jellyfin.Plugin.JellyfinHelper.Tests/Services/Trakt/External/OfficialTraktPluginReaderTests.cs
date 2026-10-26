@@ -1,6 +1,4 @@
-using System;
 using System.Globalization;
-using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
@@ -365,8 +363,8 @@ public sealed class OfficialTraktPluginReaderTests : IDisposable
         var reader = Create(() => true, _configPath);
         var ids = reader.GetLinkedUserIds(Now);
 
-        Assert.Single(ids);
-        Assert.Equal(user, ids[0]);
+        var id = Assert.Single(ids);
+        Assert.Equal(user, id);
     }
 
     [Fact]

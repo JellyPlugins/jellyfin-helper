@@ -1,4 +1,3 @@
-using System;
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;

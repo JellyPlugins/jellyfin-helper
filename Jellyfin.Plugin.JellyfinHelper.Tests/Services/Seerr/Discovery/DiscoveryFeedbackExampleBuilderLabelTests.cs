@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -164,8 +161,8 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
 
         var examples = BuildFor(entry);
 
-        Assert.Single(examples);
-        Assert.Equal(EngineConstants.DiscoveryShownLabel, examples[0].Label, 6);
+        var example = Assert.Single(examples);
+        Assert.Equal(EngineConstants.DiscoveryShownLabel, example.Label, 6);
     }
 
     [Fact]

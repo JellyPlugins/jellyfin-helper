@@ -1,15 +1,10 @@
-using System.IO;
-using System.Linq;
 using Jellyfin.Data;
-using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
-using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
@@ -131,13 +126,13 @@ public class MediaStatisticsServiceWatchedTests
 
         Assert.Equal(1, stats.WatchedTiers["Watched"]);
         Assert.Contains(path, stats.WatchedTierPaths["Watched"]);
-        Assert.Single(stats.WatchedDetails[path]);
+        var watchedDetail = Assert.Single(stats.WatchedDetails[path]);
         Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
         Assert.Single(stats.WatchedByUserPaths["Alice"]);
         Assert.Contains(path, stats.WatchedByUserPaths["Alice"]);
         Assert.Single(stats.WatchedDetails[path]);
-        Assert.Equal("Alice", stats.WatchedDetails[path].First().Username);
-        Assert.Equal(1, stats.WatchedDetails[path].First().PlayCount);
+        Assert.Equal("Alice", watchedDetail.Username);
+        Assert.Equal(1, watchedDetail.PlayCount);
     }
 
     [Fact]
@@ -247,11 +242,11 @@ public class MediaStatisticsServiceWatchedTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.WatchedTiers["Watched"]);
-        Assert.Single(stats.WatchedDetails[path]);
+        var statsWatchedDetail = Assert.Single(stats.WatchedDetails[path]);
         Assert.Contains(stats.WatchedDetails[path], static d => d.Username == "Alice");
         Assert.False(stats.WatchedByUserPaths.ContainsKey("Dave"));
         Assert.Single(stats.WatchedDetails[path]);
-        Assert.Equal("Alice", stats.WatchedDetails[path].First().Username);
+        Assert.Equal("Alice", statsWatchedDetail.Username);
     }
 
     [Fact]

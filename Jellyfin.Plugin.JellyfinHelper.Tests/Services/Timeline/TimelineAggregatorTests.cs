@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
 
@@ -576,9 +573,9 @@ public sealed class TimelineAggregatorTests
 
         // The whole point with the higher cumulative size wins; size and count are never mixed,
         // so the higher-size point (100/5) is kept intact rather than fusing count 9 onto it.
-        Assert.Single(merged);
-        Assert.Equal(100, merged[0].CumulativeSize);
-        Assert.Equal(5, merged[0].CumulativeFileCount);
+        var mergedItem = Assert.Single(merged);
+        Assert.Equal(100, mergedItem.CumulativeSize);
+        Assert.Equal(5, mergedItem.CumulativeFileCount);
     }
 
     [Fact]
@@ -621,8 +618,8 @@ public sealed class TimelineAggregatorTests
 
         var merged = TimelineAggregator.MergeDailySeries(first, new List<GrowthTimelinePoint>());
 
-        Assert.Single(merged);
-        Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), merged[0].Date);
+        var mergedItem = Assert.Single(merged);
+        Assert.Equal(new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc), mergedItem.Date);
     }
 
     [Fact]
