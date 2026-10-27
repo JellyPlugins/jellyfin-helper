@@ -96,7 +96,7 @@
       "ignoreUnstable": false
     },
 
-    // 4. .NET SDK pin (global.json) - öffnet nun direkt Major-PRs
+    // 4. .NET SDK pin (global.json) - now opens major PRs directly
     {
       "description": ".NET SDK pin in global.json",
       "matchDatasources": ["dotnet-version"],
@@ -162,7 +162,7 @@
       "labels": ["dependencies", "ci"]
     },
     {
-      // Java / JDK: Jetzt DIREKTE PRs für neue LTS-Major-Versionen (kein Dashboard-Zwang mehr)
+      // Java / JDK: Now direct PRs for new LTS major versions (no dashboard constraint)
       "description": "Java / JDK for the SonarCloud scanner - LTS only",
       "matchDepNames": ["java"],
       "allowedVersions": "/^(?:21|25|29|33|37|41)$/",
@@ -199,7 +199,7 @@
       ]
     },
 
-    // 7. Globale Regel für ALLE anderen Majors (erzwingt PRs und das Major-Label)
+    // 7. Global rule for ALL other majors (forces PRs and the major label)
     {
       "description": "Surface majors individually",
       "matchUpdateTypes": ["major"],
