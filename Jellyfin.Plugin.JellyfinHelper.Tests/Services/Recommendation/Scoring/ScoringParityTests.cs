@@ -7,12 +7,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Cross-strategy parity pins for the 38-feature contract shared by the heuristic,
-///     learned, and neural strategies: FeatureIndex <-> vector slots <-> default weights
-///     <-> score explanations must stay in lock-step. If a feature is added to the vector
-///     but forgotten in BuildExplanation (or vice versa), Score and FinalScore diverge and
-///     these tests fail. Score/explanation equality is asserted at 10 decimals because the
-///     two paths sum contributions in a different order (floating-point non-associativity).
+/// Cross-strategy parity pins for the 38-feature contract shared by the heuristic,
+/// learned, and neural strategies: FeatureIndex &lt;-&gt; vector slots &lt;-&gt; default weights.
+/// <para>
+/// Score explanations must stay in lock-step. If a feature is added to scoring
+/// but forgotten in BuildExplanation (or vice versa),
+/// these tests fail. Score/explanation equality is asserted at 10 decimals because the
+/// two paths sum contributions in a different order (floating-point non-associativity).
+/// </para>
 /// </summary>
 public sealed class ScoringParityTests
 {

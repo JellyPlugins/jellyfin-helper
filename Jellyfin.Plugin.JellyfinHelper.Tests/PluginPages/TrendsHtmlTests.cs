@@ -5,6 +5,9 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
+/// <summary>
+/// Tests for the Trends‑Tab.
+/// </summary>
 public partial class TrendsHtmlTests : ConfigPageTestBase
 {
     /// <summary>

@@ -5,6 +5,9 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
+/// <summary>
+/// Tests for the Settings‑Tab.
+/// </summary>
 public partial class SettingsHtmlTests : ConfigPageTestBase
 {
     [Theory]

@@ -26,6 +26,7 @@ internal static class EngineTestFactory
     /// <param name="Engine">The constructed engine under test.</param>
     /// <param name="WatchHistory">The mock watch-history service.</param>
     /// <param name="LibraryManager">The mock library manager.</param>
+    /// <param name="ConfigService">The mock plugin configuration service.</param>
     /// <param name="PluginLog">The mock plugin-log service.</param>
     /// <param name="Logger">The mock logger.</param>
     /// <param name="StrategySelector">The mock strategy selector (returns 0.0 alpha offset by default).</param>
@@ -48,7 +49,8 @@ internal static class EngineTestFactory
     /// <remarks>
     ///     The scoring strategy is a real HeuristicScoringStrategy rather than a mock because Engine never checks the strategy for specific implementations except when it uses reflection on EnsembleScoringStrategy in TrainStrategy.
     /// </remarks>
-    /// <returns></returns>
+    /// <param name="strategyOverride">Optional custom scoring strategy to use instead of the default heuristic strategy.</param>
+    /// <returns>A new <see cref="EngineHarness"/> containing the constructed engine instance and all its associated mock references.</returns>
     internal static EngineHarness Create(IScoringStrategy? strategyOverride = null)
     {
         var watchHistory = new Mock<IWatchHistoryService>();
@@ -78,7 +80,7 @@ internal static class EngineTestFactory
         strategySelector.Setup(s => s.GetAlphaOffset(It.IsAny<Guid>())).Returns(0.0);
         strategySelector.Setup(s => s.GetCohortName(It.IsAny<Guid>())).Returns("control");
 
-        // By default the registry returns the same shared strategy for every user, so existing Engine tests
+        // By default, the registry returns the same shared strategy for every user, so existing Engine tests
         // see byte-identical scoring behaviour to the pre-per-user single-strategy engine. GlobalEnsemble is
         // wired to the strategy when it is an ensemble, else to a fresh in-memory ensemble so TrainStrategy
         // (which trains registry.GlobalEnsemble) does not dereference null on the heuristic-only default.
