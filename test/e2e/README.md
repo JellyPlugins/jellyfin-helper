@@ -67,7 +67,7 @@ test/e2e/scripts/run.sh --keep
 test/e2e/scripts/run.sh --ui
 ```
 
-**Requirements:** Docker + Docker Compose, .NET SDK 10, Node 20+. **No host
+**Requirements:** Docker + Docker Compose, .NET SDK 10, Node 26+. **No host
 ffmpeg needed.** Media is generated inside the Jellyfin container.
 
 ## Why the image tag is pinned
