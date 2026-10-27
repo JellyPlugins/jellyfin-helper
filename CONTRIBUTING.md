@@ -24,7 +24,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Jellyfin Server 12.4.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
-- Recommended: [Node.js 20+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 20+)
+- Recommended: [Node.js 26+](https://nodejs.org/) (for JavaScript linting; E2E Playwright requires 26+)
 
 ### Clone and Build
 
@@ -105,7 +105,7 @@ trash, and every dashboard tab (including the unsaved-changes dialog and log
 download). It also covers hardening / edge cases (broken backups, invalid URLs,
 traversal guards, out-of-range values).
 
-Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed, media is
+Requires Docker + Docker Compose and Node 26+ (no host ffmpeg needed, media is
 generated inside the container).
 
 ```bash
