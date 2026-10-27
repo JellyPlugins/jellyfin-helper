@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 public static class TestMockFactory
 {
     /// <summary>Creates a new <see cref="Mock{ILibraryManager}"/> with GetVirtualFolders returning empty list.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="ILibraryManager"/> instance.</returns>
     public static Mock<ILibraryManager> CreateLibraryManager()
     {
         var mock = new Mock<ILibraryManager>();
@@ -35,11 +35,13 @@ public static class TestMockFactory
     }
 
     /// <summary>Creates a new <see cref="Mock{IFileSystem}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="IFileSystem"/> instance.</returns>
     public static Mock<IFileSystem> CreateFileSystem() => new();
 
     /// <summary>Creates a new <see cref="Mock{IApplicationPaths}"/> with common paths configured.</summary>
-    /// <returns></returns>
+    /// <param name="dataPath">The root data path to use, or null for the default path.</param>
+    /// <param name="configPath">The configuration path to use, or null for the default path.</param>
+    /// <returns>A new mock <see cref="IApplicationPaths"/> instance with pre-configured paths.</returns>
     public static Mock<IApplicationPaths> CreateAppPaths(string? dataPath = null, string? configPath = null)
     {
         var effectiveDataPath = dataPath ?? "/data";
@@ -54,13 +56,15 @@ public static class TestMockFactory
     }
 
     /// <summary>Creates a <see cref="VirtualItemDetector"/> rooted at the given data path (default "/data").</summary>
+    /// <param name="dataPath">The root data path to use, or null for the default path.</param>
+    /// <returns>A new <see cref="VirtualItemDetector"/> instance.</returns>
     public static VirtualItemDetector CreateVirtualItemDetector(string? dataPath = null) =>
         new(CreateAppPaths(dataPath).Object, NullLogger<VirtualItemDetector>.Instance);
 
     /// <summary>
-    ///     Creates a new Mock{ILogger} (non-generic). IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks (see CA1873 fixes) still executes the underlying Log(...) call under test.
+    /// Creates a new Mock{ILogger} (non-generic). IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks still executes the underlying Log(...) call under test.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="ILogger"/> with all log levels enabled.</returns>
     public static Mock<ILogger> CreateLogger()
     {
         var mock = new Mock<ILogger>();
@@ -69,9 +73,10 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    ///     Creates a new Mock{T} for a typed logger. IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks (see CA1873 fixes) still executes the underlying Log(...) call under test.
+    /// Creates a new Mock{T} for a typed logger. IsEnabled(...) is set up to return true for all log levels so that production code guarded by logger.IsEnabled(...) checks still executes the underlying Log(...) call under test.
     /// </summary>
-    /// <returns></returns>
+    /// <typeparam name="T">The type whose name is used for the logger category.</typeparam>
+    /// <returns>A new typed mock <see cref="ILogger{T}"/> with all log levels enabled.</returns>
     public static Mock<ILogger<T>> CreateLogger<T>()
     {
         var mock = new Mock<ILogger<T>>();
@@ -80,9 +85,9 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    ///     Creates a new Mock{ILogger} where IsEnabled(...) always returns false.
+    /// Creates a new Mock{ILogger} where IsEnabled(...) always returns false.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="ILogger"/> with all log levels disabled.</returns>
     public static Mock<ILogger> CreateDisabledLogger()
     {
         var mock = new Mock<ILogger>();
@@ -93,7 +98,8 @@ public static class TestMockFactory
     /// <summary>
     /// Typed variant of <see cref="CreateDisabledLogger()"/>.
     /// </summary>
-    /// <returns></returns>
+    /// <typeparam name="T">The type whose name is used for the logger category.</typeparam>
+    /// <returns>A new typed mock <see cref="ILogger{T}"/> with all log levels disabled.</returns>
     public static Mock<ILogger<T>> CreateDisabledLogger<T>()
     {
         var mock = new Mock<ILogger<T>>();
@@ -102,24 +108,26 @@ public static class TestMockFactory
     }
 
     /// <summary>Creates a new <see cref="Mock{IHttpClientFactory}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="IHttpClientFactory"/> instance.</returns>
     public static Mock<IHttpClientFactory> CreateHttpClientFactory() => new();
 
     /// <summary>
-    ///     Creates a real <see cref="SecretProtector"/> over an ephemeral keyring. Plaintext test keys pass
-    ///     through Unprotect unchanged (the lazy-migration contract), so tests set and read secrets exactly as
-    ///     before while still exercising the real protect/unprotect code path.
+    /// Creates a real <see cref="SecretProtector"/> over an ephemeral keyring. Plaintext test keys pass
+    /// through Unprotect unchanged (the lazy-migration contract), so tests set and read secrets exactly as
+    /// before while still exercising the real protect/unprotect code path.
     /// </summary>
     /// <returns>A functioning secret protector with an in-memory keyring.</returns>
     public static ISecretProtector CreateSecretProtector()
         => new SecretProtector(new EphemeralDataProtectionProvider(), NullLogger<SecretProtector>.Instance);
 
     /// <summary>Creates a new <see cref="IMemoryCache"/> instance.</summary>
-    /// <returns></returns>
+    /// <returns>A new <see cref="IMemoryCache"/> instance.</returns>
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
 
     /// <summary>Creates a mock <see cref="HttpMessageHandler"/> that returns the given status code and content.</summary>
-    /// <returns></returns>
+    /// <param name="statusCode">The HTTP status code to return in responses.</param>
+    /// <param name="content">The string content to return in response bodies.</param>
+    /// <returns>A configured mock <see cref="HttpMessageHandler"/>.</returns>
     public static Mock<HttpMessageHandler> CreateHttpMessageHandler(HttpStatusCode statusCode, string content)
     {
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
@@ -139,9 +147,10 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    ///     Creates a new Mock{ICleanupConfigHelper} with sensible defaults. Returns a fixed PluginConfiguration instead of reading from the global singleton, avoiding order-dependent and flaky tests.
+    /// Creates a new Mock{ICleanupConfigHelper} with sensible defaults. Returns a fixed PluginConfiguration instead of reading from the global singleton, avoiding order-dependent and flaky tests.
     /// </summary>
-    /// <returns></returns>
+    /// <param name="config">Optional configuration to use, or null to use default settings.</param>
+    /// <returns>A new mock <see cref="ICleanupConfigHelper"/> with default behavior.</returns>
     public static Mock<ICleanupConfigHelper> CreateCleanupConfigHelper(PluginConfiguration? config = null)
     {
         var cfg = config ?? new PluginConfiguration();
@@ -174,25 +183,26 @@ public static class TestMockFactory
     }
 
     /// <summary>Creates a new <see cref="Mock{IMediaStatisticsService}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="IMediaStatisticsService"/> instance.</returns>
     public static Mock<IMediaStatisticsService> CreateMediaStatisticsService() => new();
 
     /// <summary>Creates a new <see cref="Mock{IStatisticsCacheService}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="IStatisticsCacheService"/> instance.</returns>
     public static Mock<IStatisticsCacheService> CreateStatisticsCacheService() => new();
 
     /// <summary>Creates a new <see cref="Mock{IGrowthTimelineService}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="IGrowthTimelineService"/> instance.</returns>
     public static Mock<IGrowthTimelineService> CreateGrowthTimelineService() => new();
 
     /// <summary>Creates a new <see cref="Mock{ILibraryInsightsService}"/>.</summary>
-    /// <returns></returns>
+    /// <returns>A new mock <see cref="ILibraryInsightsService"/> instance.</returns>
     public static Mock<ILibraryInsightsService> CreateLibraryInsightsService() => new();
 
     /// <summary>
-    ///     Creates a new Mock{IPluginConfigurationService} with sensible defaults. Returns a fresh PluginConfiguration so tests don't depend on Plugin.Instance.
+    /// Creates a new Mock{IPluginConfigurationService} with sensible defaults. Returns a fresh PluginConfiguration so tests don't depend on Plugin.Instance.
     /// </summary>
-    /// <returns></returns>
+    /// <param name="config">Optional configuration to use, or null to use default settings.</param>
+    /// <returns>A new mock <see cref="IPluginConfigurationService"/> instance.</returns>
     public static Mock<IPluginConfigurationService> CreateConfigurationService(PluginConfiguration? config = null)
     {
         var cfg = config ?? new PluginConfiguration();
@@ -205,8 +215,10 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    ///     Wires ReadAndMutate on mock so that the callback is immediately invoked on cfg. Call this whenever a test mock needs to support the atomic read-mutate-save path used by BackupService.RestoreConfiguration (and any future callers of ReadAndMutate).
+    /// Wires ReadAndMutate on mock so that the callback is immediately invoked on cfg. Call this whenever a test mock needs to support the atomic read-mutate-save path used by BackupService.RestoreConfiguration.
     /// </summary>
+    /// <param name="mock">The mock configuration service to configure.</param>
+    /// <param name="cfg">The configuration instance to mutate in callbacks.</param>
     public static void SetupReadAndMutate(Mock<IPluginConfigurationService> mock, PluginConfiguration cfg)
     {
         mock.Setup(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()))
@@ -214,9 +226,10 @@ public static class TestMockFactory
     }
 
     /// <summary>
-    ///     Creates a new PluginLogService backed by a mock IPluginConfigurationService. Convenience method so tests do not need to create the mock themselves.
+    /// Creates a new PluginLogService backed by a mock IPluginConfigurationService. Convenience method so tests do not need to create the mock themselves.
     /// </summary>
-    /// <returns></returns>
+    /// <param name="config">Optional configuration to use, or null to use default settings.</param>
+    /// <returns>A new <see cref="PluginLogService"/> instance.</returns>
     public static PluginLogService CreatePluginLogService(PluginConfiguration? config = null)
     {
         return new PluginLogService(CreateConfigurationService(config).Object);

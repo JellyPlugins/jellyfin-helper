@@ -14,27 +14,37 @@ public static class TestDataGenerator
     /// Builds an OS-appropriate absolute path from segments.
     /// E.g. TestPath("media", "movies") => "/media/movies" or "\media\movies".
     /// </summary>
-    /// <returns></returns>
+    /// <param name="segments">The path segments to combine.</param>
+    /// <returns>An OS-appropriate absolute path string.</returns>
     public static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a movie library.</summary>
-    /// <returns></returns>
+    /// <param name="name">The name of the library (default is "Movies").</param>
+    /// <param name="locations">The folder locations for the library.</param>
+    /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for movies.</returns>
     public static VirtualFolderInfo CreateMovieLibrary(string name = "Movies", params string[] locations)
         => CreateLibrary(name, CollectionTypeOptions.movies, locations.Length > 0 ? locations : [TestPath("media", "movies")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a TV show library.</summary>
-    /// <returns></returns>
+    /// <param name="name">The name of the library (default is "TV Shows").</param>
+    /// <param name="locations">The folder locations for the library.</param>
+    /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for TV shows.</returns>
     public static VirtualFolderInfo CreateTvShowLibrary(string name = "TV Shows", params string[] locations)
         => CreateLibrary(name, CollectionTypeOptions.tvshows, locations.Length > 0 ? locations : [TestPath("media", "tv")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a music library.</summary>
-    /// <returns></returns>
+    /// <param name="name">The name of the library (default is "Music").</param>
+    /// <param name="locations">The folder locations for the library.</param>
+    /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for music.</returns>
     public static VirtualFolderInfo CreateMusicLibrary(string name = "Music", params string[] locations)
         => CreateLibrary(name, CollectionTypeOptions.music, locations.Length > 0 ? locations : [TestPath("media", "music")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> with custom settings.</summary>
-    /// <returns></returns>
+    /// <param name="name">The name of the library.</param>
+    /// <param name="collectionType">The collection type options, or null.</param>
+    /// <param name="locations">The folder locations for the library.</param>
+    /// <returns>A new custom <see cref="VirtualFolderInfo"/> instance.</returns>
     public static VirtualFolderInfo CreateLibrary(string name, CollectionTypeOptions? collectionType, params string[] locations)
         => new()
         {
@@ -44,7 +54,9 @@ public static class TestDataGenerator
         };
 
     /// <summary>Creates a <see cref="FileSystemMetadata"/> representing a file.</summary>
-    /// <returns></returns>
+    /// <param name="fullName">The full path of the file.</param>
+    /// <param name="length">The length/size of the file in bytes (default is 0).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance representing a file.</returns>
     public static FileSystemMetadata CreateFile(string fullName, long length = 0)
         => new()
         {
@@ -55,7 +67,8 @@ public static class TestDataGenerator
         };
 
     /// <summary>Creates a <see cref="FileSystemMetadata"/> representing a directory.</summary>
-    /// <returns></returns>
+    /// <param name="fullName">The full path of the directory.</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance representing a directory.</returns>
     public static FileSystemMetadata CreateDirectory(string fullName)
         => new()
         {
@@ -65,31 +78,49 @@ public static class TestDataGenerator
         };
 
     /// <summary>Safely combines a directory with a file name, stripping any path from fileName.</summary>
+    /// <param name="directory">The target directory path.</param>
+    /// <param name="fileName">The file name to append.</param>
+    /// <returns>The combined file path string.</returns>
     private static string CombineWithFileName(string directory, string fileName)
         => Path.Join(directory, Path.GetFileName(fileName));
 
     /// <summary>Creates a video file metadata with common video extension (.mkv).</summary>
-    /// <returns></returns>
+    /// <param name="directory">The directory containing the file.</param>
+    /// <param name="fileName">The name of the video file (default is "movie.mkv").</param>
+    /// <param name="length">The file size in bytes (default is 1.5 GB).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance for a video file.</returns>
     public static FileSystemMetadata CreateVideoFile(string directory, string fileName = "movie.mkv", long length = 1_500_000_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
 
     /// <summary>Creates a subtitle file metadata.</summary>
-    /// <returns></returns>
+    /// <param name="directory">The directory containing the file.</param>
+    /// <param name="fileName">The name of the subtitle file (default is "movie.en.srt").</param>
+    /// <param name="length">The file size in bytes (default is 50 KB).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance for a subtitle file.</returns>
     public static FileSystemMetadata CreateSubtitleFile(string directory, string fileName = "movie.en.srt", long length = 50_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
 
     /// <summary>Creates an image file metadata.</summary>
-    /// <returns></returns>
+    /// <param name="directory">The directory containing the file.</param>
+    /// <param name="fileName">The name of the image file (default is "poster.jpg").</param>
+    /// <param name="length">The file size in bytes (default is 200 KB).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance for an image file.</returns>
     public static FileSystemMetadata CreateImageFile(string directory, string fileName = "poster.jpg", long length = 200_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
 
     /// <summary>Creates an NFO file metadata.</summary>
-    /// <returns></returns>
+    /// <param name="directory">The directory containing the file.</param>
+    /// <param name="fileName">The name of the NFO file (default is "movie.nfo").</param>
+    /// <param name="length">The file size in bytes (default is 10 KB).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance for an NFO file.</returns>
     public static FileSystemMetadata CreateNfoFile(string directory, string fileName = "movie.nfo", long length = 10_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
 
     /// <summary>Creates an audio file metadata.</summary>
-    /// <returns></returns>
+    /// <param name="directory">The directory containing the file.</param>
+    /// <param name="fileName">The name of the audio file (default is "track.flac").</param>
+    /// <param name="length">The file size in bytes (default is 30 MB).</param>
+    /// <returns>A new <see cref="FileSystemMetadata"/> instance for an audio file.</returns>
     public static FileSystemMetadata CreateAudioFile(string directory, string fileName = "track.flac", long length = 30_000_000)
         => CreateFile(CombineWithFileName(directory, fileName), length);
 
@@ -97,7 +128,9 @@ public static class TestDataGenerator
     /// Creates a fully populated <see cref="LibraryStatistics"/> with realistic sample data.
     /// Useful for serialization roundtrip tests and export tests.
     /// </summary>
-    /// <returns></returns>
+    /// <param name="name">The name of the library (default is "Movies").</param>
+    /// <param name="collectionType">The collection type string (default is "movies").</param>
+    /// <returns>A fully populated <see cref="LibraryStatistics"/> instance.</returns>
     public static LibraryStatistics CreateSampleLibraryStatistics(string name = "Movies", string collectionType = "movies")
     {
         var lib = new LibraryStatistics
@@ -202,7 +235,7 @@ public static class TestDataGenerator
     /// Creates a <see cref="MediaStatisticsResult"/> with a single movie library.
     /// Used by export tests and serialization roundtrip tests.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>A sample <see cref="MediaStatisticsResult"/> instance containing a movie library.</returns>
     public static MediaStatisticsResult CreateSampleStatisticsResult()
     {
         var result = new MediaStatisticsResult
@@ -231,7 +264,7 @@ public static class TestDataGenerator
     /// Creates a <see cref="MediaStatisticsResult"/> with movie, TV show, and music libraries.
     /// Used by serialization roundtrip tests.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>A fully populated <see cref="MediaStatisticsResult"/> instance with multiple library types.</returns>
     public static MediaStatisticsResult CreateFullSampleStatisticsResult()
     {
         var result = new MediaStatisticsResult
@@ -320,7 +353,8 @@ public static class TestDataGenerator
     /// Creates a uniquely named temporary directory and returns its path.
     /// Caller is responsible for deleting it (use with try/finally or IDisposable).
     /// </summary>
-    /// <returns></returns>
+    /// <param name="prefix">The prefix string to use for the temporary directory name (default is "jh-test").</param>
+    /// <returns>The absolute path to the newly created temporary directory.</returns>
     public static string CreateTempDirectory(string prefix = "jh-test")
     {
         var safePrefix = Path.GetFileName(prefix);

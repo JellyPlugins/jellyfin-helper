@@ -83,15 +83,21 @@ public abstract class CleanupTaskTestBase : IDisposable
         // No static cleanup needed - all state is in mock instances
     }
 
-    /// <summary>
-    ///     Builds a platform-native absolute test path from segments. Ensures <see> <cref>Path.GetDirectoryName</cref> </see> returns a value consistent with the path used in mock setups, regardless of OS.
+   /// <summary>
+    /// Builds a platform-native absolute test path from segments. Ensures <see cref="Path.GetDirectoryName"/> returns a value consistent with the path used in mock setups, regardless of OS.
     /// </summary>
+    /// <param name="segments">The path segments to combine.</param>
+    /// <returns>A platform-native absolute test path string.</returns>
     protected static string TestPath(params string[] segments)
         => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
 
     /// <summary>
     /// Verifies that the logger mock received at least one log call containing the given message part.
     /// </summary>
+    /// <typeparam name="T">The logger category type.</typeparam>
+    /// <param name="loggerMock">The logger mock to verify.</param>
+    /// <param name="messagePart">The text part expected in the log message.</param>
+    /// <param name="level">The log level to check.</param>
     protected static void VerifyLogContains<T>(Mock<ILogger<T>> loggerMock, string messagePart, LogLevel level)
     {
         loggerMock.Verify(
@@ -107,6 +113,10 @@ public abstract class CleanupTaskTestBase : IDisposable
     /// <summary>
     /// Verifies that the logger mock never received a log call containing the given message part.
     /// </summary>
+    /// <typeparam name="T">The logger category type.</typeparam>
+    /// <param name="loggerMock">The logger mock to verify.</param>
+    /// <param name="messagePart">The text part that should not appear in log messages.</param>
+    /// <param name="level">The log level to check.</param>
     protected static void VerifyLogNeverContains<T>(Mock<ILogger<T>> loggerMock, string messagePart, LogLevel level)
     {
         loggerMock.Verify(
@@ -120,10 +130,13 @@ public abstract class CleanupTaskTestBase : IDisposable
     }
 
     /// <summary>
-    ///     A synchronous implementation of IProgress{T} that invokes the callback immediately.
+    /// A synchronous implementation of <see cref="IProgress{T}"/> that invokes the callback immediately.
     /// </summary>
+    /// <typeparam name="T">The type of progress update value.</typeparam>
+    /// <param name="handler">The callback action to invoke immediately on report.</param>
     protected sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
     {
+        /// <inheritdoc />
         public void Report(T value) => handler(value);
     }
 }
