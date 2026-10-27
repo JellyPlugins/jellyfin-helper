@@ -270,7 +270,7 @@ jobs:
       with:
         distribution: temurin
         # renovate: datasource=java-version depName=java versioning=docker
-        java-version: 21.0.13+9.0.LTS
+        java-version: 25.0.5+8.0.LTS
 
     - name: Install SonarScanner tool
       env:
