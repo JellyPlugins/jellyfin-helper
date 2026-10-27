@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # Single source of truth for every job + local dev (nvm/fnm read it too).
-          # Renovate's `nvm` manager keeps it on the current Node LTS.
+          # Renovate's `nvm` manager keeps it on the current Node.
           node-version-file: .nvmrc
 
       # Docker + Compose are preinstalled on ubuntu-latest runners.
