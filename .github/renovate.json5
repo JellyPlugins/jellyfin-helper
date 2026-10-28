@@ -10,9 +10,10 @@
 
   "timezone": "Europe/Berlin",
 
-  "hostRules": [
+    "hostRules": [
     {
-      "matchHost": "docker.io",
+      "matchHost": "hub.docker.com",
+      "hostType": "docker",
       "username": "{{env.DOCKER_HUB_USERNAME}}",
       "password": "{{env.DOCKER_HUB_PASSWORD}}"
     }
