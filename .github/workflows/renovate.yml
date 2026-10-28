@@ -98,9 +98,7 @@ jobs:
       cancel-in-progress: false
     env:
       HAS_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY != '' && 'true' || 'false' }}
-      DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-      DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
-
+      
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
