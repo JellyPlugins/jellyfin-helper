@@ -10,15 +10,6 @@
 
   "timezone": "Europe/Berlin",
 
-    "hostRules": [
-    {
-      "matchHost": "hub.docker.com",
-      "hostType": "docker",
-      "username": "{{env.DOCKER_HUB_USERNAME}}",
-      "password": "{{env.DOCKER_HUB_PASSWORD}}"
-    }
-  ],
-
   "schedule": ["at any time"],
   "prHourlyLimit": 0,
   "prConcurrentLimit": 10,
