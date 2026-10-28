@@ -334,11 +334,13 @@ jobs:
       count: ${{ steps.count.outputs.count }}
 
     steps:
-    - name: Checkout PR head branch
+    - name: Checkout PR head commit
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # Check out the PR's source branch (not the merge ref) so the badge reflects its specs.
-        ref: ${{ github.event.pull_request.head.ref }}
+        # Check out the PR's head commit (not the branch name): fetching by SHA avoids
+        # the "couldn't find remote ref" failures that occur when a branch name is
+        # passed as `ref` (e.g. after the branch was renamed/deleted or on forks).
+        ref: ${{ github.event.pull_request.head.sha }}
         # PR-controlled test code runs below: never leave the token in .git/config.
         persist-credentials: false
 
@@ -377,11 +379,13 @@ jobs:
       COUNT: ${{ needs.e2e-test-count.outputs.count }}
 
     steps:
-    - name: Checkout PR head branch
+    - name: Checkout PR head commit
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        # Check out the PR's source branch (not the merge ref) so we can commit back to it.
-        ref: ${{ github.event.pull_request.head.ref }}
+        # Check out the PR's head commit by SHA (not the branch name) so the initial
+        # fetch does not depend on the branch still existing under its original name.
+        # The later `git push` still targets the PR branch via PR_HEAD_REF.
+        ref: ${{ github.event.pull_request.head.sha }}
         # persist-credentials defaults to true here (unlike discovery) so the later
         # `git push` can authenticate with the workflow token.
 
