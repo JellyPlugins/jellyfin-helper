@@ -34,3 +34,4 @@ test/e2e/setup/auth.json
 test/ui/node_modules/
 test/ui/coverage/
 *.log
+
