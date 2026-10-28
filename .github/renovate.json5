@@ -96,15 +96,20 @@
       "ignoreUnstable": false
     },
 
-    // 4. .NET SDK pin (global.json) - opens major PRs directly (major-update label handled globally)
+    // 4. .NET SDK pin (global.json) - Generically restricted to even major versions (LTS lines)
     {
-      "description": ".NET SDK pin in global.json",
+      "description": ".NET SDK pin in global.json (Even major versions / LTS only)",
       "matchDatasources": ["dotnet-version"],
       "matchPackageNames": ["dotnet-sdk"],
+      "allowedVersions": "/^(?:[0-9]+[02468]|[02468])\\./",
       "groupName": ".NET SDK",
       "semanticCommitScope": "dotnet",
       "labels": ["dependencies", "dotnet-sdk"],
-      "addLabels": ["needs-manual-check"]
+      "addLabels": ["needs-manual-check"],
+      "prBodyNotes": [
+        "> [!NOTE]",
+        "> Enterprise Policy: .NET SDK upgrades are dynamically restricted to even-numbered major releases (LTS baseline)."
+      ]
     },
 
     // 5. Node test harnesses (test/ui = Vitest, test/e2e = Playwright)
@@ -155,24 +160,30 @@
       "automerge": false
     },
     {
-      "description": "Node runtime (.nvmrc)",
+      "description": "Node runtime (.nvmrc) - restrict to even major versions (LTS)",
       "matchManagers": ["nvm"],
+      "allowedVersions": "/^(?:[0-9]+[02468]|[02468])\\./",
       "groupName": "Node runtime",
       "semanticCommitScope": "ci",
-      "labels": ["dependencies", "ci"]
+      "labels": ["dependencies", "ci"],
+      "addLabels": ["needs-manual-check"],
+      "prBodyNotes": [
+        "> [!NOTE]",
+        "> Enterprise Policy: Node.js runtime upgrades are dynamically restricted to even-numbered major releases (LTS baseline)."
+      ]
     },
     {
-      // Java / JDK: Direct PRs for new major versions, robust regex for full version strings
-      "description": "Java / JDK for the SonarCloud scanner",
+      // Java / JDK: Direct PRs for new major versions, robust regex following the 4-year LTS cycle (21, 25, 29...)
+      "description": "Java / JDK for the SonarCloud scanner (LTS only)",
       "matchDepNames": ["java"],
-      "allowedVersions": "/^(?:21|25|29|33|37|41)(?:\\.|\\+|-|$)/",
+      "allowedVersions": "/^(?:21|25|29|33|37|41|45|49)(?:\\.|\\+|-|$)/",
       "groupName": "Java (SonarCloud scanner)",
       "semanticCommitScope": "ci",
       "labels": ["dependencies", "ci"],
       "addLabels": ["needs-manual-check"],
       "prBodyNotes": [
         "> [!NOTE]",
-        "> This JDK only runs SonarScanner for .NET in `pr.yml` - it is not part of the shipped plugin."
+        "> Enterprise Policy: JDK upgrades are restricted to LTS versions. This JDK only runs SonarScanner for .NET in `pr.yml`."
       ]
     },
     {
