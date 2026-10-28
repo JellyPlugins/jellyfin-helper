@@ -153,6 +153,8 @@ jobs:
           RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author || 'Renovate Bot <bot@renovate.local>' }}
           RENOVATE_BINARY_SOURCE: install
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          RENOVATE_DOCKER_MAX_PAGES: "10"
+          RENOVATE_HOST_RULES: '[{"matchHost": "hub.docker.com", "hostType": "docker", "username": ${{ toJSON(secrets.DOCKER_HUB_USERNAME) }}, "password": ${{ toJSON(secrets.DOCKER_HUB_PASSWORD) }}}, {"matchHost": "index.docker.io", "hostType": "docker", "username": ${{ toJSON(secrets.DOCKER_HUB_USERNAME) }}, "password": ${{ toJSON(secrets.DOCKER_HUB_PASSWORD) }}}]'
 
       - name: Summary
         if: always()
