@@ -173,7 +173,7 @@
       ]
     },
     {
-      // Java / JDK: Dynamic regex matching 2-year / 4-version LTS releases starting at 21 (21, 25, 29, 33, 37, 41, 45, 49...)
+      // Java / JDK: Dynamic regex matching 2-year / 4-version LTS releases starting at 21
       "description": "Java / JDK for the SonarCloud scanner (LTS only)",
       "matchDepNames": ["java"],
       "allowedVersions": "/^v?(?:21|25|29|[3-9][13579]|1[0-9][13579])(?:\\.|\\+|-|$)/",
