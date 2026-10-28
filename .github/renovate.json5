@@ -176,7 +176,7 @@
       // Java / JDK: Dynamic regex matching 2-year / 4-version LTS releases starting at 21
       "description": "Java / JDK for the SonarCloud scanner (LTS only)",
       "matchDepNames": ["java"],
-      "allowedVersions": "/^v?(?:21|25|29|[3-9][13579]|1[0-9][13579])(?:\\.|\\+|-|$)/",
+      "allowedVersions": "/^v?(?:[2468][159]|[3579][37]|[1-9][0-9]*(?:[02468][159]|[13579][37]))(?:\\.|\\+|-|$)/",
       "groupName": "Java (SonarCloud scanner)",
       "semanticCommitScope": "ci",
       "labels": ["dependencies", "ci"],
