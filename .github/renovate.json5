@@ -101,7 +101,7 @@
       "description": ".NET SDK pin in global.json (Even major versions / LTS only)",
       "matchDatasources": ["dotnet-version"],
       "matchPackageNames": ["dotnet-sdk"],
-      "allowedVersions": "/^(?:[0-9]+[02468]|[02468])\\./",
+      "allowedVersions": "/^v?(?:[0-9]+[02468]|[02468])\\./",
       "groupName": ".NET SDK",
       "semanticCommitScope": "dotnet",
       "labels": ["dependencies", "dotnet-sdk"],
@@ -162,7 +162,7 @@
     {
       "description": "Node runtime (.nvmrc) - restrict to even major versions (LTS)",
       "matchManagers": ["nvm"],
-      "allowedVersions": "/^(?:[0-9]+[02468]|[02468])\\./",
+      "allowedVersions": "/^v?(?:[0-9]+[02468]|[02468])\\./",
       "groupName": "Node runtime",
       "semanticCommitScope": "ci",
       "labels": ["dependencies", "ci"],
@@ -173,10 +173,10 @@
       ]
     },
     {
-      // Java / JDK: Direct PRs for new major versions, robust regex following the 4-year LTS cycle (21, 25, 29...)
+      // Java / JDK: Dynamic regex matching 2-year / 4-version LTS releases starting at 21 (21, 25, 29, 33, 37, 41, 45, 49...)
       "description": "Java / JDK for the SonarCloud scanner (LTS only)",
       "matchDepNames": ["java"],
-      "allowedVersions": "/^(?:21|25|29|33|37|41|45|49)(?:\\.|\\+|-|$)/",
+      "allowedVersions": "/^v?(?:21|25|29|[3-9][13579]|1[0-9][13579])(?:\\.|\\+|-|$)/",
       "groupName": "Java (SonarCloud scanner)",
       "semanticCommitScope": "ci",
       "labels": ["dependencies", "ci"],
