@@ -155,17 +155,4 @@ jobs:
           RENOVATE_GIT_AUTHOR: ${{ steps.bot.outputs.git-author || 'Renovate Bot <bot@renovate.local>' }}
           RENOVATE_BINARY_SOURCE: install
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
-
-      - name: Summary
-        if: always()
-        env:
-          MODE: ${{ inputs.dryRun && 'dry run (no PRs created)' || 'live' }}
-          TRIGGER: ${{ github.event_name }}
-        run: |
-          {
-            echo "## Renovate"
-            echo ""
-            echo "- Trigger: \`$TRIGGER\`"
-            echo "- Mode: $MODE"
-            echo "- Config: \`.github/renovate.json5\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          RENOVATE_HOST_RULES: '[{"matchHost": "hub.docker.com", "hostType": "docker", "username": "${{ secrets.DOCKER_HUB_USERNAME }}", "password": "${{ secrets.DOCKER_HUB_PASSWORD }}"}]'
