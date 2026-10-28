@@ -114,7 +114,7 @@ jobs:
         fi
 
     - name: Run OSV-Scanner for Node/TS Dependencies
-      uses: google/osv-scanner-action/osv-scanner-action@v2
+      uses: google/osv-scanner-action/osv-scanner-action@6ad84ce1ef2d4124ba333b221894c133c4a970ea # v2.7.0
       with:
         scan-all: true
 
