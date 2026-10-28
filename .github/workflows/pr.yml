@@ -371,6 +371,10 @@ jobs:
 
   test-badge:
     needs: e2e-test-count
+    # Same-repo PRs only: fork PRs get a read-only GITHUB_TOKEN and cannot push.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
