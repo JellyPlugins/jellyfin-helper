@@ -24,6 +24,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Comprehensive security vulnerability scan covering all lockfiles across the project
+  security-nightly-scan:
+    name: "Security Vulnerability Audit (OSV)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Run Google OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@6ad84ce1ef2d4124ba333b221894c133c4a970ea # v2.7.0
+        with:
+          args: "--recursive"
+
   dotnet-tests:
     name: "xUnit (${{ matrix.bucket.name }})"
     runs-on: ubuntu-latest
@@ -193,7 +214,7 @@ jobs:
   nightly-summary:
     name: Nightly result
     runs-on: ubuntu-latest
-    needs: [dotnet-tests, e2e, ui-tests]
+    needs: [security-nightly-scan, dotnet-tests, e2e, ui-tests]
     if: always()
     steps:
       - name: Report combined result
@@ -204,12 +225,13 @@ jobs:
           echo "## Nightly full test suite" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target ref: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Security Audit (OSV): ${{ needs.security-nightly-scan.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- xUnit (Unit/Security/Performance): ${{ needs.dotnet-tests.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- E2E (Docker): ${{ needs.e2e.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- UI JavaScript (Vitest): ${{ needs.ui-tests.result }}" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ needs.dotnet-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ] || [ "${{ needs.ui-tests.result }}" != "success" ]; then
-            echo "::error::Nightly full test suite failed (xUnit=${{ needs.dotnet-tests.result }}, e2e=${{ needs.e2e.result }}, ui=${{ needs.ui-tests.result }})"
+          if [ "${{ needs.security-nightly-scan.result }}" != "success" ] || [ "${{ needs.dotnet-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ] || [ "${{ needs.ui-tests.result }}" != "success" ]; then
+            echo "::error::Nightly full test suite or security audit failed!"
             exit 1
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "All suites green." >> "$GITHUB_STEP_SUMMARY"
+          echo "All suites and security checks green." >> "$GITHUB_STEP_SUMMARY"
