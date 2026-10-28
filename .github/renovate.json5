@@ -10,6 +10,14 @@
 
   "timezone": "Europe/Berlin",
 
+  "hostRules": [
+    {
+      "matchHost": "docker.io",
+      "username": "{{env.DOCKER_HUB_USERNAME}}",
+      "password": "{{env.DOCKER_HUB_PASSWORD}}"
+    }
+  ],
+
   "schedule": ["at any time"],
   "prHourlyLimit": 0,
   "prConcurrentLimit": 10,
