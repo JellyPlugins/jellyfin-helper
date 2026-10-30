@@ -16,8 +16,7 @@ function discoveryDom(opts: { mode: string; url: string; key: string; checked: b
     '<div id="discoveryAccessWrapper"></div>' +
     `<input type="checkbox" id="cfgDiscoveryUserAccess"${opts.checked ? ' checked' : ''}${opts.disabled ? ' disabled' : ''}>` +
     '<div class="discovery-access-disabled-hint" style="display:none;"></div>' +
-    '<button id="btnToggleDiscoveryHint"></button>' +
-    '<div class="discovery-setup-hint"></div>';
+    '<div class="help-text discovery-setup-hint"></div>';
   (document.getElementById('cfgRecommendationsMode') as HTMLSelectElement).value = opts.mode;
 }
 

@@ -109,7 +109,7 @@ public static class ControllerTestFactory
 
         // Constructor of Plugin sets Plugin.Instance
         var loggerMock = new Mock<ILogger<Plugin>>();
-        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object, Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>());
 
         // BasePlugin<T> holds configuration in a protected field or similar. 
         // We can set the Configuration property directly if it has a setter 

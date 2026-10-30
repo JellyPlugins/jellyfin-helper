@@ -9,7 +9,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
-using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -23,9 +22,11 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -244,8 +245,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // Action filter for surfacing model-binding failures into the plugin log before [ApiController]'s auto-400 short-circuits the request.
         serviceCollection.AddScoped<ModelBindingLogFilter>();
 
-        // Re-run the Discovery sidebar injection at server startup (after DI is built and the web root is mounted).
-        serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
+        // Rewrites the served index.html so the Discovery script loads without touching the web directory.
+        serviceCollection.AddSingleton<IStartupFilter, ScriptInjectionStartupFilter>();
     }
 
     /// <summary>
