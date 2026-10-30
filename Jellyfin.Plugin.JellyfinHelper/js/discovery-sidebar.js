@@ -1,18 +1,20 @@
-// Jellyfin Helper - Discovery Custom Tab + Sidebar Script Injected into index.html via File Transformation plugin.
+// Jellyfin Helper - Discovery home tab and sidebar script.
+// Injected into index.html per request by the plugin and rendered into a native
+// Home tab registered through native-tabs.js.
 (function () {
     'use strict';
 
-    // Guard against double initialization (e.g., duplicate script tag injection
-    // from stale fallback writes or concurrent transformation registrations).
+    // Guard against double initialization when the script tag is served twice.
     if (window.__jfhDiscoverySidebarInitialized) {
         return;
     }
     window.__jfhDiscoverySidebarInitialized = true;
 
-    var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
+    var TAB_ID = 'discovery';
+    var TAB_ICON = 'explore';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
-    // No standalone page exists - discovery is rendered via Custom Tabs plugin. The sidebar click handler searches for the tab first; if not found, it shows an inline message instead of navigating to a 404 page.
+    // Discovery has no standalone page, so the sidebar link activates the native Home tab.
     var API_URL = '/JellyfinHelper/Discovery/My';
 
     var TOAST_DURATION_MS = 5000;
@@ -362,18 +364,17 @@
                     || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous)
                     || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
                 // Render into the panel that is live now, not the one captured at
-                // call time: Custom Tabs may have rebuilt it while we were away.
-                // With Trakt tabs on, the shell owns lastMountedContainer: only refresh
-                // the own-tab host, and only while it is still the active tab. Rendering
-                // into the outer marker would replace the whole shell (tab bar included).
+                // call time, because Jellyfin may have rebuilt it while we were away.
+                // With Trakt tabs on, the shell owns _tabPanel: only refresh the
+                // own-tab host, and only while it is still the active tab.
                 var target = null;
                 if (_traktEnabled) {
-                    var liveHost = lastMountedContainer?.querySelector('.jfh-discovery-tab-host');
+                    var liveHost = _tabPanel?.querySelector('.jfh-discovery-tab-host');
                     if (_activeTab === TAB_OWN && liveHost && document.contains(liveHost)) {
                         target = liveHost;
                     }
-                } else if (lastMountedContainer && document.contains(lastMountedContainer)) {
-                    target = lastMountedContainer;
+                } else if (_tabPanel && document.contains(_tabPanel)) {
+                    target = _tabPanel;
                 } else if (document.contains(container)) {
                     target = container;
                 }
@@ -391,258 +392,40 @@
             });
     }
 
-    var lastMountedContainer = null;
-    var customTabWatcherStarted = false;
-    var mountPending = false;
-    // Mounting is gated until strings are loaded so the first render never flashes the
-    // English fallbacks before the configured language arrives. The observer/listeners,
-    // however, start as early as possible (see startCustomTabWatcher) so a hard reload
-    // that restores an already-built Discovery panel is still caught: without an early
-    // watcher no mutation fires after our script loads, and the tab stays blank until a
-    // manual nav. The watcher queues mounts; this gate releases them once strings land.
-    var _mountEnabled = false;
-
-    // Starts the DOM watcher and navigation listeners that drive mounts. Idempotent and
-    // independent of the async availability probe, so it can run the instant the script
-    // loads on a home context - the fix for the F5 blank-tab race.
-    function startCustomTabWatcher() {
-        if (customTabWatcherStarted) {
-            return;
-        }
-        customTabWatcherStarted = true;
-        // Watch the body: on Modern layout .mainAnimatedPages is an empty decoy sibling,
-        // and reactivated tabs can toggle classes with no childList mutation. rAF keeps it cheap.
-        var observer = new MutationObserver(function () {
-            scheduleTryMount();
-        });
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'hidden']
-        });
-        // Navigation does not always produce an observed mutation in time
-        // (cached views, class-only activation), so re-check explicitly too.
-        window.addEventListener('hashchange', scheduleTryMount);
-        window.addEventListener('popstate', scheduleTryMount);
-        window.addEventListener('pageshow', scheduleTryMount);
-        document.addEventListener('visibilitychange', function () {
-            if (!document.hidden) {
-                scheduleTryMount();
-            }
-        });
-    }
-
-    function initCustomTab() {
-        injectStyles();
-        // Strings are loaded by the time this runs; release the mount gate and watcher.
-        _mountEnabled = true;
-        startCustomTabWatcher();
-        tryMountCustomTab();
-    }
-
-    function scheduleTryMount() {
-        if (mountPending) {
-            return;
-        }
-        mountPending = true;
-        requestAnimationFrame(function () {
-            mountPending = false;
-            tryMountCustomTab();
-        });
-    }
-
-    // On a hard reload (F5) Custom Tabs restores the active Discovery panel from the
-    // ?tab=N deep link and finishes building it before our MutationObserver exists, so
-    // no further mutation ever fires to trigger a mount - the four fixed timeouts this
-    // replaces could all miss while the async probe/strings were still in flight, leaving
-    // a blank tab until a manual nav produced a fresh mutation. Poll a short bounded
-    // schedule instead, stopping as soon as the active container is filled (or we leave
-    // the home context), so a slow server self-heals instead of racing a fixed deadline.
-    var INITIAL_MOUNT_DELAYS_MS = [250, 500, 1000, 2000, 3500, 5000, 8000];
-
-    function scheduleInitialMountRetries() {
-        var step = 0;
-        function tick() {
-            tryMountCustomTab();
-            if (step >= INITIAL_MOUNT_DELAYS_MS.length) {
-                return;
-            }
-            // A filled active marker means the mount succeeded; stop early. Off the home
-            // context there is nothing to mount, so stop too and let the observer/nav
-            // listeners pick up the next home visit.
-            if (!isOnHomePage()) {
-                return;
-            }
-            var active = findActiveContainer();
-            if (active?.querySelector('.jfh-discovery-container')) {
-                return;
-            }
-            setTimeout(tick, INITIAL_MOUNT_DELAYS_MS[step++]);
-        }
-        tick();
-    }
+    // The panel native-tabs.js created for us. It is replaced when Jellyfin
+    // rebuilds the Home page, and onMount hands us the new one.
+    var _tabPanel = null;
+    var _tabRegistered = false;
 
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
-            || hash.includes('#/home?') || hash.includes('#/home.html?');
+            || hash.indexOf('#/home?') !== -1 || hash.indexOf('#/home.html?') !== -1;
     }
 
-    function tryMountCustomTab() {
-        // The watcher may fire before strings have loaded (early start for the F5 race).
-        // Rendering now would flash English fallbacks, so defer until initCustomTab opens
-        // the gate; the retry schedule and queued mutations re-drive the mount right after.
-        if (!_mountEnabled) {
+    // Registers the Discovery tab once the availability probe succeeded. The
+    // registry only mounts the panel while the user is on the Home page and
+    // calls this render callback again for every new panel.
+    function registerDiscoveryTab() {
+        if (_tabRegistered || !window.JellyfinHelperTabs) {
             return;
         }
-        if (!isOnHomePage()) {
-            lastMountedContainer = null;
-            return;
-        }
-        // Custom Tabs destroys + rebuilds its panel div on every tab (re)activation,
-        // so a cached host goes stale; drop it when detached and remount into the live one.
-        if (lastMountedContainer && !document.contains(lastMountedContainer)) {
-            lastMountedContainer = null;
-        }
-        // Custom Tabs owns the panel and re-injects our marker on each rebuild. Fill the
-        // live marker only, never create one. A node-identity change (rebuild) or a marker
-        // emptied by the rebuild both re-trigger a render below.
-        var container = findActiveContainer();
-        if (!container) {
-            lastMountedContainer = null;
-            // F5 recovery: on a hard reload Custom Tabs builds the panel via its legacy
-            // path into the Modern layout's display:none .skinBody subtree and never moves
-            // it into <main>, so no VISIBLE container exists even though a marker does. A
-            // hashchange makes Custom Tabs re-render the active tab into <main> (verified:
-            // the panel then lands visible under <main>, same as a real nav). Only nudge
-            // when a stranded marker is actually present and we are on its deep link, and
-            // rate-limit so a tab that legitimately has no visible panel never loops.
-            maybeNudgeStrandedPanel();
-            return;
-        }
-        var needsRender = container !== lastMountedContainer
-            || !container.querySelector('.jfh-discovery-container');
-        if (!needsRender) {
-            return;
-        }
-        renderDiscovery(container);
-        lastMountedContainer = container;
-        // A visible container was found and rendered: the stranded-panel recovery (if any)
-        // succeeded, so refresh the nudge budget for a possible later reload in this session.
-        _nudgeCount = 0;
+        _tabRegistered = true;
+        window.JellyfinHelperTabs.register(TAB_ID, t('discoveryTabTitle', '\u2728 Discover'), function (panel) {
+            _tabPanel = panel;
+            renderDiscovery(panel);
+        }, TAB_ICON);
     }
 
-    // F5-recovery nudge (see call site). A hard reload can leave the Custom Tabs panel
-    // stranded in the Modern layout's display:none .skinBody subtree; dispatching a
-    // hashchange makes Custom Tabs re-render the active tab into the visible <main>.
-    // Guards: only fire when a marker exists but none is visible, only on a tab deep
-    // link, and at most a few times with a cooldown so a tab that genuinely has no
-    // visible panel (e.g. feature off) can never spin.
-    var _lastNudgeAt = 0;
-    var _nudgeCount = 0;
-    var NUDGE_COOLDOWN_MS = 1500;
-    var MAX_NUDGES = 4;
-
-    function maybeNudgeStrandedPanel() {
-        if (_nudgeCount >= MAX_NUDGES) {
-            return;
-        }
-        // Only act while a tab deep link is active, AND only for the Discovery panel's own index. A hidden
-        // Discovery marker is normal whenever ANOTHER tab is active (e.g. Favorites #/home?tab=1), so matching
-        // any ?tab=N would make us tear down other tabs' panels and fire a synthetic hashchange on a tab that is
-        // working fine. Custom Tabs stamps each panel's data-index with the same N its ?tab=N deep link carries,
-        // so compare the two.
-        var tabMatch = /[?&]tab=(\d+)/.exec(window.location.hash);
-        if (!tabMatch) {
-            return;
-        }
-        var activeIndex = tabMatch[1];
-        // A marker must exist (Custom Tabs built the panel) yet be invisible (parked in a
-        // display:none subtree). If there is no marker at all, Custom Tabs has not built
-        // anything to recover and the normal observer path will handle a later build.
-        var markers = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        if (markers.length === 0) {
-            return;
-        }
-        var anyVisible = false;
-        var strandedPanels = [];
-        for (var marker of markers) {
-            if (marker.offsetParent !== null) {
-                anyVisible = true;
-                break;
-            }
-            // Only the stranded panel whose index matches the active deep link is ours to recover.
-            var panel = marker.closest('[id^="customTab_"]');
-            if (panel && String(panel.dataset.index) === activeIndex) {
-                strandedPanels.push(panel);
-            }
-        }
-        // Nudge only when the active deep link's own Discovery panel is the stranded one.
-        if (anyVisible || strandedPanels.length === 0) {
-            return;
-        }
-        var now = Date.now();
-        if (now - _lastNudgeAt < NUDGE_COOLDOWN_MS) {
-            return;
-        }
-        _lastNudgeAt = now;
-        _nudgeCount++;
-        // CRITICAL: remove the stranded, invisible panel BEFORE nudging. Custom Tabs'
-        // renderModernContent() bails early when it finds an existing customTab_ node via
-        // main.querySelector() - and the legacy-inserted panel lives inside <main> (under
-        // the display:none .skinBody), so it satisfies that check and the panel is never
-        // rebuilt into the visible part of <main>. Worse, nudging without removing it first
-        // can leave the stale hidden panel in place while a second visible one is built,
-        // which is the "content duplicated after nav" symptom. Removing only the active
-        // tab's own stranded panel makes the subsequent hashchange rebuild exactly one, visible.
-        for (var strandedPanel of strandedPanels) {
-            strandedPanel.remove();
-        }
-        // Custom Tabs listens for hashchange and re-renders the active tab into <main>.
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    // Returns true when the tab was activated or the pending focus will be
+    // applied once the tab strip exists. False means the caller must navigate
+    // to the Home page first.
+    function focusDiscoveryTab() {
+        return !!window.JellyfinHelperTabs && window.JellyfinHelperTabs.focus(TAB_ID);
     }
 
-    // Determines if the marker resides in the currently active, VISIBLE tab panel.
-    // Walks ancestors to reject a hidden/inactive legacy tab wrapper, then requires
-    // the element to actually be laid out. The visibility check is authoritative: on a
-    // hard reload Custom Tabs builds the panel via its legacy ensureContentDiv() path,
-    // which inserts it after #favoritesTab inside the Modern layout's .skinBody subtree
-    // (display:none). That subtree carries a .page ancestor (#indexPage) but is invisible,
-    // so a .page-sawTabWrapper shortcut would wrongly accept it and we would render into a
-    // panel the user never sees ("content gone after F5"). offsetParent === null reliably
-    // means the element or an ancestor is display:none (our marker is never position:fixed),
-    // so it catches exactly that case while still accepting the wrapper-less visible panel.
-    function isActiveTabContainer(element) {
-        if (!element?.isConnected) {
-            return false;
-        }
-        var node = element.parentElement;
-        while (node && node !== document.body) {
-            if (node.hidden || node.classList.contains('hide')) {
-                return false;
-            }
-            if (node.classList.contains('tabContent') && !node.classList.contains('is-active')) {
-                return false;
-            }
-            node = node.parentElement;
-        }
-        // Actual layout is the final gate: a panel parked in a display:none subtree
-        // (the F5 legacy-insert case) has a null offsetParent and is correctly rejected.
-        return element.offsetParent !== null;
-    }
-
-    function findActiveContainer() {
-        // Custom Tabs re-injects our marker on each panel (re)build, so re-query the
-        // live DOM every pass and never fall back to a cached node. The deepest/last
-        // active marker wins (a reactivated tab appends after stale siblings).
-        var all = document.querySelectorAll(CUSTOM_TAB_SELECTOR);
-        for (var i = all.length - 1; i >= 0; i--) {
-            if (isActiveTabContainer(all[i])) {
-                return all[i];
-            }
-        }
-        return null;
+    function notifyTabUnavailable() {
+        showToast(t('discoveryTabUnavailable', 'Discovery is not available right now. Please try again later.'));
     }
 
     // The active tab persists across remounts; each tab keeps its own cache
@@ -1507,8 +1290,8 @@
                         card.style.transform = 'scale(0.95)';
                         setTimeout(function () {
                             card.remove();
-                            if (lastMountedContainer) {
-                                renderDiscovery(lastMountedContainer, true);
+                            if (_tabPanel) {
+                                renderDiscovery(_tabPanel, true);
                             } else {
                                 checkEmptyDiscoveryState(scopeEl);
                             }
@@ -1633,8 +1416,8 @@
                 card.style.transform = 'scale(0.95)';
                 setTimeout(function () {
                     card.remove();
-                    if (lastMountedContainer) {
-                        renderDiscovery(lastMountedContainer, true);
+                    if (_tabPanel) {
+                        renderDiscovery(_tabPanel, true);
                     } else {
                         checkEmptyDiscoveryState(scopeEl);
                     }
@@ -1747,89 +1530,30 @@
             '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
-            if (activateDiscoveryTab()) {
+            if (focusDiscoveryTab()) {
                 return;
             }
-            // Not on the home page (or the tab bar has not mounted yet): go home
-            // first, then retry once the DOM settles.
+            // The tab strip only exists on the Home page, so go there first and
+            // let the registry apply the pending focus once it has mounted.
             if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
                 Emby.Page.show('/home.html');
                 setTimeout(function () {
-                    if (!activateDiscoveryTab()) {
-                        notifyDiscoveryTabMissing();
+                    if (!focusDiscoveryTab()) {
+                        notifyTabUnavailable();
                     }
                 }, 800);
                 return;
             }
-            notifyDiscoveryTabMissing();
+            notifyTabUnavailable();
         });
         section.appendChild(navItem);
     }
 
-    // Activate the Custom Tab that holds the discovery marker, across both the
-    // Jellyfin 12 Modern (MUI) header/drawer and the legacy tab bar. Returns
-    // true when a tab control was triggered (or a hash navigation was issued).
-    function activateDiscoveryTab() {
-        var container = document.querySelector(CUSTOM_TAB_SELECTOR);
-        if (!container) {
-            return false;
-        }
-        var panel = container.closest('[data-index]');
-        var dataIndex = panel ? Number.parseInt(panel.dataset.index, 10) : Number.NaN;
-
-        // Modern layout: tab controls are MUI anchors whose href carries the
-        // same ?tab=N deep link the panel's data-index encodes. Match on the
-        // href so the user-configured tab title/position is irrelevant.
-        if (!Number.isNaN(dataIndex)) {
-            var modernLink = document.querySelector(
-                'header.MuiAppBar-root a[href$="?tab=' + dataIndex + '"], '
-                + 'header.MuiAppBar-root a[href$="&tab=' + dataIndex + '"], '
-                + '.MuiDrawer-paper a[href$="?tab=' + dataIndex + '"], '
-                + '.MuiDrawer-paper a[href$="&tab=' + dataIndex + '"]');
-            if (modernLink) {
-                modernLink.click();
-                return true;
-            }
-        }
-
-        var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-        // Legacy layout: data-index is the positional index into the tab bar.
-        if (!Number.isNaN(dataIndex) && tabs[dataIndex]) {
-            tabs[dataIndex].click();
-            return true;
-        }
-        // data-attribute match (future Custom Tabs versions may set these).
-        for (var i = 0; i < tabs.length; i++) {
-            if (tabs[i].dataset.tab === 'jellyfinhelper-discovery' ||
-                tabs[i].dataset.tabid === 'jellyfinhelper-discovery') {
-                tabs[i].click();
-                return true;
-            }
-        }
-        // Modern fallback: no anchor found but the panel knows its deep link, so
-        // route via the hash and let Custom Tabs' own hashchange handler render.
-        if (!Number.isNaN(dataIndex) && document.querySelector('header.MuiAppBar-root')) {
-            window.location.hash = '#/home?tab=' + dataIndex;
-            return true;
-        }
-        return false;
-    }
-
-    function notifyDiscoveryTabMissing() {
-        var msg = t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.');
-        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
-            Dashboard.alert(msg);
-        } else {
-            showToast(msg);
-        }
-    }
-
     // The script is injected into the single index.html Jellyfin serves for every
-    // SPA route, so it also loads on admin/dashboard pages (e.g. #!/configurationpage)
-    // where no Discovery tab can ever appear. Probing /Discovery/My there is wasted
-    // traffic and, when the feature is disabled, a 403 the browser logs as a console
-    // error. Gate the whole bootstrap on the home context (the same isOnHomePage
-    // signal the mount logic already trusts).
+    // SPA route, so it also loads on admin/dashboard pages where no Discovery tab
+    // can appear. Probing /Discovery/My there is wasted traffic and, when the
+    // feature is disabled, a 403 the browser logs as a console error. Gate the
+    // bootstrap on the home context.
     //
     // The full UI (sidebar + tab) inits only once. An empty probe is NOT terminal: a
     // scheduled task may produce recommendations later in the same SPA session, so we
@@ -1843,19 +1567,18 @@
     var _probedUserId = null;
 
     function initDiscoveryUiEmpty() {
-        // No discovery data available (task deactivated/dry-run/no results yet). Still init
-        // Custom Tab so it can show a "no results" message if the container exists, but do NOT
-        // inject sidebar navigation - no point advertising a feature with no content.
-        initCustomTab();
-        scheduleInitialMountRetries();
+        // No results yet. The tab still renders its empty state, but the sidebar
+        // link stays hidden because there is nothing to advertise.
+        injectStyles();
+        registerDiscoveryTab();
     }
 
     function initDiscoveryUiFull() {
         // Render immediately; the Seerr-links config loads in parallel (fired in
         // bootstrapDiscovery) and re-renders once if it arrives late with a URL.
-        initCustomTab();
+        injectStyles();
+        registerDiscoveryTab();
         initSidebar();
-        scheduleInitialMountRetries();
     }
 
     function handleDiscoveryProbe(data, startedUserId) {
@@ -1917,12 +1640,6 @@
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
-        // Start the DOM watcher the moment we know we are on a home context, before the
-        // async probe. On a hard reload Custom Tabs restores the active Discovery panel
-        // immediately; the watcher must already be listening or the restore mutation is
-        // missed and the tab stays blank. Mounts stay gated (_mountEnabled) until strings
-        // load, so this cannot render untranslated content early.
-        startCustomTabWatcher();
         _probeInFlight = true;
         waitForApi(function () {
             // Pin the generation only once a user is actually present (waitForApi may have polled
@@ -1935,8 +1652,8 @@
             var seerrBefore = _seerrBaseUrl;
             loadExternalLinksConfig().finally(function () {
                 if (!seerrBefore && _seerrBaseUrl && startedUserId === currentDiscoveryUserId()
-                    && lastMountedContainer && document.contains(lastMountedContainer)) {
-                    renderDiscovery(lastMountedContainer, false);
+                    && _tabPanel && document.contains(_tabPanel)) {
+                    renderDiscovery(_tabPanel, false);
                 }
             });
             loadStrings(function () {
