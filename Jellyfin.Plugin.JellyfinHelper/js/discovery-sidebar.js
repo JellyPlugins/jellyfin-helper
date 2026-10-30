@@ -1631,6 +1631,25 @@
         // Reset the gates on an in-tab account switch: a prior user's 403 or in-flight probe must
         // not block a different user who may well have access.
         var userId = currentDiscoveryUserId();
+        // On logout (no current user) tear down the Discovery tab and sidebar link so the feature
+        // leaves the DOM instead of lingering for the signed-out session.
+        if (!userId) {
+            if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
+                window.JellyfinHelperTabs.unregister(TAB_ID);
+            }
+            _tabRegistered = false;
+            _tabPanel = null;
+            _bootstrapped = false;
+            _discoveryDisabled = false;
+            _probeInFlight = false;
+            _probedUserId = null;
+            _discoveryResultCache = null;
+            var staleNav = document.querySelectorAll('.' + NAV_ITEM_CLASS);
+            for (var i = 0; i < staleNav.length; i++) {
+                if (staleNav[i].parentNode) staleNav[i].parentNode.removeChild(staleNav[i]);
+            }
+            return;
+        }
         if (userId && userId !== _probedUserId) {
             _probedUserId = userId;
             _bootstrapped = false;

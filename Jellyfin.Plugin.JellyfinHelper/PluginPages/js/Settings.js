@@ -515,7 +515,7 @@ function loadSettings(onDone) {
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + '</div>';
-        h += '<div class="help-text discovery-setup-hint" aria-disabled="false">' + escHtml(T('discoverySetupHint', 'While enabled, the Discovery tab appears on the home screen automatically.')) + '</div>';
+        h += '<div class="help-text discovery-setup-hint" aria-disabled="false">' + escHtml(T('discoverySetupHint', 'While enabled, the Discovery tab appears on the home screen automatically (native tab, no external plugins required).')) + '</div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations not set to Deactivate and Seerr configured.')) + '</div>';
 
         // Shown only with the official Trakt plugin present and Discovery on; hidden by default.

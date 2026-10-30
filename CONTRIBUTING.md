@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   CONTRIBUTING.md. Contributor guidelines for the Jellyfin Helper plugin.
   This file uses UTF-8 encoding and may contain emoji characters.
   If your editor shows garbled characters, ensure UTF-8 is set.
@@ -188,7 +188,6 @@ Tests mirror the source structure:
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every registered service must resolve
 ├── PluginTests.cs                        # Bootstrap: Instance publishing, GetPages, UpdateIndexHtml idempotency, OnUninstalling cleanup guards
-├── PluginResolveRealPathTests.cs         # Bounded symlink resolution: plain path, single link, cycle terminates, max-hops cap, IOException propagates (fail-closed)
 ├── Api/                           # Controller tests
 │   ├── ArrIntegrationControllerTests.cs
 │   ├── ArrIntegrationControllerExtendedTests.cs      # Index bounds, 502 with named instance, trash exclusion, partial-config 400 contract
@@ -292,9 +291,6 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
-│   │   ├── DiscoverySidebarInjectionServiceTests.cs # Startup hosted service: StartAsync re-injects, idempotent (no stacked tags), null Plugin.Instance is a no-op, StopAsync completes
-│   │   ├── PatchRequestPayloadTests.cs     # "contents" (lowercase-camel) round-trip for File Transformation payloads
-│   │   └── TransformationPatchesTests.cs   # IndexHtml callback: null/empty-Contents, idempotent re-serving, case-insensitive </BODY>
 │   ├── FolderBrowser/             # Server-side folder browsing tests
 │   │   ├── FolderBrowserDtoTests.cs        # DTO defaults, mutability, reference-equality (guards against accidental record conversion)
 │   │   ├── FolderBrowserServiceTests.cs    # GetRoots per-OS, ValidatePath (traversal/null-byte/access-denied), GetChildren (symlinks)
@@ -644,9 +640,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PluginLog/               # Structured plugin logging
 │   ├── FileTransformation/      # File Transformation plugin integration
 │   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
-│   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) - self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
-│   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
-│   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
 │   ├── Security/                # Secrets at rest (Data Protection)
 │   │   ├── ISecretProtector.cs      # Protect/Unprotect/IsProtected contract; DP:: prefix marks ciphertext so legacy plaintext is read as-is and lazily re-encrypted on next save
 │   │   └── SecretProtector.cs       # Data Protection impl: DataPath keyring (not machine bound), idempotent Protect, fail-closed Unprotect on undecryptable blobs
@@ -1635,3 +1628,10 @@ Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 3. Add request/response DTOs and validation
 4. Register required services in `PluginServiceRegistrator.cs`
 5. Add integration/unit tests for success and failure paths
+IndexHtmlTransformer.cs
+LegacyIndexHtmlCleanup.cs
+ScriptInjectionStartupFilter.cs
+IndexHtmlTransformerTests.cs
+LegacyIndexHtmlCleanupTests.cs
+ScriptInjectionStartupFilterTests.cs
+native-tabs.js

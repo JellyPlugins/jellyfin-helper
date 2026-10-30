@@ -346,7 +346,7 @@
   "recsAndMore": "and {0} more…",
   "discoveryTitle": "Discover New Content",
   "discoveryTabTitle": "✨ Discover",
-  "discoverySetupHint": "While enabled, the Discovery tab appears on the home screen automatically.",
+  "discoverySetupHint": "While enabled, the Discovery tab appears on the home screen automatically (native tab, no external plugins required).",
   "discoveryTabUnavailable": "Discovery is not available right now. Please try again later.",
   "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
   "discoveryDisabled": "Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.",
