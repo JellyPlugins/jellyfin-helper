@@ -400,7 +400,7 @@
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
-            || hash.indexOf('#/home?') !== -1 || hash.indexOf('#/home.html?') !== -1;
+            || hash.includes('#/home?') || hash.includes('#/home.html?');
     }
 
     // Registers the Discovery tab once the availability probe succeeded. The
@@ -1538,7 +1538,9 @@
             if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
                 Emby.Page.show('/home.html');
                 setTimeout(function () {
-                    if (!focusDiscoveryTab()) {
+                    // Off Home the registry keeps the pending focus and applies it once
+                    // the tab strip mounts, so a slow navigation must not raise an error.
+                    if (isOnHomePage() && !focusDiscoveryTab()) {
                         notifyTabUnavailable();
                     }
                 }, 800);
@@ -1645,8 +1647,8 @@
             _probedUserId = null;
             _discoveryResultCache = null;
             var staleNav = document.querySelectorAll('.' + NAV_ITEM_CLASS);
-            for (var i = 0; i < staleNav.length; i++) {
-                if (staleNav[i].parentNode) staleNav[i].parentNode.removeChild(staleNav[i]);
+            for (var navItem of staleNav) {
+                navItem.remove();
             }
             return;
         }
