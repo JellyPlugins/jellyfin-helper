@@ -6,6 +6,12 @@
 (function () {
     'use strict';
 
+    // The script can be served twice (for example after a stale response is replayed),
+    // and a second registry would replace the first one while its tab stays registered there.
+    if (window.JellyfinHelperTabs) {
+        return;
+    }
+
     var OWN_ID_PREFIX = 'jfh-tab-';
     var RESERVED_ID_PREFIX = 'jfh-tab-reserved-';
     var LINK_ID_PREFIX = 'jfh-tab-link-';
@@ -27,20 +33,20 @@
     function isOnHomePage() {
         var hash = window.location.hash;
         return hash === '' || hash === '#/home' || hash === '#/home.html'
-            || hash.indexOf('#/home?') !== -1 || hash.indexOf('#/home.html?') !== -1;
+            || hash.includes('#/home?') || hash.includes('#/home.html?');
     }
 
     function findEntry(id) {
-        for (var i = 0; i < entries.length; i++) {
-            if (entries[i].id === id) {
-                return entries[i];
+        for (var entry of entries) {
+            if (entry.id === id) {
+                return entry;
             }
         }
         return null;
     }
 
     function isActiveTabContainer(element) {
-        if (!element || !element.isConnected) {
+        if (!element?.isConnected) {
             return false;
         }
         var node = element.parentElement;
@@ -70,17 +76,17 @@
     }
 
     function isOwnSlot(element) {
-        return element.id.indexOf(OWN_ID_PREFIX) === 0;
+        return element.id.startsWith(OWN_ID_PREFIX);
     }
 
     function slotIndex(element) {
-        return parseInt(element.getAttribute('data-index'), 10);
+        return Number.parseInt(element.dataset.index, 10);
     }
 
     function highestForeignIndex(slider, root) {
         var max = 1;
         var consider = function (index) {
-            if (!isNaN(index) && index > max) {
+            if (!Number.isNaN(index) && index > max) {
                 max = index;
             }
         };
@@ -102,7 +108,7 @@
             }
             var match = /^#\/home(?:\.html)?\?(?:[^#]*&)?tab=(\d+)/.exec(el.getAttribute('href') || '');
             if (match) {
-                consider(parseInt(match[1], 10));
+                consider(Number.parseInt(match[1], 10));
             }
         });
         return max;
@@ -114,10 +120,10 @@
         var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
         var panel = document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id);
         if (btn) {
-            btn.setAttribute('data-index', String(index));
+            btn.dataset.index = String(index);
         }
         if (panel) {
-            panel.setAttribute('data-index', String(index));
+            panel.dataset.index = String(index);
         }
         if (previous == null) {
             return;
@@ -141,7 +147,7 @@
             el.className = 'tabContent pageTabContent';
         }
         el.id = RESERVED_ID_PREFIX + kind + '-' + index;
-        el.setAttribute('data-index', String(index));
+        el.dataset.index = String(index);
         return el;
     }
 
@@ -168,7 +174,7 @@
         });
 
         items().forEach(function (el) {
-            if (el.id.indexOf(RESERVED_ID_PREFIX) !== 0) {
+            if (!el.id.startsWith(RESERVED_ID_PREFIX)) {
                 return;
             }
             var idx = slotIndex(el);
@@ -190,7 +196,7 @@
         }
 
         var all = items();
-        if (all.some(function (el) { return isNaN(slotIndex(el)); })) {
+        if (all.some(function (el) { return Number.isNaN(slotIndex(el)); })) {
             return changed;
         }
         var head = all.filter(function (el) { return slotIndex(el) < 2; });
@@ -198,11 +204,15 @@
         var sorted = tabs.slice().sort(function (x, y) {
             return slotIndex(x) - slotIndex(y) || tabs.indexOf(x) - tabs.indexOf(y);
         });
-        var ref = head.length ? head[head.length - 1] : null;
+        var ref = head.length ? head.at(-1) : null;
         sorted.forEach(function (el) {
             var target = ref ? ref.nextElementSibling : container.firstElementChild;
             if (target !== el) {
-                container.insertBefore(el, target);
+                if (target) {
+                    target.before(el);
+                } else {
+                    container.appendChild(el);
+                }
                 changed = true;
             }
             ref = el;
@@ -217,16 +227,15 @@
         }
 
         var userMenuButton = document.querySelector('[aria-controls="app-user-menu"]');
-        var toolbar = (userMenuButton && userMenuButton.closest('.MuiToolbar-root'))
+        var toolbar = userMenuButton?.closest('.MuiToolbar-root')
             || document.querySelector('.MuiAppBar-root .MuiToolbar-root');
         if (!toolbar) {
             return null;
         }
 
-        var userMenuBox = userMenuButton ? userMenuButton.closest('.MuiBox-root') : null;
-        var tray = userMenuBox ? userMenuBox.previousElementSibling : null;
-        if (tray && tray.hasAttribute('data-jfh-header-fallback')
-            && tray.previousElementSibling && tray.previousElementSibling.matches('.MuiBox-root')) {
+        var userMenuBox = userMenuButton?.closest('.MuiBox-root') ?? null;
+        var tray = userMenuBox?.previousElementSibling ?? null;
+        if (tray && 'jfhHeaderFallback' in tray.dataset && tray.previousElementSibling?.matches('.MuiBox-root')) {
             tray = tray.previousElementSibling;
         }
         if (tray && !tray.matches('button, a, [role="button"]')) {
@@ -239,7 +248,7 @@
             container.className = 'headerRight';
             container.dataset.jfhHeaderFallback = '';
             if (userMenuBox) {
-                toolbar.insertBefore(container, userMenuBox);
+                userMenuBox.before(container);
             } else {
                 toolbar.appendChild(container);
             }
@@ -284,36 +293,15 @@
         return visible;
     }
 
-    // On Jellyfin 12's experimental layout the tab strip lives in a hidden header,
-    // so the button exists but cannot be clicked. A header tray link keeps the tab
-    // reachable there without adding a second entry point on the stable layout.
-    function ensureDiscoverable(entry) {
-        var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
-        var linkId = LINK_ID_PREFIX + entry.id;
-
-        if (entry.index == null || (btn && isTabButtonVisible(btn, entry.id))) {
-            var stale = document.getElementById(linkId);
-            if (stale) {
-                stale.remove();
-            }
-            removeGroupIfEmpty();
-            return;
+    function removeHeaderLink(linkId) {
+        var stale = document.getElementById(linkId);
+        if (stale) {
+            stale.remove();
         }
-        if (document.getElementById(linkId)) {
-            return;
-        }
+        removeGroupIfEmpty();
+    }
 
-        var headerRight = getHeaderButtonTray();
-        if (!headerRight) {
-            return;
-        }
-        if (document.getElementById(linkId)) {
-            return;
-        }
-
-        var group = getOrCreateGroup(headerRight);
-        var separator = document.getElementById(SEPARATOR_ID);
-
+    function createHeaderLink(entry, linkId) {
         var link = document.createElement('button');
         link.id = linkId;
         link.type = 'button';
@@ -327,8 +315,37 @@
                 window.location.hash = deepLinkHash(entry);
             }
         });
+        return link;
+    }
 
-        group.insertBefore(link, separator);
+    // On Jellyfin 12's experimental layout the tab strip lives in a hidden header,
+    // so the button exists but cannot be clicked. A header tray link keeps the tab
+    // reachable there without adding a second entry point on the stable layout.
+    function ensureDiscoverable(entry) {
+        var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
+        var linkId = LINK_ID_PREFIX + entry.id;
+
+        if (entry.index == null || (btn && isTabButtonVisible(btn, entry.id))) {
+            removeHeaderLink(linkId);
+            return;
+        }
+        if (document.getElementById(linkId)) {
+            return;
+        }
+
+        var headerRight = getHeaderButtonTray();
+        if (!headerRight) {
+            return;
+        }
+
+        var group = getOrCreateGroup(headerRight);
+        var separator = document.getElementById(SEPARATOR_ID);
+        var link = createHeaderLink(entry, linkId);
+        if (separator) {
+            separator.before(link);
+        } else {
+            group.appendChild(link);
+        }
     }
 
     function hashParam(name) {
@@ -345,7 +362,7 @@
 
     function homeRoute() {
         var hash = window.location.hash;
-        return hash.indexOf('#/home') === 0 ? hash.split('?')[0] : '#/home';
+        return hash.startsWith('#/home') ? hash.split('?')[0] : '#/home';
     }
 
     function watchUserTabChanges(tabsElem) {
@@ -357,14 +374,14 @@
             if (selectingTab) {
                 return;
             }
-            var urlIndex = parseInt(hashParam('tab'), 10);
-            var picked = parseInt(e.detail && e.detail.selectedTabIndex, 10);
-            if (picked !== (isNaN(urlIndex) ? 0 : urlIndex) || Date.now() - lastTabStripInput < 1000) {
+            var urlIndex = Number.parseInt(hashParam('tab'), 10);
+            var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
+            if (picked !== (Number.isNaN(urlIndex) ? 0 : urlIndex) || Date.now() - lastTabStripInput < 1000) {
                 userPickedHash = window.location.hash;
             }
         });
         tabsElem.addEventListener('tabchange', function (e) {
-            var picked = parseInt(e.detail && e.detail.selectedTabIndex, 10);
+            var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
             setTimeout(function () {
                 clearStraySelection(tabsElem, picked);
             }, 0);
@@ -375,7 +392,7 @@
     // selection can leave a stray panel visible under later tabs.
     function clearStraySelection(tabsElem, index) {
         var root = getTabsRoot();
-        if (!root || isNaN(index) || !tabsElem.selectedIndex || tabsElem.selectedIndex() !== index) {
+        if (!root || Number.isNaN(index) || !tabsElem.selectedIndex || tabsElem.selectedIndex() !== index) {
             return;
         }
         var btn = tabsElem.querySelectorAll('.emby-tab-button')[index];
@@ -399,7 +416,7 @@
     }
 
     function noteTabStripInput(e) {
-        if (e.isTrusted && e.target && e.target.closest && e.target.closest('[is="emby-tabs"]')) {
+        if (e.isTrusted && e.target?.closest?.('[is="emby-tabs"]')) {
             lastTabStripInput = Date.now();
         }
     }
@@ -412,7 +429,7 @@
 
     function syncDeepLink(slider, root) {
         var wantedId = hashParam(DEEP_LINK_PARAM);
-        var wantedIndex = parseInt(hashParam('tab'), 10);
+        var wantedIndex = Number.parseInt(hashParam('tab'), 10);
         var entry = wantedId != null ? findEntry(wantedId) : null;
         if (entry && entry.index != null && entry.index !== wantedIndex) {
             var staleHash = window.location.hash;
@@ -423,13 +440,13 @@
             if (userPickedHash === staleHash) {
                 userPickedHash = freshHash;
             }
-            if (appliedDeepLink && appliedDeepLink.hash === staleHash
+            if (appliedDeepLink?.hash === staleHash
                 && appliedDeepLink.panel === document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id)) {
                 appliedDeepLink.hash = window.location.hash;
                 appliedDeepLink.btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
             }
         }
-        if (isNaN(wantedIndex) || wantedIndex < 2) {
+        if (Number.isNaN(wantedIndex) || wantedIndex < 2) {
             return;
         }
         if (userPickedHash === window.location.hash) {
@@ -437,14 +454,14 @@
         }
 
         var tabsElem = slider.closest('[is="emby-tabs"]') || document.querySelector('[is="emby-tabs"]');
-        var btn = tabsElem && tabsElem.querySelectorAll('.emby-tab-button')[wantedIndex];
+        var btn = tabsElem?.querySelectorAll('.emby-tab-button')[wantedIndex];
         var panel = root.querySelectorAll('.tabContent')[wantedIndex];
-        if (!tabsElem || !tabsElem.selectedIndex || !btn || !panel
+        if (!tabsElem?.selectedIndex || !btn || !panel
             || slotIndex(btn) !== wantedIndex || slotIndex(panel) !== wantedIndex) {
             return;
         }
         var hash = window.location.hash;
-        if (appliedDeepLink && appliedDeepLink.hash === hash && appliedDeepLink.root === root
+        if (appliedDeepLink?.hash === hash && appliedDeepLink.root === root
             && appliedDeepLink.panel === panel && appliedDeepLink.tabs === tabsElem) {
             var stillSelected = tabsElem.selectedIndex() === wantedIndex
                 && panel.classList.contains('is-active')
@@ -525,7 +542,7 @@
                 btn.setAttribute('is', 'emby-button');
                 btn.id = OWN_ID_PREFIX + 'btn-' + entry.id;
                 btn.className = 'emby-tab-button';
-                btn.setAttribute('data-index', String(entry.index));
+                btn.dataset.index = String(entry.index);
 
                 var label = document.createElement('div');
                 label.className = 'emby-button-foreground';
@@ -533,9 +550,7 @@
                 btn.appendChild(label);
 
                 slider.appendChild(btn);
-                if (window.CustomElements && window.CustomElements.upgradeSubtree) {
-                    window.CustomElements.upgradeSubtree(slider);
-                }
+                window.CustomElements?.upgradeSubtree?.(slider);
                 addedTabButton = true;
             }
 
@@ -544,7 +559,7 @@
                 panel = document.createElement('div');
                 panel.id = OWN_ID_PREFIX + 'panel-' + entry.id;
                 panel.className = 'tabContent pageTabContent';
-                panel.setAttribute('data-index', String(entry.index));
+                panel.dataset.index = String(entry.index);
                 root.appendChild(panel);
                 entry.onMount(panel);
             } else if (panel.parentElement !== root) {
@@ -553,7 +568,7 @@
             }
         });
 
-        var lastIndex = entries[entries.length - 1].index;
+        var lastIndex = entries.at(-1).index;
         if (alignSlots(slider, 'btn', lastIndex)) {
             addedTabButton = true;
         }
@@ -572,9 +587,7 @@
         // children, so an appended button overlaps its neighbours until refreshed.
         if (addedTabButton) {
             var tabsElem = document.querySelector('[is="emby-tabs"]');
-            if (tabsElem && tabsElem.refresh) {
-                tabsElem.refresh();
-            }
+            tabsElem?.refresh?.();
         }
 
         syncDeepLink(slider, root);
@@ -610,11 +623,7 @@
         if (panel) {
             panel.remove();
         }
-        var link = document.getElementById(LINK_ID_PREFIX + id);
-        if (link) {
-            link.remove();
-        }
-        removeGroupIfEmpty();
+        removeHeaderLink(LINK_ID_PREFIX + id);
         if (pendingFocusId === id) {
             pendingFocusId = null;
         }

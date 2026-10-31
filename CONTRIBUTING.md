@@ -126,46 +126,49 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/README.md`](test/e2e/README.md) for architecture and
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
-#### Discovery custom-tab coverage (external plugins)
+#### Discovery tab coverage (official Trakt plugin only)
 
-The Discovery home-page tab needs the third-party **Custom Tabs** and **File
-Transformation** plugins. `scripts/stage-external-plugins.sh` downloads each
-plugin's **latest release** (resolved via the GitHub API, newest `Release-12.*`
-asset) and stages its DLLs + a generated `meta.json` into the config volume
-alongside the plugin. `global-setup` then registers a `Seerr Discovery` custom
-tab and enables the user-access toggle, and the `ui-setup` Playwright project
-(`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies that
-config before the ui specs, because the `api` project runs first and overwrites
+The Discovery home-page tab is built into the plugin, so the e2e suite needs no
+third-party tab or injection plugin. `scripts/stage-external-plugins.sh` downloads
+only the **official Jellyfin Trakt plugin** (latest release, resolved via the
+GitHub API) and stages its DLLs + a generated `meta.json` into the config volume,
+because the Helper's "source Trakt through the official plugin" mode reads that
+plugin's configuration file. `global-setup` enables the Discovery user-access
+toggle and seeds the official plugin's `Trakt.xml`, and the `ui-setup` Playwright
+project (`tests/discovery._ui-setup.ts` → `setup/discovery-config.ts`) re-applies
+the toggle before the ui specs, because the `api` project runs first and overwrites
 it. The one-shot `ui-setup` is still not enough on its own: ui specs that run
-before `discovery-customtab` (`arr*`, `interactions`, `recommendations`) save
-the full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
-`discovery-customtab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
+before `discovery-native-tab` (`arr*`, `interactions`, `recommendations`) save the
+full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
+`discovery-native-tab.ui.spec.ts` re-asserts the config in its OWN `beforeAll`
 (via the shared `ensureDiscoveryConfigured`) and polls `/Discovery/My` until it
-stops 403ing. Turning a trampled-access setup race into a loud failure instead
-of a silent mount timeout.
+stops 403ing. Turning a trampled-access setup race into a loud failure instead of
+a silent mount timeout.
 
 **No version pinning. Always latest, by design.** CI and the nightly run resolve
-the newest published release of both Custom Tabs and File Transformation on every
-run. This is intentional: Jellyfin Helper must stay compatible with the latest of
-each, and the nightly is the tripwire. If an upstream update breaks the custom-tab
-integration, that surfaces as a red `discovery-customtab` spec so it can be fixed,
-rather than being masked by a frozen pin. Do not add `*_RELEASE` / `*_ASSET` pins to
-the workflows. The only non-pinning knob is a token to lift the GitHub API rate limit:
+the newest published release of the official Trakt plugin on every run. This is
+intentional: Jellyfin Helper must stay compatible with the latest plugin, and the
+nightly is the tripwire. If an upstream update breaks the integration, that
+surfaces as a red `trakt-official-plugin` or `discovery-native-tab` spec so it can
+be fixed, rather than being masked by a frozen pin. Do not add `*_RELEASE` /
+`*_ASSET` pins to the workflows. The only non-pinning knob is a token to lift the
+GitHub API rate limit:
 
 ```bash
 # Latest is always used; GITHUB_TOKEN only raises the unauthenticated API rate limit.
 GITHUB_TOKEN=... bash test/e2e/scripts/run.sh
 ```
 
-When a release asset cannot be resolved, `run.sh` aborts the run: the external
-plugins are a hard prerequisite. The `JFH_E2E_EXTERNAL_PLUGINS` guard only makes
-`discovery-customtab.ui.spec.ts` skip when Playwright runs directly without staging.
+When a release asset cannot be resolved, `run.sh` aborts the run: the official
+Trakt plugin is a hard prerequisite for the Trakt layout specs. The
+`JFH_E2E_EXTERNAL_PLUGINS` guard only makes those specs skip when Playwright runs
+directly without staging.
 
 
 ### UI JavaScript Tests
 
 A third suite (`test/ui/`) runs the **shipped** dashboard scripts
-(`PluginPages/js/`, `js/discovery-sidebar.js`) in jsdom via Vitest, with a
+(`PluginPages/js/`, `js/discovery-sidebar.js`, `js/native-tabs.js`) in jsdom via Vitest, with a
 stubbed `ApiClient`. It pins behavior that only exists in JavaScript e.g.
 visibility rules, validators, tab switching, dialog flows. Runs without a container.
 
@@ -289,8 +292,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── SsrfGuardTests.cs              # Cloud metadata hosts blocked (incl. IPv6/case-insensitive); LAN/loopback/public allowed
 │   │   └── ReparsePointGuardTests.cs      # Fail-closed guard: non-existent/real-dir throws, delete action never invoked, entry left unchanged
 │   ├── ConfigAccess/              # Configuration access tests
-│   ├── FileTransformation/        # File Transformation plugin integration tests
+│   ├── WebInjection/              # Request-time script injection tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
+│   │   ├── IndexHtmlTransformerTests.cs    # Idempotent insert/remove, missing body anchor, version-independent removal
+│   │   ├── LegacyIndexHtmlCleanupTests.cs  # Best-effort removal of tags written by older versions, no throw on IO errors
+│   │   ├── ScriptInjectionStartupFilterTests.cs # GET/HTML/200 gates, body buffering, header stripping, never throws
 │   ├── FolderBrowser/             # Server-side folder browsing tests
 │   │   ├── FolderBrowserDtoTests.cs        # DTO defaults, mutability, reference-equality (guards against accidental record conversion)
 │   │   ├── FolderBrowserServiceTests.cs    # GetRoots per-OS, ValidatePath (traversal/null-byte/access-denied), GetChildren (symlinks)
@@ -483,7 +489,8 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── PluginServiceRegistrator.cs  # DI registration for all services
 ├── MediaExtensions.cs           # Extension methods for media analysis
 ├── js/
-│   └── discovery-sidebar.js     # Discovery Custom Tab + sidebar script (embedded resource, injected into index.html)
+│   ├── discovery-sidebar.js     # Discovery sidebar + tab registration (embedded resource, injected into index.html)
+│   └── native-tabs.js           # Self-contained Home tab registry (JellyfinHelperTabs)
 ├── Api/
 │   ├── ArrIntegrationController.cs      # Radarr/Sonarr integration API
 │   ├── BackupController.cs              # Backup/restore API
@@ -638,8 +645,11 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ConfigAccess/            # Plugin configuration access
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging
-│   ├── FileTransformation/      # File Transformation plugin integration
+│   ├── WebInjection/            # Request-time script injection (no external plugin)
 │   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
+│   │   ├── IndexHtmlTransformer.cs   # Pure index.html transform: idempotent insert + version-independent removal
+│   │   ├── LegacyIndexHtmlCleanup.cs # Best-effort startup cleanup of tags older versions wrote to disk
+│   │   ├── ScriptInjectionStartupFilter.cs # ASP.NET middleware that injects the tag into GET /web responses
 │   ├── Security/                # Secrets at rest (Data Protection)
 │   │   ├── ISecretProtector.cs      # Protect/Unprotect/IsProtected contract; DP:: prefix marks ciphertext so legacy plaintext is read as-is and lazily re-encrypted on next save
 │   │   └── SecretProtector.cs       # Data Protection impl: DataPath keyring (not machine bound), idempotent Protect, fail-closed Unprotect on undecryptable blobs
@@ -880,12 +890,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `PluginConfigurationServiceTests.cs` - Tests PluginConfigurationService via fake accessor: init state, version, get/save config
 
-`Jellyfin.Plugin.JellyfinHelper.Tests/Services/FileTransformation/`
+`Jellyfin.Plugin.JellyfinHelper.Tests/Services/WebInjection/`
 
 - `DiscoveryScriptTagTests.cs`
-- `DiscoverySidebarInjectionServiceTests.cs`
-- `PatchRequestPayloadTests.cs`
-- `TransformationPatchesTests.cs`
+- `IndexHtmlTransformerTests.cs`
+- `LegacyIndexHtmlCleanupTests.cs`
+- `ScriptInjectionStartupFilterTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/FolderBrowser/`
 
@@ -1208,12 +1218,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `IPluginConfigurationService.cs` - Testable abstraction for reading/mutating/saving plugin configuration
 - `PluginConfigurationService.cs` - Config service backed by Plugin.Instance with lock-guarded read-mutate-save
 
-`Jellyfin.Plugin.JellyfinHelper/Services/FileTransformation/`
+`Jellyfin.Plugin.JellyfinHelper/Services/WebInjection/`
 
 - `DiscoveryScriptTag.cs`
-- `DiscoverySidebarInjectionService.cs`
-- `PatchRequestPayload.cs`
-- `TransformationPatches.cs`
+- `IndexHtmlTransformer.cs`
+- `LegacyIndexHtmlCleanup.cs`
+- `ScriptInjectionStartupFilter.cs`
 
 `Jellyfin.Plugin.JellyfinHelper/Services/FolderBrowser/`
 
@@ -1379,6 +1389,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/js/`
 
 - `discovery-sidebar.js`
+- `native-tabs.js`
 
 
 ### Service Registration
@@ -1471,48 +1482,42 @@ UserWatchProfiles → Genre/People/Language preferences
 
 **Out-of-band request reconciliation:** `SeerrDiscoveryService.ReconcileRequestedItemsAsync(jellyfinUserId, ct)` folds requests a user made outside the discovery UI (e.g. directly in Jellyseerr) back into discovery. It resolves the Jellyfin user to their Seerr user id, paginates `GET /api/v1/request?requestedBy={seerrUserId}`, intersects the returned `(tmdbId, mediaType)` keys with the user's cached recommendations, and for each match records a positive `Requested` feedback signal (`IDiscoveryFeedbackStore.RecordRequested`) and marks it in the cache (`DiscoveryCacheService.MarkAsRequestedAsync`), so the item leaves the visible pool and the next backfill item takes its slot, exactly like an in-discovery request. It is **fail-safe**: an unresolvable user, any Seerr HTTP/JSON error, or an incomplete pagination returns 0 and touches neither the feedback store nor the cache. It runs from two callers: lazily on the view-load path (`UserDiscoveryController.GetMyDiscoveryResults`, throttled per-user via `BuildReconcileKey` for `ReconcileTtl`) for instant UX, and authoritatively at the top of `GenerateForUserAsync` during the scheduled run so training benefits even for users who never open the sidebar.
 
-### Discovery Custom Tab & Script Injection
+### Discovery Tab & Script Injection
 
-Discovery results are also displayed on the Jellyfin home screen via a separate script (`js/discovery-sidebar.js`) that is injected into Jellyfin's `index.html`:
+Discovery results are also displayed on the Jellyfin home screen. The plugin injects
+its own script into `index.html` and registers the tab against Jellyfin's own tab
+strip, so no third-party tab or injection plugin is required:
 
 ```text
-Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
-                    ↓                    DiscoverySidebarInjectionService at server startup)
-    ┌─── File Transformation plugin available? ───┐
-    │ YES                                         │ NO
-    │ Register callback via reflection            │ Direct index.html write (fallback)
-    │ (no filesystem write needed)                │ (requires writable filesystem)
-    └─────────────────────────────────────────────┘
-                    ↓
-    index.html serves <script src="/JellyfinHelper/Discovery/My/script">
-                    ↓
-    discovery-sidebar.js runs in browser:
-      1. Waits for ApiClient to be available
-      2. Loads i18n strings from /JellyfinHelper/Translations
-      3. Observes DOM for Custom Tab container (.jellyfinhelper.discovery)
-      4. Renders discovery cards when container appears
-      5. Injects sidebar navigation link (only when the discovery API returns results)
+Any GET /web request
+        ↓
+ScriptInjectionStartupFilter (IStartupFilter middleware)
+    - only GET requests under /web
+    - buffers the body, strips Accept-Encoding / Range / conditional headers
+    - only rewrites a 200 text/html response that is not already patched
+        ↓
+    index.html serves <script plugin="Jellyfin Helper" src=".../Discovery/My/script" defer>
+        ↓
+    discovery-sidebar.js + native-tabs.js run in the browser:
+      1. Wait for ApiClient, load i18n strings from /JellyfinHelper/Translations
+      2. Probe /Discovery/My on the Home page
+      3. native-tabs.js appends the tab button + panel to Jellyfin's tab strip
+      4. discovery-sidebar.js renders cards into that panel and injects the sidebar link
 ```
 
-**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one: it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below). The `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
+**Why a middleware and not a disk write:** the response is patched on the way out,
+so the mechanism survives Jellyfin web updates, works on read-only installs, and
+never touches the web root. It is idempotent (the tag is only added when absent) and
+never throws: any failure leaves the original response untouched. A best-effort
+startup step (`LegacyIndexHtmlCleanup`) removes tags that older versions wrote to
+disk, so a stale copy cannot load a second time.
 
-**Companion plugins (optional):**
-- [Custom Tabs Plugin](https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
-- [File Transformation Plugin](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) - On-the-fly `index.html` patching without write access
-
-**Deployment Scenarios & Graceful Degradation:**
-
-| Scenario | Behavior |
-|----------|----------|
-| Both plugins installed | Best experience: Custom Tab shows Discovery on home; File Transformation injects script without filesystem write |
-| Only File Transformation | Sidebar navigation link appears, clicking it navigates to `/JellyfinHelper/discoveryPage` (full-page fallback) |
-| Only Custom Tabs | Script injection falls back to direct `index.html` write (requires writable filesystem); Custom Tab container renders Discovery |
-| Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
-| Read-only filesystem + no File Transformation | Script injection cannot write to disk; the plugin logs **one** actionable warning per server start recommending the File Transformation plugin. Discovery is still reachable via the direct URL `/JellyfinHelper/discoveryPage`, but no automatic injection occurs until File Transformation is installed |
+**Native tab registry:** `js/native-tabs.js` exposes `window.JellyfinHelperTabs`
+(`register`, `unregister`, `focus`). It reconciles indices with other tabs, keeps a
+stable `jfhTab=<id>` deep link next to Jellyfin's positional `tab=N`, and falls back
+to a header-tray button when the Jellyfin 12 experimental layout hides the tab strip.
 
 **Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting. There is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
-
-The File Transformation registration uses reflection to avoid a hard dependency: the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
 
 ### Discovery API Endpoints
 

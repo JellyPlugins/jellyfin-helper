@@ -31,7 +31,7 @@ internal static class LegacyIndexHtmlCleanup
             return false;
         }
 
-        var indexPath = Path.Combine(webPath, "index.html");
+        var indexPath = Path.Join(webPath, "index.html");
         try
         {
             if (!File.Exists(indexPath))

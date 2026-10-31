@@ -16,7 +16,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
 
     public LegacyIndexHtmlCleanupTests()
     {
-        _webPath = Path.Combine(Path.GetTempPath(), "JellyfinHelperLegacyCleanup_" + Guid.NewGuid().ToString("N"));
+        _webPath = Path.Join(Path.GetTempPath(), "JellyfinHelperLegacyCleanup_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_webPath);
     }
 
@@ -38,7 +38,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryRemoveScriptTag_StripsOurTagAndKeepsForeignMarkup()
     {
-        var indexPath = Path.Combine(_webPath, "index.html");
+        var indexPath = Path.Join(_webPath, "index.html");
         File.WriteAllText(
             indexPath,
             "<html><body><script plugin=\"Other Plugin\" src=\"a\"></script>"
@@ -55,7 +55,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryRemoveScriptTag_LogsTheSuccessfulRemoval()
     {
-        var indexPath = Path.Combine(_webPath, "index.html");
+        var indexPath = Path.Join(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body><script plugin=\"Jellyfin Helper\" src=\"a\"></script></body></html>");
         var pluginLog = new Mock<IPluginLogService>();
 
@@ -72,7 +72,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryDeleteStaleTempFiles_LogsTheRemovedCount()
     {
-        var orphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var orphan = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
         File.WriteAllText(orphan, "leftover");
         var pluginLog = new Mock<IPluginLogService>();
 
@@ -89,7 +89,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryRemoveScriptTag_WithoutOurTagDoesNotRewrite()
     {
-        var indexPath = Path.Combine(_webPath, "index.html");
+        var indexPath = Path.Join(_webPath, "index.html");
         var original = "<html><body></body></html>";
         File.WriteAllText(indexPath, original);
 
@@ -100,7 +100,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryRemoveScriptTag_SecondCallIsANoOp()
     {
-        var indexPath = Path.Combine(_webPath, "index.html");
+        var indexPath = Path.Join(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body><script plugin=\"Jellyfin Helper\" src=\"a\"></script></body></html>");
 
         Assert.True(LegacyIndexHtmlCleanup.TryRemoveScriptTag(Mock.Of<IPluginLogService>(), NullLogger.Instance, _webPath));
@@ -125,8 +125,8 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryDeleteStaleTempFiles_RemovesOnlyOurAtomicTempFiles()
     {
-        var orphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
-        var unrelated = Path.Combine(_webPath, "main.chunk.js");
+        var orphan = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var unrelated = Path.Join(_webPath, "main.chunk.js");
         File.WriteAllText(orphan, "leftover");
         File.WriteAllText(unrelated, "app");
 
@@ -139,7 +139,7 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     [Fact]
     public void TryDeleteStaleTempFiles_MissingDirectoryDoesNotThrow()
     {
-        var missing = Path.Combine(_webPath, "does-not-exist");
+        var missing = Path.Join(_webPath, "does-not-exist");
 
         var ex = Record.Exception(() => LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(Mock.Of<IPluginLogService>(), NullLogger.Instance, missing));
 

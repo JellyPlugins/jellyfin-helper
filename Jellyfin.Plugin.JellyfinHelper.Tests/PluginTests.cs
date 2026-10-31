@@ -21,9 +21,9 @@ public sealed class PluginTests : IDisposable
 
     public PluginTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), "JellyfinHelperPluginTests_" + Guid.NewGuid().ToString("N"));
-        _webPath = Path.Combine(_tempRoot, "web");
-        _dataPath = Path.Combine(_tempRoot, "data");
+        _tempRoot = Path.Join(Path.GetTempPath(), "JellyfinHelperPluginTests_" + Guid.NewGuid().ToString("N"));
+        _webPath = Path.Join(_tempRoot, "web");
+        _dataPath = Path.Join(_tempRoot, "data");
         Directory.CreateDirectory(_webPath);
         Directory.CreateDirectory(_dataPath);
     }
@@ -91,11 +91,11 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void Ctor_StripsLegacyOnDiskScriptTagAndTempFiles()
     {
-        var indexPath = Path.Combine(_webPath, "index.html");
+        var indexPath = Path.Join(_webPath, "index.html");
         File.WriteAllText(
             indexPath,
             "<html><body><script plugin=\"Jellyfin Helper\" version=\"1\" src=\"../JellyfinHelper/Discovery/My/script?v=1\"></script>\n</body></html>");
-        var orphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var orphan = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
         File.WriteAllText(orphan, "leftover");
 
         _ = CreatePlugin();

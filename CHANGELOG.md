@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.1.0.0] - 2026-10-31
+
+### Breaking
+
+- **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. If nothing else on your server uses those plugins, you can remove them; leaving them installed is harmless and the tab still aligns with tabs they render.
+
+### Changed
+
+- **Discovery renders a native Home tab.** The tab is registered against Jellyfin's own tab strip, keeps a stable `jfhTab` deep link next to Jellyfin's positional `tab=N`, and falls back to a header-tray button when the Jellyfin 12 experimental layout hides the tab strip.
+- **The script is injected at request time.** An `IStartupFilter` middleware patches `GET /web` responses in the plugin's own pipeline, so injection survives Jellyfin web updates and works on read-only installs without writing to the web root.
+- **Setup instructions are gone from Settings.** Discovery works out of the box once the user-access toggle is on, so the copy-paste steps and the copy button were removed and the remaining hint is one line.
+- **Legacy tags are cleaned up.** Tags that older versions wrote to `index.html` are removed on startup, so a stale copy cannot load a second time.
+
+### Tests
+
+- The end-to-end suite no longer stages Custom Tabs or File Transformation; only the official Trakt plugin is staged for the Trakt layout specs. New native-tab coverage guards injection, registration, the deep link, reload, and the access-disabled case.
+
 ## [3.0.1.4] - 2026-10-26
 
 ### Changed

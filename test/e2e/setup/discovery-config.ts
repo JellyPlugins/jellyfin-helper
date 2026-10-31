@@ -1,16 +1,14 @@
 /**
- * Shared Discovery custom-tab configuration for the e2e suite.
+ * Shared Discovery configuration for the e2e suite.
  *
  * global-setup applies this once at startup, but the `api` project (which runs
  * before `ui`) PUTs /Configuration in many specs and leaves DiscoveryUserAccessEnabled
  * false + SeerrUrl empty by the time the `ui` project runs. The ui-setup project
- * re-applies this so discovery-sidebar.js (injected on every page via File
- * Transformation) gets a 200 from /Discovery/My instead of a benign-but-noisy 403,
- * and the custom tab actually mounts.
+ * re-applies this so discovery-sidebar.js gets a 200 from /Discovery/My instead of
+ * a benign-but-noisy 403, and the built-in Discovery tab actually registers.
  */
 import type { APIRequestContext } from '@playwright/test';
 
-export const CUSTOM_TABS_GUID = 'fbacd0b6-fd46-4a05-b0a4-2045d6a135b0';
 export const OFFICIAL_TRAKT_GUID = '4fe3201e-d6ae-4f2e-8917-e12bda571281';
 
 // The token the official-plugin spec expects the Helper to read from Trakt.xml and forward to mock-trakt. Resolves
@@ -23,20 +21,16 @@ export const SEEDED_OFFICIAL_TRAKT_TOKEN = process.env.TRAKT_EXPECTED_BEARER ?? 
 const INTERNAL_MOCK_SEERR_URL = 'http://mock-seerr:5055'; // NOSONAR - internal test mock, no TLS
 
 /**
- * Enable the Discovery user-access toggle and register the Custom Tab whose HTML
- * content is the discovery marker div, mirroring the admin setup documented in
- * the plugin's settings hint. No-op unless the external plugins are staged
- * (JFH_E2E_EXTERNAL_PLUGINS=1). Throws on a non-ok response so a broken setup is
- * visible rather than surfacing later as a confusing 403.
+ * Enable the Discovery user-access toggle so the plugin registers its built-in
+ * Home tab and sidebar entry. Runs unconditionally: the tab is part of the
+ * plugin now, so no external tab plugin has to be staged first. Throws on a
+ * non-ok response so a broken setup is visible rather than surfacing later as a
+ * confusing 403.
  */
 export async function ensureDiscoveryConfigured(
   admin: APIRequestContext,
   log: (msg: string) => void = () => {},
 ): Promise<void> {
-  if (process.env.JFH_E2E_EXTERNAL_PLUGINS !== '1') {
-    return;
-  }
-
   const cfg = await admin.put('/JellyfinHelper/Configuration', {
     headers: { 'Content-Type': 'application/json' },
     data: {
@@ -52,23 +46,14 @@ export async function ensureDiscoveryConfigured(
   if (!cfg.ok()) {
     throw new Error(`Discovery access setup failed: ${cfg.status()} ${(await cfg.text()).slice(0, 300)}`);
   }
-
-  const tab = await admin.post(`/Plugins/${CUSTOM_TABS_GUID}/Configuration`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: { Tabs: [{ Title: 'Seerr Discovery', ContentHtml: '<div class="jellyfinhelper discovery"></div>' }] },
-  });
-  log(`configure Custom Tabs tab -> ${tab.status()}`);
-  if (!tab.ok()) {
-    throw new Error(`Custom Tabs tab setup failed: ${tab.status()} ${(await tab.text()).slice(0, 300)}`);
-  }
 }
 
 /**
  * Seed the OFFICIAL Trakt plugin's configuration with a linked user holding a known, unexpired access token, so
  * the Helper's "source Trakt through the official plugin" mode has something real to read. POSTing to the
  * official plugin's /Configuration endpoint makes Jellyfin persist it to configurations/Trakt.xml - exactly the
- * file OfficialTraktPluginReader reads in-process. No-op unless the external plugins (which include the official
- * Trakt plugin) were staged. Throws on a non-ok response so a broken seed is visible immediately.
+ * file OfficialTraktPluginReader reads in-process. No-op unless the official Trakt plugin was staged. Throws on a
+ * non-ok response so a broken seed is visible immediately.
  */
 export async function seedOfficialTraktPlugin(
   admin: APIRequestContext,

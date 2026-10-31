@@ -317,20 +317,21 @@ Trakt app). Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PL
 | Codecs **Library Explorer** → starts collapsed and expands without JS errors; asks for a filter before listing anything; combining two filters narrows the result and shows both values; language multi-dropdown selects several values; reset clears filters and scope; Overview library row and Movies card deep-link into the explorer; add-filter popover opens leftwards inside the viewport on desktop | `codecs-explorer.ui.spec.ts` |
 | Codecs **Library Explorer lazy tree** → 250 stubbed files (+6 TV episodes) render as collapsed shells with truthful totals and no continuation control; expanding one folder materializes only its leaf; per-section Expand/Collapse act independently per library; 2200 files stop Expand All at the node budget with a visible capped note; special-character folders expand via mouse and keyboard; long names scroll horizontally inside their section while short content shows no phantom scrollbar | `explorer-lazy-tree.ui.spec.ts` |
 
-## 10b. UI: Discovery custom tab (home page) → `discovery-customtab.ui.spec.ts`
-Mounts the real `.jellyfinhelper.discovery` marker that the external **Custom Tabs**
-plugin renders from its ContentHtml, with **File Transformation** injecting the
-script. Both staged by `run.sh` and configured in `global-setup` (toggle on + a
-"Seerr Discovery" tab). Regression guard for the Jellyfin 12 blank-tab race:
+## 10b. UI: Discovery native tab (home page) → `discovery-native-tab.ui.spec.ts`
+The plugin injects its own script into `/web/index.html` at request time and registers
+the Discovery tab against Jellyfin's tab strip. `global-setup` only enables the user-access toggle.
+- The served `index.html` carries **exactly one** injected `plugin="Jellyfin Helper"` script tag that
+  points at `Discovery/My/script`.
 - Opening the tab renders content (grid or the explicit no-results message), never a blank panel.
 - Navigating Home ↔ Discovery 20× plus browser back/forward keeps the panel populated every time.
-- `discovery-sidebar.js` **never fabricates its own `customTab_` panel** (no stray marker outside a
-  Custom-Tabs panel; exactly one panel), proving it no longer fights Custom Tabs for the DOM.
-- **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false`, the panel renders the
-  explicit "not enabled" message and **never a result grid** The user-access gate hides the
-  feature's content even though the external Custom Tabs plugin still shows the tab button. The
-  describe brackets the toggle and restores access in `afterAll`.
-- Skips loudly when the external plugins are not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
+- A hard reload on the `?tab=N&jfhTab=discovery` deep link repopulates the panel without a manual nav.
+- The plugin **owns exactly one** `tabContent pageTabContent` panel and **no `customTab_` panel exists**,
+  proving no third party tab plugin is involved.
+- **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false` the bootstrap gets a 403 and
+  registers **no tab button, header link or panel** at all. The describe brackets the toggle and
+  restores access in `afterAll`.
+- The Trakt layout case (unlinked user) still requires the official Trakt plugin and skips loudly when
+  it is not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
 
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
@@ -485,17 +486,12 @@ cannot silently fall out of date. The guard excludes only itself.
 ---
 
 ## Still NOT covered (and why)
-- ⚠️ **Discovery sidebar `<script>` injection into `/web/index.html`**: the disk-write fallback and
-  the File Transformation callback are fully covered at the **unit** level (idempotency incl. the
-  combined "disk tag already present → callback de-dups to exactly one" case, the read-only
-  `WriteFailed` path, the startup hosted-service re-injection, and version-independent tag removal).
-  An end-to-end assertion against a live container proved flaky in CI (the served `/web/index.html`
-  was observed unpatched despite the fallback path being exercised locally), so it was removed rather
-  than left as a red/again-green liability. The injection code itself is unchanged and hardened: the
-  disk fallback now runs unconditionally (never gated on File-Transformation detection), all injection
-  paths strip any existing tag before inserting so a second copy can never stack, and a startup
-  Information-level log records the branch taken (`fileTransformationRegistered`, `diskFallback`,
-  `webPath`) for field diagnosis.
+- ⚠️ **Discovery script injection into `/web/index.html`**: the request-time injector
+  (`ScriptInjectionStartupFilter`) and its pure transformer are fully covered at the **unit** level
+  (GET-only, HTML-200-only, idempotency, encoding/conditional-header stripping, never-throw) and the
+  served document is asserted end-to-end in `discovery-native-tab.ui.spec.ts`. The legacy on-disk
+  cleanup runs best-effort at startup and cannot be triggered from HTTP; it is covered by
+  `LegacyIndexHtmlCleanupTests`.
 - ⚠️ **Real Radarr/Sonarr/Seerr servers**: replaced by mocks by design; mocks return the exact
   response shapes the plugin deserializes.
 - ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`).

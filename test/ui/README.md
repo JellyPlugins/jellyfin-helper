@@ -26,8 +26,9 @@ validators are pinned without a browser.
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
-| Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-customtab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
+| Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
+| Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Compose-order sync guard (.csproj vs loader) | `tests/csproj-order.test.ts` |
 | README drift guard (every test file documented) | `tests/docs.test.ts` |
 

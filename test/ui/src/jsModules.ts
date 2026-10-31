@@ -14,3 +14,4 @@ export const CONFIG_PAGE_MODULES = [
 ];
 
 export const DISCOVERY_MODULE = 'discovery-sidebar.js';
+export const NATIVE_TABS_MODULE = 'native-tabs.js';

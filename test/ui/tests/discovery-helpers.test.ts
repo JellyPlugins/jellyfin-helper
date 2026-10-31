@@ -62,6 +62,7 @@ function rec(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   document.body.innerHTML = '';
   document.head.innerHTML = '';
+  delete (globalThis as any).JellyfinHelperTabs;
   ajaxRouter();
 });
 
@@ -1134,38 +1135,55 @@ describe('bootstrap probe handlers', () => {
 });
 
 describe('sidebar activation helpers', () => {
-  test('activateDiscoveryTab returns false when no marker exists', () => {
+  test('registerDiscoveryTab is a no-op without the tab registry', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    expect(ui.activateDiscoveryTab()).toBe(false);
+    expect(() => ui.registerDiscoveryTab()).not.toThrow();
   });
 
-  test('activateDiscoveryTab clicks the legacy positional tab for the panel index', () => {
+  test('registerDiscoveryTab registers once with the localized title and icon', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
+    const registry = fakeTabRegistry();
+    ui.registerDiscoveryTab();
+    ui.registerDiscoveryTab();
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.entries[0]).toMatchObject({ id: 'discovery', title: '\u2728 Discover', icon: 'explore' });
+  });
+
+  test('registerDiscoveryTab renders Discovery into the panel it is handed', async () => {
+    const ui = freshDiscoveryHelpers();
+    const calls = ajaxRouter({
+      'Translations': {},
+      'ExternalLinks': {},
+      'Trakt': { Linked: false },
+      'Discovery/My': { Recommendations: [rec({ Title: 'own' })] },
+    }, { userId: 'u1' });
+    const registry = fakeTabRegistry();
+    ui.registerDiscoveryTab();
     const panel = document.createElement('div');
-    panel.dataset.index = '1';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
     document.body.appendChild(panel);
-    const bar = document.createElement('div');
-    bar.className = 'headerTabs';
-    const t0 = document.createElement('button');
-    const t1 = document.createElement('button');
-    bar.append(t0, t1);
-    document.body.appendChild(bar);
-    const clicked = vi.fn();
-    t1.addEventListener('click', clicked);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(clicked).toHaveBeenCalled();
+    registry.entries[0].onMount(panel);
+    await flush();
+    expect(panel.querySelector('.jfh-discovery-grid')).not.toBeNull();
+    expect(calls.some((c) => c.url === '/JellyfinHelper/Discovery/My')).toBe(true);
   });
 
-  test('notifyDiscoveryTabMissing falls back to a toast when Dashboard is absent', () => {
+  test('focusDiscoveryTab delegates to the registry and is false without it', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    ui.notifyDiscoveryTabMissing();
-    expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('Discovery tab could not be found');
+    expect(ui.focusDiscoveryTab()).toBe(false);
+    const registry = fakeTabRegistry();
+    registry.focus.mockReturnValue(true);
+    expect(ui.focusDiscoveryTab()).toBe(true);
+    expect(registry.focus).toHaveBeenCalledWith('discovery');
+  });
+
+  test('notifyTabUnavailable shows the localized unavailable toast', () => {
+    const ui = freshDiscoveryHelpers();
+    ajaxRouter({}, { userId: 'u1' });
+    ui.notifyTabUnavailable();
+    expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('Discovery is not available right now');
   });
 });
 
@@ -1179,6 +1197,21 @@ function setHash(hash: string) {
   // replaceState updates location.hash without firing hashchange, so watchers
   // started by other spec scopes never cross-fire into this test's mounts.
   window.history.replaceState(null, '', hash);
+}
+
+// Minimal stand-in for the native tab registry the shipped script talks to.
+function fakeTabRegistry() {
+  const entries: { id: string; title: string; onMount: (p: HTMLElement) => void; icon?: string }[] = [];
+  const registry = {
+    entries,
+    register: vi.fn((id: string, title: string, onMount: (p: HTMLElement) => void, icon?: string) => {
+      entries.push({ id, title, onMount, icon });
+    }),
+    unregister: vi.fn(),
+    focus: vi.fn(() => true),
+  };
+  (globalThis as any).JellyfinHelperTabs = registry;
+  return registry;
 }
 
 function deferredAjaxRouter(opts: { userId?: string } = {}) {
@@ -1368,7 +1401,7 @@ describe('error messages, visible key, and reasons', () => {
   test('toasts dismiss on click and remove themselves after the fade', async () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    ui.notifyDiscoveryTabMissing();
+    ui.showToast('Discovery tab could not be found');
     const toast = document.querySelector('.jfh-discovery-toast')!;
     expect(toast.classList.contains('jfh-discovery-toast-visible')).toBe(true);
     toast.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1380,93 +1413,11 @@ describe('error messages, visible key, and reasons', () => {
   test('toasts auto-dismiss after the display duration', async () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    ui.notifyDiscoveryTabMissing();
+    ui.showToast('Discovery tab could not be found');
     expect(document.querySelectorAll('.jfh-discovery-toast')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(5000);
     await vi.advanceTimersByTimeAsync(300);
     expect(document.querySelectorAll('.jfh-discovery-toast')).toHaveLength(0);
-  });
-});
-
-describe('isActiveTabContainer + findActiveContainer', () => {
-  function layout(el: Element) {
-    Object.defineProperty(el, 'offsetParent', { value: document.body, configurable: true });
-    return el;
-  }
-
-  test('rejects disconnected elements and hidden ancestors', () => {
-    const ui = freshDiscoveryHelpers();
-    expect(ui.isActiveTabContainer(document.createElement('div'))).toBe(false);
-    const hiddenParent = document.createElement('div');
-    hiddenParent.hidden = true;
-    const child = document.createElement('div');
-    hiddenParent.appendChild(child);
-    document.body.appendChild(hiddenParent);
-    expect(ui.isActiveTabContainer(child)).toBe(false);
-    const classHidden = document.createElement('div');
-    classHidden.className = 'hide';
-    const inner = document.createElement('div');
-    classHidden.appendChild(inner);
-    document.body.appendChild(classHidden);
-    expect(ui.isActiveTabContainer(inner)).toBe(false);
-  });
-
-  test('rejects markers in inactive tabContent wrappers but accepts active ones', () => {
-    const ui = freshDiscoveryHelpers();
-    const inactive = document.createElement('div');
-    inactive.className = 'tabContent';
-    const markerA = document.createElement('div');
-    inactive.appendChild(markerA);
-    document.body.appendChild(inactive);
-    layout(markerA);
-    expect(ui.isActiveTabContainer(markerA)).toBe(false);
-
-    const active = document.createElement('div');
-    active.className = 'tabContent is-active';
-    const markerB = document.createElement('div');
-    active.appendChild(markerB);
-    document.body.appendChild(active);
-    layout(markerB);
-    expect(ui.isActiveTabContainer(markerB)).toBe(true);
-  });
-
-  test('requires real layout so display:none panels are rejected', () => {
-    const ui = freshDiscoveryHelpers();
-    const marker = document.createElement('div');
-    document.body.appendChild(marker);
-    expect(ui.isActiveTabContainer(marker)).toBe(false);
-    layout(marker);
-    expect(ui.isActiveTabContainer(marker)).toBe(true);
-  });
-
-  test('findActiveContainer prefers the last laid-out marker and skips hidden ones', () => {
-    const ui = freshDiscoveryHelpers();
-    const first = document.createElement('div');
-    first.className = 'jellyfinhelper discovery';
-    layout(first);
-    const hiddenWrap = document.createElement('div');
-    hiddenWrap.hidden = true;
-    const second = document.createElement('div');
-    second.className = 'jellyfinhelper discovery';
-    hiddenWrap.appendChild(second);
-    document.body.appendChild(first);
-    document.body.appendChild(hiddenWrap);
-    layout(second);
-    expect(ui.findActiveContainer()).toBe(first);
-
-    const third = document.createElement('div');
-    third.className = 'jellyfinhelper discovery';
-    document.body.appendChild(third);
-    layout(third);
-    expect(ui.findActiveContainer()).toBe(third);
-  });
-
-  test('findActiveContainer returns null when no marker is active', () => {
-    const ui = freshDiscoveryHelpers();
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    document.body.appendChild(marker);
-    expect(ui.findActiveContainer()).toBeNull();
   });
 });
 
@@ -1971,11 +1922,14 @@ describe('renderOwnTab shared fetch + renderOwnError', () => {
   });
 });
 
-describe('injectNavigation + activateDiscoveryTab', () => {
-  function clearMarkers() {
-    document.querySelectorAll('.jellyfinhelper.discovery').forEach((n) => n.remove());
-    document.getElementById('jfhDiscoveryPopup')?.remove();
-  }
+describe('injectNavigation + focusDiscoveryTab', () => {
+  beforeEach(() => {
+    setHash('#/nowhere');
+  });
+
+  afterEach(() => {
+    delete (globalThis as any).Emby;
+  });
 
   function buildSidebar() {
     const sidebar = document.createElement('div');
@@ -2017,170 +1971,59 @@ describe('injectNavigation + activateDiscoveryTab', () => {
     expect(() => ui.injectNavigation()).not.toThrow();
   });
 
-  test('a nav click activates the modern MUI anchor for the marker panel', () => {
+  test('a nav click focuses the registered tab and prevents the default link', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
     const { sidebar } = buildSidebar();
+    const registry = fakeTabRegistry();
+    registry.focus.mockReturnValue(true);
     ui.injectNavigation();
-    const panel = document.createElement('div');
-    panel.dataset.index = '1';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
-    document.body.appendChild(panel);
-    const header = document.createElement('header');
-    header.className = 'MuiAppBar-root';
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '#/home?tab=1');
-    header.appendChild(anchor);
-    document.body.appendChild(header);
-    const clicked = vi.fn();
-    anchor.addEventListener('click', clicked);
-    (sidebar.querySelector('a') as HTMLElement).click();
-    expect(clicked).toHaveBeenCalledTimes(1);
+    const nav = sidebar.querySelector('a') as HTMLElement;
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    nav.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(registry.focus).toHaveBeenCalledWith('discovery');
   });
 
-  test('a nav click without a container routes home and alerts after the retry', async () => {
+  test('a nav click off home routes home and focuses again once there', async () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
     const { sidebar } = buildSidebar();
-    ui.injectNavigation();
+    const registry = fakeTabRegistry();
+    registry.focus.mockReturnValueOnce(false).mockReturnValue(true);
     const show = vi.fn();
     (globalThis as any).Emby = { Page: { show } };
-    const alertSpy = vi.fn();
-    (globalThis as any).Dashboard = { alert: alertSpy };
-    (sidebar.querySelector('a') as HTMLElement).click();
-    expect(show).toHaveBeenCalledWith('/home.html');
-    await vi.advanceTimersByTimeAsync(800);
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    delete (globalThis as any).Emby;
-    delete (globalThis as any).Dashboard;
-  });
-
-  test('a nav click without Emby falls back to the missing-tab toast', () => {
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    const { sidebar } = buildSidebar();
     ui.injectNavigation();
     (sidebar.querySelector('a') as HTMLElement).click();
-    expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('could not be found');
+    expect(show).toHaveBeenCalledWith('/home.html');
+    setHash('#/home');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(registry.focus).toHaveBeenCalledTimes(2);
+    delete (globalThis as any).Emby;
   });
 
-  test('activateDiscoveryTab clicks the matching MUI anchor', () => {
+  test('a nav click off home does not raise the toast while navigation is pending', async () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    const panel = document.createElement('div');
-    panel.dataset.index = '2';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
-    document.body.appendChild(panel);
-    const header = document.createElement('header');
-    header.className = 'MuiAppBar-root';
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '#/home?tab=2');
-    header.appendChild(anchor);
-    document.body.appendChild(header);
-    const clicked = vi.fn();
-    anchor.addEventListener('click', clicked);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(clicked).toHaveBeenCalledTimes(1);
+    const { sidebar } = buildSidebar();
+    const registry = fakeTabRegistry();
+    registry.focus.mockReturnValue(false);
+    (globalThis as any).Emby = { Page: { show: vi.fn() } };
+    ui.injectNavigation();
+    (sidebar.querySelector('a') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(800);
+    expect(document.querySelector('.jfh-discovery-toast')).toBeNull();
+    delete (globalThis as any).Emby;
   });
 
-  test('activateDiscoveryTab falls back to the positional legacy tab', () => {
+  test('a nav click without Emby falls back to the unavailable toast', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    const panel = document.createElement('div');
-    panel.dataset.index = '1';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
-    document.body.appendChild(panel);
-    const tabs = document.createElement('div');
-    tabs.className = 'headerTabs';
-    const first = document.createElement('button');
-    const second = document.createElement('button');
-    tabs.appendChild(first);
-    tabs.appendChild(second);
-    document.body.appendChild(tabs);
-    const clicked = vi.fn();
-    second.addEventListener('click', clicked);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(clicked).toHaveBeenCalledTimes(1);
-  });
-
-  test('activateDiscoveryTab matches data-tab / data-tabid attributes', () => {
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    document.body.appendChild(marker);
-    const tabA = document.createElement('button');
-    tabA.setAttribute('role', 'tab');
-    tabA.dataset.tabid = 'jellyfinhelper-discovery';
-    document.body.appendChild(tabA);
-    const clickedA = vi.fn();
-    tabA.addEventListener('click', clickedA);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(clickedA).toHaveBeenCalledTimes(1);
-
-    tabA.remove();
-    const tabB = document.createElement('button');
-    tabB.setAttribute('role', 'tab');
-    tabB.dataset.tab = 'jellyfinhelper-discovery';
-    document.body.appendChild(tabB);
-    const clickedB = vi.fn();
-    tabB.addEventListener('click', clickedB);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(clickedB).toHaveBeenCalledTimes(1);
-  });
-
-  test('activateDiscoveryTab routes through the hash when only the MUI header exists', () => {
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    const panel = document.createElement('div');
-    panel.dataset.index = '3';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
-    document.body.appendChild(panel);
-    const header = document.createElement('header');
-    header.className = 'MuiAppBar-root';
-    document.body.appendChild(header);
-    expect(ui.activateDiscoveryTab()).toBe(true);
-    expect(window.location.hash).toBe('#/home?tab=3');
-    setHash('#/nowhere');
-  });
-
-  test('activateDiscoveryTab returns false when nothing can be activated', () => {
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter({}, { userId: 'u1' });
-    clearMarkers();
-    expect(ui.activateDiscoveryTab()).toBe(false);
-    const panel = document.createElement('div');
-    panel.dataset.index = '4';
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
-    document.body.appendChild(panel);
-    expect(ui.activateDiscoveryTab()).toBe(false);
-  });
-
-  test('notifyDiscoveryTabMissing prefers Dashboard.alert when available', () => {
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter({}, { userId: 'u1' });
-    const alertSpy = vi.fn();
-    (globalThis as any).Dashboard = { alert: alertSpy };
-    ui.notifyDiscoveryTabMissing();
-    expect(alertSpy).toHaveBeenCalledTimes(1);
-    delete (globalThis as any).Dashboard;
+    const { sidebar } = buildSidebar();
+    fakeTabRegistry().focus.mockReturnValue(false);
+    ui.injectNavigation();
+    (sidebar.querySelector('a') as HTMLElement).click();
+    expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('Discovery is not available right now');
   });
 });
 
@@ -2744,11 +2587,10 @@ describe('probe + fetch top-ups', () => {
   });
 });
 
-// The mount machinery starts body observers and window listeners, so this
-// block runs last and swaps in a clean body before every test: observers bound
-// to a previous body cannot see the next test's DOM, and replaceState-based
-// navigation never fires a hashchange into a leaked watcher.
-describe('bootstrap + mount machinery', () => {
+// The bootstrap starts async probes and window listeners, so this block runs
+// last and swaps in a clean body before every test: listeners bound to a
+// previous body cannot see the next test's DOM.
+describe('bootstrap + tab registration', () => {
   beforeEach(async () => {
     setHash('#/nowhere');
     await vi.advanceTimersByTimeAsync(80);
@@ -2776,32 +2618,30 @@ describe('bootstrap + mount machinery', () => {
     };
   }
 
-  function makeStrandedPanel(index: string) {
-    const panel = document.createElement('div');
-    panel.id = 'customTab_' + index;
-    panel.dataset.index = index;
-    const marker = document.createElement('div');
-    marker.className = 'jellyfinhelper discovery';
-    panel.appendChild(marker);
+  function mountPanel(registry: ReturnType<typeof fakeTabRegistry>, panel = document.createElement('div')) {
     document.body.appendChild(panel);
+    const entry = registry.entries.find((e) => e.id === 'discovery');
+    expect(entry).toBeDefined();
+    entry!.onMount(panel);
     return panel;
   }
 
-  test('a home bootstrap mounts the panel and injects the sidebar', async () => {
+  test('a home bootstrap probes, registers the tab, and injects the sidebar', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     const calls = ajaxRouter(homeRoutes(), { userId: 'u1' });
     const { sidebar } = buildSidebar();
-    const marker = makeMarker(true);
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    expect(marker.querySelector('.jfh-discovery-tabs')).not.toBeNull();
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.entries[0].title).toBe('\u2728 Discover');
     expect(sidebar.querySelector('a')).not.toBeNull();
     expect(document.getElementById('jfhelper-discovery-styles')).not.toBeNull();
     expect(calls.some((c) => c.url === '/JellyfinHelper/Discovery/My')).toBe(true);
   });
 
-  test('an empty probe keeps the gate open, skips the sidebar, and re-bootstraps', async () => {
+  test('an empty probe keeps the gate open, skips the sidebar, and re-probes', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     const calls = ajaxRouter({
@@ -2810,11 +2650,11 @@ describe('bootstrap + mount machinery', () => {
       'Discovery/My': { Recommendations: [] },
     }, { userId: 'u1' });
     const { sidebar } = buildSidebar();
-    const marker = makeMarker(true);
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
+    expect(registry.register).toHaveBeenCalledTimes(1);
     expect(sidebar.querySelector('a')).toBeNull();
-    expect(marker.querySelector('.jfh-discovery-container')).not.toBeNull();
     const first = calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length;
     ui.bootstrapDiscovery();
     await flush();
@@ -2825,9 +2665,11 @@ describe('bootstrap + mount machinery', () => {
     setHash('#/nowhere');
     const ui = freshDiscoveryHelpers();
     const calls = ajaxRouter(homeRoutes(), { userId: 'u1' });
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
     expect(calls).toHaveLength(0);
+    expect(registry.register).not.toHaveBeenCalled();
   });
 
   test('a second bootstrap while a probe is in flight is ignored', async () => {
@@ -2844,154 +2686,19 @@ describe('bootstrap + mount machinery', () => {
     expect(pending.some((p) => p.url.includes('Discovery/My'))).toBe(true);
   });
 
-  test('mutations while mounts are gated defer until init opens the gate', async () => {
-    setHash('#/home');
-    const ui = freshDiscoveryHelpers();
-    let resolveStrings: ((v: unknown) => void) | null = null;
-    (globalThis as any).ApiClient = {
-      getUrl: (p: string) => p,
-      getCurrentUserId: () => 'u1',
-      accessToken: () => 't',
-      ajax: (o: any) => {
-        const url = String(o.url);
-        if (url.includes('Translations')) return new Promise((r) => { resolveStrings = r; });
-        if (url.includes('ExternalLinks')) return Promise.resolve({});
-        if (url.includes('Trakt')) return Promise.resolve({ Linked: true, Result: { Recommendations: [rec()] } });
-        return Promise.resolve({ Recommendations: [rec({ Title: 'own' })] });
-      },
-    };
-    const marker = makeMarker(true);
-    ui.bootstrapDiscovery();
-    await flush();
-    document.body.appendChild(document.createElement('span'));
-    await vi.advanceTimersByTimeAsync(100);
-    expect(marker.querySelector('.jfh-discovery-container')).toBeNull();
-    document.dispatchEvent(new Event('visibilitychange'));
-    await vi.advanceTimersByTimeAsync(100);
-    expect(marker.querySelector('.jfh-discovery-container')).toBeNull();
-    resolveStrings!({});
-    await flush();
-    await vi.advanceTimersByTimeAsync(100);
-    expect(marker.querySelector('.jfh-discovery-container')).not.toBeNull();
-  });
-
-  test('a rebuilt container is remounted while an unchanged one is left alone', async () => {
+  test('logout unregisters the tab and removes the sidebar link', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     ajaxRouter(homeRoutes(), { userId: 'u1' });
-    const marker = makeMarker(true);
+    const { sidebar } = buildSidebar();
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    expect(marker.querySelector('.jfh-discovery-tabs')).not.toBeNull();
-    const firstChild = marker.firstElementChild;
-    document.body.appendChild(document.createElement('span'));
-    await vi.advanceTimersByTimeAsync(50);
-    expect(marker.firstElementChild).toBe(firstChild);
-    marker.remove();
-    const marker2 = makeMarker(true);
-    document.body.appendChild(document.createElement('span'));
-    await vi.advanceTimersByTimeAsync(50);
-    expect(marker2.querySelector('.jfh-discovery-tabs')).not.toBeNull();
-  });
-
-  test('a mounted background refresh targets the live own-tab host', async () => {
-    setHash('#/home');
-    const ui = freshDiscoveryHelpers();
-    let ownFetches = 0;
-    (globalThis as any).ApiClient = {
-      getUrl: (p: string) => p,
-      getCurrentUserId: () => 'u1',
-      accessToken: () => 't',
-      ajax: (o: any) => {
-        const url = String(o.url);
-        if (url.includes('Translations') || url.includes('ExternalLinks')) return Promise.resolve({});
-        if (url.includes('Trakt/Trending')) return Promise.resolve({ Recommendations: [rec()] });
-        if (url.includes('Trakt')) return Promise.resolve({ Linked: true, Result: { Recommendations: [rec()] } });
-        ownFetches++;
-        return Promise.resolve({ Recommendations: [rec({ Title: 'own' + ownFetches, TmdbId: 700 + ownFetches, Score: ownFetches / 10 })] });
-      },
-    };
-    const marker = makeMarker(true);
+    expect(sidebar.querySelector('a')).not.toBeNull();
+    (globalThis as any).ApiClient.getCurrentUserId = () => '';
     ui.bootstrapDiscovery();
-    await flush();
-    const c1 = ownFetches;
-    const title = () => marker.querySelector('.jfh-discovery-tab-host')!.querySelector('.jfh-discovery-card-title')!.getAttribute('title');
-    expect(title()).toBe('own' + c1);
-    ui.maybeRefreshInBackground(marker);
-    await flush();
-    expect(ownFetches).toBe(c1 + 1);
-    expect(title()).toBe('own' + (c1 + 1));
-    expect(marker.querySelector('.jfh-discovery-tabs')).not.toBeNull();
-  });
-
-  test('without trakt the background refresh repaints the mounted marker', async () => {
-    setHash('#/home');
-    const ui = freshDiscoveryHelpers();
-    let ownFetches = 0;
-    (globalThis as any).ApiClient = {
-      getUrl: (p: string) => p,
-      getCurrentUserId: () => 'u1',
-      accessToken: () => 't',
-      ajax: (o: any) => {
-        const url = String(o.url);
-        if (url.includes('Translations') || url.includes('ExternalLinks')) return Promise.resolve({});
-        if (url.includes('Trakt')) return Promise.reject({ status: 403 });
-        ownFetches++;
-        return Promise.resolve({ Recommendations: [rec({ Title: 'own' + ownFetches, TmdbId: 700 + ownFetches, Score: ownFetches / 10 })] });
-      },
-    };
-    const marker = makeMarker(true);
-    ui.bootstrapDiscovery();
-    await flush();
-    expect(marker.querySelector('.jfh-discovery-container')).not.toBeNull();
-    const c1 = ownFetches;
-    const title = () => marker.querySelector('.jfh-discovery-card-title')!.getAttribute('title');
-    expect(title()).toBe('own' + c1);
-    ui.maybeRefreshInBackground(marker);
-    await flush();
-    expect(ownFetches).toBe(c1 + 1);
-    expect(title()).toBe('own' + (c1 + 1));
-    expect(marker.querySelector('.jfh-discovery-tabs')).toBeNull();
-  });
-
-  test('request and dismiss refresh the mounted view after removing a card', async () => {
-    setHash('#/home');
-    const ui = freshDiscoveryHelpers();
-    let ownFetches = 0;
-    (globalThis as any).ApiClient = {
-      getUrl: (p: string) => p,
-      getCurrentUserId: () => 'u1',
-      accessToken: () => 't',
-      ajax: (o: any) => {
-        const url = String(o.url);
-        if (url.includes('Translations') || url.includes('ExternalLinks')) return Promise.resolve({});
-        if (url.includes('RequestPermissions')) return Promise.resolve({ CanRequest: true, Profiles: [] });
-        if (url.includes('/Request') || url.includes('/Dismiss')) return Promise.resolve({ Success: true });
-        if (url.includes('Trakt')) return Promise.reject({ status: 403 });
-        ownFetches++;
-        const payload = ownFetches <= 2
-          ? [rec({ Title: 'Alpha', TmdbId: 1 }), rec({ Title: 'Beta', TmdbId: 2 })]
-          : ownFetches === 3 ? [rec({ Title: 'Beta', TmdbId: 2 })] : [];
-        return Promise.resolve({ Recommendations: payload });
-      },
-    };
-    const marker = makeMarker(true);
-    ui.bootstrapDiscovery();
-    await flush();
-    expect(marker.querySelectorAll('.jfh-discovery-card')).toHaveLength(2);
-    (marker.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)') as HTMLElement).click();
-    await flush();
-    await vi.advanceTimersByTimeAsync(5000);
-    await vi.advanceTimersByTimeAsync(400);
-    await flush();
-    expect(marker.querySelectorAll('.jfh-discovery-card')).toHaveLength(1);
-    (marker.querySelector('.jfh-discovery-btn-dismiss') as HTMLElement).click();
-    (document.querySelector('.jfh-discovery-popup-item') as HTMLElement).click();
-    await flush();
-    await vi.advanceTimersByTimeAsync(300);
-    await flush();
-    expect(marker.querySelectorAll('.jfh-discovery-card')).toHaveLength(0);
-    expect(marker.textContent).toContain('No suggestions available');
+    expect(registry.unregister).toHaveBeenCalledWith('discovery');
+    expect(sidebar.querySelector('a')).toBeNull();
   });
 
   test('a stalled waitForApi releases the gate so a later sign-in probes', async () => {
@@ -3035,20 +2742,20 @@ describe('bootstrap + mount machinery', () => {
     let user = 'u1';
     const calls = ajaxRouter(homeRoutes(), { userId: user });
     (globalThis as any).ApiClient.getCurrentUserId = () => user;
-    const marker = makeMarker(true);
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    // Probe and the own-tab render share the same URL, so count the baseline first.
+    // The bootstrap probes once; the tab itself only fetches when it is mounted.
     const afterFirst = calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length;
-    expect(afterFirst).toBeGreaterThanOrEqual(2);
+    expect(afterFirst).toBeGreaterThanOrEqual(1);
     user = 'u2';
     ui.bootstrapDiscovery();
     await flush();
     expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBeGreaterThan(afterFirst);
-    expect(marker.querySelector('.jfh-discovery-container')).not.toBeNull();
+    expect(registry.register).toHaveBeenCalledTimes(1);
   });
 
-  test('a late Seerr URL re-renders the mounted view once it arrives', async () => {
+  test('a late Seerr URL re-renders the mounted panel once it arrives', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     let resolveSeerr: ((v: unknown) => void) | null = null;
@@ -3064,14 +2771,15 @@ describe('bootstrap + mount machinery', () => {
         return Promise.resolve({ Recommendations: [rec({ Title: 'own' })] });
       },
     };
-    const marker = makeMarker(true);
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    expect(marker.querySelector('.jfh-discovery-container')).not.toBeNull();
-    expect(marker.innerHTML).not.toContain('seerr.example');
+    const panel = mountPanel(registry);
+    await flush();
+    expect(panel.innerHTML).not.toContain('seerr.example');
     resolveSeerr!({ SeerrUrl: 'https://seerr.example' });
     await flush();
-    expect(marker.innerHTML).toContain('https://seerr.example/movie/');
+    expect(panel.innerHTML).toContain('https://seerr.example/movie/');
   });
 
   test('a stale Seerr completion never re-renders for the new account', async () => {
@@ -3090,13 +2798,15 @@ describe('bootstrap + mount machinery', () => {
         return Promise.resolve({ Recommendations: [rec({ Title: 'own' })] });
       },
     };
-    const marker = makeMarker(true);
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
+    await flush();
+    const panel = mountPanel(registry);
     await flush();
     (globalThis as any).ApiClient.getCurrentUserId = () => 'u2';
     resolveSeerr!({ SeerrUrl: 'https://seerr.example' });
     await flush();
-    expect(marker.innerHTML).not.toContain('seerr.example');
+    expect(panel.innerHTML).not.toContain('seerr.example');
   });
 
   test('a stale strings callback never fires the probe', async () => {
@@ -3123,82 +2833,78 @@ describe('bootstrap + mount machinery', () => {
     expect(calls.filter((u) => u === '/JellyfinHelper/Discovery/My')).toHaveLength(0);
   });
 
-  test('a stranded panel is nudged once per cooldown up to the budget', async () => {
-    setHash('#/home?tab=2');
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter(homeRoutes(), { userId: 'u1' });
-    const p1 = makeStrandedPanel('2');
-    ui.bootstrapDiscovery();
-    await flush();
-    expect(document.getElementById('customTab_2')).toBeNull();
-    expect(p1.isConnected).toBe(false);
-
-    // The nudge's own hashchange queued rAF mounts; drain them before planting the
-    // next panel so no stale watcher sees a stranded marker while its mount is pending.
-    await vi.advanceTimersByTimeAsync(50);
-
-    const p2 = makeStrandedPanel('2');
-    await vi.advanceTimersByTimeAsync(50);
-    expect(document.getElementById('customTab_2')).toBe(p2);
-
-    await vi.advanceTimersByTimeAsync(1600);
-    document.body.appendChild(document.createElement('span'));
-    await vi.advanceTimersByTimeAsync(50);
-    expect(document.getElementById('customTab_2')).toBeNull();
-
-    for (let i = 0; i < 2; i++) {
-      makeStrandedPanel('2');
-      await vi.advanceTimersByTimeAsync(1600);
-      document.body.appendChild(document.createElement('span'));
-      await vi.advanceTimersByTimeAsync(50);
-      expect(document.getElementById('customTab_2')).toBeNull();
-    }
-
-    const p5 = makeStrandedPanel('2');
-    await vi.advanceTimersByTimeAsync(1600);
-    document.body.appendChild(document.createElement('span'));
-    await vi.advanceTimersByTimeAsync(50);
-    expect(document.getElementById('customTab_2')).toBe(p5);
-    p5.remove();
-  });
-
-  test('a stranded panel for another tab index is left untouched', async () => {
-    setHash('#/home?tab=2');
-    const ui = freshDiscoveryHelpers();
-    ajaxRouter(homeRoutes(), { userId: 'u1' });
-    const p7 = makeStrandedPanel('7');
-    ui.bootstrapDiscovery();
-    await flush();
-    expect(document.getElementById('customTab_7')).toBe(p7);
-  });
-
-  test('no tab deep link means no nudge even with a stranded marker', async () => {
+  test('a background refresh repaints the mounted panel', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
-    ajaxRouter(homeRoutes(), { userId: 'u1' });
-    const panel = makeStrandedPanel('2');
+    let ownFetches = 0;
+    (globalThis as any).ApiClient = {
+      getUrl: (p: string) => p,
+      getCurrentUserId: () => 'u1',
+      accessToken: () => 't',
+      ajax: (o: any) => {
+        const url = String(o.url);
+        if (url.includes('Translations') || url.includes('ExternalLinks')) return Promise.resolve({});
+        if (url.includes('Trakt/Trending')) return Promise.resolve({ Recommendations: [rec()] });
+        if (url.includes('Trakt')) return Promise.resolve({ Linked: true, Result: { Recommendations: [rec()] } });
+        ownFetches++;
+        return Promise.resolve({ Recommendations: [rec({ Title: 'own' + ownFetches, TmdbId: 700 + ownFetches, Score: ownFetches / 10 })] });
+      },
+    };
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    expect(document.getElementById('customTab_2')).toBe(panel);
+    const panel = mountPanel(registry);
+    await flush();
+    const c1 = ownFetches;
+    const title = () => panel.querySelector('.jfh-discovery-tab-host')!.querySelector('.jfh-discovery-card-title')!.getAttribute('title');
+    expect(title()).toBe('own' + c1);
+    ui.maybeRefreshInBackground(panel);
+    await flush();
+    expect(ownFetches).toBe(c1 + 1);
+    expect(title()).toBe('own' + (c1 + 1));
+    expect(panel.querySelector('.jfh-discovery-tabs')).not.toBeNull();
   });
 
-  test('a visible stranded sibling suppresses the nudge entirely', async () => {
-    setHash('#/home?tab=2');
+  test('request and dismiss refresh the mounted panel after removing a card', async () => {
+    setHash('#/home');
     const ui = freshDiscoveryHelpers();
-    ajaxRouter(homeRoutes(), { userId: 'u1' });
-    const stranded = makeStrandedPanel('2');
-    const hiddenWrap = document.createElement('div');
-    hiddenWrap.className = 'hide';
-    const visible = document.createElement('div');
-    visible.className = 'jellyfinhelper discovery';
-    hiddenWrap.appendChild(visible);
-    document.body.appendChild(hiddenWrap);
-    Object.defineProperty(visible, 'offsetParent', { value: document.body, configurable: true });
+    let ownFetches = 0;
+    (globalThis as any).ApiClient = {
+      getUrl: (p: string) => p,
+      getCurrentUserId: () => 'u1',
+      accessToken: () => 't',
+      ajax: (o: any) => {
+        const url = String(o.url);
+        if (url.includes('Translations') || url.includes('ExternalLinks')) return Promise.resolve({});
+        if (url.includes('RequestPermissions')) return Promise.resolve({ CanRequest: true, Profiles: [] });
+        if (url.includes('/Request') || url.includes('/Dismiss')) return Promise.resolve({ Success: true });
+        if (url.includes('Trakt')) return Promise.reject({ status: 403 });
+        ownFetches++;
+        const payload = ownFetches <= 2
+          ? [rec({ Title: 'Alpha', TmdbId: 1 }), rec({ Title: 'Beta', TmdbId: 2 })]
+          : ownFetches === 3 ? [rec({ Title: 'Beta', TmdbId: 2 })] : [];
+        return Promise.resolve({ Recommendations: payload });
+      },
+    };
+    const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
     await flush();
-    expect(stranded.isConnected).toBe(true);
-    expect(stranded.querySelector('.jfh-discovery-container')).toBeNull();
-    expect(location.hash).toBe('#/home?tab=2');
+    const panel = mountPanel(registry);
+    await flush();
+    expect(panel.querySelectorAll('.jfh-discovery-card')).toHaveLength(2);
+    (panel.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)') as HTMLElement).click();
+    await flush();
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(400);
+    await flush();
+    expect(panel.querySelectorAll('.jfh-discovery-card')).toHaveLength(1);
+    (panel.querySelector('.jfh-discovery-btn-dismiss') as HTMLElement).click();
+    (document.querySelector('.jfh-discovery-popup-item') as HTMLElement).click();
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    await flush();
+    expect(panel.querySelectorAll('.jfh-discovery-card')).toHaveLength(0);
+    expect(panel.textContent).toContain('No suggestions available');
   });
 });
 

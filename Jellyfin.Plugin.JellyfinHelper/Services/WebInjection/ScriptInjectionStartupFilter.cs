@@ -81,6 +81,9 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
         context.Request.Headers.Remove("Accept-Encoding");
         context.Request.Headers.Remove("Range");
         context.Request.Headers.Remove("If-Range");
+        // A 304 would keep a cached shell without the script tag in use, so force a full response.
+        context.Request.Headers.Remove("If-None-Match");
+        context.Request.Headers.Remove("If-Modified-Since");
 
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
@@ -101,11 +104,11 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
 
         if (!IsRewritable(context.Response))
         {
-            await buffer.CopyToAsync(originalBody).ConfigureAwait(false);
+            await buffer.CopyToAsync(originalBody, context.RequestAborted).ConfigureAwait(false);
             return;
         }
 
-        var html = await ReadBodyAsync(buffer).ConfigureAwait(false);
+        var html = await ReadBodyAsync(buffer, context.RequestAborted).ConfigureAwait(false);
         var body = InjectScript(html);
         var bytes = Encoding.UTF8.GetBytes(body);
 
@@ -118,7 +121,7 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
         await originalBody.WriteAsync(bytes.AsMemory(), context.RequestAborted).ConfigureAwait(false);
     }
 
-    private static async Task<string> ReadBodyAsync(Stream buffer)
+    private static async Task<string> ReadBodyAsync(Stream buffer, CancellationToken cancellationToken)
     {
         using var reader = new StreamReader(
             buffer,
@@ -126,7 +129,7 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
             detectEncodingFromByteOrderMarks: true,
             bufferSize: 1024,
             leaveOpen: true);
-        return await reader.ReadToEndAsync().ConfigureAwait(false);
+        return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsIndexRequest(HttpRequest request)
