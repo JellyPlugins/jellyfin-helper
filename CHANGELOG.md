@@ -7,7 +7,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [3.1.0.0] - 2026-10-31
 
-### Breaking
+### Breaking!
 
 - **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. If nothing else on your server uses those plugins, you can remove them; leaving them installed is harmless and the tab still aligns with tabs they render.
 
