@@ -347,7 +347,6 @@
   "discoveryTitle": "Upptäck nytt innehåll",
   "discoveryTabTitle": "✨ Upptäck",
   "discoverySetupHint": "Visas automatiskt på startskärmen. Ladda om en gång efter aktiveringen. Inga externa plugins krävs.",
-  "discoverySetupHintTitle": "Inställningsanvisningar",
   "discoveryTabUnavailable": "Upptäck är inte tillgängligt just nu. Försök igen senare.",
   "discoveryConfigureSeerr": "Konfigurera Seerr i fliken Inställningar för att se personliga nedladdningsförslag.",
   "discoveryDisabled": "Discovery är inte aktiverat. Be din serveradministratör att aktivera denna funktion i Jellyfin Helper-inställningarna.",
@@ -460,5 +459,6 @@
   "codecCardDropped": "Kort släppt och ordning sparad.",
   "codecCardCancelled": "Omordning avbruten.",
   "codecCardOrderSaved": "Ordning sparad",
-  "codecCardOrderSaveFailed": "Det gick inte att spara ordningen"
+  "codecCardOrderSaveFailed": "Det gick inte att spara ordningen",
+  "discoveryHintInfo": "Visa Upptäck-tips"
 }

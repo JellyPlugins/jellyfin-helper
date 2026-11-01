@@ -347,7 +347,6 @@
   "discoveryTitle": "Discover New Content",
   "discoveryTabTitle": "✨ Discover",
   "discoverySetupHint": "Appears on the home page automatically. Reload once after enabling. No external plugins required.",
-  "discoverySetupHintTitle": "Setup Instructions",
   "discoveryTabUnavailable": "Discovery is not available right now. Please try again later.",
   "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
   "discoveryDisabled": "Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.",
@@ -460,5 +459,6 @@
   "codecCardDropped": "Card dropped and order saved.",
   "codecCardCancelled": "Reorder cancelled.",
   "codecCardOrderSaved": "Order saved",
-  "codecCardOrderSaveFailed": "Could not save order"
+  "codecCardOrderSaveFailed": "Could not save order",
+  "discoveryHintInfo": "Show Discovery hint"
 }
