@@ -129,7 +129,7 @@
             return;
         }
         var tabsElem = document.querySelector('[is="emby-tabs"]');
-        if (tabsElem && btn && btn.classList.contains('emby-tab-button-active') && tabsElem.selectedTabIndex === previous) {
+        if (tabsElem && btn?.classList.contains('emby-tab-button-active') && tabsElem.selectedTabIndex === previous) {
             tabsElem.selectedTabIndex = index;
         }
     }
@@ -188,7 +188,7 @@
                 continue;
             }
             var slot = document.getElementById(RESERVED_ID_PREFIX + kind + '-' + i);
-            if (slot && slot.parentElement === container) {
+            if (slot?.parentElement === container) {
                 continue;
             }
             container.appendChild(slot || createReservedSlot(kind, i));
@@ -222,7 +222,7 @@
 
     function getHeaderButtonTray() {
         var legacy = document.querySelector('.headerRight:not([data-jfh-header-fallback])');
-        if (legacy && legacy.offsetParent !== null) {
+        if (legacy?.offsetParent != null) {
             return legacy;
         }
 
@@ -277,7 +277,7 @@
 
     function removeGroupIfEmpty() {
         var group = document.getElementById(GROUP_ID);
-        if (group && group.children.length <= 1) {
+        if (group?.children.length <= 1) {
             group.remove();
         }
     }
@@ -285,7 +285,7 @@
     function isTabButtonVisible(btn, id) {
         var cached = visibilityCache[id];
         var now = Date.now();
-        if (cached && cached.btn === btn && now - cached.ts < 1000) {
+        if (cached?.btn === btn && now - cached.ts < 1000) {
             return cached.visible;
         }
         var visible = btn.offsetParent !== null;
@@ -440,7 +440,7 @@
             userPickedHash = freshHash;
         }
         if (appliedDeepLink?.hash === staleHash
-            && appliedDeepLink.panel === document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id)) {
+            && appliedDeepLink?.panel === document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id)) {
             appliedDeepLink.hash = window.location.hash;
             appliedDeepLink.btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
         }
