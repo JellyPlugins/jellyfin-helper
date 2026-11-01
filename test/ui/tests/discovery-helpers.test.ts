@@ -2701,6 +2701,32 @@ describe('bootstrap + tab registration', () => {
     expect(sidebar.querySelector('a')).toBeNull();
   });
 
+  test('a cold load without a user still probes once the user appears, and a later logout tears down', async () => {
+    setHash('#/home');
+    const ui = freshDiscoveryHelpers();
+    let user = '';
+    const calls = ajaxRouter(homeRoutes(), { userId: '' });
+    (globalThis as any).ApiClient.getCurrentUserId = () => user;
+    const { sidebar } = buildSidebar();
+    const registry = fakeTabRegistry();
+
+    ui.bootstrapDiscovery();
+    await flush();
+    // The shell is loaded before Jellyfin restores the session: wait instead of giving up.
+    expect(calls.some((c) => c.url === '/JellyfinHelper/Discovery/My')).toBe(false);
+
+    user = 'u1';
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(sidebar.querySelector('a')).not.toBeNull();
+
+    user = '';
+    ui.bootstrapDiscovery();
+    expect(registry.unregister).toHaveBeenCalledWith('discovery');
+    expect(sidebar.querySelector('a')).toBeNull();
+  });
+
   test('a stalled waitForApi releases the gate so a later sign-in probes', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();

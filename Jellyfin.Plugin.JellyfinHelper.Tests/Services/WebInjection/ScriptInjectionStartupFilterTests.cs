@@ -67,8 +67,17 @@ public class ScriptInjectionStartupFilterTests
         context.Request.Headers.AcceptEncoding = "gzip";
         context.Request.Headers.Range = "bytes=0-10";
         context.Request.Headers.IfRange = "\"abc\"";
+        context.Request.Headers["If-None-Match"] = "\"abc\"";
+        context.Request.Headers["If-Modified-Since"] = "Wed, 21 Oct 2026 07:28:00 GMT";
 
-        await CreateFilter().InvokeAsync(context, () => WriteAsync(context, Shell));
+        await CreateFilter().InvokeAsync(context, () =>
+        {
+            // Conditional headers must be gone before the static handler runs, or it can answer 304
+            // and the browser keeps a cached shell without the script tag.
+            Assert.False(context.Request.Headers.ContainsKey("If-None-Match"));
+            Assert.False(context.Request.Headers.ContainsKey("If-Modified-Since"));
+            return WriteAsync(context, Shell);
+        });
 
         var html = ReadBody(body);
         Assert.Contains("src=\"../JellyfinHelper/Discovery/My/script?v=1.2.3\"", html, StringComparison.Ordinal);
@@ -85,6 +94,8 @@ public class ScriptInjectionStartupFilterTests
         Assert.False(context.Request.Headers.ContainsKey("Accept-Encoding"));
         Assert.False(context.Request.Headers.ContainsKey("Range"));
         Assert.False(context.Request.Headers.ContainsKey("If-Range"));
+        Assert.False(context.Request.Headers.ContainsKey("If-None-Match"));
+        Assert.False(context.Request.Headers.ContainsKey("If-Modified-Since"));
     }
 
     [Fact]

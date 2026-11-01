@@ -87,6 +87,21 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
     }
 
     [Fact]
+    public void TryDeleteStaleTempFiles_KeepsFilesOutsideTheAtomicTempFormat()
+    {
+        var atomic = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var backup = Path.Join(_webPath, "index.html.backup.tmp");
+        File.WriteAllText(atomic, "leftover");
+        File.WriteAllText(backup, "not ours");
+        var pluginLog = new Mock<IPluginLogService>();
+
+        LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(pluginLog.Object, NullLogger.Instance, _webPath);
+
+        Assert.False(File.Exists(atomic), "the atomic-write temp file is removed");
+        Assert.True(File.Exists(backup), "a file that only looks similar is left alone");
+    }
+
+    [Fact]
     public void TryRemoveScriptTag_WithoutOurTagDoesNotRewrite()
     {
         var indexPath = Path.Join(_webPath, "index.html");

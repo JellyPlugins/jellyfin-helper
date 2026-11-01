@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 internal static class LegacyIndexHtmlCleanup
 {
     private const string LogSource = "Discovery";
+
+    /// <summary>
+    ///     Matches only the temp files AtomicFile writes: index.html.&lt;32 hex&gt;.tmp. A wildcard would also
+    ///     delete unrelated files such as index.html.backup.tmp in the same directory.
+    /// </summary>
+    private static readonly Regex AtomicTempName = new(
+        "^index\\.html\\.[0-9a-fA-F]{32}\\.tmp$",
+        RegexOptions.CultureInvariant);
 
     /// <summary>
     ///     Strips our script tag from the on-disk index.html when an older version left one behind.
@@ -80,6 +89,11 @@ internal static class LegacyIndexHtmlCleanup
             var removed = 0;
             foreach (var file in Directory.GetFiles(webPath, "index.html.*.tmp"))
             {
+                if (!AtomicTempName.IsMatch(Path.GetFileName(file)))
+                {
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(file);
