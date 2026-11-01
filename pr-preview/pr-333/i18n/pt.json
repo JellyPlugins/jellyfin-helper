@@ -347,7 +347,6 @@
   "discoveryTitle": "Descobrir conteúdo novo",
   "discoveryTabTitle": "✨ Descobrir",
   "discoverySetupHint": "Aparece automaticamente na tela inicial. Recarregue uma vez após ativar. Nenhum plugin externo necessário.",
-  "discoverySetupHintTitle": "Instruções de configuração",
   "discoveryTabUnavailable": "Descobrir não está disponível no momento. Tente novamente mais tarde.",
   "discoveryConfigureSeerr": "Configure o Seerr na aba Configurações para ver sugestões de download personalizadas.",
   "discoveryDisabled": "O Discovery não está ativado. Peça ao administrador do servidor para ativar esta funcionalidade nas configurações do Jellyfin Helper.",
@@ -460,5 +459,6 @@
   "codecCardDropped": "Cartão largado e ordem guardada.",
   "codecCardCancelled": "Reordenação cancelada.",
   "codecCardOrderSaved": "Ordem guardada",
-  "codecCardOrderSaveFailed": "Não foi possível guardar a ordem"
+  "codecCardOrderSaveFailed": "Não foi possível guardar a ordem",
+  "discoveryHintInfo": "Mostrar dica do Descobrir"
 }

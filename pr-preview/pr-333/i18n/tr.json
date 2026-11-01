@@ -347,7 +347,6 @@
   "discoveryTitle": "Yeni İçerik Keşfet",
   "discoveryTabTitle": "✨ Keşfet",
   "discoverySetupHint": "Ana ekranda otomatik olarak görünür. Etkinleştirdikten sonra bir kez yenileyin. Harici eklenti gerekmez.",
-  "discoverySetupHintTitle": "Kurulum talimatları",
   "discoveryTabUnavailable": "Keşfet şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
   "discoveryConfigureSeerr": "Kişiselleştirilmiş indirme önerileri görmek için Ayarlar sekmesinde Seerr'ı yapılandırın.",
   "discoveryDisabled": "Discovery etkin değil. Lütfen sunucu yöneticinizden Jellyfin Helper ayarlarında bu özelliği etkinleştirmesini isteyin.",
@@ -460,5 +459,6 @@
   "codecCardDropped": "Kart bırakıldı ve sıralama kaydedildi.",
   "codecCardCancelled": "Yeniden sıralama iptal edildi.",
   "codecCardOrderSaved": "Sıralama kaydedildi",
-  "codecCardOrderSaveFailed": "Sıralama kaydedilemedi"
+  "codecCardOrderSaveFailed": "Sıralama kaydedilemedi",
+  "discoveryHintInfo": "Keşfet ipucunu göster"
 }

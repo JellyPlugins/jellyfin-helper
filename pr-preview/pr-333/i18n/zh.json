@@ -347,7 +347,6 @@
   "discoveryTitle": "发现新内容",
   "discoveryTabTitle": "✨ 发现",
   "discoverySetupHint": "自动显示在主屏幕上。启用后刷新一次。无需外部插件。",
-  "discoverySetupHintTitle": "设置说明",
   "discoveryTabUnavailable": "发现功能当前不可用。请稍后重试。",
   "discoveryConfigureSeerr": "在设置选项卡中配置 Seerr 以查看个性化下载建议。",
   "discoveryDisabled": "Discovery 未启用。请联系您的服务器管理员在 Jellyfin Helper 设置中启用此功能。",
@@ -460,5 +459,6 @@
   "codecCardDropped": "卡片已放下，顺序已保存。",
   "codecCardCancelled": "已取消重新排序。",
   "codecCardOrderSaved": "顺序已保存",
-  "codecCardOrderSaveFailed": "无法保存顺序"
+  "codecCardOrderSaveFailed": "无法保存顺序",
+  "discoveryHintInfo": "显示发现提示"
 }
