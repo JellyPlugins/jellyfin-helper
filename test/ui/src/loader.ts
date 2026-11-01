@@ -115,6 +115,7 @@ const CONFIG_EXPECTED = [
         'renderShell', 'initTabs', 'doTabSwitch', 'fillScanData', 'bindPageLifecycle',
         'updateLastScanBadge', 'loadStatistics', 'loadLatestStatistics',
         'isSeerrConfigured', 'refreshDiscoveryAccessState',
+        'attachDiscoveryHintHandler',
         'refreshTraktRowState', 'loadTraktOfficialStatus', 'updateRecsTabVisibility',
         'updateSeerrUIState', 'validateTrashPath', 'isSensitiveSystemPath',
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',

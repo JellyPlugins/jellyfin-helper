@@ -441,6 +441,43 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
     document.body.innerHTML = '';
     expect(() => ui.refreshDiscoveryAccessState()).not.toThrow();
   });
+
+  test('disabling Discovery hides the info button and closes the hint panel', () => {
+    discoveryDom('Deactivate', 'http://s:5055', 'k');
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<button id="btnToggleDiscoveryHint" aria-expanded="true"></button>' +
+        '<div id="discoveryHintPanel" style="display:block;"></div>',
+    );
+    expect(ui.refreshDiscoveryAccessState()).toBe(false);
+    expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
+    expect(document.getElementById('btnToggleDiscoveryHint')!.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('Discovery setup hint info button', () => {
+  test('the info button toggles the hint panel and aria-expanded', () => {
+    document.body.innerHTML =
+      '<button id="btnToggleDiscoveryHint" aria-expanded="false"></button>' +
+      '<div id="discoveryHintPanel" style="display:none;"></div>';
+    ui.attachDiscoveryHintHandler();
+    const btn = document.getElementById('btnToggleDiscoveryHint')!;
+    const panel = document.getElementById('discoveryHintPanel') as HTMLElement;
+
+    btn.click();
+    expect(panel.style.display).toBe('block');
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+
+    btn.click();
+    expect(panel.style.display).toBe('none');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('the handler tolerates a missing button or panel', () => {
+    document.body.innerHTML = '';
+    expect(() => ui.attachDiscoveryHintHandler()).not.toThrow();
+  });
 });
 
 describe('refreshTraktRowState combinations', () => {

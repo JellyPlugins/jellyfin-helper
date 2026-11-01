@@ -182,13 +182,24 @@ test.describe('Discovery native tab (home page)', () => {
 
     const ownership = await page.evaluate(() => {
       const panel = document.getElementById('jfh-tab-panel-discovery');
+      // The experimental layout keeps the strip button in a hidden header, so only
+      // rendered elements count as an entry point.
+      const isVisible = (el: Element | null) => {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
       return {
         // Custom Tabs stamped every panel it created; none may exist now.
         customTabPanels: document.querySelectorAll('[id^="customTab_"]').length,
         panels: document.querySelectorAll('#jfh-tab-panel-discovery').length,
         panelClasses: panel?.className ?? '',
-        buttons: document.querySelectorAll('#jfh-tab-btn-discovery').length,
-        links: document.querySelectorAll('#jfh-tab-link-discovery').length,
+        // Only one entry point may be visible: the strip button on the stable layout,
+        // the header link on the experimental one. The hidden twin is not clickable.
+        buttons: Array.from(document.querySelectorAll('#jfh-tab-btn-discovery')).filter(isVisible).length,
+        links: Array.from(document.querySelectorAll('#jfh-tab-link-discovery')).filter(isVisible).length,
       };
     });
     expect(ownership.customTabPanels, 'no Custom Tabs panel is involved').toBe(0);

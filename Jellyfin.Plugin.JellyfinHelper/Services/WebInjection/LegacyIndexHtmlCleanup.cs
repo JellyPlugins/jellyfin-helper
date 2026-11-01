@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 ///     Injection now happens per request, so an on-disk tag would only keep a dead reference alive
 ///     after uninstall. Cleanup is best effort and tolerates read-only web directories.
 /// </remarks>
-internal static class LegacyIndexHtmlCleanup
+internal static partial class LegacyIndexHtmlCleanup
 {
     private const string LogSource = "Discovery";
 
@@ -22,9 +22,8 @@ internal static class LegacyIndexHtmlCleanup
     ///     Matches only the temp files AtomicFile writes: index.html.&lt;32 hex&gt;.tmp. A wildcard would also
     ///     delete unrelated files such as index.html.backup.tmp in the same directory.
     /// </summary>
-    private static readonly Regex AtomicTempName = new(
-        "^index\\.html\\.[0-9a-fA-F]{32}\\.tmp$",
-        RegexOptions.CultureInvariant);
+    [GeneratedRegex("^index\\.html\\.[0-9a-fA-F]{32}\\.tmp$", RegexOptions.CultureInvariant)]
+    private static partial Regex AtomicTempName();
 
     /// <summary>
     ///     Strips our script tag from the on-disk index.html when an older version left one behind.
@@ -89,7 +88,7 @@ internal static class LegacyIndexHtmlCleanup
             var removed = 0;
             foreach (var file in Directory.GetFiles(webPath, "index.html.*.tmp"))
             {
-                if (!AtomicTempName.IsMatch(Path.GetFileName(file)))
+                if (!AtomicTempName().IsMatch(Path.GetFileName(file)))
                 {
                     continue;
                 }

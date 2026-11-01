@@ -44,6 +44,16 @@ function refreshDiscoveryAccessState() {
     }
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
+    // The hint lives behind the info icon, so hide the button and panel when Discovery cannot be enabled.
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
+    var setupHint = document.querySelector('.discovery-setup-hint');
+    if (setupHint) setupHint.style.display = discEnabled ? '' : 'none';
+    if (!discEnabled) {
+        var panel = document.getElementById('discoveryHintPanel');
+        if (panel) panel.style.display = 'none';
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
     refreshTraktRowState();
     return discEnabled;
 }
@@ -514,10 +524,13 @@ function loadSettings(onDone) {
         var discoveryEnabled = recsNotDeactivated && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
-        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + '</div>';
-        h += '<div class="help-text discovery-setup-hint" aria-disabled="false">' + escHtml(T('discoverySetupHint', 'While enabled, the Discovery tab appears on the home screen automatically. Reload the page once after enabling.')) + '</div>';
-        h += '<div class="help-text discovery-upgrade-hint" aria-disabled="false">' + escHtml(T('discoveryUpgradeHint', 'Upgrading from an older version? Remove the old Discovery tab in Custom Tabs; the plugin provides its own now.')) + '</div>';
+        h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;" title="' + escAttr(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escAttr(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-expanded="false" aria-controls="discoveryHintPanel">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations not set to Deactivate and Seerr configured.')) + '</div>';
+        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
+        h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
+        h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
+        h += '<div style="margin-top:0.3em;">' + escHtml(T('discoverySetupHint', 'Appears on the home page automatically. Reload once after enabling. No external plugins required.')) + '</div>';
+        h += '</div></div>';
 
         // Shown only with the official Trakt plugin present and Discovery on; hidden by default.
         h += '<div class="checkbox-row" id="traktSourcingRow" style="display:none;margin-top:0.2em;"><input type="checkbox" id="cfgTraktSourcingEnabled"' + (cfg.TraktSourcingEnabled === true ? ' checked' : '') + '><label for="cfgTraktSourcingEnabled">' + escHtml(T('traktSourcingEnabled', 'Enable Trakt discovery')) + '</label></div>';
@@ -637,6 +650,7 @@ function loadSettings(onDone) {
         attachSeerrHandlers();
         loadTraktOfficialStatus();
         attachTaskDescHandlers();
+        attachDiscoveryHintHandler();
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
@@ -1282,6 +1296,20 @@ function attachTaskDescHandlers() {
             this.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
         });
     }
+}
+
+/**
+ * Attach the info-button toggle for the Discovery setup hint.
+ */
+function attachDiscoveryHintHandler() {
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    var panel = document.getElementById('discoveryHintPanel');
+    if (!toggleBtn || !panel) return;
+    toggleBtn.addEventListener('click', function () {
+        var isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'block';
+        toggleBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+    });
 }
 
 function indicateQuietSave(elements, success) {

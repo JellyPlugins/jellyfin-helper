@@ -67,8 +67,8 @@ public class ScriptInjectionStartupFilterTests
         context.Request.Headers.AcceptEncoding = "gzip";
         context.Request.Headers.Range = "bytes=0-10";
         context.Request.Headers.IfRange = "\"abc\"";
-        context.Request.Headers["If-None-Match"] = "\"abc\"";
-        context.Request.Headers["If-Modified-Since"] = "Wed, 21 Oct 2026 07:28:00 GMT";
+        context.Request.Headers.IfNoneMatch = "\"abc\"";
+        context.Request.Headers.IfModifiedSince = "Wed, 21 Oct 2026 07:28:00 GMT";
 
         await CreateFilter().InvokeAsync(context, () =>
         {

@@ -1494,16 +1494,17 @@
 
     function initSidebar() {
         injectNavigation();
+        if (_sidebarObserver) return;
         var drawer = document.querySelector('.mainDrawer');
         // Fallback to document.body if .mainDrawer hasn't mounted yet (cold load / SPA timing)
         var target = drawer || document.body;
-        var observer = new MutationObserver(function () {
+        _sidebarObserver = new MutationObserver(function () {
             var sidebar = document.querySelector('.mainDrawer-scrollContainer');
             if (sidebar && !sidebar.querySelector('.' + NAV_ITEM_CLASS)) {
                 injectNavigation();
             }
         });
-        observer.observe(target, { childList: true, subtree: true });
+        _sidebarObserver.observe(target, { childList: true, subtree: true });
     }
 
     function injectNavigation() {
@@ -1567,6 +1568,8 @@
     // The user the gates above were last decided for. An in-tab account switch must not inherit
     // the previous user's terminal 403 or in-flight probe, so a change resets the bootstrap gate.
     var _probedUserId = null;
+    // Single sidebar observer for the module, so repeated sign-ins cannot stack callbacks.
+    var _sidebarObserver = null;
 
     function initDiscoveryUiEmpty() {
         // No results yet. The tab still renders its empty state, but the sidebar
@@ -1647,6 +1650,10 @@
             _probeInFlight = false;
             _probedUserId = null;
             _discoveryResultCache = null;
+            if (_sidebarObserver) {
+                _sidebarObserver.disconnect();
+                _sidebarObserver = null;
+            }
             var staleNav = document.querySelectorAll('.' + NAV_ITEM_CLASS);
             for (var navItem of staleNav) {
                 navItem.remove();
