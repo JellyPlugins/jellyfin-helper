@@ -429,7 +429,7 @@
 
     // Rewrites a stale ?tab=N to the entry's current index and keeps the applied marker in sync.
     function retargetDeepLink(entry, wantedIndex) {
-        if (!entry || entry.index == null || entry.index === wantedIndex) {
+        if (entry?.index == null || entry.index === wantedIndex) {
             return wantedIndex;
         }
         var staleHash = window.location.hash;
@@ -526,7 +526,7 @@
             return;
         }
         var entry = findEntry(pendingFocusId);
-        if (!entry || entry.index == null) {
+        if (entry?.index == null) {
             return;
         }
         var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
