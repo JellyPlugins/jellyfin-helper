@@ -8,7 +8,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { apiContext, normalUserContext, loadAuth, p } from '../setup/api-client.ts';
-import { ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
+import { disableDiscoveryUserAccess, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 
 // Only the Trakt layout spec needs the official plugin: the Trakt probe reports
 // enabled only when that plugin is present.
@@ -200,9 +200,9 @@ test.describe('Discovery native tab (home page)', () => {
 });
 
 /**
- * Negative counterpart: with the user-access toggle OFF, the tab must not be
- * registered at all. discovery-sidebar.js gets a 403 from /Discovery/My and bails
- * before registering, so neither a tab button, a header link, nor a panel exists.
+ * Negative counterpart: with the user-access toggle OFF, nothing is injected or
+ * registered at all. Injection is gated on the toggle, so the shell is served
+ * untouched and no tab button, header link, or panel can exist.
  * Runs in its own describe so its config toggling is bracketed and restored.
  */
 test.describe('Discovery native tab - access disabled', () => {
@@ -211,19 +211,9 @@ test.describe('Discovery native tab - access disabled', () => {
     const admin = await apiContext(auth);
     const probe = (await normalUserContext(auth)) ?? admin;
     try {
-      // Turn the user-access toggle OFF while preserving the rest of the config. PUT /Configuration binds the
-      // whole ConfigurationUpdateRequest and resets every omitted non-nullable field to its default, so a
-      // partial body would wipe Seerr/Arr/cleanup settings that later specs (workers: 1, shared backend) rely
-      // on. Read the current config, flip only the toggle, and write it back. Poll until the user-facing read
-      // actually 403s, so the UI assertion below is not racing an un-propagated toggle.
-      const current = await admin.get(p('Configuration'));
-      expect(current.ok(), `read configuration: ${current.status()}`).toBeTruthy();
-      const cfg = (await current.json()) as Record<string, unknown>;
-      const put = await admin.put(p('Configuration'), {
-        headers: { 'Content-Type': 'application/json' },
-        data: { ...cfg, DiscoveryUserAccessEnabled: false },
-      });
-      expect(put.ok(), `disable discovery access: ${put.status()}`).toBeTruthy();
+      // Turn the user-access toggle OFF with the shared known-good payload, then poll until the user-facing
+      // read actually 403s so the UI assertion below is not racing an un-propagated toggle.
+      await disableDiscoveryUserAccess(admin);
       await expect
         .poll(async () => (await probe.get(p('Discovery/My'))).status(), { timeout: 15_000 })
         .toBe(403);
@@ -244,21 +234,15 @@ test.describe('Discovery native tab - access disabled', () => {
     }
   });
 
-  test('no tab, link or panel is registered while access is off', async ({ page }) => {
-    // Arm the response wait before navigating so the 403 that ends the bootstrap
-    // is observed, not raced.
-    const bailResponse = page.waitForResponse(
-      (res) => {
-        try {
-          return new URL(res.url()).pathname === p('Discovery/My') && res.status() === 403;
-        } catch {
-          return false;
-        }
-      },
-      { timeout: 20_000 },
+  test('no script, tab, link or panel is registered while access is off', async ({ page }) => {
+    const base = await openHome(page);
+
+    // Injection is gated on the toggle, so the shell must be served untouched. Asserting
+    // the response instead of a 403 keeps this independent of how the SPA probes the API.
+    const html = await (await page.request.get(`${base}/web/index.html`)).text();
+    expect(html, 'no Discovery script is injected while access is off').not.toContain(
+      'plugin="Jellyfin Helper"',
     );
-    await openHome(page);
-    await bailResponse;
 
     await expect(page.locator('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveCount(0);
     await expect(page.locator('#jfh-tab-panel-discovery')).toHaveCount(0);

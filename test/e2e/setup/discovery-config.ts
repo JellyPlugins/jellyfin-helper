@@ -31,20 +31,43 @@ export async function ensureDiscoveryConfigured(
   admin: APIRequestContext,
   log: (msg: string) => void = () => {},
 ): Promise<void> {
-  const cfg = await admin.put('/JellyfinHelper/Configuration', {
+  await putDiscoveryConfig(admin, log, true);
+}
+
+/**
+ * Turn the user-access toggle OFF while keeping the rest of the Discovery config intact.
+ *
+ * PUT /Configuration binds the whole request and resets every omitted non-nullable field to its default, so a
+ * partial body would wipe the Seerr/Arr/cleanup settings later specs rely on. Reading GET /Configuration first is
+ * not an option either: it returns masked API keys, and writing the mask back would destroy the real key. So this
+ * sends the same known-good payload as `ensureDiscoveryConfigured`, only with the toggle off.
+ */
+export async function disableDiscoveryUserAccess(
+  admin: APIRequestContext,
+  log: (msg: string) => void = () => {},
+): Promise<void> {
+  await putDiscoveryConfig(admin, log, false);
+}
+
+async function putDiscoveryConfig(
+  admin: APIRequestContext,
+  log: (msg: string) => void,
+  userAccessEnabled: boolean,
+): Promise<void> {
+  const res = await admin.put('/JellyfinHelper/Configuration', {
     headers: { 'Content-Type': 'application/json' },
     data: {
       RecommendationsTaskMode: 'Activate',
       SeerrUrl: INTERNAL_MOCK_SEERR_URL,
       SeerrApiKey: 'seerr-key',
-      DiscoveryUserAccessEnabled: true,
+      DiscoveryUserAccessEnabled: userAccessEnabled,
       TraktSourcingEnabled: true,
       ExcludedLibraries: '',
     },
   });
-  log(`enable discovery access -> ${cfg.status()}`);
-  if (!cfg.ok()) {
-    throw new Error(`Discovery access setup failed: ${cfg.status()} ${(await cfg.text()).slice(0, 300)}`);
+  log(`set discovery access=${userAccessEnabled} -> ${res.status()}`);
+  if (!res.ok()) {
+    throw new Error(`Discovery access setup failed: ${res.status()} ${(await res.text()).slice(0, 300)}`);
   }
 }
 
