@@ -1634,8 +1634,9 @@
         // not block a different user who may well have access.
         var userId = currentDiscoveryUserId();
         // On logout (no current user) tear down the Discovery tab and sidebar link so the feature
-        // leaves the DOM instead of lingering for the signed-out session.
-        if (!userId) {
+        // leaves the DOM instead of lingering for the signed-out session. A cold load also has no
+        // user yet, so the teardown only runs once a user was actually probed.
+        if (!userId && _probedUserId) {
             if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
                 window.JellyfinHelperTabs.unregister(TAB_ID);
             }
@@ -1667,6 +1668,8 @@
             // through the signed-out gap). Every async step below re-checks it against the live user
             // so an account switch mid-flight cannot let a stale callback touch shared state or the UI.
             var startedUserId = currentDiscoveryUserId();
+            // Remember whose probe this is, so a later logout tears the UI down again.
+            _probedUserId = startedUserId;
             // Seerr-links config loads in parallel with strings/probe instead of gating
             // first render. A late-arriving URL re-renders the live view once (cache-hit
             // path, no loading flash) so cards gain their Seerr links.

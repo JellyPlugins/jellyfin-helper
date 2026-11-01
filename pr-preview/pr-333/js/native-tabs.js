@@ -427,64 +427,60 @@
         return homeRoute() + '?tab=' + entry.index + '&' + DEEP_LINK_PARAM + '=' + encodeURIComponent(entry.id);
     }
 
-    function syncDeepLink(slider, root) {
-        var wantedId = hashParam(DEEP_LINK_PARAM);
-        var wantedIndex = Number.parseInt(hashParam('tab'), 10);
-        var entry = wantedId != null ? findEntry(wantedId) : null;
-        if (entry && entry.index != null && entry.index !== wantedIndex) {
-            var staleHash = window.location.hash;
-            var freshHash = deepLinkHash(entry);
-            rewrittenHash = freshHash;
-            history.replaceState(history.state, '', window.location.pathname + window.location.search + freshHash);
-            wantedIndex = entry.index;
-            if (userPickedHash === staleHash) {
-                userPickedHash = freshHash;
-            }
-            if (appliedDeepLink?.hash === staleHash
-                && appliedDeepLink.panel === document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id)) {
-                appliedDeepLink.hash = window.location.hash;
-                appliedDeepLink.btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
-            }
+    // Rewrites a stale ?tab=N to the entry's current index and keeps the applied marker in sync.
+    function retargetDeepLink(entry, wantedIndex) {
+        if (!entry || entry.index == null || entry.index === wantedIndex) {
+            return wantedIndex;
         }
-        if (Number.isNaN(wantedIndex) || wantedIndex < 2) {
-            return;
+        var staleHash = window.location.hash;
+        var freshHash = deepLinkHash(entry);
+        rewrittenHash = freshHash;
+        history.replaceState(history.state, '', window.location.pathname + window.location.search + freshHash);
+        if (userPickedHash === staleHash) {
+            userPickedHash = freshHash;
         }
-        if (userPickedHash === window.location.hash) {
-            return;
+        if (appliedDeepLink?.hash === staleHash
+            && appliedDeepLink.panel === document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id)) {
+            appliedDeepLink.hash = window.location.hash;
+            appliedDeepLink.btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
         }
+        return entry.index;
+    }
 
+    // Resolves the button/panel pair for an index, or null while the strip is not mounted yet.
+    function deepLinkTarget(slider, root, index) {
         var tabsElem = slider.closest('[is="emby-tabs"]') || document.querySelector('[is="emby-tabs"]');
-        var btn = tabsElem?.querySelectorAll('.emby-tab-button')[wantedIndex];
-        var panel = root.querySelectorAll('.tabContent')[wantedIndex];
+        var btn = tabsElem?.querySelectorAll('.emby-tab-button')[index];
+        var panel = root.querySelectorAll('.tabContent')[index];
         if (!tabsElem?.selectedIndex || !btn || !panel
-            || slotIndex(btn) !== wantedIndex || slotIndex(panel) !== wantedIndex) {
-            return;
+            || slotIndex(btn) !== index || slotIndex(panel) !== index) {
+            return null;
         }
-        var hash = window.location.hash;
-        if (appliedDeepLink?.hash === hash && appliedDeepLink.root === root
-            && appliedDeepLink.panel === panel && appliedDeepLink.tabs === tabsElem) {
-            var stillSelected = tabsElem.selectedIndex() === wantedIndex
-                && panel.classList.contains('is-active')
-                && !Array.prototype.some.call(tabsElem.querySelectorAll('.emby-tab-button-active'),
-                    function (el) { return el !== btn; });
-            if (appliedDeepLink.btn === btn || !stillSelected) {
-                appliedDeepLink.btn = btn;
-                return;
-            }
-        }
+        return { tabsElem: tabsElem, btn: btn, panel: panel };
+    }
+
+    function isDeepLinkMarked(target, root, hash) {
+        return appliedDeepLink?.hash === hash && appliedDeepLink.root === root
+            && appliedDeepLink.panel === target.panel && appliedDeepLink.tabs === target.tabsElem;
+    }
+
+    // Selects the tab and drops any stray active marker. Returns whether the strip now matches.
+    function selectDeepLinkTab(root, target, index) {
         var strays = function () {
             return Array.prototype.filter.call(root.querySelectorAll('.tabContent.is-active'),
-                function (el) { return el !== panel; }).concat(Array.prototype.filter.call(
-                tabsElem.querySelectorAll('.emby-tab-button-active'), function (el) { return el !== btn; }));
+                function (el) { return el !== target.panel; }).concat(Array.prototype.filter.call(
+                target.tabsElem.querySelectorAll('.emby-tab-button-active'),
+                function (el) { return el !== target.btn; }));
         };
         var isApplied = function () {
-            return tabsElem.selectedIndex() === wantedIndex && panel.classList.contains('is-active')
-                && btn.classList.contains('emby-tab-button-active') && strays().length === 0;
+            return target.tabsElem.selectedIndex() === index
+                && target.panel.classList.contains('is-active')
+                && target.btn.classList.contains('emby-tab-button-active') && strays().length === 0;
         };
         if (!isApplied()) {
             selectingTab = true;
             try {
-                tabsElem.selectedIndex(wantedIndex);
+                target.tabsElem.selectedIndex(index);
             } finally {
                 selectingTab = false;
             }
@@ -492,9 +488,37 @@
                 el.classList.remove('is-active', 'emby-tab-button-active');
             });
         }
-        if (isApplied()) {
-            appliedDeepLink = { hash: hash, root: root, panel: panel, tabs: tabsElem, btn: btn };
+        return isApplied();
+    }
+
+    function syncDeepLink(slider, root) {
+        var wantedId = hashParam(DEEP_LINK_PARAM);
+        var entry = wantedId != null ? findEntry(wantedId) : null;
+        var wantedIndex = retargetDeepLink(entry, Number.parseInt(hashParam('tab'), 10));
+        if (Number.isNaN(wantedIndex) || wantedIndex < 2 || userPickedHash === window.location.hash) {
+            return;
         }
+        var target = deepLinkTarget(slider, root, wantedIndex);
+        if (!target) {
+            return;
+        }
+        var hash = window.location.hash;
+        if (isDeepLinkMarked(target, root, hash)) {
+            var stillSelected = target.tabsElem.selectedIndex() === wantedIndex
+                && target.panel.classList.contains('is-active')
+                && !Array.prototype.some.call(target.tabsElem.querySelectorAll('.emby-tab-button-active'),
+                    function (el) { return el !== target.btn; });
+            if (appliedDeepLink.btn === target.btn || !stillSelected) {
+                appliedDeepLink.btn = target.btn;
+                return;
+            }
+        }
+        if (!selectDeepLinkTab(root, target, wantedIndex)) {
+            return;
+        }
+        appliedDeepLink = {
+            hash: hash, root: root, panel: target.panel, tabs: target.tabsElem, btn: target.btn
+        };
     }
 
     function applyPendingFocus() {
