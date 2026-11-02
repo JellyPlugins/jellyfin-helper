@@ -34,6 +34,30 @@
         return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId?.()) || '';
     }
 
+    function isLoginPage() {
+        return /^#\/?(?:!\/)?(?:login|selectserver|addserver)(?:[/?]|$)/i.test(window.location.hash);
+    }
+
+    function captureDiscoveryRequest() {
+        var client = typeof ApiClient === 'undefined' ? null : ApiClient;
+        return {
+            generation: _discoveryGeneration,
+            userId: currentDiscoveryUserId(),
+            client: client,
+            token: client?.accessToken?.() || ''
+        };
+    }
+
+    function isCurrentDiscoveryRequest(request) {
+        return request.generation === _discoveryGeneration && isSameDiscoverySession(request);
+    }
+
+    function isSameDiscoverySession(request) {
+        var current = captureDiscoveryRequest();
+        return request.userId === current.userId
+            && request.client === current.client && request.token === current.token && !isLoginPage();
+    }
+
 
     /** * Returns the URL only if it uses a safe http(s) scheme, otherwise ''. */
     function safeHttpUrl(url) {
@@ -71,16 +95,19 @@
 
     var _strings = null;
 
-    function loadStrings(callback) {
+    function loadStrings(callback, request) {
+        request = request || captureDiscoveryRequest();
         // No lang parameter - the server returns the language configured in plugin settings
-        ApiClient.ajax({
+        return ApiClient.ajax({
             type: 'GET',
             url: ApiClient.getUrl('/JellyfinHelper/Translations'),
             dataType: 'json'
         }).then(function (data) {
+            if (!isCurrentDiscoveryRequest(request)) return;
             _strings = data || {};
             callback();
         }).catch(function () {
+            if (!isCurrentDiscoveryRequest(request)) return;
             _strings = {};
             callback();
         });
@@ -103,16 +130,14 @@
      * the Seerr option in the popup will be hidden when _seerrBaseUrl is empty.
      */
     function loadExternalLinksConfig() {
+        var request = captureDiscoveryRequest();
         return ApiClient.ajax({
             type: 'GET',
             url: ApiClient.getUrl(EXTERNAL_LINKS_URL),
             dataType: 'json'
         }).then(function (data) {
-            if (data && data.SeerrUrl) {
-                // Only accept http(s) URLs , reject javascript:/data:/etc. at the source so a
-                // misconfigured or hostile admin value can never reach the window.open() sink.
-                _seerrBaseUrl = safeHttpUrl(data.SeerrUrl).replace(/\/+$/, '');
-            }
+            if (!isCurrentDiscoveryRequest(request)) return;
+            _seerrBaseUrl = safeHttpUrl(data?.SeerrUrl).replace(/\/+$/, '');
         }).catch(function () {
             // Non-critical - Seerr link option will be hidden in the popup
         });
@@ -199,6 +224,8 @@
         style.id = 'jfhelper-discovery-styles';
         style.textContent =
             '@keyframes dspin { to { transform: rotate(360deg); } }' +
+            '.jfh-discovery-modern-link { display:flex;align-items:center;gap:16px;padding:8px 16px;color:inherit;text-decoration:none;border-radius:4px; }' +
+            '.jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
             '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
             // Tab content renders its own container inside the shell container: the inner one must not
             // add padding again or the grid/headers indent against the tab bar.
@@ -316,6 +343,7 @@
         _traktProbeResult = null;
         _trendingPreloadInFlight = false;
         _ownFetchPromise = null;
+        _backgroundRefreshInFlight = false;
         // Any GET already in flight predates this invalidation and must not
         // commit its (now stale) result.
         _discoveryGeneration++;
@@ -330,14 +358,10 @@
         return Number.isNaN(ms) ? 0 : ms;
     }
 
-    // Fingerprint of the visible set: the pool timestamp alone cannot catch a change
-    // from another client, so the visible ids are compared instead.
+    // Card details can change without a new pool timestamp, so compare the complete visible payload.
     function discoveryVisibleKey(data) {
         var recs = data?.Recommendations;
-        if (!Array.isArray(recs)) { return ''; }
-        return recs.map(function (r) {
-            return (r.TmdbId || '') + ':' + (r.MediaType || '');
-        }).join('|');
+        return Array.isArray(recs) && recs.length ? JSON.stringify(recs) : '';
     }
 
     // After a cache-first render, silently refetch once to pick up a scheduler
@@ -349,13 +373,13 @@
         if (_backgroundRefreshInFlight) { return; }
         _backgroundRefreshInFlight = true;
         var startedGeneration = _discoveryGeneration;
-        var startedUserId = currentDiscoveryUserId();
+        var request = captureDiscoveryRequest();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(function (data) {
                 // Discard if a mutation happened, or the user switched, while the
                 // request was in flight: committing it would clobber newer data
                 // or leak another user's recommendations.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 var previous = _discoveryResultCache?.data;
@@ -383,12 +407,14 @@
                 }
             })
             .catch(function (err) {
-                if (err?.status === 403) {
-                    invalidateDiscoveryResult();
+                if (isCurrentDiscoveryRequest(request) && err?.status === 403) {
+                    disableDiscoveryUi();
                 }
             })
             .finally(function () {
-                _backgroundRefreshInFlight = false;
+                if (_discoveryGeneration === startedGeneration) {
+                    _backgroundRefreshInFlight = false;
+                }
             });
     }
 
@@ -411,10 +437,21 @@
             return;
         }
         _tabRegistered = true;
+        var session = captureDiscoveryRequest();
         window.JellyfinHelperTabs.register(TAB_ID, t('discoveryTabTitle', '\u2728 Discover'), function (panel) {
+            if (!isSameDiscoverySession(session)) return;
             _tabPanel = panel;
             renderDiscovery(panel);
-        }, TAB_ICON);
+        }, TAB_ICON, function (panel) {
+            if (!isSameDiscoverySession(session)) {
+                bootstrapDiscovery();
+                return;
+            }
+            if (!_discoveryDisabled && currentDiscoveryUserId() && !isLoginPage()) {
+                _tabPanel = panel;
+                renderDiscovery(panel);
+            }
+        });
     }
 
     // Returns true when the tab was activated or the pending focus will be
@@ -512,6 +549,7 @@
             // do not flicker away after every mutation (a full probe kill would re-hide
             // them for the whole probe latency on each request/dismiss).
             var firedGeneration = _discoveryGeneration;
+            var probeRequest = captureDiscoveryRequest();
             var probeSettled = false;
             var probeTimer = setTimeout(function () {
                 // Stalled probe: fail closed like a transient error so the pending slot
@@ -527,7 +565,7 @@
                 .then(function (resp) {
                     // Superseded probes never own shared state; the newest probe's
                     // callbacks alone decide _traktEnabled and the probe result.
-                    if (probeSettled || probeSeq !== _traktProbeSeq || probeUserId !== currentDiscoveryUserId()) { return; }
+                    if (probeSettled || probeSeq !== _traktProbeSeq || !isSameDiscoverySession(probeRequest)) { return; }
                     _traktEnabled = true;
                     // Record link state so renderShell can hide the personal tab for an unlinked user while
                     // still offering Trending (which needs no link).
@@ -539,7 +577,7 @@
                     _traktProbeResult = { resp: resp, userId: probeUserId, generation: firedGeneration };
                 })
                 .catch(function (err) {
-                    if (probeSettled || probeSeq !== _traktProbeSeq) { return; }
+                    if (probeSettled || probeSeq !== _traktProbeSeq || !isSameDiscoverySession(probeRequest)) { return; }
                     if (err?.status === 403) {
                         resetTraktState();
                     } else {
@@ -661,9 +699,10 @@
         _trendingPreloadInFlight = true;
         _trendingPreloadUserId = userId;
         var startedGeneration = _discoveryGeneration;
+        var request = captureDiscoveryRequest();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
             .then(function (data) {
-                if (_discoveryGeneration !== startedGeneration || userId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 _traktTrendingCache = makeTraktCacheEntry(data, userId);
@@ -673,7 +712,7 @@
                 // silent preload must never surface an error or clear Trakt state.
             })
             .finally(function () {
-                if (userId === _trendingPreloadUserId) {
+                if (userId === _trendingPreloadUserId && _discoveryGeneration === startedGeneration) {
                     _trendingPreloadInFlight = false;
                 }
             });
@@ -700,12 +739,13 @@
         container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-spinner" role="status" aria-live="polite" aria-busy="true"><span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;">' + esc(t('loadingRecommendations', 'Loading recommendations\u2026')) + '</span></div></div>';
         var startedGeneration = _discoveryGeneration;
         var startedUserId = currentDiscoveryUserId();
+        var request = captureDiscoveryRequest();
         // A shell-first render plus the probe-finally upgrade can reach this path
         // twice for the same user/generation. Attach to the in-flight request
         // instead of firing a duplicate GET; each caller renders into its own host.
         if (_ownFetchPromise && _ownFetchUserId === startedUserId && _ownFetchGeneration === startedGeneration) {
             _ownFetchPromise.then(function (data) {
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 if (!document.contains(container)) {
@@ -727,7 +767,7 @@
                 // switch during the fetch makes this failure another render's problem.
                 // Without the generation check a stale 403 would re-invalidate (bumping
                 // the generation) and discard the newer in-flight result.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 if (!document.contains(container)) {
@@ -744,7 +784,7 @@
             .then(function (data) {
                 // A mutation or account switch during the fetch makes this result
                 // stale; drop it rather than cache/render outdated or cross-user data.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 if (!document.contains(container)) {
@@ -763,7 +803,7 @@
             .catch(function (err) {
                 // Same staleness contract as above: drop the failure when a mutation
                 // or account switch moved the generation on while it was in flight.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 renderOwnError(container, err);
@@ -781,7 +821,7 @@
         }
         var fallback = getCachedDiscoveryResult();
         if (err?.status === 403) {
-            invalidateDiscoveryResult();
+            disableDiscoveryUi();
         } else if (fallback) {
             // Transient failure: rather show the last known cards than a blank page.
             // A tab shell built meanwhile owns the UI; do not overwrite it.
@@ -863,13 +903,13 @@
         }
 
         host.innerHTML = spinnerHtml();
-        var startedGeneration = _discoveryGeneration;
         var startedUserId = currentDiscoveryUserId();
+        var request = captureDiscoveryRequest();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt'), dataType: 'json' })
             .then(function (resp) {
                 // Drop results that raced an account switch or a mutation:
                 // never cache or render cross-user data.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 if (resp?.Linked !== true) {
@@ -882,7 +922,7 @@
             .catch(function (err) {
                 // Same stale-response guard as the success path: a 403 from the
                 // previous account must not reset the new user's Trakt state.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 renderTraktError(host, err);
@@ -897,12 +937,12 @@
         }
 
         host.innerHTML = spinnerHtml();
-        var startedGeneration = _discoveryGeneration;
         var startedUserId = currentDiscoveryUserId();
+        var request = captureDiscoveryRequest();
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('/JellyfinHelper/Discovery/My/Trakt/Trending'), dataType: 'json' })
             .then(function (data) {
                 // Same account-switch/mutation guard as the other tabs.
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 _traktTrendingCache = makeTraktCacheEntry(data, startedUserId);
@@ -910,7 +950,7 @@
             })
             .catch(function (err) {
                 // Same stale-response guard as the success path (see personal tab).
-                if (_discoveryGeneration !== startedGeneration || startedUserId !== currentDiscoveryUserId()) {
+                if (!isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 renderTraktError(host, err);
@@ -1077,6 +1117,7 @@
     }
 
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
+        var request = captureDiscoveryRequest();
         // Clear any pending reset timer from a previous denial/error to prevent
         // stale callbacks from overwriting the new request's button state.
         if (btn._resetTimer) {
@@ -1099,6 +1140,7 @@
             url: ApiClient.getUrl(API_URL + '/RequestPermissions/' + serviceType + '?mediaType=' + mediaType),
             dataType: 'json'
         }).then(function (permResult) {
+            if (!isCurrentDiscoveryRequest(request)) return;
             var result = permResult || { CanRequest: false };
             // Only cache definitive responses - transient upstream failures (IsTransient)
             // should allow immediate retry on the next click instead of being sticky for 5 min.
@@ -1110,6 +1152,7 @@
             btn.textContent = t('discoveryRequest', 'Request');
             decideAndSubmit(tmdbId, mediaType, btn, result);
         }).catch(function () {
+            if (!isCurrentDiscoveryRequest(request)) return;
             // On network error, try submitting with defaults (server will validate).
             // Do NOT cache the fallback - a transient failure should allow retry on next click.
             btn.disabled = false;
@@ -1257,6 +1300,7 @@
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
+        var request = captureDiscoveryRequest();
         btn.disabled = true;
         btn.textContent = t('discoveryRequesting', 'Requesting...');
         var payload = { TmdbId: tmdbId, MediaType: mediaType };
@@ -1270,6 +1314,7 @@
             contentType: 'application/json',
             dataType: 'json'
         }).then(function (result) {
+            if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             if (result && result.Success) {
                 // Invalidate immediately on success so a stale pool is never
                 // served again, even if the user leaves the tab before the
@@ -1286,10 +1331,12 @@
                 if (card) {
                     var scopeEl = card.closest('.jfh-discovery-container');
                     setTimeout(function () {
+                        if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                         card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
                         card.style.opacity = '0';
                         card.style.transform = 'scale(0.95)';
                         setTimeout(function () {
+                            if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                             card.remove();
                             if (_tabPanel) {
                                 renderDiscovery(_tabPanel, true);
@@ -1306,6 +1353,7 @@
                 setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
             }
         }).catch(function (err) {
+            if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
@@ -1395,6 +1443,7 @@
      * Submits the dismiss API call and removes the card from the grid on success.
      */
     function executeDismiss(tmdbId, mediaType, btn) {
+        var request = captureDiscoveryRequest();
         btn.disabled = true;
         btn.textContent = '...';
         ApiClient.ajax({
@@ -1404,6 +1453,7 @@
             contentType: 'application/json',
             dataType: 'json'
         }).then(function () {
+            if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             // Invalidate immediately on success so the dismissed item is never
             // served from cache again, even if the user navigates away before
             // the fade-out animation below completes.
@@ -1416,6 +1466,7 @@
                 card.style.opacity = '0';
                 card.style.transform = 'scale(0.95)';
                 setTimeout(function () {
+                    if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                     card.remove();
                     if (_tabPanel) {
                         renderDiscovery(_tabPanel, true);
@@ -1425,6 +1476,7 @@
                 }, 300);
             }
         }).catch(function () {
+            if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             btn.disabled = false;
             btn.textContent = t('discoveryDismiss', 'Not interested');
             showToast(t('discoveryDismissError', 'Could not dismiss this item. Please try again.'));
@@ -1496,26 +1548,38 @@
     function initSidebar() {
         injectNavigation();
         if (_sidebarObserver) return;
-        var drawer = document.querySelector('.mainDrawer');
-        // Fallback to document.body if .mainDrawer hasn't mounted yet (cold load / SPA timing)
-        var target = drawer || document.body;
-        _sidebarObserver = new MutationObserver(function () {
-            var sidebar = document.querySelector('.mainDrawer-scrollContainer');
-            if (sidebar && !sidebar.querySelector('.' + NAV_ITEM_CLASS)) {
-                injectNavigation();
-            }
+        _sidebarObserver = new MutationObserver(injectNavigation);
+        _sidebarObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function getDiscoveryNavigationContainer() {
+        var lists = document.querySelectorAll('.MuiDrawer-paper ul.MuiList-root');
+        for (var list of lists) {
+            if (list.querySelector('a[href="#/home"], a[href="#/"], a[href^="#/home?"]')) return list;
+        }
+        return document.querySelector('.mainDrawer-scrollContainer');
+    }
+
+    function removeDiscoveryNavigation() {
+        document.querySelectorAll('.' + NAV_ITEM_CLASS).forEach(function (item) { item.remove(); });
+        document.querySelectorAll('.' + SECTION_CLASS).forEach(function (section) {
+            if (!section.querySelector('a, button')) section.remove();
         });
-        _sidebarObserver.observe(target, { childList: true, subtree: true });
     }
 
     function injectNavigation() {
-        var sidebar = document.querySelector('.mainDrawer-scrollContainer');
+        if (_discoveryDisabled || isLoginPage() || !currentDiscoveryUserId()) return;
+        var sidebar = getDiscoveryNavigationContainer();
         if (!sidebar || sidebar.querySelector('.' + NAV_ITEM_CLASS)) return;
+        removeDiscoveryNavigation();
+        var modern = sidebar.matches('ul.MuiList-root');
         var section = sidebar.querySelector('.' + SECTION_CLASS);
         if (!section) {
-            section = document.createElement('div');
+            section = document.createElement(modern ? 'li' : 'div');
             section.className = SECTION_CLASS;
-            section.innerHTML = '<h3 class="sidebarHeader">Jellyfin Helper</h3>';
+            section.innerHTML = modern
+                ? '<div class="MuiListSubheader-root">Jellyfin Helper</div>'
+                : '<h3 class="sidebarHeader">Jellyfin Helper</h3>';
             var mediaSection = sidebar.querySelector('.libraryMenuOptions');
             if (mediaSection) {
                 mediaSection.before(section);
@@ -1524,22 +1588,24 @@
             }
         }
         var navItem = document.createElement('a');
-        navItem.setAttribute('is', 'emby-linkbutton');
-        navItem.className = 'navMenuOption lnkMediaFolder emby-button ' + NAV_ITEM_CLASS;
+        if (!modern) navItem.setAttribute('is', 'emby-linkbutton');
+        navItem.className = (modern ? 'MuiListItemButton-root jfh-discovery-modern-link ' : 'navMenuOption lnkMediaFolder emby-button ') + NAV_ITEM_CLASS;
         navItem.href = '#';
         navItem.innerHTML =
             '<span class="material-icons navMenuOptionIcon" aria-hidden="true">explore</span>' +
             '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
+            var request = captureDiscoveryRequest();
             if (focusDiscoveryTab()) {
                 return;
             }
             // The tab strip only exists on the Home page, so go there first and
             // let the registry apply the pending focus once it has mounted.
             if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
-                Emby.Page.show('/home.html');
+                Emby.Page.show('/home');
                 setTimeout(function () {
+                    if (!isSameDiscoverySession(request)) return;
                     // Off Home the registry keeps the pending focus and applies it once
                     // the tab strip mounts, so a slow navigation must not raise an error.
                     if (isOnHomePage() && !focusDiscoveryTab()) {
@@ -1559,10 +1625,7 @@
     // feature is disabled, a 403 the browser logs as a console error. Gate the
     // bootstrap on the home context.
     //
-    // The full UI (sidebar + tab) inits only once. An empty probe is NOT terminal: a
-    // scheduled task may produce recommendations later in the same SPA session, so we
-    // leave the gate open and re-probe on later home visits until results appear. A 403
-    // (feature disabled by the admin) IS terminal - re-probing would only replay the 403.
+    // Availability does not depend on results because a scheduled task can populate an empty panel later.
     var _bootstrapped = false;
     var _discoveryDisabled = false;
     var _probeInFlight = false;
@@ -1571,13 +1634,11 @@
     var _probedUserId = null;
     // Single sidebar observer for the module, so repeated sign-ins cannot stack callbacks.
     var _sidebarObserver = null;
-
-    function initDiscoveryUiEmpty() {
-        // No results yet. The tab still renders its empty state, but the sidebar
-        // link stays hidden because there is nothing to advertise.
-        injectStyles();
-        registerDiscoveryTab();
-    }
+    var _sessionApiClient = null;
+    var _sessionToken = '';
+    var _bootstrapSequence = 0;
+    var _bootstrapRequest = null;
+    var _lifecycleState = null;
 
     function initDiscoveryUiFull() {
         // Render immediately; the Seerr-links config loads in parallel (fired in
@@ -1587,65 +1648,68 @@
         initSidebar();
     }
 
-    function handleDiscoveryProbe(data, startedUserId) {
-        // A later account switch started a fresh bootstrap; this result predates it and must not
-        // flip gates or inject UI for the previous user.
-        // userId mismatch already covers the logout/login-page case: ApiClient.getCurrentUserId()
-        // returns '' when unauthenticated, which never equals a real startedUserId.
-        if (startedUserId !== currentDiscoveryUserId()) {
-            return;
-        }
-        // Check if Discovery is available before injecting UI elements.
-        if (!data || !data.Recommendations || data.Recommendations.length === 0) {
-            // Leave the gate open: results may appear after a later scheduled run, and a future
-            // home visit re-probes to upgrade to the full UI without a page reload.
-            initDiscoveryUiEmpty();
+    function handleDiscoveryProbe(data, startedUserId, request) {
+        if (startedUserId !== currentDiscoveryUserId() || isLoginPage()
+            || (request && !isCurrentDiscoveryRequest(request))) {
             return;
         }
         _bootstrapped = true;
         // Seed the own-grid cache with the probe payload: it is what the first mount
         // would fetch moments later, so the initial render is a cache hit.
-        _discoveryResultCache = { data: data, userId: startedUserId };
+        _discoveryResultCache = { data: data || { Recommendations: [] }, userId: startedUserId };
         initDiscoveryUiFull();
     }
 
-    function probeDiscoveryAvailability(startedUserId) {
+    function probeDiscoveryAvailability(startedUserId, request) {
+        request = request || captureDiscoveryRequest();
+        _bootstrapRequest = request;
         ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
             .then(function (data) {
-                handleDiscoveryProbe(data, startedUserId);
+                handleDiscoveryProbe(data, startedUserId, request);
             })
             .catch(function (err) {
                 // Ignore a stale response once the account has switched - a prior user's 403 must
                 // not disable Discovery for whoever is signed in now.
-                if (startedUserId !== currentDiscoveryUserId()) {
+                if (startedUserId !== currentDiscoveryUserId() || !isCurrentDiscoveryRequest(request)) {
                     return;
                 }
                 // 403 means the admin disabled the feature: terminal, do not re-probe. Any other
                 // error (network/transient) leaves the gate open for a later retry.
                 if (err?.status === 403) {
-                    _discoveryDisabled = true;
+                    disableDiscoveryUi();
                 }
             })
             .finally(function () {
                 // Only the current generation owns the gate; a stale finally must not clear a gate
                 // a newer bootstrap set.
-                if (startedUserId === currentDiscoveryUserId()) {
+                if (_bootstrapRequest === request) {
                     _probeInFlight = false;
+                    _bootstrapRequest = null;
                 }
             });
     }
 
     function teardownDiscoveryEntryPoints() {
+        _bootstrapSequence++;
+        _bootstrapRequest = null;
+        _traktProbeSeq++;
+        invalidateDiscoveryResult();
+        resetTraktState();
+        _traktEnabled = null;
+        _activeTab = TAB_OWN;
+        _backgroundRefreshInFlight = false;
+        _seerrBaseUrl = '';
+        _strings = null;
+        _permCache = {};
+        closeDiscoveryPopup(null, false);
+        document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { toast.remove(); });
         if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
             window.JellyfinHelperTabs.unregister(TAB_ID);
         }
         for (var id of ['jfh-tab-btn-discovery', 'jfh-tab-link-discovery', 'jfh-tab-panel-discovery']) {
             document.getElementById(id)?.remove();
         }
-        var navItems = document.querySelectorAll('.' + NAV_ITEM_CLASS);
-        for (var navItem of navItems) {
-            navItem.remove();
-        }
+        removeDiscoveryNavigation();
         if (_sidebarObserver) {
             _sidebarObserver.disconnect();
             _sidebarObserver = null;
@@ -1656,67 +1720,96 @@
         _discoveryDisabled = false;
         _probeInFlight = false;
         _probedUserId = null;
-        _discoveryResultCache = null;
+        _sessionApiClient = null;
+        _sessionToken = '';
+    }
+
+    function disableDiscoveryUi() {
+        teardownDiscoveryEntryPoints();
+        var session = captureDiscoveryRequest();
+        _probedUserId = session.userId;
+        _sessionApiClient = session.client;
+        _sessionToken = session.token;
+        _discoveryDisabled = true;
     }
 
     function bootstrapDiscovery() {
-        // Reset the gates on an in-tab account switch: a prior user's 403 or in-flight probe must
-        // not block a different user who may well have access.
-        var userId = currentDiscoveryUserId();
-        // On logout (no current user) tear down the Discovery tab and sidebar link so the feature
-        // leaves the DOM instead of lingering for the signed-out session. A cold load also has no
-        // user yet, so the teardown only runs once a user was actually probed.
-        var isLoginPage = /login/i.test(window.location.hash || '') || /login/i.test(window.location.pathname || '');
-
-        if (_probedUserId && (!userId || isLoginPage)) {
+        var session = captureDiscoveryRequest();
+        if (isLoginPage() || !session.userId) {
+            if (_probedUserId || _tabRegistered) teardownDiscoveryEntryPoints();
+            if (isLoginPage() || !isOnHomePage() || _probeInFlight) return;
+            _probeInFlight = true;
+            var sequence = _bootstrapSequence;
+            waitForApi(function () {
+                if (sequence !== _bootstrapSequence) return;
+                _probeInFlight = false;
+                bootstrapDiscovery();
+            }, function () {
+                if (sequence === _bootstrapSequence) _probeInFlight = false;
+            });
+            return;
+        }
+        if (session.userId !== _probedUserId || session.client !== _sessionApiClient || session.token !== _sessionToken) {
+            // A new session must never inherit rendered cards or pending work from the previous session.
             teardownDiscoveryEntryPoints();
-            return;
+            _probedUserId = session.userId;
+            _sessionApiClient = session.client;
+            _sessionToken = session.token;
         }
-        if (userId && userId !== _probedUserId) {
-            _probedUserId = userId;
-            _bootstrapped = false;
-            _discoveryDisabled = false;
-            _probeInFlight = false;
-        }
-        if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
-            return;
-        }
+        if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) return;
         _probeInFlight = true;
-        waitForApi(function () {
-            // Pin the generation only once a user is actually present (waitForApi may have polled
-            // through the signed-out gap). Every async step below re-checks it against the live user
-            // so an account switch mid-flight cannot let a stale callback touch shared state or the UI.
-            var startedUserId = currentDiscoveryUserId();
-            // Remember whose probe this is, so a later logout tears the UI down again.
-            _probedUserId = startedUserId;
-            // Seerr-links config loads in parallel with strings/probe instead of gating
-            // first render. A late-arriving URL re-renders the live view once (cache-hit
-            // path, no loading flash) so cards gain their Seerr links.
-            var seerrBefore = _seerrBaseUrl;
-            loadExternalLinksConfig().finally(function () {
-                if (!seerrBefore && _seerrBaseUrl && startedUserId === currentDiscoveryUserId()
-                    && _tabPanel && document.contains(_tabPanel)) {
-                    renderDiscovery(_tabPanel, false);
-                }
-            });
-            loadStrings(function () {
-                if (startedUserId !== currentDiscoveryUserId()) { return; }
-                probeDiscoveryAvailability(startedUserId);
-            });
-        }, function () {
-            // API never became available (timeout): release the gate so a later sign-in can re-probe.
-            _probeInFlight = false;
+        var request = captureDiscoveryRequest();
+        _bootstrapRequest = request;
+        var seerrBefore = _seerrBaseUrl;
+        loadExternalLinksConfig().finally(function () {
+            if (isCurrentDiscoveryRequest(request) && seerrBefore !== _seerrBaseUrl
+                && _tabPanel && document.contains(_tabPanel)) {
+                renderDiscovery(_tabPanel, false);
+            }
+        });
+        loadStrings(function () {
+            if (isCurrentDiscoveryRequest(request)) probeDiscoveryAvailability(request.userId, request);
+        }, request).finally(function () {
+            if (_bootstrapRequest === request && !isCurrentDiscoveryRequest(request)) {
+                _probeInFlight = false;
+                _bootstrapRequest = null;
+            }
         });
     }
 
-    // Try at load, and on every SPA navigation until the first home context is seen.
-    bootstrapDiscovery();
-    window.addEventListener('hashchange', bootstrapDiscovery);
-    window.addEventListener('popstate', bootstrapDiscovery);
-    // React to sign-in/sign-out without waiting for a hash change (Jellyfin fires
-    // these on the ApiClient). Keeps the Discovery tab from lingering on logout.
-    if (typeof Events !== 'undefined' && typeof ApiClient !== 'undefined') {
-        try { Events.on(ApiClient, 'localusersignedout', bootstrapDiscovery); } catch (e) { /* ignore */ }
-        try { Events.on(ApiClient, 'localusersignedin', bootstrapDiscovery); } catch (e) { /* ignore */ }
+    function syncDiscoveryLifecycle() {
+        var session = captureDiscoveryRequest();
+        var hash = window.location.hash;
+        if (_lifecycleState?.hash === hash && _lifecycleState.userId === session.userId
+            && _lifecycleState.client === session.client && _lifecycleState.token === session.token) return;
+        _lifecycleState = { hash: hash, userId: session.userId, client: session.client, token: session.token };
+        bootstrapDiscovery();
+        window.JellyfinHelperTabs?.refresh?.();
     }
+
+    function initDiscoveryLifecycle() {
+        // Router navigation can change the page without a browser history event, so page mutations also check the session.
+        var observer = new MutationObserver(syncDiscoveryLifecycle);
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+        window.addEventListener('hashchange', syncDiscoveryLifecycle);
+        window.addEventListener('popstate', syncDiscoveryLifecycle);
+        window.addEventListener('pageshow', syncDiscoveryLifecycle);
+        document.addEventListener('viewshow', syncDiscoveryLifecycle);
+        document.addEventListener('visibilitychange', syncDiscoveryLifecycle);
+        // Injected scripts cannot subscribe to Jellyfin's authentication events, so this check covers session changes without page mutations.
+        var sessionTimer = setInterval(syncDiscoveryLifecycle, 250);
+        syncDiscoveryLifecycle();
+        return function () {
+            observer.disconnect();
+            clearInterval(sessionTimer);
+            window.removeEventListener('hashchange', syncDiscoveryLifecycle);
+            window.removeEventListener('popstate', syncDiscoveryLifecycle);
+            window.removeEventListener('pageshow', syncDiscoveryLifecycle);
+            document.removeEventListener('viewshow', syncDiscoveryLifecycle);
+            document.removeEventListener('visibilitychange', syncDiscoveryLifecycle);
+            teardownDiscoveryEntryPoints();
+        };
+    }
+
+    initDiscoveryLifecycle();
 })();
