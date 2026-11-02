@@ -800,7 +800,8 @@
         if (err?.status === 403) {
             msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
         }
-        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+        // The error marker lets tests and styles tell a failed load apart from the no-results state.
+        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg jfh-discovery-error"><p>' + esc(msg) + '</p></div></div>';
         // Surface a user-friendly toast for non-200 responses (never raw backend details)
         var serverMessage = extractErrorMessage(err);
         if (serverMessage) {
@@ -924,7 +925,7 @@
         var msg = (err?.status === 403)
             ? t('discoveryTraktDisabled', 'Trakt is not enabled. Ask your server administrator to enable it in Jellyfin Helper settings.')
             : t('discoveryLoadError', 'Could not load discovery suggestions.');
-        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+        host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg jfh-discovery-error"><p>' + esc(msg) + '</p></div></div>';
     }
 
     function spinnerHtml() {
