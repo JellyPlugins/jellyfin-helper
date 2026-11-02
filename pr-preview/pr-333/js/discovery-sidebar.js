@@ -1667,11 +1667,6 @@
             _discoveryDisabled = false;
             _probeInFlight = false;
         }
-        // Show the sidebar entry as soon as we are on the home page, even before the
-        // availability probe finishes, so the entry point never looks "missing".
-        if (isOnHomePage()) {
-            injectNavigation();
-        }
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
