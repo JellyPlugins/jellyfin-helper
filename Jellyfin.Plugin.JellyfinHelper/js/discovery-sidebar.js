@@ -1590,11 +1590,9 @@
     function handleDiscoveryProbe(data, startedUserId) {
         // A later account switch started a fresh bootstrap; this result predates it and must not
         // flip gates or inject UI for the previous user.
+        // userId mismatch already covers the logout/login-page case: ApiClient.getCurrentUserId()
+        // returns '' when unauthenticated, which never equals a real startedUserId.
         if (startedUserId !== currentDiscoveryUserId()) {
-            return;
-        }
-        var isLoginPage = /login/i.test(window.location.hash || '') || /login/i.test(window.location.pathname || '');
-        if (isLoginPage) {
             return;
         }
         // Check if Discovery is available before injecting UI elements.
