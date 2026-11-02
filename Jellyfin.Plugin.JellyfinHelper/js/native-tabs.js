@@ -385,7 +385,8 @@
             if (input?.tabs !== tabsElem || input.index !== picked || Date.now() - input.time >= 1000) return;
             // Record the requested tab before an older delayed completion can replace its URL.
             routeSelectionPending = false;
-            userPickedHash = picked === (Number.isNaN(urlIndex) ? 0 : urlIndex) ? null : window.location.hash;
+            var expectedIndex = Number.isNaN(urlIndex) ? 0 : urlIndex;
+            userPickedHash = picked === expectedIndex ? null : window.location.hash;
             syncSelectedTabHash(tabsElem, picked);
         });
         tabsElem.addEventListener('tabchange', function (e) {
