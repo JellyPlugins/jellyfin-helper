@@ -26,7 +26,8 @@
     var userPickedHash = null;
     var selectingTab = false;
     var watchedTabs = null;
-    var lastTabStripInput = 0;
+    var lastTabStripInput = null;
+    var routeSelectionPending = false;
     var pendingFocusId = null;
     var activeEntry = null;
     var activePanel = null;
@@ -370,9 +371,11 @@
             }
             var urlIndex = Number.parseInt(hashParam('tab'), 10);
             var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
-            if (picked !== (Number.isNaN(urlIndex) ? 0 : urlIndex) || Date.now() - lastTabStripInput < 1000) {
+            var recentInput = lastTabStripInput !== null && Date.now() - lastTabStripInput < 1000;
+            if (picked !== (Number.isNaN(urlIndex) ? 0 : urlIndex) || recentInput) {
                 userPickedHash = window.location.hash;
             }
+            if (recentInput) routeSelectionPending = false;
         });
         tabsElem.addEventListener('tabchange', function (e) {
             var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
@@ -541,8 +544,11 @@
     function syncDeepLink(slider, root) {
         var wantedId = hashParam(DEEP_LINK_PARAM);
         var entry = wantedId != null ? findEntry(wantedId) : null;
-        var wantedIndex = retargetDeepLink(entry, Number.parseInt(hashParam('tab'), 10));
-        if (Number.isNaN(wantedIndex) || wantedIndex < 2 || userPickedHash === window.location.hash) {
+        var tabParam = hashParam('tab');
+        var wantedIndex = retargetDeepLink(entry, Number.parseInt(tabParam, 10));
+        if (routeSelectionPending && tabParam == null && wantedId == null) wantedIndex = 0;
+        if (Number.isNaN(wantedIndex) || wantedIndex < 0 || (wantedIndex < 2 && !routeSelectionPending)
+            || (userPickedHash === window.location.hash && !routeSelectionPending)) {
             return;
         }
         var target = deepLinkTarget(slider, root, wantedIndex);
@@ -550,7 +556,7 @@
             return;
         }
         var hash = window.location.hash;
-        if (isDeepLinkMarked(target, root, hash)) {
+        if (!routeSelectionPending && isDeepLinkMarked(target, root, hash)) {
             var stillSelected = target.tabsElem.selectedIndex() === wantedIndex
                 && target.panel.classList.contains('is-active')
                 && !Array.prototype.some.call(target.tabsElem.querySelectorAll('.emby-tab-button-active'),
@@ -563,6 +569,7 @@
         if (!selectDeepLinkTab(root, target, wantedIndex)) {
             return;
         }
+        routeSelectionPending = false;
         appliedDeepLink = {
             hash: hash, root: root, panel: target.panel, tabs: target.tabsElem, btn: target.btn
         };
@@ -730,6 +737,16 @@
         return true;
     }
 
+    function handleRouteNavigation() {
+        // Browser history owns the destination selection even when Jellyfin keeps the Home page mounted.
+        appliedDeepLink = null;
+        userPickedHash = null;
+        rewrittenHash = null;
+        lastTabStripInput = null;
+        routeSelectionPending = true;
+        scheduleInject();
+    }
+
     function init() {
         var observer = new MutationObserver(scheduleInject);
         observer.observe(document.body, {
@@ -740,13 +757,12 @@
         });
         window.addEventListener('hashchange', function () {
             if (window.location.hash !== rewrittenHash) {
-                appliedDeepLink = null;
-                userPickedHash = null;
+                handleRouteNavigation();
             }
             rewrittenHash = null;
             scheduleInject();
         });
-        window.addEventListener('popstate', scheduleInject);
+        window.addEventListener('popstate', handleRouteNavigation);
         window.addEventListener('pageshow', scheduleInject);
         window.addEventListener('resize', scheduleInject);
         document.addEventListener('visibilitychange', function () {
