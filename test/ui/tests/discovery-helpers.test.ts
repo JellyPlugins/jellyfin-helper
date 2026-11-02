@@ -2647,7 +2647,7 @@ describe('bootstrap + tab registration', () => {
     expect(calls.some((c) => c.url === '/JellyfinHelper/Discovery/My')).toBe(true);
   });
 
-  test('an empty probe keeps the gate open, renders the sidebar entry, and re-probes', async () => {
+  test('an empty probe keeps the gate open, skips the sidebar, and re-probes', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     const calls = ajaxRouter({
@@ -2660,7 +2660,7 @@ describe('bootstrap + tab registration', () => {
     ui.bootstrapDiscovery();
     await flush();
     expect(registry.register).toHaveBeenCalledTimes(1);
-    expect(sidebar.querySelector('a')).not.toBeNull();
+    expect(sidebar.querySelector('a')).toBeNull();
     const first = calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length;
     ui.bootstrapDiscovery();
     await flush();
