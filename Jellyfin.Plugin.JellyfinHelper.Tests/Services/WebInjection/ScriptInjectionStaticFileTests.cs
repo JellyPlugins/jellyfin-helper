@@ -114,7 +114,7 @@ public sealed class ScriptInjectionStaticFileTests
 
     private sealed class StaticFileFixture : IDisposable
     {
-        private readonly string _directory = Path.Combine(Path.GetTempPath(), "jfh-static-files-" + Guid.NewGuid().ToString("N"));
+        private readonly string _directory = Path.Join(Path.GetTempPath(), "jfh-static-files-" + Guid.NewGuid().ToString("N"));
         private readonly PhysicalFileProvider _files;
         private readonly ServiceProvider _services;
         private readonly RequestDelegate _pipeline;
@@ -123,7 +123,7 @@ public sealed class ScriptInjectionStaticFileTests
         public StaticFileFixture(string html)
         {
             Directory.CreateDirectory(_directory);
-            IndexPath = Path.Combine(_directory, "index.html");
+            IndexPath = Path.Join(_directory, "index.html");
             File.WriteAllText(IndexPath, html, new UTF8Encoding(false));
             _files = new PhysicalFileProvider(_directory);
             var environment = new Mock<IWebHostEnvironment>();
