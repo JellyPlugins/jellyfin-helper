@@ -309,3 +309,24 @@ test.describe('Discovery native tab - unlinked Trakt user', () => {
     await expect(tabs.locator('.jfh-discovery-tab')).toHaveCount(2);
   });
 });
+
+
+test.describe('Discovery native tab - logged out', () => {
+  test('no discovery entry point is rendered on the login page', async ({ page }) => {
+    const auth = loadAuth();
+    const base = auth.baseUrl.replace(/\/$/, '');
+    await page.goto(${base}/web/index.html#/login);
+    await page.waitForTimeout(5_000);
+    await expect(page.locator('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveCount(0);
+    await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(0);
+  });
+});
+
+test.describe('Discovery native tab - sidebar entry point', () => {
+  test('renders the sidebar navigation entry on the home page', async ({ page }) => {
+    await openHome(page);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
+  });
+});
