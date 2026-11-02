@@ -2670,7 +2670,7 @@ describe('bootstrap + tab registration', () => {
   test('a login-page bootstrap tears down the entry points', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
-    const calls = ajaxRouter(homeRoutes(), { userId: 'u1' });
+    ajaxRouter(homeRoutes(), { userId: 'u1' });
     const { sidebar } = buildSidebar();
     const registry = fakeTabRegistry();
     ui.bootstrapDiscovery();
