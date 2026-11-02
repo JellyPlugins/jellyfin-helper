@@ -7,6 +7,7 @@
     var lastHref = window.location.href;
     var lastSession = null;
     var authBindings = new Map();
+    var wrappedAuthMethods = new WeakSet();
     var originalPush = history.pushState;
     var originalReplace = history.replaceState;
 
@@ -34,6 +35,7 @@
     function installAuthHook(client) {
         if (!client || authBindings.has(client) || typeof client.setAuthenticationInfo !== 'function') return;
         var original = client.setAuthenticationInfo;
+        if (wrappedAuthMethods.has(original)) return;
         var descriptor = Object.getOwnPropertyDescriptor(client, 'setAuthenticationInfo');
         var wrapped = function (token, userId) {
             var active = !disposed && typeof ApiClient !== 'undefined' && this === ApiClient;
@@ -53,6 +55,7 @@
                 value: wrapped, configurable: true, writable: true, enumerable: descriptor?.enumerable ?? false
             });
             authBindings.set(client, { original: original, descriptor: descriptor, wrapped: wrapped });
+            wrappedAuthMethods.add(wrapped);
         } catch (_) {
             // Immutable host clients are reconciled through navigation and page changes instead.
         }

@@ -1805,6 +1805,7 @@
     }
 
     function syncDiscoveryLifecycle() {
+        if (_hostSessionChanges > 0) return;
         var session = captureDiscoveryRequest();
         var hash = window.location.hash;
         if ((!session.userId || isLoginPage())

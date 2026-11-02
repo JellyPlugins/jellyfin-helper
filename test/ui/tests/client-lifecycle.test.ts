@@ -85,6 +85,26 @@ test('client replacement is adopted without rewriting a shared prototype', () =>
   expect(Object.hasOwn(replacement, 'setAuthenticationInfo')).toBe(false);
 });
 
+test('a client that copies an existing authentication hook does not receive another wrapper', () => {
+  const first = hostClient('a', 'first');
+  (globalThis as any).ApiClient = first;
+  loadClientLifecycleBundle();
+  const replacement = { ...first };
+  const copied = replacement.setAuthenticationInfo;
+  (globalThis as any).ApiClient = replacement;
+  (window as any).JellyfinHelperLifecycle.refresh();
+  expect(replacement.setAuthenticationInfo).toBe(copied);
+  const before = vi.fn();
+  document.addEventListener('jfh:session-changing', before);
+  try {
+    replacement.setAuthenticationInfo('second', 'b');
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(replacement.userId).toBe('b');
+  } finally {
+    document.removeEventListener('jfh:session-changing', before);
+  }
+});
+
 test('immutable clients and unavailable startup identity do not prevent navigation', () => {
   const client = Object.preventExtensions(Object.create(hostClient()));
   (globalThis as any).ApiClient = client;
