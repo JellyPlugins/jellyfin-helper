@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.WebInjection;
 /// <summary>
 ///     Tests for the best-effort cleanup of index.html changes older plugin versions wrote to disk.
 /// </summary>
+/// <remarks>
+///     TODO: remove in the next version after 3.1.0.0 together with LegacyIndexHtmlCleanup./// </remarks>
 public class LegacyIndexHtmlCleanupTests : IDisposable
 {
     private readonly string _webPath;
@@ -169,5 +171,33 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
         var ex = Record.Exception(() => LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(Mock.Of<IPluginLogService>(), NullLogger.Instance, webPath));
 
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void TryRemoveScriptTag_ReadOnlyFileDoesNotThrow()
+    {
+        var indexPath = Path.Join(_webPath, "index.html");
+        File.WriteAllText(indexPath, "<html><body><script plugin=\"Jellyfin Helper\" src=\"a\"></script></body></html>");
+        File.SetAttributes(indexPath, File.GetAttributes(indexPath) | FileAttributes.ReadOnly);
+        var pluginLog = new Mock<IPluginLogService>();
+
+        var ex = Record.Exception(() => LegacyIndexHtmlCleanup.TryRemoveScriptTag(pluginLog.Object, NullLogger.Instance, _webPath));
+
+        Assert.Null(ex);
+        File.SetAttributes(indexPath, File.GetAttributes(indexPath) & ~FileAttributes.ReadOnly);
+    }
+
+    [Fact]
+    public void TryDeleteStaleTempFiles_ReadOnlyTempFileDoesNotThrow()
+    {
+        var orphan = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        File.WriteAllText(orphan, "leftover");
+        File.SetAttributes(orphan, File.GetAttributes(orphan) | FileAttributes.ReadOnly);
+        var pluginLog = new Mock<IPluginLogService>();
+
+        var ex = Record.Exception(() => LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(pluginLog.Object, NullLogger.Instance, _webPath));
+
+        Assert.Null(ex);
+        File.SetAttributes(orphan, File.GetAttributes(orphan) & ~FileAttributes.ReadOnly);
     }
 }

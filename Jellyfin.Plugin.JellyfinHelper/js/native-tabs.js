@@ -573,6 +573,17 @@
                 label.textContent = entry.title;
                 btn.appendChild(label);
 
+                btn.addEventListener('click', function () {
+                    if (entry.index == null) {
+                        return;
+                    }
+                    var fresh = deepLinkHash(entry);
+                    if (window.location.hash !== fresh) {
+                        rewrittenHash = fresh;
+                        history.replaceState(history.state, '', window.location.pathname + window.location.search + fresh);
+                    }
+                });
+
                 slider.appendChild(btn);
                 window.CustomElements?.upgradeSubtree?.(slider);
                 addedTabButton = true;
