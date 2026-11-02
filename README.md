@@ -24,7 +24,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 [![Quality gate](https://img.shields.io/sonar/quality_gate/JellyPlugins_jellyfin-helper?server=https%3A%2F%2Fsonarcloud.io&style=flat-square&logo=sonarcloud&logoColor=white&labelColor=2d333b)](https://sonarcloud.io/summary/new_code?id=JellyPlugins_jellyfin-helper)<br>
 [![C# coverage](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?style=flat-square&logo=codecov&logoColor=white&labelColor=2d333b&label=C%23%20coverage&flag=backend)](https://codecov.io/gh/JellyPlugins/jellyfin-helper)<br>
 [![UI coverage](https://img.shields.io/codecov/c/github/JellyPlugins/jellyfin-helper?flag=frontend&style=flat-square&logo=vitest&logoColor=white&labelColor=2d333b&label=UI%20coverage)](https://app.codecov.io/gh/JellyPlugins/jellyfin-helper/flags)<br>
-[![E2E](https://img.shields.io/badge/e2e%20tests-392-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
+[![E2E](https://img.shields.io/badge/e2e%20tests-394-2ea043?style=flat-square&logo=docker&logoColor=white&labelColor=2d333b)](test/e2e/)
 
 </td>
 <td style="vertical-align: top; text-align: center;">
