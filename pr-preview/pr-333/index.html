@@ -112,7 +112,7 @@
     <script src="js/native-tabs.js"></script>
     <script>window.location.hash = '#/home';</script>
     <script src="js/discovery-sidebar.js"></script>
-    <style>#demoHomeTabs { display: none; }</style>
+    <style>#demoHomeTabs { visibility: hidden; height: 0; overflow: hidden; }</style>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
@@ -145,6 +145,9 @@
             if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
         });
     }
+    setTimeout(function () {
+        if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
+    }, 3000);
 
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })
