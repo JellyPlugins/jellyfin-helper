@@ -1,7 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
+namespace Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 
 /// <summary>
 ///     Single source of truth for the Discovery sidebar script tag construction and removal.

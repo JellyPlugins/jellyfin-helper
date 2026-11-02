@@ -3,9 +3,7 @@ import { loadDiscovery, reloadDiscoveryBundle, saveCoverage } from '../src/loade
 
 afterAll(saveCoverage);
 
-// The tab matrix itself needs real layout (offsetParent) and lives in the
-// Playwright spec discovery-customtab.ui.spec.ts. Here the bundle must load
-// cleanly with its double-init guard and stay inert off the home context.
+// The browser suite checks layout behavior because it requires real measurements.
 describe('discovery sidebar bundle', () => {
   test('loads without throwing and arms the init guard', () => {
     expect(() => loadDiscovery()).not.toThrow();

@@ -169,11 +169,8 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     seerrHook: { path: '/seed-user2', permissions: 32 },
   });
 
-  // --- 5c. configure the Discovery custom tab (only when the external plugins
-  // are staged). Enables the user-access toggle so the sidebar + tab are live,
-  // and registers a Custom Tab whose HTML content is our marker div, exactly as
-  // an admin would per the in-app setup hint. The custom-tab UI spec reads
-  // JFH_E2E_EXTERNAL_PLUGINS to decide whether to run or skip.
+  // --- 5c. enable the Discovery user-access toggle so the built-in Home tab and
+  // sidebar entry are live. No external tab plugin is involved any more.
   await ensureDiscoveryConfigured(admin, (m) => console.log(`[global-setup] ${m}`));
 
   // --- 5d. seed the official Trakt plugin with a token for the normal user, so the Helper's "source Trakt

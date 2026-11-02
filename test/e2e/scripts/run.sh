@@ -14,7 +14,7 @@ RUNTIME="$E2E_DIR/runtime"
 # so version bumps need no changes here. Falls back to a sane default if absent.
 PROPS_FILE="$REPO_ROOT/Directory.Build.props"
 PLUGIN_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$PROPS_FILE" 2>/dev/null | head -1)"
-PLUGIN_VERSION="${PLUGIN_VERSION:-3.0.1.4}"
+PLUGIN_VERSION="${PLUGIN_VERSION:-3.1.0.0}"
 export PLUGIN_VERSION
 export PLUGIN_NAME="Jellyfin Helper"
 
@@ -109,13 +109,12 @@ cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # Invoked via `bash` so it works regardless of the file's execute bit.
 bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 
-# --- 3b. stage the external plugins the Discovery custom tab depends on ------
-# Custom Tabs provides the .jellyfinhelper.discovery panel on the home page and
-# File Transformation injects our script; the custom-tab e2e spec needs both.
-# Latest release of both plugins, no pinning: this run is the tripwire if an
-# upstream update breaks the integration. Any staging failure aborts - the
-# external plugins are a required prerequisite, never a silent skip.
-log "Staging external plugins (latest Custom Tabs + File Transformation)"
+# --- 3b. stage the official Trakt plugin -------------------------------------
+# The Helper's "source Trakt through the official plugin" mode reads that
+# plugin's configuration file, so the Trakt layout spec needs it. Latest release,
+# no pinning: this run is the tripwire if an upstream update breaks the
+# integration. The Discovery tab itself is built in and needs no external plugin.
+log "Staging official Trakt plugin (latest)"
 set +e
 bash "$SCRIPT_DIR/stage-external-plugins.sh" "$RUNTIME/config/plugins"
 stage_rc=$?
@@ -123,7 +122,7 @@ set -e
 if [[ "$stage_rc" -eq 0 ]]; then
   export JFH_E2E_EXTERNAL_PLUGINS=1
 else
-  echo "[run] External plugin staging FAILED (exit $stage_rc) - aborting." >&2
+  echo "[run] Official Trakt plugin staging FAILED (exit $stage_rc) - aborting." >&2
   exit "$stage_rc"
 fi
 

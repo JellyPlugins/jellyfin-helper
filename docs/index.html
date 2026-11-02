@@ -93,13 +93,28 @@
     </div>
     <div class="demo-wrapper hide" id="demoViewDiscovery">
         <div id="indexPage" class="page">
-            <div class="tabContent pageTabContent is-active" id="customTab_0" data-index="2">
-                <div class="jellyfinhelper discovery"></div>
+            <div style="display:flex;justify-content:flex-end;padding:0.5em 0.8em;">
+                <button id="demoDiscoveryCompass" type="button" title="Entdecken" aria-label="Entdecken" style="background:none;border:none;cursor:pointer;color:inherit;font-size:1.6em;line-height:1;">
+                    <span class="material-icons">explore</span>
+                </button>
             </div>
+            <div class="jellyfinhelper discovery"></div>
         </div>
     </div>
 
     <script src="js/mock-data.js"></script>
+    <script>window.location.hash = '#/home';</script>
+    <script>
+    // Minimal shim so the shipped discovery-sidebar.js can register and render
+    window.JellyfinHelperTabs = {
+        register: function (id, title, onMount) {
+            var panel = document.querySelector('.jellyfinhelper.discovery');
+            if (panel && typeof onMount === 'function') onMount(panel);
+        },
+        unregister: function () {},
+        focus: function () { return true; }
+    };
+    </script>
     <script src="js/discovery-sidebar.js"></script>
 
     <!-- Load translations, then inject plugin CSS & JS -->
@@ -119,6 +134,13 @@
     }
     document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
     document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
+    var compass = document.getElementById('demoDiscoveryCompass');
+    if (compass) {
+        compass.addEventListener('click', function () {
+            // Demo-only: re-render by reloading the view.
+            switchDemoView('discovery');
+        });
+    }
 
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })

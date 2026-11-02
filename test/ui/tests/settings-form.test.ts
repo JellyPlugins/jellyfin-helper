@@ -17,7 +17,7 @@ function fullForm() {
     '<input id="cfgSeerrUrl" value=""><input id="cfgSeerrApiKey" value="">' +
     '<input type="checkbox" id="cfgDiscoveryUserAccess">' +
     '<div id="discoveryAccessWrapper"></div><div class="discovery-access-disabled-hint" style="display:none"></div>' +
-    '<button id="btnToggleDiscoveryHint"></button><div class="discovery-setup-hint"></div>' +
+    '<div class="help-text discovery-setup-hint"></div>' +
     '<div id="traktSourcingRow" style="display:none"></div><div id="traktSourcingHint" style="display:none"></div>' +
     '<input id="cfgOrphanAge" value="30">' +
     '<select id="cfgTrickplayMode"><option value="DryRun">x</option><option value="Activate">y</option></select>' +

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.1.0.0] - 2026-10-31
+
+### Breaking
+
+- **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. Remove the old Discovery tab from Custom Tabs settings when upgrading. Keep unrelated custom tabs and the plugins they need, or uninstall those plugins if nothing else uses them.
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 392 end-to-end Docker tests.
+
+### Changed
+
+- **Discovery renders a native Home tab.** The tab is registered against Jellyfin's own tab strip, keeps a stable `jfhTab` deep link next to Jellyfin's positional `tab=N`, and falls back to a header-tray button when the Jellyfin 12 experimental layout hides the tab strip.
+- **The script is injected at request time.** An `IStartupFilter` middleware patches `GET /web` responses in the plugin's own pipeline, so injection survives Jellyfin web updates and works on read-only installs without writing to the web root.
+- **Setup instructions are gone from Settings.** Discovery works out of the box once the user-access toggle is on, so the copy-paste steps and the copy button were removed and the remaining hint is one line.
+- **Legacy tags are cleaned up.** Tags that older versions wrote to `index.html` are removed on startup, so a stale copy cannot load a second time.
+- **Session changes clear Discovery completely.** Logout and account replacement remove cards, navigation, popups, and cached permissions, and pending responses cannot restore content from an earlier session.
+- **Dialog actions remain bound to their session.** Queued clicks and keyboard events from a retired dialog cannot submit requests or close a replacement dialog after logout or account changes.
+- **Reopening Discovery refreshes its data.** Retained panels refresh without rebuilding their shell, and selecting Home or Favorites clears the Discovery deep link before reload.
+- **Browser history restores the selected Home panel.** Back and forward navigation selects Home, Favorites, or Discovery correctly when Jellyfin retains the page, without adding history entries during restoration.
+- **Discovery navigation remains available with empty results.** The sidebar follows feature access rather than result count and moves into the modern drawer when it mounts.
+- **Read-only upgrades are normalized in the served response.** Older script tags are replaced with one current tag, or removed when Discovery access is disabled, even if startup cleanup could not change the file.
+
+### Tests
+
+- Security regression coverage exercises delayed data responses and retired dialog events after token and API client replacement in both layouts.
+- The end-to-end suite no longer stages Custom Tabs or File Transformation; only the official Trakt plugin is staged for the Trakt layout specs. New native-tab coverage guards injection, registration, the deep link, reload, and the access-disabled case.
+
 ## [3.0.1.4] - 2026-10-26
 
 ### Changed

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
@@ -318,29 +319,42 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Serves the discovery sidebar JavaScript file as an embedded resource.
+    ///     Serves the client scripts as one embedded resource response.
     /// </summary>
     /// <remarks>
     ///     AllowAnonymous is required because the script tag in index.html loads before Jellyfin's authentication context is established.
+    ///     The tab registry is concatenated before the sidebar script so the sidebar can register its tab immediately.
     /// </remarks>
-    /// <returns>The discovery-sidebar.js content.</returns>
+    /// <returns>The concatenated native-tabs.js and discovery-sidebar.js content.</returns>
     [HttpGet("script")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult GetScript()
     {
-        var stream = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream("Jellyfin.Plugin.JellyfinHelper.js.discovery-sidebar.js");
-
-        if (stream == null)
+        var assembly = Assembly.GetExecutingAssembly();
+        var buffer = new MemoryStream();
+        foreach (var name in new[] { "native-tabs.js", "discovery-sidebar.js" })
         {
-            _logger.LogWarning("[Discovery] Embedded resource 'discovery-sidebar.js' could not be loaded. Verify the resource is configured in .csproj with the correct LogicalName");
-            return NotFound();
+            var stream = assembly.GetManifestResourceStream($"Jellyfin.Plugin.JellyfinHelper.js.{name}");
+            if (stream is null)
+            {
+                _logger.LogWarning("[Discovery] Embedded resource '{Name}' could not be loaded. Verify the resource is configured in .csproj with the correct LogicalName", name);
+                buffer.Dispose();
+                return NotFound();
+            }
+
+            using (stream)
+            {
+                stream.CopyTo(buffer);
+            }
+
+            buffer.WriteByte((byte)'\n');
         }
 
+        buffer.Position = 0;
         Response.Headers.CacheControl = "no-cache";
-        return new FileStreamResult(stream, "text/javascript");
+        return new FileStreamResult(buffer, "text/javascript");
     }
 
     /// <summary>

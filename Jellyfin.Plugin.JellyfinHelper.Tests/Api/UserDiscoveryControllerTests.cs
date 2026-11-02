@@ -210,7 +210,7 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public void GetScript_ReturnsEmbeddedJavaScriptFile()
+    public async Task GetScript_ReturnsBothEmbeddedScriptsInDependencyOrder()
     {
         var controller = CreateController(Guid.NewGuid());
         var result = controller.GetScript();
@@ -218,6 +218,14 @@ public class UserDiscoveryControllerTests
         // Accepting NotFound here would mask broken resource embedding in CI.
         var fileResult = Assert.IsType<FileStreamResult>(result);
         Assert.Equal("text/javascript", fileResult.ContentType);
+        using var reader = new StreamReader(fileResult.FileStream);
+        var script = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var registry = script.IndexOf("window.JellyfinHelperTabs =", StringComparison.Ordinal);
+        var discovery = script.IndexOf("window.__jfhDiscoverySidebarInitialized", StringComparison.Ordinal);
+        Assert.True(registry >= 0);
+        Assert.True(discovery > registry);
+        Assert.Contains("initDiscoveryLifecycle();", script, StringComparison.Ordinal);
+        Assert.Equal("no-cache", controller.Response.Headers.CacheControl.ToString());
     }
 
     [Fact]

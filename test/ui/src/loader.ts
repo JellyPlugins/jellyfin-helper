@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInstrumenter } from 'istanbul-lib-instrument';
-import { CONFIG_PAGE_MODULES, DISCOVERY_MODULE } from './jsModules.js';
+import { CONFIG_PAGE_MODULES, DISCOVERY_MODULE, NATIVE_TABS_MODULE } from './jsModules.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -25,43 +26,49 @@ function prepared(absPath: string, label?: string): string {
     .replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 
-// discovery-sidebar.js ships as a self-running IIFE, so its ~70 inner helpers
-// are unreachable from the shared scope. For behavioral tests we unwrap the IIFE
-// at the source level (before instrumentation) so the helpers become top-level
-// declarations the bridge can expose. The trailing bootstrap calls are dropped
-// so evaluation only declares - tests drive each function explicitly, and no
-// stray mount timers or listeners leak into other specs. The prod file is never
-// touched; only this in-memory copy is reshaped.
-function preparedUnwrapped(absPath: string): string {
+// The shipped client scripts are self-running IIFEs, so their inner helpers are
+// unreachable from the shared scope. For behavioral tests we unwrap the IIFE at
+// the source level (before instrumentation) so the helpers become top-level
+// declarations the bridge can expose. The listed bootstrap lines are dropped so
+// evaluation only declares - tests drive each function explicitly, and no stray
+// timers or listeners leak into other specs. The prod file is never touched;
+// only this in-memory copy is reshaped.
+function preparedUnwrapped(absPath: string, drops: Array<[RegExp, string]>): string {
   const rel = relative(REPO_ROOT, absPath).replaceAll('\\', '/');
+  const name = absPath.split(/[\\/]/).pop();
   let src = readFileSync(absPath, 'utf8');
   const open = src.indexOf('(function () {');
   if (open === -1) {
-    throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
+    throw new Error(`${name} IIFE markers not found - prod shape changed?`);
   }
   src = src.slice(0, open) + src.slice(open + '(function () {'.length);
   const close = src.lastIndexOf('})();');
   if (close === -1) {
-    throw new Error(`discovery-sidebar IIFE markers not found - prod shape changed?`);
+    throw new Error(`${name} IIFE markers not found - prod shape changed?`);
   }
   src = src.slice(0, close) + src.slice(close + '})();'.length);
-  const replacePreservingLines = (re: RegExp, what: string) => {
+  for (const [re, what] of drops) {
     if (!re.test(src)) {
-      throw new Error(`discovery-sidebar ${what} not found - prod shape changed?`);
+      throw new Error(`${name} ${what} not found - prod shape changed?`);
     }
     src = src.replace(re, (m) => '\n'.repeat(m.split('\n').length - 1));
-  };
-  // Drop the double-init guard: it early-returns the whole IIFE once
-  // window.__jfhDiscoverySidebarInitialized is set, so a second fresh scope
-  // would return undefined before reaching the test-only return. Tests drive
-  // the guard separately via the other loader (loadDiscovery).
-  replacePreservingLines(/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard');
-  // Drop the bootstrap tail so nothing auto-mounts at evaluation time.
-  replacePreservingLines(/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call');
-  replacePreservingLines(/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap');
-  replacePreservingLines(/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, 'popstate bootstrap');
+  }
   return instrumenter.instrumentSync(src, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
+
+const DISCOVERY_DROPS: Array<[RegExp, string]> = [
+  // Early-returns the whole IIFE once the guard flag is set, so a second fresh
+  // scope would return before reaching the test-only return. Driven separately
+  // through the guard bundle (loadDiscovery).
+  [/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard'],
+  [/^[ \t]*initDiscoveryLifecycle\(\);[ \t]*\r?$/m, 'lifecycle initialization'],
+];
+
+const NATIVE_TABS_DROPS: Array<[RegExp, string]> = [
+  [/if \(window\.JellyfinHelperTabs\) \{\s*return;\s*\}/, 'double-load guard'],
+  [/^[ \t]*window\.JellyfinHelperTabs = \{[\s\S]*?\};[ \t]*\r?$/m, 'registry export'],
+  [/^[ \t]*init\(\);[ \t]*\r?$/m, 'init call'],
+];
 
 
 // The appended return is test-only wiring and never touches production files.
@@ -107,6 +114,7 @@ const CONFIG_EXPECTED = [
         'renderShell', 'initTabs', 'doTabSwitch', 'fillScanData', 'bindPageLifecycle',
         'updateLastScanBadge', 'loadStatistics', 'loadLatestStatistics',
         'isSeerrConfigured', 'refreshDiscoveryAccessState',
+        'attachDiscoveryHintHandler',
         'refreshTraktRowState', 'loadTraktOfficialStatus', 'updateRecsTabVisibility',
         'updateSeerrUIState', 'validateTrashPath', 'isSensitiveSystemPath',
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',
@@ -215,7 +223,9 @@ const DISCOVERY_EXPECTED = [
   'loadExternalLinksConfig', 'showToast', 'dismissToast', 'extractErrorMessage',
   'getUserFriendlyErrorMessage', 'getCachedDiscoveryResult', 'setCachedDiscoveryResult',
   'invalidateDiscoveryResult', 'discoveryGeneratedAt', 'discoveryVisibleKey',
-  'isOnHomePage', 'isActiveTabContainer', 'findActiveContainer', 'resetTraktState',
+  'isOnHomePage', 'registerDiscoveryTab', 'focusDiscoveryTab', 'notifyTabUnavailable',
+  'resetTraktState', 'captureDiscoveryRequest', 'isCurrentDiscoveryRequest', 'isSameDiscoverySession',
+  'isLoginPage', 'syncDiscoveryLifecycle', 'initDiscoveryLifecycle', 'teardownDiscoveryEntryPoints', 'disableDiscoveryUi',
   'isEmptyTraktResult', 'traktCacheFresh', 'makeTraktCacheEntry', 'spinnerHtml',
   'renderTraktNotLinked', 'renderCards', 'esc', 'formatReason', 'formatRawReasonFallback',
   'insertSlashBreaks', 'tabButton', 'checkEmptyDiscoveryState', 'renderOwnError',
@@ -224,11 +234,12 @@ const DISCOVERY_EXPECTED = [
   // discovery-sidebar.js and is driven by at least one spec below.
   'renderShell', 'renderOwnTab', 'renderTraktPersonal', 'renderTraktTrending',
   'maybeRefreshInBackground', 'injectStyles', 'injectNavigation',
+  'getDiscoveryNavigationContainer', 'removeDiscoveryNavigation',
   'handleRequest', 'handleDismissClick', 'decideAndSubmit', 'submitRequest',
   'executeDismiss', 'showProfilePopup', 'showDismissConfirmation',
   'renderDiscovery', 'fetchPermissionsAndRequest', 'setDismissSiblingHidden',
   'finalizeDiscoveryPopup', 'injectPopupStyles', 'handleDiscoveryProbe',
-  'probeDiscoveryAvailability', 'activateDiscoveryTab', 'notifyDiscoveryTabMissing',
+  'probeDiscoveryAvailability',
   'waitForApi', 'loadStrings', 'bootstrapDiscovery',
 ];
 
@@ -240,7 +251,7 @@ let discoveryBridge: UiBridge | null = null;
 export function loadDiscoveryHelpers(): UiBridge {
   if (!discoveryBridge) {
     discoveryBridge = evaluate(
-      [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE))],
+      [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
       DISCOVERY_EXPECTED,
     );
   }
@@ -249,22 +260,55 @@ export function loadDiscoveryHelpers(): UiBridge {
 
 export function freshDiscoveryHelpers(): UiBridge {
   return evaluate(
-    [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE))],
+    [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
     DISCOVERY_EXPECTED,
   );
 }
 
+const NATIVE_TABS_EXPECTED = [
+  'entries', 'isOnHomePage', 'findEntry', 'isActiveTabContainer', 'getTabsRoot',
+  'isOwnSlot', 'slotIndex', 'highestForeignIndex', 'relabel', 'createReservedSlot',
+  'alignSlots', 'getHeaderButtonTray', 'getOrCreateGroup', 'removeGroupIfEmpty',
+  'isTabButtonVisible', 'removeHeaderLink', 'createHeaderLink', 'ensureDiscoverable',
+  'hashParam', 'homeRoute', 'watchUserTabChanges', 'clearStraySelection', 'syncSelectedTabHash', 'syncActiveEntry',
+  'repairRemovedTabSelection',
+  'handleRouteNavigation',
+  'noteTabStripInput', 'deepLinkHash', 'syncDeepLink', 'applyPendingFocus',
+  'ensureInjected', 'scheduleInject', 'register', 'unregister', 'focus', 'init',
+];
+
+// Behavioral surface of the native Home tab registry: inner helpers unwrapped
+// from the shipped IIFE. Fresh scope per call so entries and deep-link state
+// never bleed across specs.
+export function freshNativeTabsHelpers(): UiBridge {
+  return evaluate(
+    [preparedUnwrapped(join(DISCOVERY_DIR, NATIVE_TABS_MODULE), NATIVE_TABS_DROPS)],
+    NATIVE_TABS_EXPECTED,
+  );
+}
+
+let nativeTabsBridge: UiBridge | null = null;
+
+export function loadNativeTabsHelpers(): UiBridge {
+  if (!nativeTabsBridge) {
+    nativeTabsBridge = freshNativeTabsHelpers();
+  }
+  return nativeTabsBridge;
+}
+
+// The shipped IIFE, instrumented under a throwaway key so its guard-bundle
+// coverage never counts toward the product gate. Used to prove the double-load
+// guard against the real source shape.
+export function loadNativeTabsBundle(): void {
+  evaluate([prepared(join(DISCOVERY_DIR, NATIVE_TABS_MODULE), 'js/native-tabs.guard.js')], []);
+}
+
 export function saveCoverage(): void {
-  // Vitest 4 isolates test files, so a worker may run several files or a single
-  // file per process. Writing per pid alone would let one file overwrite another
-  // that happened to reuse the pid. Key each report by pid plus a per-process
-  // counter so every afterAll writes a distinct file; check-coverage merges them
-  // all. coverage/tmp is cleared before each run, so nothing double-counts.
+  // Each isolated worker writes a unique report because thread workers share the process ID.
   const g = globalThis as any;
   const cov = g.__coverage__;
   if (!cov) return;
-  g.__jfhCoverageSeq = (g.__jfhCoverageSeq ?? 0) + 1;
   const dir = join(REPO_ROOT, 'test', 'ui', 'coverage', 'tmp');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `coverage-${process.pid}-${g.__jfhCoverageSeq}.json`), JSON.stringify(cov));
+  writeFileSync(join(dir, `coverage-${process.pid}-${randomUUID()}.json`), JSON.stringify(cov));
 }

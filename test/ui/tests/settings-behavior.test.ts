@@ -418,8 +418,8 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
       '<input type="checkbox" id="cfgDiscoveryUserAccess">' +
       '<div id="discoveryAccessWrapper"></div>' +
       '<div class="discovery-access-disabled-hint" style="display:none;"></div>' +
-      '<button id="btnToggleDiscoveryHint"></button>' +
-      '<div class="discovery-setup-hint"></div>' +
+      '<button id="btnToggleDiscoveryHint" aria-expanded="false"></button>' +
+      '<div class="help-text discovery-setup-hint" id="discoveryHintPanel" style="display:none;"></div>' +
       '<div id="traktSourcingRow" style="display:none;"></div><div id="traktSourcingHint" style="display:none;"></div>';
     (document.getElementById('cfgRecommendationsMode') as HTMLSelectElement).value = mode;
   }
@@ -431,18 +431,57 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
     expect((document.getElementById('discoveryAccessWrapper') as HTMLElement).style.opacity).toBe('');
   });
 
-  test('disabled greys the wrapper and shows the hint and forces button pointer events', () => {
+  test('disabled greys the wrapper and shows the hint', () => {
     discoveryDom('Deactivate', 'http://s:5055', 'k');
     expect(ui.refreshDiscoveryAccessState()).toBe(false);
     expect((document.getElementById('discoveryAccessWrapper') as HTMLElement).style.opacity).toBe('0.5');
     expect((document.querySelector('.discovery-access-disabled-hint') as HTMLElement).style.display).toBe('');
-    expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.pointerEvents).toBe('auto');
-    expect((document.querySelector('.discovery-setup-hint') as HTMLElement).style.pointerEvents).toBe('auto');
   });
 
   test('missing optional nodes do not throw', () => {
     document.body.innerHTML = '';
     expect(() => ui.refreshDiscoveryAccessState()).not.toThrow();
+  });
+
+  test('disabling Discovery hides the info button and closes the hint panel', () => {
+    discoveryDom('Deactivate', 'http://s:5055', 'k');
+    document.getElementById('btnToggleDiscoveryHint')!.setAttribute('aria-expanded', 'true');
+    (document.getElementById('discoveryHintPanel') as HTMLElement).style.display = 'block';
+    expect(ui.refreshDiscoveryAccessState()).toBe(false);
+    expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
+    expect(document.getElementById('btnToggleDiscoveryHint')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('enabling Discovery keeps the hint closed until the info button is used', () => {
+    discoveryDom('Activate', 'http://s:5055', 'k');
+    expect(ui.refreshDiscoveryAccessState()).toBe(true);
+    expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('');
+    expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
+  });
+});
+
+describe('Discovery setup hint info button', () => {
+  test('the info button toggles the hint panel and aria-expanded', () => {
+    document.body.innerHTML =
+      '<button id="btnToggleDiscoveryHint" aria-expanded="false"></button>' +
+      '<div id="discoveryHintPanel" style="display:none;"></div>';
+    ui.attachDiscoveryHintHandler();
+    const btn = document.getElementById('btnToggleDiscoveryHint')!;
+    const panel = document.getElementById('discoveryHintPanel') as HTMLElement;
+
+    btn.click();
+    expect(panel.style.display).toBe('block');
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+
+    btn.click();
+    expect(panel.style.display).toBe('none');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('the handler tolerates a missing button or panel', () => {
+    document.body.innerHTML = '';
+    expect(() => ui.attachDiscoveryHintHandler()).not.toThrow();
   });
 });
 
@@ -549,29 +588,6 @@ async function renderSettings(extra: Record<string, unknown> = {}, failures: str
 }
 
 describe('loadSettings wiring and interactions', () => {
-  test('discovery copy toggle opens the hint panel', async () => {
-    await renderSettings();
-    const toggle = document.getElementById('btnToggleDiscoveryHint') as HTMLButtonElement;
-    const panel = document.getElementById('discoveryHintPanel') as HTMLElement;
-    expect(panel.style.display).toBe('none');
-    toggle.click();
-    expect(panel.style.display).toBe('block');
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    toggle.click();
-    expect(panel.style.display).toBe('none');
-  });
-
-  test('copy button uses the clipboard API and reports copied', async () => {
-    await renderSettings();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    (globalThis as any).navigator.clipboard = { writeText };
-    const btn = document.getElementById('btnCopyDiscoveryHtml') as HTMLButtonElement;
-    btn.click();
-    await flush();
-    expect(writeText).toHaveBeenCalledWith('<div class="jellyfinhelper discovery"></div>');
-    expect(btn.querySelector('span:last-child')!.textContent).toMatch(/copied/i);
-  });
-
   test('orphan age input clamps above the max on input', async () => {
     await renderSettings();
     const input = document.getElementById('cfgOrphanAge') as HTMLInputElement;
@@ -701,29 +717,6 @@ describe('loadSettings wiring and interactions', () => {
     expect(document.querySelector('#cfgExcludedWrapper .library-multiselect-summary')!.textContent).toContain('Shows');
     const putsAfter = calls.filter((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined).length;
     expect(putsAfter).toBeGreaterThan(putsBefore);
-  });
-});
-
-describe('fallbackCopy path when clipboard API is unavailable', () => {
-  test('copy falls back to execCommand and reports copied', async () => {
-    await renderSettings();
-    (globalThis as any).navigator.clipboard = undefined;
-    (document as any).execCommand = vi.fn().mockReturnValue(true);
-    const btn = document.getElementById('btnCopyDiscoveryHtml') as HTMLButtonElement;
-    btn.click();
-    await flush();
-    expect((document as any).execCommand).toHaveBeenCalledWith('copy');
-    expect(btn.querySelector('span:last-child')!.textContent).toMatch(/copied/i);
-  });
-
-  test('a failed execCommand shows the failure glyph', async () => {
-    await renderSettings();
-    (globalThis as any).navigator.clipboard = undefined;
-    (document as any).execCommand = vi.fn().mockReturnValue(false);
-    const btn = document.getElementById('btnCopyDiscoveryHtml') as HTMLButtonElement;
-    btn.click();
-    await flush();
-    expect(btn.querySelector('span:last-child')!.textContent).toBe('✗');
   });
 });
 
