@@ -174,27 +174,40 @@ test.describe('Discovery native tab (home page)', () => {
     const password = auth.normalUser
       ? process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!'
       : process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
-    const [usersResponse] = await Promise.all([
-      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/Users/Public') && response.request().method() === 'GET', { timeout: 15_000 }),
-      page.goto(`${auth.baseUrl.replace(/\/$/, '')}/web/index.html#/login`, { waitUntil: 'domcontentloaded' }),
-    ]);
-    expect(usersResponse.ok(), 'Jellyfin must load its login choices').toBe(true);
-    const publicUsers = await usersResponse.json() as unknown;
-    expect(Array.isArray(publicUsers), 'the public user response must be a list').toBe(true);
-    const username = page.locator('#txtManualName');
-    if (Array.isArray(publicUsers) && publicUsers.length > 0) {
-      await expect(page.locator('#loginPage #divUsers .card').first()).toBeVisible();
-      if (!await username.isVisible()) await page.locator('#loginPage .btnManual').click({ timeout: 15_000 });
-    } else {
-      await expect(username).toBeVisible();
+    const base = auth.baseUrl.replace(/\/$/, '');
+    await page.goto(`${base}/web/index.html`, { waitUntil: 'domcontentloaded' });
+    const login = page.locator('#loginPage').filter({ visible: true });
+    const username = login.locator('#txtManualName');
+    const userCards = login.locator('#divUsers .card');
+    const addServer = page.locator('#selectServerPage .btnAddServer').filter({ visible: true });
+    const serverHost = page.locator('#txtServerHost').filter({ visible: true });
+    await expect.poll(async () => {
+      if (await username.isVisible() || await userCards.first().isVisible()) return 'login';
+      if (await serverHost.isVisible()) return 'server-address';
+      if (await addServer.isVisible()) return 'server-selection';
+      return 'loading';
+    }, { timeout: 15_000, message: 'Jellyfin must expose its initial connection or login screen' }).not.toBe('loading');
+    if (await addServer.isVisible()) {
+      await addServer.click({ timeout: 15_000 });
+      await expect(serverHost).toBeEditable({ timeout: 15_000 });
     }
+    if (await serverHost.isVisible()) {
+      await expect(serverHost).toBeEditable();
+      await serverHost.fill(base, { timeout: 15_000 });
+      await page.locator('.addServerForm .button-submit').filter({ visible: true }).click({ timeout: 15_000 });
+    }
+    await expect(login).toBeVisible({ timeout: 15_000 });
+    await expect.poll(async () => await username.isVisible() || await userCards.first().isVisible(), {
+      timeout: 15_000, message: 'Jellyfin must show either its manual login form or its user choices',
+    }).toBe(true);
+    if (!await username.isVisible()) await login.locator('.btnManual').click({ timeout: 15_000 });
     await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery')).toHaveCount(0);
     await expect(username).toBeEditable();
     await username.fill(user.userName, { timeout: 15_000 });
-    await page.locator('#txtManualPassword').fill(password, { timeout: 15_000 });
+    await login.locator('#txtManualPassword').fill(password, { timeout: 15_000 });
     const [authentication] = await Promise.all([
       page.waitForResponse(response => new URL(response.url()).pathname.toLowerCase().endsWith('/users/authenticatebyname') && response.request().method() === 'POST', { timeout: 15_000 }),
-      page.locator('#loginPage .manualLoginForm .button-submit').click({ timeout: 15_000 }),
+      login.locator('.manualLoginForm .button-submit').click({ timeout: 15_000 }),
     ]);
     expect(authentication.ok(), 'the interactive login must be accepted by Jellyfin').toBe(true);
     await expect(page).toHaveURL(/#\/home(?:\.html)?(?:\?|$)/);
