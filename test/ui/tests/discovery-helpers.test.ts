@@ -2667,6 +2667,22 @@ describe('bootstrap + tab registration', () => {
     expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBeGreaterThan(first);
   });
 
+  test('a login-page bootstrap tears down the entry points', async () => {
+    setHash('#/home');
+    const ui = freshDiscoveryHelpers();
+    const calls = ajaxRouter(homeRoutes(), { userId: 'u1' });
+    const { sidebar } = buildSidebar();
+    const registry = fakeTabRegistry();
+    ui.bootstrapDiscovery();
+    await flush();
+    expect(sidebar.querySelector('a')).not.toBeNull();
+    setHash('#/login');
+    ui.bootstrapDiscovery();
+    await flush();
+    expect(sidebar.querySelector('a')).toBeNull();
+    expect(registry.unregister).toHaveBeenCalledWith('discovery');
+  });
+
   test('an off-home bootstrap does nothing at all', async () => {
     setHash('#/nowhere');
     const ui = freshDiscoveryHelpers();
