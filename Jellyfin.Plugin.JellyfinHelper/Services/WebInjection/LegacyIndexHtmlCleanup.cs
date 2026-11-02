@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 ///     Removes the index.html mutations older plugin versions wrote to disk.
 /// </summary>
 /// <remarks>
-///     TODO: remove in the next version after 3.1.0.0 - legacy upgrade cleanup no longer needed after 3.1.x.</remarks>
+///     Remove this in the next version after 3.1.0.0 - legacy upgrade cleanup no longer needed after 3.1.x.</remarks>
 /// <remarks>
 ///     Injection now happens per request, so an on-disk tag would only keep a dead reference alive
 ///     after uninstall. Cleanup is best effort and tolerates read-only web directories.

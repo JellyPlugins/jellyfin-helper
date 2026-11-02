@@ -28,6 +28,7 @@ public sealed class ScriptInjectionStaticFileTests
     [InlineData("/jellyfin/web/index.html")]
     public async Task StaticFiles_InjectsTheShellAndResolvesTheScriptUnderTheBasePath(string path)
     {
+        ArgumentNullException.ThrowIfNull(path);
         using var fixture = new StaticFileFixture(Shell);
         var (context, body) = await fixture.GetAsync(path);
         using (body)
@@ -51,6 +52,7 @@ public sealed class ScriptInjectionStaticFileTests
     [InlineData("/jellyfin/web")]
     public async Task DefaultFiles_RedirectsTheBareDirectoryBeforeRelativeScriptResolution(string path)
     {
+        ArgumentNullException.ThrowIfNull(path);
         using var fixture = new StaticFileFixture(Shell);
         var (context, body) = await fixture.GetAsync(path);
         using (body)
@@ -59,6 +61,15 @@ public sealed class ScriptInjectionStaticFileTests
             Assert.EndsWith(path + "/", context.Response.Headers.Location.ToString(), StringComparison.Ordinal);
             Assert.Empty(body.ToArray());
         }
+    }
+
+    [Fact]
+    public async Task StaticFiles_RejectsNullRequestPaths()
+    {
+        var indexError = await Assert.ThrowsAsync<ArgumentNullException>(() => StaticFiles_InjectsTheShellAndResolvesTheScriptUnderTheBasePath(null!));
+        var directoryError = await Assert.ThrowsAsync<ArgumentNullException>(() => DefaultFiles_RedirectsTheBareDirectoryBeforeRelativeScriptResolution(null!));
+        Assert.Equal("path", indexError.ParamName);
+        Assert.Equal("path", directoryError.ParamName);
     }
 
     [Fact]

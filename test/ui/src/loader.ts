@@ -272,6 +272,7 @@ const NATIVE_TABS_EXPECTED = [
   'isTabButtonVisible', 'removeHeaderLink', 'createHeaderLink', 'ensureDiscoverable',
   'hashParam', 'homeRoute', 'watchUserTabChanges', 'clearStraySelection', 'syncSelectedTabHash', 'syncActiveEntry',
   'repairRemovedTabSelection',
+  'handleRouteNavigation',
   'noteTabStripInput', 'deepLinkHash', 'syncDeepLink', 'applyPendingFocus',
   'ensureInjected', 'scheduleInject', 'register', 'unregister', 'focus', 'init',
 ];

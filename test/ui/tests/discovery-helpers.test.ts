@@ -2127,6 +2127,21 @@ describe('renderCards metadata fallbacks', () => {
     expect(hrefs2.some((h) => h!.includes('javascript'))).toBe(false);
     expect(hrefs2).toHaveLength(1);
   });
+
+  test.each([
+    ['https://seerr.example', 'https://seerr.example/movie/603'],
+    ['https://seerr.example' + '/'.repeat(10000), 'https://seerr.example/movie/603'],
+    ['https://seerr.example/' + '/'.repeat(10000) + 'segment', 'https://seerr.example/' + '/'.repeat(10000) + 'segment/movie/603'],
+  ])('external links preserve internal slashes and trim only the trailing suffix, case %#', async (url, expected) => {
+    const ui = freshDiscoveryHelpers();
+    setHash('#/home');
+    ajaxRouter({ ExternalLinks: { SeerrUrl: url } }, { userId: 'u1' });
+    await ui.loadExternalLinksConfig();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    ui.renderCards(container, { Recommendations: [rec()] });
+    expect(Array.from(container.querySelectorAll('.jfh-discovery-flip-link')).map(link => (link as HTMLElement).dataset.href)).toContain(expected);
+  });
 });
 
 describe('request + dismiss edge branches', () => {
@@ -2664,7 +2679,7 @@ describe('bootstrap + tab registration', () => {
     const first = calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length;
     ui.bootstrapDiscovery();
     await flush();
-    expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBe(first);
+    expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My')).toHaveLength(first);
   });
 
   test('a login-page bootstrap tears down the entry points', async () => {

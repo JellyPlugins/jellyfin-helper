@@ -7,7 +7,7 @@ Discovery sidebar (`js/discovery-sidebar.js`). It pins behavior that only
 exists in JavaScript: visibility rules, validators, tab switching, dialog
 flows. Backend logic stays in xUnit, real-browser flows stay in `test/e2e/`.
 The Discovery tab matrix needs layout (`offsetParent`) and lives in the
-Playwright spec `discovery-customtab.ui.spec.ts`, not here.
+Playwright spec `discovery-native-tab.ui.spec.ts`, not here.
 
 ## No test code in production files
 

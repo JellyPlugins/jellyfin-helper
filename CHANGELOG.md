@@ -19,12 +19,15 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Setup instructions are gone from Settings.** Discovery works out of the box once the user-access toggle is on, so the copy-paste steps and the copy button were removed and the remaining hint is one line.
 - **Legacy tags are cleaned up.** Tags that older versions wrote to `index.html` are removed on startup, so a stale copy cannot load a second time.
 - **Session changes clear Discovery completely.** Logout and account replacement remove cards, navigation, popups, and cached permissions, and pending responses cannot restore content from an earlier session.
+- **Dialog actions remain bound to their session.** Queued clicks and keyboard events from a retired dialog cannot submit requests or close a replacement dialog after logout or account changes.
 - **Reopening Discovery refreshes its data.** Retained panels refresh without rebuilding their shell, and selecting Home or Favorites clears the Discovery deep link before reload.
+- **Browser history restores the selected Home panel.** Back and forward navigation selects Home, Favorites, or Discovery correctly when Jellyfin retains the page, without adding history entries during restoration.
 - **Discovery navigation remains available with empty results.** The sidebar follows feature access rather than result count and moves into the modern drawer when it mounts.
 - **Read-only upgrades are normalized in the served response.** Older script tags are replaced with one current tag, or removed when Discovery access is disabled, even if startup cleanup could not change the file.
 
 ### Tests
 
+- Security regression coverage exercises delayed data responses and retired dialog events after token and API client replacement in both layouts.
 - The end-to-end suite no longer stages Custom Tabs or File Transformation; only the official Trakt plugin is staged for the Trakt layout specs. New native-tab coverage guards injection, registration, the deep link, reload, and the access-disabled case.
 
 ## [3.0.1.4] - 2026-10-26

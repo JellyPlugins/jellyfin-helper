@@ -333,8 +333,7 @@ the Discovery tab against Jellyfin's tab strip. `global-setup` only enables the 
 - Empty recommendations still expose Discovery navigation because the feature remains available.
 - Disabling access after a successful render removes cached cards and all entry points on the next activation.
 - Navigating to Home from a cold dashboard initializes Discovery through Jellyfin's router.
-- The plugin **owns exactly one** `tabContent pageTabContent` panel and **no `customTab_` panel exists**,
-  proving no third party tab plugin is involved.
+- The plugin owns exactly one native Discovery panel, and its button and panel occupy matching tab positions.
 - **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false` the bootstrap gets a 403 and
   registers **no tab button, header link or panel** at all. The describe brackets the toggle and
   restores access in `afterAll`.

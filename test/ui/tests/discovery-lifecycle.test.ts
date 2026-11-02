@@ -15,8 +15,8 @@ afterEach(() => {
   vi.clearAllTimers();
 });
 
-function recommendations(title: string) {
-  return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [] }] };
+function recommendations(title: string, posterPath?: string) {
+  return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath }] };
 }
 
 function deferred<T>() {
@@ -30,7 +30,7 @@ async function settle() {
   await vi.advanceTimersByTimeAsync(200);
 }
 
-function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean } = {}) {
+function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean; responses?: Record<string, () => Promise<unknown>> } = {}) {
   // A separate document runs both shipped scripts without exposing or replacing their internal helpers.
   const dom = new JSDOM('<!doctype html><body><div class="headerRight"></div><div class="mainDrawer"><div class="mainDrawer-scrollContainer"></div></div><div class="headerTabs"><div is="emby-tabs"><div class="emby-tabs-slider"><button class="emby-tab-button emby-tab-button-active" data-index="0">Home</button><button class="emby-tab-button" data-index="1">Favorites</button></div></div></div><div id="panels"><div class="tabContent pageTabContent is-active" data-index="0"></div><div class="tabContent pageTabContent" data-index="1"></div></div></body>', {
     url: 'http://localhost/web/index.html' + (options.hash ?? '#/home'),
@@ -88,16 +88,22 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
   let userId = 'a';
   let token = 'session-a';
   let reply: () => Promise<unknown> = () => Promise.resolve(recommendations('Recommendations for ' + userId));
+  const sourceReplies = new Map<string, () => Promise<unknown>>(Object.entries(options.responses ?? {}));
+  const dispatch = (request: { url: string; type?: string }) => {
+    const sourceReply = sourceReplies.get(request.url);
+    if (sourceReply) return sourceReply();
+    if (request.url === '/JellyfinHelper/Discovery/My') return reply();
+    if (request.url.includes('/Trakt')) return Promise.reject({ status: 403 });
+    return Promise.resolve({});
+  };
   const api = {
     getCurrentUserId: () => userId,
     accessToken: () => token,
     getUrl: (path: string) => path,
-    ajax: vi.fn((request: { url: string }) => {
-      if (request.url === '/JellyfinHelper/Discovery/My') return reply();
-      if (request.url.includes('/Trakt')) return Promise.reject({ status: 403 });
-      return Promise.resolve({});
-    }),
+    ajax: vi.fn(dispatch),
   };
+  const clients = [api];
+  const requests = () => clients.flatMap(client => client.ajax.mock.calls.map(([request]) => request));
   if (!options.lateApi) (w as any).ApiClient = api;
   for (const source of scripts) {
     const script = w.document.createElement('script');
@@ -110,12 +116,64 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
     w.document.dispatchEvent(new w.Event('viewshow'));
   };
   return {
-    w, api, tabs, route,
+    w, api, tabs, route, requests,
     setSession: (user: string, accessToken = 'session-' + user) => { userId = user; token = accessToken; },
     setReply: (next: () => Promise<unknown>) => { reply = next; },
+    setSourceReply: (path: string, next: () => Promise<unknown>) => { sourceReplies.set(path, next); },
+    replaceApiClient: () => {
+      const replacement = { ...api, ajax: vi.fn(dispatch) };
+      clients.push(replacement);
+      (w as any).ApiClient = replacement;
+    },
     panel: () => w.document.getElementById('jfh-tab-panel-discovery'),
     entry: () => w.document.getElementById(options.modern ? 'jfh-tab-link-discovery' : 'jfh-tab-btn-discovery'),
-    ownRequests: () => api.ajax.mock.calls.filter(([request]) => request.url === '/JellyfinHelper/Discovery/My').length,
+    ownRequests: () => requests().filter(request => request.url === '/JellyfinHelper/Discovery/My').length,
+  };
+}
+
+type ClientDocument = ReturnType<typeof clientDocument>;
+
+const translationsPath = '/JellyfinHelper/Translations';
+const externalLinksPath = '/JellyfinHelper/Discovery/My/ExternalLinks';
+const personalPath = '/JellyfinHelper/Discovery/My/Trakt';
+const trendingPath = '/JellyfinHelper/Discovery/My/Trakt/Trending';
+const permissionsPath = '/JellyfinHelper/Discovery/My/RequestPermissions/radarr?mediaType=movie';
+
+const currentTranslations = () => ({ discoveryRequest: 'Current request', discoveryTitle: 'Current Discovery' });
+const currentResponses = (): Record<string, () => Promise<unknown>> => ({
+  [translationsPath]: () => Promise.resolve(currentTranslations()),
+  [externalLinksPath]: () => Promise.resolve({ SeerrUrl: 'https://current.example/' }),
+  [personalPath]: () => Promise.resolve({ Linked: false, Result: null }),
+  [trendingPath]: () => Promise.resolve(recommendations('Current trending', '/poster.jpg')),
+});
+
+const staleResponseCases = [
+  { source: 'Trakt personal', path: personalPath, oldResponse: () => ({ Linked: true, Result: recommendations('Old private recommendations') }) },
+  { source: 'Trakt trending', path: trendingPath, oldResponse: () => recommendations('Old private recommendations') },
+  { source: 'translations', path: translationsPath, oldResponse: () => ({ discoveryRequest: 'Old request', discoveryTitle: 'Old Discovery' }) },
+  { source: 'external links', path: externalLinksPath, oldResponse: () => ({ SeerrUrl: 'https://old.example/' }) },
+].flatMap(source => (['token', 'client'] as const).flatMap(transition =>
+  (['success', 'failure'] as const).map(outcome => ({ ...source, transition, outcome }))));
+
+function profiles(prefix: string) {
+  return [1, 2].map(id => ({ ServerId: 1, ProfileId: id, RootFolder: '/media/movies', ProfileName: prefix + ' quality ' + id, ServerName: 'Seerr' }));
+}
+
+async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss') {
+  (client.w as any).JellyfinHelperTabs.focus('discovery');
+  await settle();
+  const selector = dialog === 'profile' ? '.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)' : '.jfh-discovery-btn-dismiss';
+  const trigger = client.panel()!.querySelector(selector) as HTMLElement;
+  expect(trigger).not.toBeNull();
+  trigger.click();
+  await settle();
+  const overlay = client.w.document.getElementById('jfhDiscoveryPopup')!;
+  expect(overlay).not.toBeNull();
+  return {
+    overlay,
+    action: overlay.querySelector('.jfh-discovery-popup-item') as HTMLElement,
+    cancel: overlay.querySelector('.jfh-discovery-popup-cancel') as HTMLElement,
+    escapeHandler: (overlay as any)._onEsc,
   };
 }
 
@@ -209,6 +267,99 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(client.panel()?.textContent).toContain('No suggestions available');
     expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
   });
+
+  test.each(staleResponseCases)('late $source $outcome cannot affect a replacement $transition session', async ({ path, oldResponse, transition, outcome }) => {
+    const pending = deferred<unknown>();
+    const responses = currentResponses();
+    const client = clientDocument({ modern, responses: { ...responses, [path]: () => pending.promise } });
+    client.setReply(() => Promise.resolve(recommendations('Current recommendations')));
+    await settle();
+    expect(client.requests()).toContainEqual(expect.objectContaining({ url: path, type: 'GET' }));
+    client.setSourceReply(path, responses[path]);
+    if (transition === 'token') client.setSession('a', 'replacement-token');
+    else client.replaceApiClient();
+    client.route('#/home?session=' + transition);
+    await settle();
+    const trending = client.panel()!.querySelector('.jfh-discovery-tab[data-tab="trending"]') as HTMLElement;
+    expect(trending).not.toBeNull();
+    trending.click();
+    await settle();
+    expect(client.panel()?.textContent).toContain('Current trending');
+    if (outcome === 'success') pending.resolve(oldResponse());
+    else pending.reject({ status: 403, responseJSON: { Message: 'Old session denial' } });
+    await settle();
+    client.tabs.querySelector('[data-index="0"]').click();
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    expect(client.panel()?.textContent).toContain('Current trending');
+    expect(client.panel()?.textContent).not.toContain('Old private recommendations');
+    expect(client.panel()?.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)')?.textContent).toBe('Current request');
+    expect(client.panel()?.querySelector('.jfh-discovery-flip-link[data-href*="current.example"]')).not.toBeNull();
+    expect(client.w.document.querySelector('[data-href*="old.example"]')).toBeNull();
+    expect(client.panel()?.querySelector('.jfh-discovery-tab[data-tab="trakt"]')).toBeNull();
+    expect(client.entry()).not.toBeNull();
+    expect(client.w.document.querySelector('.jfh-discovery-toast')).toBeNull();
+    expect(client.requests().filter(request => request.type === 'POST')).toHaveLength(0);
+  });
+
+  for (const dialog of ['profile', 'dismiss'] as const) {
+    test.each(['logout', 'account'] as const)('an open ' + dialog + ' dialog is retired on %s and cannot affect a new dialog', async transition => {
+      const client = clientDocument({ modern });
+      client.setSourceReply(permissionsPath, () => Promise.resolve({ CanRequest: true, Profiles: profiles('Old') }));
+      await settle();
+      const previous = await openDialog(client, dialog);
+      const removeListener = vi.spyOn(client.w.document, 'removeEventListener');
+      try {
+        if (transition === 'logout') {
+          client.setSession('', '');
+          client.route('#/login');
+        } else {
+          client.setSession('b');
+          client.route('#/home?account=b');
+        }
+        await settle();
+        expect(previous.overlay.isConnected).toBe(false);
+        expect(client.w.document.getElementById('jfhDiscoveryPopup')).toBeNull();
+        expect(removeListener).toHaveBeenCalledWith('keydown', previous.escapeHandler);
+        let replacement: Awaited<ReturnType<typeof openDialog>> | null = null;
+        if (transition === 'account') {
+          client.setSourceReply(permissionsPath, () => Promise.resolve({ CanRequest: true, Profiles: profiles('Current') }));
+          replacement = await openDialog(client, dialog);
+        }
+        previous.action.click();
+        previous.cancel.click();
+        previous.overlay.dispatchEvent(new client.w.MouseEvent('click', { bubbles: true }));
+        previous.escapeHandler(new client.w.KeyboardEvent('keydown', { key: 'Escape' }));
+        await settle();
+        expect(client.requests().filter(request => request.type === 'POST')).toHaveLength(0);
+        expect(client.w.document.querySelector('.jfh-discovery-toast')).toBeNull();
+        if (replacement) {
+          expect(client.w.document.getElementById('jfhDiscoveryPopup')).toBe(replacement.overlay);
+          expect(replacement.overlay.isConnected).toBe(true);
+        } else {
+          expect(client.w.document.getElementById('jfhDiscoveryPopup')).toBeNull();
+        }
+      } finally {
+        removeListener.mockRestore();
+      }
+    });
+
+    test.each(['token', 'client'] as const)('an open ' + dialog + ' dialog cannot submit during a %s change before cleanup runs', async transition => {
+      const client = clientDocument({ modern });
+      client.setSourceReply(permissionsPath, () => Promise.resolve({ CanRequest: true, Profiles: profiles('Old') }));
+      await settle();
+      const previous = await openDialog(client, dialog);
+      if (transition === 'token') client.setSession('a', 'replacement-token');
+      else client.replaceApiClient();
+      expect(previous.overlay.isConnected).toBe(true);
+      previous.action.click();
+      await settle();
+      expect(client.requests().filter(request => request.type === 'POST')).toHaveLength(0);
+      expect(client.w.document.querySelector('.jfh-discovery-toast')).toBeNull();
+      expect(previous.overlay.isConnected).toBe(false);
+    });
+  }
 });
 
 test('late API initialization remains supported without a global Events object', async () => {
@@ -281,6 +432,57 @@ test.each([0, 1])('native tab selection %s removes the Discovery deep link', asy
   expect(client.tabs.selectedIndex()).toBe(index);
   expect(client.w.location.hash).not.toContain('jfhTab');
   expect(client.w.location.hash).toBe(index === 0 ? '#/home' : '#/home?tab=1');
+});
+
+test.each([false, true])('browser history restores cached Home and Discovery with modern layout %s', async modern => {
+  const client = clientDocument({ modern });
+  await settle();
+  for (let visit = 0; visit < 20; visit++) {
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    client.tabs.querySelector('[data-index="0"]').click();
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+  }
+  const historyLength = client.w.history.length;
+  expect(client.panel()?.classList.contains('is-active')).toBe(true);
+  client.w.history.back();
+  await settle();
+  expect(client.w.location.hash).toBe('#/home');
+  expect(client.tabs.selectedIndex()).toBe(0);
+  expect(client.panel()?.classList.contains('is-active')).toBe(false);
+  expect(client.w.document.querySelector('#panels > .tabContent[data-index="0"]')?.classList.contains('is-active')).toBe(true);
+  expect(client.w.history).toHaveLength(historyLength);
+  client.w.history.forward();
+  await settle();
+  expect(client.w.location.hash).toContain('jfhTab=discovery');
+  expect(client.tabs.selectedIndex()).toBe(2);
+  expect(client.panel()?.classList.contains('is-active')).toBe(true);
+  expect(client.w.history).toHaveLength(historyLength);
+});
+
+test.each([false, true])('browser history restores Favorites before Discovery with modern layout %s', async modern => {
+  const client = clientDocument({ modern });
+  await settle();
+  (client.w as any).JellyfinHelperTabs.focus('discovery');
+  await settle();
+  client.tabs.querySelector('[data-index="1"]').click();
+  await settle();
+  (client.w as any).JellyfinHelperTabs.focus('discovery');
+  await settle();
+  const historyLength = client.w.history.length;
+  client.w.history.back();
+  await settle();
+  expect(client.w.location.hash).toBe('#/home?tab=1');
+  expect(client.tabs.selectedIndex()).toBe(1);
+  expect(client.panel()?.classList.contains('is-active')).toBe(false);
+  expect(client.w.document.querySelector('#panels > .tabContent[data-index="1"]')?.classList.contains('is-active')).toBe(true);
+  expect(client.w.history).toHaveLength(historyLength);
+  client.w.history.forward();
+  await settle();
+  expect(client.panel()?.classList.contains('is-active')).toBe(true);
+  expect(client.w.history).toHaveLength(historyLength);
 });
 
 test('a layout change immediately removes the obsolete compass fallback', async () => {

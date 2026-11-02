@@ -137,7 +137,10 @@
             dataType: 'json'
         }).then(function (data) {
             if (!isCurrentDiscoveryRequest(request)) return;
-            _seerrBaseUrl = safeHttpUrl(data?.SeerrUrl).replace(/\/+$/, '');
+            var url = safeHttpUrl(data?.SeerrUrl);
+            var end = url.length;
+            while (end > 0 && url[end - 1] === '/') end--;
+            _seerrBaseUrl = url.slice(0, end);
         }).catch(function () {
             // Non-critical - Seerr link option will be hidden in the popup
         });
@@ -1187,6 +1190,7 @@
     }
 
     function showProfilePopup(tmdbId, mediaType, btn, profiles) {
+        var request = captureDiscoveryRequest();
         var existing = document.getElementById('jfhDiscoveryPopup');
         if (existing) {
             if (existing._onEsc) {
@@ -1244,7 +1248,11 @@
                 item.appendChild(defaultSpan);
             }
             item.addEventListener('click', (function (sid, pid, rf) {
-                return function () { closeDiscoveryPopup(btn, false); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+                return function () {
+                    if (!isCurrentDiscoveryPopup(overlay, request)) return;
+                    closeDiscoveryPopup(btn, false);
+                    submitRequest(tmdbId, mediaType, sid, pid, rf, btn);
+                };
             })(prof.ServerId, prof.ProfileId, prof.RootFolder));
             list.appendChild(item);
         }
@@ -1283,18 +1291,27 @@
         if (triggerBtn?.focus) triggerBtn.focus();
     }
 
+    function isCurrentDiscoveryPopup(overlay, request) {
+        // A queued dialog event must not act on a replacement session or another dialog.
+        return overlay.isConnected && document.getElementById('jfhDiscoveryPopup') === overlay && isSameDiscoverySession(request);
+    }
+
     function finalizeDiscoveryPopup(overlay, popup, list, btn) {
+        var request = captureDiscoveryRequest();
+        function closeCurrentPopup() {
+            if (isCurrentDiscoveryPopup(overlay, request)) closeDiscoveryPopup(btn);
+        }
         popup.appendChild(list);
         var cancelBtn = document.createElement('button');
         cancelBtn.className = 'jfh-discovery-popup-cancel';
         cancelBtn.textContent = t('discoveryCancel', 'Cancel');
-        cancelBtn.addEventListener('click', function () { closeDiscoveryPopup(btn); });
+        cancelBtn.addEventListener('click', closeCurrentPopup);
         popup.appendChild(cancelBtn);
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
         cancelBtn.focus();
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeDiscoveryPopup(btn); });
-        function onEsc(ev) { if (ev.key === 'Escape') closeDiscoveryPopup(btn); }
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeCurrentPopup(); });
+        function onEsc(ev) { if (ev.key === 'Escape') closeCurrentPopup(); }
         document.addEventListener('keydown', onEsc);
         overlay._onEsc = onEsc;
     }
@@ -1393,6 +1410,7 @@
      * Reuses the same popup overlay pattern as the profile selector.
      */
     function showDismissConfirmation(tmdbId, mediaType, title, btn) {
+        var request = captureDiscoveryRequest();
         var existing = document.getElementById('jfhDiscoveryPopup');
         if (existing) {
             if (existing._onEsc) document.removeEventListener('keydown', existing._onEsc);
@@ -1432,6 +1450,7 @@
         confirmBtn.style.color = '#e74c3c';
         confirmBtn.textContent = t('discoveryDismissConfirm', 'Yes, dismiss');
         confirmBtn.addEventListener('click', function () {
+            if (!isCurrentDiscoveryPopup(overlay, request)) return;
             closeDiscoveryPopup(btn);
             executeDismiss(tmdbId, mediaType, btn);
         });

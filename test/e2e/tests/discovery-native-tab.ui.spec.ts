@@ -161,8 +161,10 @@ test.describe('Discovery native tab (home page)', () => {
 
     // Browser back/forward is a distinct navigation path (popstate/hashchange).
     await page.goBack();
+    await expect(page).not.toHaveURL(/jfhTab=discovery/);
     await expectDiscoveryHidden(page);
     await page.goForward();
+    await expect(page).toHaveURL(/jfhTab=discovery/);
     await expectDiscoveryRendered(page);
   });
 
@@ -182,13 +184,14 @@ test.describe('Discovery native tab (home page)', () => {
     await expectDiscoveryRendered(page);
   });
 
-  test('owns exactly one panel and needs no third party tab plugin', async ({ page }) => {
+  test('owns exactly one native panel with matching button and panel positions', async ({ page }) => {
     await openHome(page);
     await openDiscovery(page);
     await expectDiscoveryRendered(page);
 
     const ownership = await page.evaluate(() => {
       const panel = document.getElementById('jfh-tab-panel-discovery');
+      const button = document.getElementById('jfh-tab-btn-discovery');
       // The experimental layout keeps the strip button in a hidden header, so only
       // rendered elements count as an entry point.
       const isVisible = (el: Element | null) => {
@@ -199,20 +202,24 @@ test.describe('Discovery native tab (home page)', () => {
         return rect.width > 0 && rect.height > 0;
       };
       return {
-        // Custom Tabs stamped every panel it created; none may exist now.
-        customTabPanels: document.querySelectorAll('[id^="customTab_"]').length,
         panels: document.querySelectorAll('#jfh-tab-panel-discovery').length,
         panelClasses: panel?.className ?? '',
+        panelIndex: Number(panel?.dataset.index),
+        buttonIndex: Number(button?.dataset.index),
+        panelPosition: panel ? Array.from(panel.parentElement?.querySelectorAll(':scope > .tabContent.pageTabContent') ?? []).indexOf(panel) : -1,
+        buttonPosition: button ? Array.from(button.parentElement?.querySelectorAll(':scope > .emby-tab-button') ?? []).indexOf(button) : -1,
         // Only one entry point may be visible: the strip button on the stable layout,
         // the header link on the experimental one. The hidden twin is not clickable.
         buttons: Array.from(document.querySelectorAll('#jfh-tab-btn-discovery')).filter(isVisible).length,
         links: Array.from(document.querySelectorAll('#jfh-tab-link-discovery')).filter(isVisible).length,
       };
     });
-    expect(ownership.customTabPanels, 'no Custom Tabs panel is involved').toBe(0);
     expect(ownership.panels, 'exactly one Discovery panel exists').toBe(1);
     expect(ownership.panelClasses, 'the panel is a native Jellyfin tab panel').toContain('tabContent');
     expect(ownership.panelClasses).toContain('pageTabContent');
+    expect(ownership.panelIndex).toBe(ownership.buttonIndex);
+    expect(ownership.panelPosition).toBe(ownership.panelIndex);
+    expect(ownership.buttonPosition).toBe(ownership.buttonIndex);
     expect(ownership.buttons + ownership.links, 'exactly one entry point exists').toBe(1);
   });
 

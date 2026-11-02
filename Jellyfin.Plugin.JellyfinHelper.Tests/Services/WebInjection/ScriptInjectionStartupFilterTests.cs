@@ -13,7 +13,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.WebInjection;
 
 /// <summary>
-///     Tests for the request-time script injector that replaces the former File Transformation dependency.
+///     Tests for script injection that serves the web shell without modifying its files.
 /// </summary>
 public class ScriptInjectionStartupFilterTests
 {

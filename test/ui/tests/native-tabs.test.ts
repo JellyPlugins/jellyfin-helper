@@ -693,6 +693,57 @@ describe('native tabs: focus and unregister', () => {
 });
 
 describe('native tabs: activation and navigation', () => {
+  test('history selections restore native panels once without adding history entries', async () => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    let current = 2;
+    const select = vi.fn((index?: number) => {
+      if (index !== undefined) {
+        const previousIndex = current;
+        current = index;
+        setup.slider.querySelectorAll('.emby-tab-button').forEach((button, position) => button.classList.toggle('emby-tab-button-active', position === index));
+        setup.root.querySelectorAll('.tabContent').forEach((panel, position) => panel.classList.toggle('is-active', position === index));
+        setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: index, previousIndex } }));
+        setup.tabs.dispatchEvent(new CustomEvent('tabchange', { detail: { selectedTabIndex: index, previousIndex } }));
+      }
+      return current;
+    });
+    (setup.tabs as any).selectedIndex = select;
+    select(2);
+    ui.ensureInjected();
+    const historyLength = window.history.length;
+    for (const [hash, index] of [['#/home', 0], ['#/home?tab=1', 1], ['#/home?tab=2&jfhTab=a', 2]] as const) {
+      setHash(hash);
+      ui.handleRouteNavigation();
+      ui.ensureInjected();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(select()).toBe(index);
+      expect(setup.root.querySelectorAll('.tabContent')[index].classList.contains('is-active')).toBe(true);
+      expect(window.location.hash).toBe(hash);
+      expect(window.history).toHaveLength(historyLength);
+      select.mockClear();
+      ui.ensureInjected();
+      expect(select).not.toHaveBeenCalledWith(index);
+    }
+  });
+
+  test('a fresh user tab choice supersedes a pending history selection', () => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    ui.handleRouteNavigation();
+    ui.noteTabStripInput({ isTrusted: true, target: setup.tabs });
+    setup.selectedIndex(0);
+    setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 0 } }));
+    setup.selectedIndex.mockClear();
+    ui.ensureInjected();
+    expect(setup.selectedIndex).not.toHaveBeenCalledWith(2);
+    expect(setup.selectedIndex()).toBe(0);
+  });
+
   test('a delayed selection for an unregistered tab restores Home', () => {
     const ui = freshNativeTabsHelpers();
     const setup = setupHome();
@@ -751,9 +802,9 @@ describe('native tabs: activation and navigation', () => {
     const before = window.history.length;
     ui.syncSelectedTabHash(setup.tabs, index);
     expect(window.location.hash).toBe(index === 0 ? '#/home?filter=keep' : '#/home?tab=1&filter=keep');
-    expect(window.history.length).toBe(before + 1);
+    expect(window.history).toHaveLength(before + 1);
     ui.syncSelectedTabHash(setup.tabs, index);
-    expect(window.history.length).toBe(before + 1);
+    expect(window.history).toHaveLength(before + 1);
   });
 
   test('selection synchronization ignores unavailable controls and preserves the owned tab route', () => {

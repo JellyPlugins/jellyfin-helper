@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.WebInjection;
 ///     Tests for the best-effort cleanup of index.html changes older plugin versions wrote to disk.
 /// </summary>
 /// <remarks>
-///     TODO: remove in the next version after 3.1.0.0 together with LegacyIndexHtmlCleanup./// </remarks>
+///     Remove this in the next version after 3.1.0.0 together with LegacyIndexHtmlCleanup./// </remarks>
 public class LegacyIndexHtmlCleanupTests : IDisposable
 {
     private readonly string _webPath;
