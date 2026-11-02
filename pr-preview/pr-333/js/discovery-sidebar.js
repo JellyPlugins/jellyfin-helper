@@ -1593,6 +1593,10 @@
         if (startedUserId !== currentDiscoveryUserId()) {
             return;
         }
+        var isLoginPage = /login/i.test(window.location.hash || '') || /login/i.test(window.location.pathname || '');
+        if (isLoginPage) {
+            return;
+        }
         // Check if Discovery is available before injecting UI elements.
         if (!data || !data.Recommendations || data.Recommendations.length === 0) {
             // Leave the gate open: results may appear after a later scheduled run, and a future
@@ -1633,6 +1637,30 @@
             });
     }
 
+    function teardownDiscoveryEntryPoints() {
+        if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
+            window.JellyfinHelperTabs.unregister(TAB_ID);
+        }
+        for (var id of ['jfh-tab-btn-discovery', 'jfh-tab-link-discovery', 'jfh-tab-panel-discovery']) {
+            document.getElementById(id)?.remove();
+        }
+        var navItems = document.querySelectorAll('.' + NAV_ITEM_CLASS);
+        for (var navItem of navItems) {
+            navItem.remove();
+        }
+        if (_sidebarObserver) {
+            _sidebarObserver.disconnect();
+            _sidebarObserver = null;
+        }
+        _tabRegistered = false;
+        _tabPanel = null;
+        _bootstrapped = false;
+        _discoveryDisabled = false;
+        _probeInFlight = false;
+        _probedUserId = null;
+        _discoveryResultCache = null;
+    }
+
     function bootstrapDiscovery() {
         // Reset the gates on an in-tab account switch: a prior user's 403 or in-flight probe must
         // not block a different user who may well have access.
@@ -1641,34 +1669,9 @@
         // leaves the DOM instead of lingering for the signed-out session. A cold load also has no
         // user yet, so the teardown only runs once a user was actually probed.
         var isLoginPage = /login/i.test(window.location.hash || '') || /login/i.test(window.location.pathname || '');
-        if ((_probedUserId && (!userId || isLoginPage))) {
-            if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
-                window.JellyfinHelperTabs.unregister(TAB_ID);
-            }
-            // Defensive cleanup: remove any lingering entry points directly.
-            ['jfh-tab-btn-discovery', 'jfh-tab-link-discovery', 'jfh-tab-panel-discovery'].forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el && el.parentNode) el.parentNode.removeChild(el);
-            });
-            var staleNav = document.querySelectorAll('.jfhelper-nav-discovery');
-            for (var i = 0; i < staleNav.length; i++) {
-                if (staleNav[i].parentNode) staleNav[i].parentNode.removeChild(staleNav[i]);
-            }
-            _tabRegistered = false;
-            _tabPanel = null;
-            _bootstrapped = false;
-            _discoveryDisabled = false;
-            _probeInFlight = false;
-            _probedUserId = null;
-            _discoveryResultCache = null;
-            if (_sidebarObserver) {
-                _sidebarObserver.disconnect();
-                _sidebarObserver = null;
-            }
-            var staleNav = document.querySelectorAll('.' + NAV_ITEM_CLASS);
-            for (var navItem of staleNav) {
-                navItem.remove();
-            }
+
+        if (_probedUserId && (!userId || isLoginPage)) {
+            teardownDiscoveryEntryPoints();
             return;
         }
         if (userId && userId !== _probedUserId) {
