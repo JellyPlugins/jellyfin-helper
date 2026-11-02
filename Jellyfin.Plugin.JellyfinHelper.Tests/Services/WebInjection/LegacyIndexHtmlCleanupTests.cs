@@ -198,6 +198,11 @@ public class LegacyIndexHtmlCleanupTests : IDisposable
         var ex = Record.Exception(() => LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(pluginLog.Object, NullLogger.Instance, _webPath));
 
         Assert.Null(ex);
-        File.SetAttributes(orphan, File.GetAttributes(orphan) & ~FileAttributes.ReadOnly);
+
+        // Linux deletes read-only files without error, so the file may already be gone.
+        if (File.Exists(orphan))
+        {
+            File.SetAttributes(orphan, File.GetAttributes(orphan) & ~FileAttributes.ReadOnly);
+        }
     }
 }
