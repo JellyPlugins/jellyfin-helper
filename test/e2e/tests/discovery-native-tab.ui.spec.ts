@@ -174,12 +174,29 @@ test.describe('Discovery native tab (home page)', () => {
     const password = auth.normalUser
       ? process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!'
       : process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
-    await page.goto(`${auth.baseUrl.replace(/\/$/, '')}/web/index.html#/login`);
+    const [usersResponse] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/Users/Public') && response.request().method() === 'GET', { timeout: 15_000 }),
+      page.goto(`${auth.baseUrl.replace(/\/$/, '')}/web/index.html#/login`, { waitUntil: 'domcontentloaded' }),
+    ]);
+    expect(usersResponse.ok(), 'Jellyfin must load its login choices').toBe(true);
+    const publicUsers = await usersResponse.json() as unknown;
+    expect(Array.isArray(publicUsers), 'the public user response must be a list').toBe(true);
+    const username = page.locator('#txtManualName');
+    if (Array.isArray(publicUsers) && publicUsers.length > 0) {
+      await expect(page.locator('#loginPage #divUsers .card').first()).toBeVisible();
+      if (!await username.isVisible()) await page.locator('#loginPage .btnManual').click({ timeout: 15_000 });
+    } else {
+      await expect(username).toBeVisible();
+    }
     await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery')).toHaveCount(0);
-    await page.locator('#loginPage .btnManual').click();
-    await page.locator('#txtManualName').fill(user.userName);
-    await page.locator('#txtManualPassword').fill(password);
-    await page.locator('#loginPage .manualLoginForm .button-submit').click();
+    await expect(username).toBeEditable();
+    await username.fill(user.userName, { timeout: 15_000 });
+    await page.locator('#txtManualPassword').fill(password, { timeout: 15_000 });
+    const [authentication] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.toLowerCase().endsWith('/users/authenticatebyname') && response.request().method() === 'POST', { timeout: 15_000 }),
+      page.locator('#loginPage .manualLoginForm .button-submit').click({ timeout: 15_000 }),
+    ]);
+    expect(authentication.ok(), 'the interactive login must be accepted by Jellyfin').toBe(true);
     await expect(page).toHaveURL(/#\/home(?:\.html)?(?:\?|$)/);
     await expect(discoveryEntry(page)).toHaveCount(1);
     await openDiscovery(page);
@@ -301,6 +318,37 @@ test.describe('Discovery native tab (home page)', () => {
     await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
     await expect(page.locator('#jfh-tab-panel-discovery .jfh-discovery-grid')).toHaveCount(0);
   });
+
+  for (const width of [320, 390, 640]) {
+    test('sidebar navigation stays compact inside a ' + width + 'px viewport', async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      await openHome(page);
+      await expect(discoveryEntry(page)).toHaveCount(1);
+      const modern = testInfo.project.metadata.discoveryLayout === 'modern';
+      if (modern) await page.getByRole('button', { name: /menu/i }).first().click({ timeout: 15_000 });
+      else await page.locator('.mainDrawerButton').filter({ visible: true }).click({ timeout: 15_000 });
+      const navigation = page.locator('.jfhelper-nav-discovery').filter({ visible: true });
+      await expect(navigation).toHaveCount(1);
+      await expect(navigation).toHaveAttribute('aria-label', 'Discover');
+      await navigation.evaluate(element => { (element as HTMLElement).style.fontSize = '150%'; });
+      await expect.poll(async () => {
+        const box = await navigation.boundingBox();
+        return box ? box.x : -Infinity;
+      }).toBeGreaterThanOrEqual(-1);
+      const row = await navigation.boundingBox();
+      expect(row).not.toBeNull();
+      expect(row!.x + row!.width).toBeLessThanOrEqual(width + 1);
+      if (modern) {
+        const geometry = await navigation.evaluate(element => {
+          const icon = element.querySelector('.jfh-discovery-navigation-icon')!.getBoundingClientRect();
+          const text = element.querySelector('.jfh-discovery-navigation-text')!.getBoundingClientRect();
+          return { gap: text.left - icon.right, fontSize: Number.parseFloat(getComputedStyle(element).fontSize) };
+        });
+        expect(geometry.gap).toBeGreaterThanOrEqual(0);
+        expect(geometry.gap).toBeLessThanOrEqual(geometry.fontSize);
+      }
+    });
+  }
 
   test('revoking access removes previously rendered cards and entry points', async ({ page }) => {
     const admin = await apiContext(loadAuth());

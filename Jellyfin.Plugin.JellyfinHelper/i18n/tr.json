@@ -345,6 +345,7 @@
   "syncPlaylistDisabledHint": "Bu secenegi etkinlestirmek icin Onerileri Aktif olarak ayarlayin.",
   "recsAndMore": "ve {0} daha…",
   "discoveryTitle": "Yeni İçerik Keşfet",
+  "discoveryNavigationTitle": "Keşfet",
   "discoveryTabTitle": "✨ Keşfet",
   "discoverySetupHint": "Ana ekranda otomatik olarak görünür. Etkinleştirdikten sonra bir kez yenileyin. Harici eklenti gerekmez.",
   "discoveryTabUnavailable": "Keşfet şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",

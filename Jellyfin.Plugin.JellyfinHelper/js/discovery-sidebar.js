@@ -229,8 +229,11 @@
         style.id = 'jfhelper-discovery-styles';
         style.textContent =
             '@keyframes dspin { to { transform: rotate(360deg); } }' +
-            '.jfh-discovery-modern-link { display:flex;align-items:center;gap:16px;padding:8px 16px;color:inherit;text-decoration:none;border-radius:4px; }' +
-            '.jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
+            '.jellyfinHelperSection .jfh-discovery-sidebar-heading { box-sizing:border-box;margin:0;padding:0.45em 0.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link { box-sizing:border-box;display:grid;grid-template-columns:1.25em minmax(0,1fr);align-items:center;column-gap:0.5em;width:100%;min-width:0;max-width:100%;min-height:2.75em;padding:0.5em 0.8em;color:inherit;text-decoration:none;border-radius:0.25em; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-icon { width:1em;font-size:1.25em;line-height:1;text-align:center; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-text { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
             '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
             // Tab content renders its own container inside the shell container: the inner one must not
             // add padding again or the grid/headers indent against the tab bar.
@@ -1599,8 +1602,8 @@
             section = document.createElement(modern ? 'li' : 'div');
             section.className = SECTION_CLASS;
             section.innerHTML = modern
-                ? '<div class="MuiListSubheader-root">Jellyfin Helper</div>'
-                : '<h3 class="sidebarHeader">Jellyfin Helper</h3>';
+                ? '<div class="MuiListSubheader-root jfh-discovery-sidebar-heading">Jellyfin Helper</div>'
+                : '<h3 class="sidebarHeader jfh-discovery-sidebar-heading">Jellyfin Helper</h3>';
             var mediaSection = sidebar.querySelector('.libraryMenuOptions');
             if (mediaSection) {
                 mediaSection.before(section);
@@ -1612,9 +1615,12 @@
         if (!modern) navItem.setAttribute('is', 'emby-linkbutton');
         navItem.className = (modern ? 'MuiListItemButton-root jfh-discovery-modern-link ' : 'navMenuOption lnkMediaFolder emby-button ') + NAV_ITEM_CLASS;
         navItem.href = '#';
+        var label = t('discoveryNavigationTitle', 'Discover');
+        navItem.title = label;
+        navItem.setAttribute('aria-label', label);
         navItem.innerHTML =
-            '<span class="material-icons navMenuOptionIcon" aria-hidden="true">explore</span>' +
-            '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
+            '<span class="material-icons ' + (modern ? 'jfh-discovery-navigation-icon' : 'navMenuOptionIcon') + '" aria-hidden="true">explore</span>' +
+            '<span class="' + (modern ? 'jfh-discovery-navigation-text' : 'sectionName navMenuOptionText') + '">' + esc(label) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
             var request = captureDiscoveryRequest();

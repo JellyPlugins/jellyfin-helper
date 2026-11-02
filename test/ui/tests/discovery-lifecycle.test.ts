@@ -601,6 +601,27 @@ test('modern navigation ignores unrelated lists and preserves other section acti
   expect(document.querySelector('.jfhelper-nav-discovery')).toBeNull();
 });
 
+test('modern sidebar uses a short localized label without inherited legacy spacing classes', async () => {
+  const client = clientDocument({ modern: true, responses: {
+    [translationsPath]: () => Promise.resolve({ discoveryNavigationTitle: 'Entdecken' }),
+  } });
+  const drawer = client.w.document.createElement('div');
+  drawer.className = 'MuiDrawer-paper';
+  drawer.innerHTML = '<ul class="MuiList-root"><li><a href="#/home">Home</a></li></ul>';
+  client.w.document.body.appendChild(drawer);
+  await settle();
+  const navigation = drawer.querySelector('.jfhelper-nav-discovery')!;
+  expect(navigation.textContent).toBe('exploreEntdecken');
+  expect(navigation.getAttribute('aria-label')).toBe('Entdecken');
+  expect(navigation.querySelector('.navMenuOptionIcon, .navMenuOptionText')).toBeNull();
+  expect(navigation.querySelector('.jfh-discovery-navigation-icon')).not.toBeNull();
+  expect(navigation.querySelector('.jfh-discovery-navigation-text')?.textContent).toBe('Entdecken');
+  expect(drawer.querySelector('.jfh-discovery-sidebar-heading')?.textContent).toBe('Jellyfin Helper');
+  const style = client.w.getComputedStyle(navigation);
+  expect(style.display).toBe('grid');
+  expect(style.gridTemplateColumns.replaceAll(' ', '')).toContain('minmax(0,1fr)');
+});
+
 test('request ownership includes the token and API client as well as the user', () => {
   const ui = freshDiscoveryHelpers();
   window.history.replaceState(null, '', '#/home');
