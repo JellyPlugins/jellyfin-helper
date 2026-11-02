@@ -302,7 +302,6 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── WebInjection/              # Request-time script injection tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
 │   │   ├── IndexHtmlTransformerTests.cs    # Idempotent insert/remove, missing body anchor, version-independent removal
-│   │   ├── LegacyIndexHtmlCleanupTests.cs  # Best-effort removal of tags written by older versions, no throw on IO errors
 │   │   ├── ScriptInjectionStartupFilterTests.cs # GET/HTML/200 gates, body buffering, header stripping, never throws
 │   │   ├── ScriptInjectionStaticFileTests.cs # Default file routing, relative script URLs, read only upgrades, conditional requests
 │   ├── FolderBrowser/             # Server-side folder browsing tests
@@ -656,7 +655,6 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── WebInjection/            # Request-time script injection (no external plugin)
 │   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
 │   │   ├── IndexHtmlTransformer.cs   # Pure index.html transform: idempotent insert + version-independent removal
-│   │   ├── LegacyIndexHtmlCleanup.cs # Best-effort startup cleanup of tags older versions wrote to disk
 │   │   ├── ScriptInjectionStartupFilter.cs # ASP.NET middleware that injects the tag into GET /web responses
 │   ├── Security/                # Secrets at rest (Data Protection)
 │   │   ├── ISecretProtector.cs      # Protect/Unprotect/IsProtected contract; DP:: prefix marks ciphertext so legacy plaintext is read as-is and lazily re-encrypted on next save
@@ -902,7 +900,6 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `DiscoveryScriptTagTests.cs`
 - `IndexHtmlTransformerTests.cs`
-- `LegacyIndexHtmlCleanupTests.cs`
 - `ScriptInjectionStartupFilterTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/FolderBrowser/`
@@ -1230,7 +1227,6 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `DiscoveryScriptTag.cs`
 - `IndexHtmlTransformer.cs`
-- `LegacyIndexHtmlCleanup.cs`
 - `ScriptInjectionStartupFilter.cs`
 
 `Jellyfin.Plugin.JellyfinHelper/Services/FolderBrowser/`
@@ -1515,10 +1511,9 @@ ScriptInjectionStartupFilter (IStartupFilter middleware)
 
 **Why a middleware and not a disk write:** the response is patched on the way out,
 so the mechanism survives Jellyfin web updates, works on read-only installs, and
-never touches the web root. It is idempotent (the tag is only added when absent) and
-never throws: any failure leaves the original response untouched. A best-effort
-startup step (`LegacyIndexHtmlCleanup`) removes tags that older versions wrote to
-disk, so a stale copy cannot load a second time.
+never touches the web root. The transformer normalizes the served script tag and
+preserves the original response if transformation fails. Plugin startup and
+uninstall do not modify the web directory.
 
 **Native tab registry:** `js/native-tabs.js` exposes `window.JellyfinHelperTabs`
 (`register`, `unregister`, `focus`). It reconciles indices with other tabs, keeps a
@@ -1642,9 +1637,7 @@ Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 4. Register required services in `PluginServiceRegistrator.cs`
 5. Add integration/unit tests for success and failure paths
 IndexHtmlTransformer.cs
-LegacyIndexHtmlCleanup.cs
 ScriptInjectionStartupFilter.cs
 IndexHtmlTransformerTests.cs
-LegacyIndexHtmlCleanupTests.cs
 ScriptInjectionStartupFilterTests.cs
 native-tabs.js

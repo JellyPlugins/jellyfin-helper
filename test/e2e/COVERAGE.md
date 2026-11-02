@@ -496,9 +496,8 @@ cannot silently fall out of date. The guard excludes only itself.
 - ⚠️ **Discovery script injection into `/web/index.html`**: the request-time injector
   (`ScriptInjectionStartupFilter`) and its pure transformer are fully covered at the **unit** level
   (GET-only, HTML-200-only, idempotency, encoding/conditional-header stripping, never-throw) and the
-  served document is asserted end-to-end in `discovery-native-tab.ui.spec.ts`. The legacy on-disk
-  cleanup runs best-effort at startup and cannot be triggered from HTTP; it is covered by
-  `LegacyIndexHtmlCleanupTests`.
+  served document is asserted end-to-end in `discovery-native-tab.ui.spec.ts`. Plugin startup
+  does not modify the web directory.
 - ⚠️ **Real Radarr/Sonarr/Seerr servers**: replaced by mocks by design; mocks return the exact
   response shapes the plugin deserializes.
 - ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`).
