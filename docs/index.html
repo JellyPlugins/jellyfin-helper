@@ -98,10 +98,14 @@
                     <span class="material-icons">explore</span>
                 </button>
             </div>
-            <div is="emby-tabs" id="demoHomeTabs" style="display:none;">
+            <div is="emby-tabs" id="demoHomeTabs">
                 <div class="emby-tabs-slider" role="tablist">
                     <button type="button" class="emby-tab-button emby-tab-button-active" data-index="0"><div class="emby-button-foreground">Home</div></button>
                     <button type="button" class="emby-tab-button" data-index="1"><div class="emby-button-foreground">Favorites</div></button>
+                </div>
+                <div class="tabs-container">
+                    <div class="tabContent pageTabContent is-active" data-index="0"></div>
+                    <div class="tabContent pageTabContent" data-index="1"></div>
                 </div>
             </div>
             <div class="jellyfinhelper discovery"></div>
@@ -112,7 +116,7 @@
     <script src="js/native-tabs.js"></script>
     <script>window.location.hash = '#/home';</script>
     <script src="js/discovery-sidebar.js"></script>
-    <style>#demoHomeTabs { visibility: hidden; height: 0; overflow: hidden; }</style>
+    <style>#demoHomeTabs { position: absolute; left: -9999px; top: 0; }</style>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
@@ -147,7 +151,15 @@
     }
     setTimeout(function () {
         if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
-    }, 3000);
+        var panel = document.getElementById('jfh-tab-panel-discovery');
+        var target = document.querySelector('#demoViewDiscovery .jellyfinhelper.discovery');
+        if (panel && target && !target.hasChildNodes()) {
+            target.appendChild(panel);
+            panel.style.position = 'static';
+            panel.style.left = 'auto';
+        }
+        if (panel) panel.classList.add('is-active');
+    }, 4000);
 
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })
