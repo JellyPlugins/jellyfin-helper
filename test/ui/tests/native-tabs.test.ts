@@ -714,3 +714,8 @@ describe('native tabs: shipped bundle', () => {
     expect((globalThis as any).JellyfinHelperTabs).toBe(sentinel);
   });
 });
+
+test('init wires observers and listeners without throwing', () => {
+  const tabs = freshNativeTabsHelpers();
+  expect(() => tabs.init()).not.toThrow();
+});

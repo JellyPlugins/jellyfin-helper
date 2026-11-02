@@ -1667,6 +1667,11 @@
             _discoveryDisabled = false;
             _probeInFlight = false;
         }
+        // Show the sidebar entry as soon as we are on the home page, even before the
+        // availability probe finishes, so the entry point never looks "missing".
+        if (isOnHomePage()) {
+            injectNavigation();
+        }
         if (_bootstrapped || _discoveryDisabled || _probeInFlight || !isOnHomePage()) {
             return;
         }
@@ -1702,4 +1707,10 @@
     bootstrapDiscovery();
     window.addEventListener('hashchange', bootstrapDiscovery);
     window.addEventListener('popstate', bootstrapDiscovery);
+    // React to sign-in/sign-out without waiting for a hash change (Jellyfin fires
+    // these on the ApiClient). Keeps the Discovery tab from lingering on logout.
+    if (typeof Events !== 'undefined' && typeof ApiClient !== 'undefined') {
+        try { Events.on(ApiClient, 'localusersignedout', bootstrapDiscovery); } catch (e) { /* ignore */ }
+        try { Events.on(ApiClient, 'localusersignedin', bootstrapDiscovery); } catch (e) { /* ignore */ }
+    }
 })();
