@@ -1,8 +1,7 @@
 /**
  * Discovery native tab (home page): the regression guard for the tab the plugin
  * now renders itself. The script is injected into index.html at request time and
- * the tab is registered against Jellyfin's own tab strip, so neither Custom Tabs
- * nor File Transformation is involved. The specs assert that injection, the tab
+ * the tab is registered against Jellyfin's own tab strip. The specs assert that injection, the tab
  * registration, the deep link, and the reload path, and that a user without
  * access never gets an entry point at all.
  */
