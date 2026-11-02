@@ -20,5 +20,5 @@ changelog: |-
   - Script injection happens at request time, so it survives web updates and works on read-only installs
   - Setup instructions removed from Settings because Discovery works out of the box once enabled
   - Tags older versions wrote to index.html are cleaned up on startup
-  - Verified by 94% backend unit test coverage, 97% UI test coverage, and 400 end-to-end Docker tests
+  - Verified by 94% backend unit test coverage, 97% UI test coverage, and 404 end-to-end Docker tests
   - Requires Jellyfin 12.4 - if you are on Jellyfin 10.x, stay on v2.1.0.6

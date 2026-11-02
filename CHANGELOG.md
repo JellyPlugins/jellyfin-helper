@@ -10,7 +10,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Breaking
 
 - **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. Remove the old Discovery tab from Custom Tabs settings when upgrading. Keep unrelated custom tabs and the plugins they need, or uninstall those plugins if nothing else uses them.
-- Verified by 94% backend unit test coverage, 97% UI test coverage, and 400 end-to-end Docker tests.
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 404 end-to-end Docker tests.
 
 ### Changed
 
