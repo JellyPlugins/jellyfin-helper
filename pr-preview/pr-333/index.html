@@ -93,14 +93,26 @@
     </div>
     <div class="demo-wrapper hide" id="demoViewDiscovery">
         <div id="indexPage" class="page">
-            <div class="tabContent pageTabContent is-active" id="customTab_0" data-index="2">
-                <div class="jellyfinhelper discovery"></div>
+            <div style="display:flex;justify-content:flex-end;padding:0.5em 0.8em;">
+                <button id="demoDiscoveryCompass" type="button" title="Entdecken" aria-label="Entdecken" style="background:none;border:none;cursor:pointer;color:inherit;font-size:1.6em;line-height:1;">
+                    <span class="material-icons">explore</span>
+                </button>
             </div>
+            <div is="emby-tabs" id="demoHomeTabs" style="display:none;">
+                <div class="emby-tabs-slider" role="tablist">
+                    <button type="button" class="emby-tab-button emby-tab-button-active" data-index="0"><div class="emby-button-foreground">Home</div></button>
+                    <button type="button" class="emby-tab-button" data-index="1"><div class="emby-button-foreground">Favorites</div></button>
+                </div>
+            </div>
+            <div class="jellyfinhelper discovery"></div>
         </div>
     </div>
 
     <script src="js/mock-data.js"></script>
+    <script src="js/native-tabs.js"></script>
+    <script>window.location.hash = '#/home';</script>
     <script src="js/discovery-sidebar.js"></script>
+    <style>#demoHomeTabs { display: none; }</style>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
@@ -119,6 +131,20 @@
     }
     document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
     document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
+    var demoTabs = document.getElementById('demoHomeTabs');
+    if (demoTabs) {
+        demoTabs.selectedIndex = function (index) {
+            if (typeof index === 'number') { demoTabs._selected = index; return index; }
+            return demoTabs._selected || 0;
+        };
+        demoTabs.refresh = function () {};
+    }
+    var compass = document.getElementById('demoDiscoveryCompass');
+    if (compass) {
+        compass.addEventListener('click', function () {
+            if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
+        });
+    }
 
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })
