@@ -168,6 +168,27 @@ test.describe('Discovery native tab (home page)', () => {
     await expectDiscoveryRendered(page);
   });
 
+  test('a clean browser session gets Discovery after interactive login without refreshing', async ({ page }) => {
+    const auth = loadAuth();
+    const user = auth.normalUser ?? auth;
+    const password = auth.normalUser
+      ? process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!'
+      : process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
+    await page.goto(`${auth.baseUrl.replace(/\/$/, '')}/web/index.html#/login`);
+    await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery')).toHaveCount(0);
+    await page.locator('#loginPage .btnManual').click();
+    await page.locator('#txtManualName').fill(user.userName);
+    await page.locator('#txtManualPassword').fill(password);
+    await page.locator('#loginPage .manualLoginForm .button-submit').click();
+    await expect(page).toHaveURL(/#\/home(?:\.html)?(?:\?|$)/);
+    await expect(discoveryEntry(page)).toHaveCount(1);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await page.evaluate(() => (window as any).Dashboard.logout());
+    await expect(page).toHaveURL(/#\/(?:login|selectserver)/);
+    await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery, #jfh-tab-panel-discovery')).toHaveCount(0);
+  });
+
   // F5 guard: with the Discovery tab active, a hard reload restores the
   // ?tab=N&jfhTab=discovery deep link and the tab must fill itself without any
   // further navigation.

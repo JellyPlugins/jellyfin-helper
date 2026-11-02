@@ -6,7 +6,7 @@ import { freshDiscoveryHelpers, REPO_ROOT, saveCoverage } from '../src/loader.js
 
 afterAll(saveCoverage);
 
-const scripts = ['native-tabs.js', 'discovery-sidebar.js'].map(name =>
+const scripts = ['client-lifecycle.js', 'native-tabs.js', 'discovery-sidebar.js'].map(name =>
   readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/js', name), 'utf8'));
 const documents: JSDOM[] = [];
 
@@ -30,7 +30,7 @@ async function settle() {
   await vi.advanceTimersByTimeAsync(200);
 }
 
-function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean; responses?: Record<string, () => Promise<unknown>> } = {}) {
+function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean; initialUser?: string; responses?: Record<string, () => Promise<unknown>> } = {}) {
   // A separate document runs both shipped scripts without exposing or replacing their internal helpers.
   const dom = new JSDOM('<!doctype html><body><div class="headerRight"></div><div class="mainDrawer"><div class="mainDrawer-scrollContainer"></div></div><div class="headerTabs"><div is="emby-tabs"><div class="emby-tabs-slider"><button class="emby-tab-button emby-tab-button-active" data-index="0">Home</button><button class="emby-tab-button" data-index="1">Favorites</button></div></div></div><div id="panels"><div class="tabContent pageTabContent is-active" data-index="0"></div><div class="tabContent pageTabContent" data-index="1"></div></div></body>', {
     url: 'http://localhost/web/index.html' + (options.hash ?? '#/home'),
@@ -85,8 +85,8 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
     const button = (event.target as Element).closest('.emby-tab-button') as HTMLElement | null;
     if (button && !button.classList.contains('emby-tab-button-active')) select(Number(button.dataset.index), true);
   });
-  let userId = 'a';
-  let token = 'session-a';
+  let userId = options.initialUser ?? 'a';
+  let token = userId ? 'session-' + userId : '';
   let reply: () => Promise<unknown> = () => Promise.resolve(recommendations('Recommendations for ' + userId));
   const sourceReplies = new Map<string, () => Promise<unknown>>(Object.entries(options.responses ?? {}));
   const dispatch = (request: { url: string; type?: string }) => {
@@ -99,6 +99,7 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
   const api = {
     getCurrentUserId: () => userId,
     accessToken: () => token,
+    setAuthenticationInfo: (accessToken: string, user: string) => { userId = user || ''; token = accessToken || ''; },
     getUrl: (path: string) => path,
     ajax: vi.fn(dispatch),
   };
@@ -117,7 +118,7 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
   };
   return {
     w, api, tabs, route, requests,
-    setSession: (user: string, accessToken = 'session-' + user) => { userId = user; token = accessToken; },
+    setSession: (user: string, accessToken = 'session-' + user) => ((w as any).ApiClient ?? api).setAuthenticationInfo(accessToken, user),
     setReply: (next: () => Promise<unknown>) => { reply = next; },
     setSourceReply: (path: string, next: () => Promise<unknown>) => { sourceReplies.set(path, next); },
     replaceApiClient: () => {
@@ -178,6 +179,49 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test('a clean login route opens Discovery on the first authenticated Home visit without a reload', async () => {
+    const client = clientDocument({ modern, hash: '#/login.html', initialUser: '' });
+    await settle();
+    expect(client.entry()).toBeNull();
+    expect(client.ownRequests()).toBe(0);
+    client.setSession('a');
+    client.route('#/home');
+    await settle();
+    expect(client.entry()).not.toBeNull();
+    expect(client.panel()?.textContent).toContain('Recommendations for a');
+  });
+
+  test('logout removes all cached copies and rejects header controls restored later on the login page', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    const original = client.entry()!;
+    const copies = Array.from({ length: 3 }, () => original.cloneNode(true) as HTMLElement);
+    copies.forEach(copy => client.w.document.body.appendChild(copy));
+    client.setSession('', '');
+    client.route('#/login.html');
+    await settle();
+    expect(client.w.document.querySelectorAll('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveLength(0);
+    client.w.document.body.appendChild(copies[0]);
+    await settle();
+    expect(client.w.document.querySelectorAll('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveLength(0);
+  });
+
+  test('a stylesheet becoming ready mounts Discovery without another route change', async () => {
+    const client = clientDocument({ modern });
+    const root = client.w.document.getElementById('panels')!;
+    let ready = false;
+    Object.defineProperty(root, 'offsetParent', { get: () => ready ? client.w.document.body : null });
+    await settle();
+    expect(client.entry()).toBeNull();
+    ready = true;
+    const stylesheet = client.w.document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    client.w.document.head.appendChild(stylesheet);
+    stylesheet.dispatchEvent(new client.w.Event('load'));
+    await settle();
+    expect(client.entry()).not.toBeNull();
+  });
+
   test('logout removes every entry and its empty sidebar section without a compass click', async () => {
     const client = clientDocument({ modern });
     await settle();
@@ -352,14 +396,26 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
       const previous = await openDialog(client, dialog);
       if (transition === 'token') client.setSession('a', 'replacement-token');
       else client.replaceApiClient();
-      expect(previous.overlay.isConnected).toBe(true);
+      expect(previous.overlay.isConnected).toBe(transition === 'client');
       previous.action.click();
+      if (transition === 'client') client.w.document.dispatchEvent(new client.w.Event('viewshow'));
       await settle();
       expect(client.requests().filter(request => request.type === 'POST')).toHaveLength(0);
       expect(client.w.document.querySelector('.jfh-discovery-toast')).toBeNull();
       expect(previous.overlay.isConnected).toBe(false);
     });
   }
+});
+
+test.each(['#/login', '#/login.html', '#!/login.html', '#/selectserver.html', '#/addserver.html'])('a retained identity cannot advertise Discovery on %s', async route => {
+  const client = clientDocument({ modern: true });
+  await settle();
+  expect(client.entry()).not.toBeNull();
+  client.route(route);
+  await settle();
+  expect(client.api.getCurrentUserId()).toBe('a');
+  expect(client.entry()).toBeNull();
+  expect(client.panel()).toBeNull();
 });
 
 test('late API initialization remains supported without a global Events object', async () => {

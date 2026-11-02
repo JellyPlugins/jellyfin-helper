@@ -210,7 +210,7 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public async Task GetScript_ReturnsBothEmbeddedScriptsInDependencyOrder()
+    public async Task GetScript_ReturnsEmbeddedScriptsInDependencyOrder()
     {
         var controller = CreateController(Guid.NewGuid());
         var result = controller.GetScript();
@@ -221,8 +221,10 @@ public class UserDiscoveryControllerTests
         using var reader = new StreamReader(fileResult.FileStream);
         var script = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
         var registry = script.IndexOf("window.JellyfinHelperTabs =", StringComparison.Ordinal);
+        var lifecycle = script.IndexOf("window.JellyfinHelperLifecycle =", StringComparison.Ordinal);
         var discovery = script.IndexOf("window.__jfhDiscoverySidebarInitialized", StringComparison.Ordinal);
-        Assert.True(registry >= 0);
+        Assert.True(lifecycle >= 0);
+        Assert.True(registry > lifecycle);
         Assert.True(discovery > registry);
         Assert.Contains("initDiscoveryLifecycle();", script, StringComparison.Ordinal);
         Assert.Equal("no-cache", controller.Response.Headers.CacheControl.ToString());

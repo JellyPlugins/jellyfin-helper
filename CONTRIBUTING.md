@@ -498,6 +498,7 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── js/
 │   ├── discovery-sidebar.js     # Discovery sidebar + tab registration (embedded resource, injected into index.html)
 │   └── native-tabs.js           # Self-contained Home tab registry (JellyfinHelperTabs)
+│   └── client-lifecycle.js      # Shared authentication and navigation signals
 ├── Api/
 │   ├── ArrIntegrationController.cs      # Radarr/Sonarr integration API
 │   ├── BackupController.cs              # Backup/restore API

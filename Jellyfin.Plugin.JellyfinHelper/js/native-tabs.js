@@ -223,14 +223,15 @@
     }
 
     function getHeaderButtonTray() {
-        var legacy = document.querySelector('.headerRight:not([data-jfh-header-fallback])');
-        if (legacy?.offsetParent != null) {
-            return legacy;
-        }
+        var legacy = Array.from(document.querySelectorAll('.headerRight:not([data-jfh-header-fallback])'))
+            .find(function (element) { return element.offsetParent !== null; });
+        if (legacy) return legacy;
 
-        var userMenuButton = document.querySelector('[aria-controls="app-user-menu"]');
+        var userMenuButton = Array.from(document.querySelectorAll('[aria-controls="app-user-menu"]'))
+            .find(function (element) { return element.closest('.MuiToolbar-root')?.offsetParent != null; });
         var toolbar = userMenuButton?.closest('.MuiToolbar-root')
-            || document.querySelector('.MuiAppBar-root .MuiToolbar-root');
+            || Array.from(document.querySelectorAll('.MuiAppBar-root .MuiToolbar-root'))
+                .find(function (element) { return element.offsetParent !== null; });
         if (!toolbar) {
             return null;
         }
@@ -261,6 +262,7 @@
     function getOrCreateGroup(headerRight) {
         var group = document.getElementById(GROUP_ID);
         if (group) {
+            if (group.parentElement !== headerRight) headerRight.appendChild(group);
             return group;
         }
         group = document.createElement('div');
@@ -278,10 +280,9 @@
     }
 
     function removeGroupIfEmpty() {
-        var group = document.getElementById(GROUP_ID);
-        if (group?.children.length <= 1) {
-            group.remove();
-        }
+        document.querySelectorAll('[id="' + GROUP_ID + '"]').forEach(function (group) {
+            if (group.children.length <= 1) group.remove();
+        });
     }
 
     function isTabButtonVisible(btn) {
@@ -289,10 +290,9 @@
     }
 
     function removeHeaderLink(linkId) {
-        var stale = document.getElementById(linkId);
-        if (stale) {
-            stale.remove();
-        }
+        document.querySelectorAll('[id^="' + LINK_ID_PREFIX + '"]').forEach(function (link) {
+            if (link.id === linkId) link.remove();
+        });
         removeGroupIfEmpty();
     }
 
@@ -304,9 +304,13 @@
         link.className = 'headerButton headerButtonRight paper-icon-button-light';
         link.title = entry.title;
         link.setAttribute('aria-label', entry.title);
-        link.innerHTML = '<i class="material-icons" aria-hidden="true">' + (entry.icon || 'tab') + '</i>';
+        var icon = document.createElement('i');
+        icon.className = 'material-icons';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = entry.icon || 'tab';
+        link.appendChild(icon);
         link.addEventListener('click', function () {
-            if (entry.index != null) {
+            if (link.isConnected && findEntry(entry.id) === entry && entry.index != null) {
                 window.location.hash = deepLinkHash(entry);
             }
         });
@@ -324,10 +328,6 @@
             removeHeaderLink(linkId);
             return;
         }
-        if (document.getElementById(linkId)) {
-            return;
-        }
-
         var headerRight = getHeaderButtonTray();
         if (!headerRight) {
             return;
@@ -335,12 +335,21 @@
 
         var group = getOrCreateGroup(headerRight);
         var separator = document.getElementById(SEPARATOR_ID);
-        var link = createHeaderLink(entry, linkId);
+        var link = entry.headerLink || createHeaderLink(entry, linkId);
+        entry.headerLink = link;
+        document.querySelectorAll('[id^="' + LINK_ID_PREFIX + '"]').forEach(function (element) {
+            if (element.id === linkId && element !== link) element.remove();
+        });
+        if (link.parentElement === group) {
+            removeGroupIfEmpty();
+            return;
+        }
         if (separator) {
             separator.before(link);
         } else {
             group.appendChild(link);
         }
+        removeGroupIfEmpty();
     }
 
     function hashParam(name) {
@@ -711,11 +720,10 @@
             if (isOnHomePage() && panel.classList.contains('is-active') && tabsElem?.selectedIndex) {
                 tabsElem.selectedIndex(0);
             }
-            panel.remove();
         }
-        if (btn) {
-            btn.remove();
-        }
+        document.querySelectorAll('[id^="' + OWN_ID_PREFIX + 'btn-"], [id^="' + OWN_ID_PREFIX + 'panel-"]').forEach(function (element) {
+            if (element.id === OWN_ID_PREFIX + 'btn-' + id || element.id === OWN_ID_PREFIX + 'panel-' + id) element.remove();
+        });
         removeHeaderLink(LINK_ID_PREFIX + id);
         if (pendingFocusId === id) {
             pendingFocusId = null;
@@ -749,20 +757,21 @@
 
     function init() {
         var observer = new MutationObserver(scheduleInject);
-        observer.observe(document.body, {
+        observer.observe(document.documentElement, {
             childList: true,
             subtree: true,
             attributes: true,
             attributeFilter: ['class', 'hidden', 'style']
         });
-        window.addEventListener('hashchange', function () {
+        document.addEventListener('jfh:navigation', function () {
             if (window.location.hash !== rewrittenHash) {
                 handleRouteNavigation();
             }
             rewrittenHash = null;
             scheduleInject();
         });
-        window.addEventListener('popstate', handleRouteNavigation);
+        document.addEventListener('viewshow', scheduleInject, true);
+        document.addEventListener('load', scheduleInject, true);
         window.addEventListener('pageshow', scheduleInject);
         window.addEventListener('resize', scheduleInject);
         document.addEventListener('visibilitychange', function () {

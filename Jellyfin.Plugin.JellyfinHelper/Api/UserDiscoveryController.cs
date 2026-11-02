@@ -323,9 +323,9 @@ public sealed class UserDiscoveryController : ControllerBase
     /// </summary>
     /// <remarks>
     ///     AllowAnonymous is required because the script tag in index.html loads before Jellyfin's authentication context is established.
-    ///     The tab registry is concatenated before the sidebar script so the sidebar can register its tab immediately.
+    ///     The lifecycle is initialized before the tab registry and Discovery subscribe to host changes.
     /// </remarks>
-    /// <returns>The concatenated native-tabs.js and discovery-sidebar.js content.</returns>
+    /// <returns>The client lifecycle, native tab registry, and Discovery script content.</returns>
     [HttpGet("script")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -334,7 +334,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         var assembly = Assembly.GetExecutingAssembly();
         var buffer = new MemoryStream();
-        foreach (var name in new[] { "native-tabs.js", "discovery-sidebar.js" })
+        foreach (var name in new[] { "client-lifecycle.js", "native-tabs.js", "discovery-sidebar.js" })
         {
             var stream = assembly.GetManifestResourceStream($"Jellyfin.Plugin.JellyfinHelper.js.{name}");
             if (stream is null)

@@ -30,6 +30,7 @@ validators are pinned without a browser.
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
+| Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) | `tests/csproj-order.test.ts` |
 | README drift guard (every test file documented) | `tests/docs.test.ts` |
 

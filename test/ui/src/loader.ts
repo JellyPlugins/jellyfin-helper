@@ -226,6 +226,7 @@ const DISCOVERY_EXPECTED = [
   'isOnHomePage', 'registerDiscoveryTab', 'focusDiscoveryTab', 'notifyTabUnavailable',
   'resetTraktState', 'captureDiscoveryRequest', 'isCurrentDiscoveryRequest', 'isSameDiscoverySession',
   'isLoginPage', 'syncDiscoveryLifecycle', 'initDiscoveryLifecycle', 'teardownDiscoveryEntryPoints', 'disableDiscoveryUi',
+  'beforeHostSessionChange', 'afterHostSessionChange',
   'isEmptyTraktResult', 'traktCacheFresh', 'makeTraktCacheEntry', 'spinnerHtml',
   'renderTraktNotLinked', 'renderCards', 'esc', 'formatReason', 'formatRawReasonFallback',
   'insertSlashBreaks', 'tabButton', 'checkEmptyDiscoveryState', 'renderOwnError',
@@ -263,6 +264,10 @@ export function freshDiscoveryHelpers(): UiBridge {
     [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
     DISCOVERY_EXPECTED,
   );
+}
+
+export function loadClientLifecycleBundle(): void {
+  evaluate([prepared(join(DISCOVERY_DIR, 'client-lifecycle.js'))], []);
 }
 
 const NATIVE_TABS_EXPECTED = [
