@@ -418,7 +418,8 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
       '<input type="checkbox" id="cfgDiscoveryUserAccess">' +
       '<div id="discoveryAccessWrapper"></div>' +
       '<div class="discovery-access-disabled-hint" style="display:none;"></div>' +
-      '<div class="help-text discovery-setup-hint"></div>' +
+      '<button id="btnToggleDiscoveryHint" aria-expanded="false"></button>' +
+      '<div class="help-text discovery-setup-hint" id="discoveryHintPanel" style="display:none;"></div>' +
       '<div id="traktSourcingRow" style="display:none;"></div><div id="traktSourcingHint" style="display:none;"></div>';
     (document.getElementById('cfgRecommendationsMode') as HTMLSelectElement).value = mode;
   }
@@ -444,15 +445,19 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
 
   test('disabling Discovery hides the info button and closes the hint panel', () => {
     discoveryDom('Deactivate', 'http://s:5055', 'k');
-    document.body.insertAdjacentHTML(
-      'beforeend',
-      '<button id="btnToggleDiscoveryHint" aria-expanded="true"></button>' +
-        '<div id="discoveryHintPanel" style="display:block;"></div>',
-    );
+    document.getElementById('btnToggleDiscoveryHint')!.setAttribute('aria-expanded', 'true');
+    (document.getElementById('discoveryHintPanel') as HTMLElement).style.display = 'block';
     expect(ui.refreshDiscoveryAccessState()).toBe(false);
     expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('none');
     expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
     expect(document.getElementById('btnToggleDiscoveryHint')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('enabling Discovery keeps the hint closed until the info button is used', () => {
+    discoveryDom('Activate', 'http://s:5055', 'k');
+    expect(ui.refreshDiscoveryAccessState()).toBe(true);
+    expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('');
+    expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
   });
 });
 

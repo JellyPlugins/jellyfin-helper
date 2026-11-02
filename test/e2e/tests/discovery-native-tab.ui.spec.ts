@@ -79,11 +79,13 @@ async function openDiscovery(page: Page): Promise<void> {
 
 // The panel must reach a terminal state: the result grid or the explicit
 // no-results message. A visible but empty panel (a stuck spinner) is the blank
-// tab this spec guards against.
+// tab this spec guards against. A load error shares the message markup, so it is
+// rejected separately instead of counting as a rendered panel.
 async function expectDiscoveryRendered(page: Page): Promise<void> {
   const panel = page.locator('#jfh-tab-panel-discovery');
   await expect(panel).toBeVisible({ timeout: 15_000 });
   await expect(panel.locator('.jfh-discovery-grid, .jfh-discovery-msg').first()).toBeVisible({ timeout: 15_000 });
+  await expect(panel.locator('.jfh-discovery-error'), 'Discovery must not render a load error').toHaveCount(0);
 }
 
 async function expectDiscoveryHidden(page: Page): Promise<void> {

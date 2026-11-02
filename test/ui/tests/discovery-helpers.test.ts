@@ -317,6 +317,7 @@ describe('renderCards', () => {
     const el = document.createElement('div');
     ui.renderCards(el, { Recommendations: [] });
     expect(el.querySelector('.jfh-discovery-msg')).not.toBeNull();
+    expect(el.querySelector('.jfh-discovery-error')).toBeNull();
     expect(el.textContent).toContain('No suggestions available');
     expect(el.querySelector('.jfh-discovery-card')).toBeNull();
   });
@@ -401,6 +402,7 @@ describe('tabButton + renderShell + renderTraktNotLinked', () => {
     ui.renderTraktNotLinked(el);
     expect(el.textContent).toContain('official Trakt plugin');
     expect(el.querySelector('.jfh-discovery-msg')).not.toBeNull();
+    expect(el.querySelector('.jfh-discovery-error')).toBeNull();
   });
 
   test('renderShell with Trakt off renders a single own grid, no tab bar', async () => {
@@ -472,6 +474,7 @@ describe('renderOwnError', () => {
     ui.renderOwnError(el, { status: 403 });
     expect(ui.getCachedDiscoveryResult()).toBeNull();
     expect(el.textContent).toContain('Discovery is not enabled');
+    expect(el.querySelector('.jfh-discovery-error')).not.toBeNull();
   });
 
   test('transient error with a cached fallback re-renders the last good cards', () => {
@@ -483,6 +486,7 @@ describe('renderOwnError', () => {
   test('transient error with no cache shows the generic load error and a toast', () => {
     ui.renderOwnError(el, { responseJSON: { Message: 'HTTP 503 upstream' } });
     expect(el.textContent).toContain('Could not load discovery suggestions');
+    expect(el.querySelector('.jfh-discovery-error')).not.toBeNull();
     const toast = document.querySelector('.jfh-discovery-toast');
     expect(toast!.textContent).toContain('unreachable');
   });
@@ -495,6 +499,7 @@ describe('renderTraktError + trakt tab fetches', () => {
     const el = document.createElement('div');
     ui.renderTraktError(el, { status: 403 });
     expect(el.textContent).toContain('Trakt is not enabled');
+    expect(el.querySelector('.jfh-discovery-error')).not.toBeNull();
   });
 
   test('non-403 trakt error shows the generic load error', () => {
@@ -503,6 +508,7 @@ describe('renderTraktError + trakt tab fetches', () => {
     const el = document.createElement('div');
     ui.renderTraktError(el, { status: 500 });
     expect(el.textContent).toContain('Could not load discovery suggestions');
+    expect(el.querySelector('.jfh-discovery-error')).not.toBeNull();
   });
 
   test('renderTraktTrending fetches and renders the trending pool', async () => {
