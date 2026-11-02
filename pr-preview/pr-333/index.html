@@ -92,61 +92,18 @@
         </div>
     </div>
     <div class="demo-wrapper hide" id="demoViewDiscovery">
-        <p style="margin:0 0 0.6em;opacity:0.7;font-size:0.9em;">Home and Favorites are Jellyfin's own home tabs. The plugin appends Discover and leaves them untouched.</p>
         <div id="indexPage" class="page">
-            <!-- Minimal Jellyfin home tab strip so the shipped native-tabs.js can register
-                 the Discovery tab exactly as it does on a real server. -->
-            <div is="emby-tabs" id="demoHomeTabs">
-                <div class="emby-tabs-slider" role="tablist">
-                    <button type="button" class="emby-tab-button emby-tab-button-active" data-index="0">
-                        <div class="emby-button-foreground">Home</div>
-                    </button>
-                    <button type="button" class="emby-tab-button" data-index="1">
-                        <div class="emby-button-foreground">Favorites</div>
-                    </button>
-                </div>
-            </div>
-            <div class="tabContent pageTabContent is-active" data-index="0">
+            <div class="tabContent pageTabContent is-active" id="customTab_0" data-index="2">
                 <div class="jellyfinhelper discovery"></div>
             </div>
-            <div class="tabContent pageTabContent" data-index="1"></div>
         </div>
     </div>
 
     <script src="js/mock-data.js"></script>
-    <script src="js/native-tabs.js"></script>
     <script src="js/discovery-sidebar.js"></script>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
-    // Small stand-in for Jellyfin's emby-tabs element: native-tabs.js calls
-    // selectedIndex()/refresh() and expects clicks on the strip to switch panels.
-    var demoTabs = document.getElementById('demoHomeTabs');
-    var demoIndexPage = document.getElementById('indexPage');
-    function selectDemoTab(index) {
-        demoTabs._selected = index;
-        demoIndexPage.querySelectorAll(':scope > .tabContent').forEach(function (panel) {
-            panel.classList.toggle('is-active', Number(panel.dataset.index) === index);
-        });
-        demoTabs.querySelectorAll('.emby-tab-button').forEach(function (btn) {
-            btn.classList.toggle('emby-tab-button-active', Number(btn.dataset.index) === index);
-        });
-    }
-    demoTabs.selectedIndex = function (index) {
-        if (typeof index === 'number') {
-            selectDemoTab(index);
-            return index;
-        }
-        return demoTabs._selected || 0;
-    };
-    demoTabs.refresh = function () {};
-    demoTabs.querySelector('.emby-tabs-slider').addEventListener('click', function (e) {
-        var btn = e.target.closest('.emby-tab-button');
-        if (btn) {
-            selectDemoTab(Number(btn.dataset.index));
-        }
-    });
-
     function switchDemoView(which) {
         var admin = document.getElementById('demoViewAdmin');
         var discovery = document.getElementById('demoViewDiscovery');
@@ -159,10 +116,6 @@
         btnDiscovery.classList.toggle('demo-view-active', showDiscovery);
         btnAdmin.setAttribute('aria-selected', String(!showDiscovery));
         btnDiscovery.setAttribute('aria-selected', String(showDiscovery));
-        if (showDiscovery) {
-            // The tab is registered while the view is hidden, so focus it once visible.
-            window.JellyfinHelperTabs?.focus('discovery');
-        }
     }
     document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
     document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
