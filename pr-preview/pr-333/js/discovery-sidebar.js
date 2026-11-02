@@ -1640,9 +1640,19 @@
         // On logout (no current user) tear down the Discovery tab and sidebar link so the feature
         // leaves the DOM instead of lingering for the signed-out session. A cold load also has no
         // user yet, so the teardown only runs once a user was actually probed.
-        if (!userId && _probedUserId) {
+        var isLoginPage = /login/i.test(window.location.hash || '') || /login/i.test(window.location.pathname || '');
+        if ((_probedUserId && (!userId || isLoginPage))) {
             if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
                 window.JellyfinHelperTabs.unregister(TAB_ID);
+            }
+            // Defensive cleanup: remove any lingering entry points directly.
+            ['jfh-tab-btn-discovery', 'jfh-tab-link-discovery', 'jfh-tab-panel-discovery'].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            });
+            var staleNav = document.querySelectorAll('.jfhelper-nav-discovery');
+            for (var i = 0; i < staleNav.length; i++) {
+                if (staleNav[i].parentNode) staleNav[i].parentNode.removeChild(staleNav[i]);
             }
             _tabRegistered = false;
             _tabPanel = null;
