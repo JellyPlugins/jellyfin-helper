@@ -189,6 +189,95 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     await settle();
     expect(client.entry()).not.toBeNull();
     expect(client.panel()?.textContent).toContain('Recommendations for a');
+    expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+  });
+
+  test('a non-bubbling view event restores the sidebar on the same route without another probe', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    const before = client.ownRequests();
+    client.w.document.querySelector('.jfhelper-nav-discovery')!.remove();
+    client.w.document.getElementById('panels')!.dispatchEvent(new client.w.Event('viewshow'));
+    expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+    await settle();
+    expect(client.ownRequests()).toBe(before);
+  });
+
+  test('a newer Discovery selection survives an older Home completion during rapid navigation', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    for (let visit = 0; visit < 20; visit++) {
+      client.tabs.querySelector('[data-index="0"]').click();
+      expect(client.panel()?.classList.contains('is-active')).toBe(false);
+      expect(client.w.location.hash).toBe('#/home');
+      await vi.advanceTimersByTimeAsync(16);
+      (client.w as any).JellyfinHelperTabs.focus('discovery');
+      const historyLength = client.w.history.length;
+      await vi.advanceTimersByTimeAsync(16);
+      expect(client.panel()?.classList.contains('is-active')).toBe(true);
+      await vi.advanceTimersByTimeAsync(160);
+      expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+      expect(client.tabs.selectedIndex()).toBe(2);
+      expect(client.panel()?.classList.contains('is-active')).toBe(true);
+      expect(client.w.document.querySelectorAll('#panels > .tabContent.is-active')).toHaveLength(1);
+      expect(client.w.history).toHaveLength(historyLength);
+    }
+  });
+
+  test('a host selection without fresh input cannot replace the Discovery route', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const historyLength = client.w.history.length;
+    client.tabs.selectedIndex(0);
+    await settle();
+    expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+    expect(client.tabs.selectedIndex()).toBe(2);
+    expect(client.panel()?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
+  });
+
+  test.each([0, 1])('native destination %s repairs an older Discovery completion without adding history', async index => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    client.tabs.querySelector('[data-index="' + index + '"]').click();
+    await settle();
+    const historyLength = client.w.history.length;
+    // emby-tabs writes its captured index before dispatching a delayed completion.
+    client.tabs.selectedTabIndex = 2;
+    client.tabs.dispatchEvent(new client.w.CustomEvent('tabchange', { detail: { selectedTabIndex: 2, previousIndex: index } }));
+    await settle();
+    expect(client.w.location.hash).toBe(index === 0 ? '#/home' : '#/home?tab=1');
+    expect(client.tabs.selectedIndex()).toBe(index);
+    expect(client.panel()?.classList.contains('is-active')).toBe(false);
+    expect(client.w.document.querySelector('#panels > [data-index="' + index + '"]')?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
+  });
+
+  test('history restoration survives overlapping tab completions without rewriting the destination', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    client.tabs.querySelector('[data-index="0"]').click();
+    await vi.advanceTimersByTimeAsync(16);
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await vi.advanceTimersByTimeAsync(16);
+    const historyLength = client.w.history.length;
+    client.w.history.back();
+    await vi.advanceTimersByTimeAsync(16);
+    expect(client.w.location.hash).toBe('#/home');
+    client.w.history.forward();
+    await settle();
+    expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+    expect(client.tabs.selectedIndex()).toBe(2);
+    expect(client.panel()?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
   });
 
   test('logout removes all cached copies and rejects header controls restored later on the login page', async () => {
@@ -560,6 +649,31 @@ test('the sidebar is restored when its entire drawer is replaced', async () => {
   client.w.document.querySelector('.mainDrawer')!.replaceWith(replacement);
   await settle();
   expect(replacement.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
+});
+
+test('the first login moves Discovery into a drawer whose Home href becomes ready later without refresh', async () => {
+  const client = clientDocument({ modern: true, hash: '#/login', initialUser: '' });
+  const drawer = client.w.document.createElement('div');
+  drawer.className = 'MuiDrawer-paper';
+  drawer.innerHTML = '<ul class="MuiList-root"><li><a href="#">Home</a></li></ul>';
+  client.w.document.body.appendChild(drawer);
+  await settle();
+  expect(client.w.document.querySelector('.jfhelper-nav-discovery')).toBeNull();
+  client.setSession('a');
+  client.route('#/home');
+  await settle();
+  expect(client.w.document.querySelector('.mainDrawer-scrollContainer .jfhelper-nav-discovery')).not.toBeNull();
+  const before = client.ownRequests();
+  drawer.querySelector('a')!.setAttribute('href', '#/home');
+  await settle();
+  expect(drawer.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
+  expect(client.w.document.querySelector('.mainDrawer-scrollContainer .jfhelper-nav-discovery')).toBeNull();
+  expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+  expect(client.ownRequests()).toBe(before);
+  client.setSession('', '');
+  client.route('#/login');
+  await settle();
+  expect(drawer.querySelector('.jfhelper-nav-discovery')).toBeNull();
 });
 
 test('navigation moves to the modern drawer and returns to the legacy drawer when it unmounts', async () => {

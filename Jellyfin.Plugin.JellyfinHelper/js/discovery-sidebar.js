@@ -1569,13 +1569,6 @@
         return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
-    function initSidebar() {
-        injectNavigation();
-        if (_sidebarObserver) return;
-        _sidebarObserver = new MutationObserver(injectNavigation);
-        _sidebarObserver.observe(document.body, { childList: true, subtree: true });
-    }
-
     function getDiscoveryNavigationContainer() {
         var lists = document.querySelectorAll('.MuiDrawer-paper ul.MuiList-root');
         for (var list of lists) {
@@ -1592,7 +1585,7 @@
     }
 
     function injectNavigation() {
-        if (_discoveryDisabled || isLoginPage() || !currentDiscoveryUserId()) return;
+        if (_hostSessionChanges > 0 || _discoveryDisabled || isLoginPage() || !currentDiscoveryUserId()) return;
         var sidebar = getDiscoveryNavigationContainer();
         if (!sidebar || sidebar.querySelector('.' + NAV_ITEM_CLASS)) return;
         removeDiscoveryNavigation();
@@ -1659,8 +1652,6 @@
     // The user the gates above were last decided for. An in-tab account switch must not inherit
     // the previous user's terminal 403 or in-flight probe, so a change resets the bootstrap gate.
     var _probedUserId = null;
-    // Single sidebar observer for the module, so repeated sign-ins cannot stack callbacks.
-    var _sidebarObserver = null;
     var _sessionApiClient = null;
     var _sessionToken = '';
     var _bootstrapSequence = 0;
@@ -1673,7 +1664,7 @@
         // bootstrapDiscovery) and re-renders once if it arrives late with a URL.
         injectStyles();
         registerDiscoveryTab();
-        initSidebar();
+        injectNavigation();
     }
 
     function handleDiscoveryProbe(data, startedUserId, request) {
@@ -1742,10 +1733,6 @@
             document.querySelectorAll('[id="' + id + '"]').forEach(function (element) { element.remove(); });
         }
         removeDiscoveryNavigation();
-        if (_sidebarObserver) {
-            _sidebarObserver.disconnect();
-            _sidebarObserver = null;
-        }
         _tabRegistered = false;
         _tabPanel = null;
         _bootstrapped = false;
@@ -1819,11 +1806,14 @@
             // Cached headers can restore old controls after logout, so signed out pages must also sweep orphaned elements.
             teardownDiscoveryEntryPoints();
         }
-        if (_lifecycleState?.hash === hash && _lifecycleState.userId === session.userId
-            && _lifecycleState.client === session.client && _lifecycleState.token === session.token) return;
-        _lifecycleState = { hash: hash, userId: session.userId, client: session.client, token: session.token };
-        bootstrapDiscovery();
-        window.JellyfinHelperTabs?.refresh?.();
+        if (_lifecycleState?.hash !== hash || _lifecycleState.userId !== session.userId
+            || _lifecycleState.client !== session.client || _lifecycleState.token !== session.token) {
+            _lifecycleState = { hash: hash, userId: session.userId, client: session.client, token: session.token };
+            bootstrapDiscovery();
+            window.JellyfinHelperTabs?.refresh?.();
+        }
+        // The drawer can mount or change its links without changing the session or route.
+        if (_bootstrapped) injectNavigation();
     }
 
     function beforeHostSessionChange() {
@@ -1840,14 +1830,14 @@
     function initDiscoveryLifecycle() {
         // Router navigation can change the page without a browser history event, so page mutations also check the session.
         var observer = new MutationObserver(syncDiscoveryLifecycle);
-        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'href'] });
         document.addEventListener('jfh:session-changing', beforeHostSessionChange);
         document.addEventListener('jfh:session-changed', afterHostSessionChange);
         document.addEventListener('jfh:navigation', syncDiscoveryLifecycle);
         window.addEventListener('hashchange', syncDiscoveryLifecycle);
         window.addEventListener('popstate', syncDiscoveryLifecycle);
         window.addEventListener('pageshow', syncDiscoveryLifecycle);
-        document.addEventListener('viewshow', syncDiscoveryLifecycle);
+        document.addEventListener('viewshow', syncDiscoveryLifecycle, true);
         document.addEventListener('visibilitychange', syncDiscoveryLifecycle);
         syncDiscoveryLifecycle();
         return function () {
@@ -1858,7 +1848,7 @@
             window.removeEventListener('hashchange', syncDiscoveryLifecycle);
             window.removeEventListener('popstate', syncDiscoveryLifecycle);
             window.removeEventListener('pageshow', syncDiscoveryLifecycle);
-            document.removeEventListener('viewshow', syncDiscoveryLifecycle);
+            document.removeEventListener('viewshow', syncDiscoveryLifecycle, true);
             document.removeEventListener('visibilitychange', syncDiscoveryLifecycle);
             teardownDiscoveryEntryPoints();
         };

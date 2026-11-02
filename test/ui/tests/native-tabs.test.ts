@@ -79,7 +79,14 @@ function addForeignTab(setup: TabSetup, index: number) {
   panel.className = 'tabContent pageTabContent';
   panel.dataset.index = String(index);
   setup.root.appendChild(panel);
-  return { btn, panel };
+    return { btn, panel };
+}
+
+function markSelection(setup: TabSetup, index: number) {
+  setup.slider.querySelectorAll('.emby-tab-button').forEach((button, position) =>
+    button.classList.toggle('emby-tab-button-active', position === index));
+  setup.root.querySelectorAll('.tabContent').forEach((panel, position) =>
+    panel.classList.toggle('is-active', position === index));
 }
 
 function addEntry(ui: UiBridge, id = 'a', onMount = vi.fn()) {
@@ -371,6 +378,7 @@ describe('native tabs: deep links', () => {
     addEntry(ui, 'a');
     ui.ensureInjected();
     setup.selectedIndex.mockClear();
+    ui.noteTabStripInput({ isTrusted: true, target: setup.slider.querySelector('[data-index="0"]') });
     setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 0 } }));
     ui.ensureInjected();
     expect(setup.selectedIndex).not.toHaveBeenCalled();
@@ -410,22 +418,54 @@ describe('native tabs: deep links', () => {
     expect(() => ui.ensureInjected()).not.toThrow();
   });
 
-  test('watchUserTabChanges records a differing user pick and a recent input', () => {
+  test('watchUserTabChanges consumes only the input for the requested button', () => {
     const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
     addEntry(ui, 'a');
     ui.ensureInjected();
+    ui.noteTabStripInput({ isTrusted: true, target: setup.slider.querySelector('[data-index="0"]') });
     setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 0 } }));
     setup.selectedIndex.mockClear();
     ui.ensureInjected();
     expect(setup.selectedIndex).not.toHaveBeenCalled();
 
     setHash('#/home?tab=2&jfhTab=a');
-    // A trusted strip input marks the click as recent even when the picked index matches the URL.
-    ui.noteTabStripInput({ isTrusted: true, target: setup.tabs });
+    ui.noteTabStripInput({ isTrusted: true, target: setup.slider.querySelector('[data-index="2"]') });
     setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 2 } }));
+    setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 0 } }));
+    setup.selectedIndex(0);
+    markSelection(setup, 0);
     setup.selectedIndex.mockClear();
     ui.ensureInjected();
-    expect(setup.selectedIndex).not.toHaveBeenCalled();
+    expect(setup.selectedIndex).toHaveBeenCalledWith(2);
+  });
+
+  test.each(['index', 'panel', 'button', 'stray'] as const)('an applied deep link repairs a later %s overwrite', overwrite => {
+    const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
+    let current = 0;
+    setup.selectedIndex = vi.fn((index?: number) => {
+      if (index !== undefined) {
+        current = index;
+        markSelection(setup, index);
+      }
+      return current;
+    });
+    (setup.tabs as any).selectedIndex = setup.selectedIndex;
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    const panel = document.getElementById('jfh-tab-panel-a')!;
+    const button = document.getElementById('jfh-tab-btn-a')!;
+    if (overwrite === 'index') current = 0;
+    if (overwrite === 'panel') panel.classList.remove('is-active');
+    if (overwrite === 'button') button.classList.remove('emby-tab-button-active');
+    if (overwrite === 'stray') setup.root.querySelector('[data-index="0"]')!.classList.add('is-active');
+    setup.selectedIndex.mockClear();
+    ui.ensureInjected();
+    expect(setup.selectedIndex).toHaveBeenCalledWith(2);
+    expect(current).toBe(2);
+    expect(panel.classList.contains('is-active')).toBe(true);
+    expect(button.classList.contains('emby-tab-button-active')).toBe(true);
+    expect(setup.root.querySelectorAll('.is-active')).toHaveLength(1);
+    expect(window.location.hash).toBe('#/home?tab=2&jfhTab=a');
   });
 
   test('watchUserTabChanges is idempotent and tolerates no strip', () => {
@@ -735,7 +775,7 @@ describe('native tabs: activation and navigation', () => {
     addEntry(ui, 'a');
     ui.ensureInjected();
     ui.handleRouteNavigation();
-    ui.noteTabStripInput({ isTrusted: true, target: setup.tabs });
+    ui.noteTabStripInput({ isTrusted: true, target: setup.slider.querySelector('[data-index="0"]') });
     setup.selectedIndex(0);
     setup.tabs.dispatchEvent(new CustomEvent('beforetabchange', { detail: { selectedTabIndex: 0 } }));
     setup.selectedIndex.mockClear();
@@ -799,6 +839,7 @@ describe('native tabs: activation and navigation', () => {
     addEntry(ui, 'a');
     ui.ensureInjected();
     setup.selectedIndex(index);
+    markSelection(setup, index);
     const before = window.history.length;
     ui.syncSelectedTabHash(setup.tabs, index);
     expect(window.location.hash).toBe(index === 0 ? '#/home?filter=keep' : '#/home?tab=1&filter=keep');
@@ -812,6 +853,7 @@ describe('native tabs: activation and navigation', () => {
     const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
     addEntry(ui, 'a');
     ui.ensureInjected();
+    markSelection(setup, 2);
     ui.syncSelectedTabHash(setup.tabs, 2);
     expect(window.location.hash).toContain('jfhTab=a');
     ui.syncSelectedTabHash(setup.tabs, Number.NaN);

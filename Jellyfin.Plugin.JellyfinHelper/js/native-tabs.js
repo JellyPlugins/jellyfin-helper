@@ -375,23 +375,24 @@
         }
         watchedTabs = tabsElem;
         tabsElem.addEventListener('beforetabchange', function (e) {
+            var input = lastTabStripInput;
+            lastTabStripInput = null;
             if (selectingTab) {
                 return;
             }
             var urlIndex = Number.parseInt(hashParam('tab'), 10);
             var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
-            var recentInput = lastTabStripInput !== null && Date.now() - lastTabStripInput < 1000;
-            if (picked !== (Number.isNaN(urlIndex) ? 0 : urlIndex) || recentInput) {
-                userPickedHash = window.location.hash;
-            }
-            if (recentInput) routeSelectionPending = false;
+            if (input?.tabs !== tabsElem || input.index !== picked || Date.now() - input.time >= 1000) return;
+            // Record the requested tab before an older delayed completion can replace its URL.
+            routeSelectionPending = false;
+            userPickedHash = picked === (Number.isNaN(urlIndex) ? 0 : urlIndex) ? null : window.location.hash;
+            syncSelectedTabHash(tabsElem, picked);
         });
         tabsElem.addEventListener('tabchange', function (e) {
             var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
             setTimeout(function () {
                 picked = repairRemovedTabSelection(tabsElem, picked);
                 clearStraySelection(tabsElem, picked);
-                syncSelectedTabHash(tabsElem, picked);
                 scheduleInject();
             }, 0);
         });
@@ -408,8 +409,10 @@
     }
 
     function syncSelectedTabHash(tabsElem, index) {
+        var button = tabsElem.querySelectorAll('.emby-tab-button')[index];
         if (!isOnHomePage() || !tabsElem.isConnected || Number.isNaN(index)
-            || tabsElem.selectedIndex?.() !== index || (hashParam(DEEP_LINK_PARAM) == null && hashParam('tab') == null)) {
+            || !tabsElem.selectedIndex || !button?.classList.contains('emby-tab-button-active')
+            || slotIndex(button) !== index || (hashParam(DEEP_LINK_PARAM) == null && hashParam('tab') == null)) {
             return;
         }
         var entry = entries.find(function (item) { return item.index === index; });
@@ -475,9 +478,11 @@
     }
 
     function noteTabStripInput(e) {
-        if (e.isTrusted && e.target?.closest?.('[is="emby-tabs"]')) {
-            lastTabStripInput = Date.now();
-        }
+        if (!e.isTrusted && e.type !== 'click') return;
+        var button = e.target?.closest?.('.emby-tab-button');
+        var tabsElem = button?.closest('[is="emby-tabs"]');
+        if (!tabsElem) return;
+        lastTabStripInput = { tabs: tabsElem, index: slotIndex(button), time: Date.now() };
     }
 
     // tab=N lets Jellyfin act on the link natively, while jfhTab=<id> keeps the
@@ -555,9 +560,10 @@
         var entry = wantedId != null ? findEntry(wantedId) : null;
         var tabParam = hashParam('tab');
         var wantedIndex = retargetDeepLink(entry, Number.parseInt(tabParam, 10));
-        if (routeSelectionPending && tabParam == null && wantedId == null) wantedIndex = 0;
-        if (Number.isNaN(wantedIndex) || wantedIndex < 0 || (wantedIndex < 2 && !routeSelectionPending)
-            || (userPickedHash === window.location.hash && !routeSelectionPending)) {
+        var markedHash = appliedDeepLink?.hash === window.location.hash;
+        if ((routeSelectionPending || markedHash) && tabParam == null && wantedId == null) wantedIndex = 0;
+        if (Number.isNaN(wantedIndex) || wantedIndex < 0 || (wantedIndex < 2 && !routeSelectionPending && !markedHash)
+            || (userPickedHash === window.location.hash && !routeSelectionPending && !markedHash)) {
             return;
         }
         var target = deepLinkTarget(slider, root, wantedIndex);
@@ -568,9 +574,12 @@
         if (!routeSelectionPending && isDeepLinkMarked(target, root, hash)) {
             var stillSelected = target.tabsElem.selectedIndex() === wantedIndex
                 && target.panel.classList.contains('is-active')
+                && target.btn.classList.contains('emby-tab-button-active')
+                && !Array.prototype.some.call(root.querySelectorAll('.tabContent.is-active'),
+                    function (el) { return el !== target.panel; })
                 && !Array.prototype.some.call(target.tabsElem.querySelectorAll('.emby-tab-button-active'),
                     function (el) { return el !== target.btn; });
-            if (appliedDeepLink.btn === target.btn || !stillSelected) {
+            if (stillSelected) {
                 appliedDeepLink.btn = target.btn;
                 return;
             }
@@ -781,6 +790,7 @@
         });
         document.addEventListener('pointerdown', noteTabStripInput, { capture: true, passive: true });
         document.addEventListener('keydown', noteTabStripInput, { capture: true, passive: true });
+        document.addEventListener('click', noteTabStripInput, { capture: true, passive: true });
     }
 
     window.JellyfinHelperTabs = {

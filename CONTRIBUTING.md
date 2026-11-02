@@ -148,9 +148,13 @@ a silent mount timeout.
 The native Discovery specs explicitly select both `desktop-legacy` and `modern`
 layouts. They exercise logout through Jellyfin's production logout path, retained
 panel refresh, access revocation, Home reload, and navigation from a cold dashboard.
-The isolated client lifecycle tests run both shipped scripts together and cover
+Interactive login checks and opens the sidebar entry before any native-tab click,
+without reloading or seeding browser credentials.
+The isolated client lifecycle tests run the shared lifecycle, native tabs, and Discovery scripts together and cover
 delayed responses, account replacement, and visibility changes without manually
-calling their internal bootstrap functions.
+calling their internal bootstrap functions. Rapid selections deliberately overlap
+Jellyfin's delayed tab completions; drawer coverage includes late Home-link attributes
+and non-bubbling view events on an unchanged route.
 
 **No version pinning. Always latest, by design.** CI and the nightly run resolve
 the newest published release of the official Trakt plugin on every run. This is
@@ -175,7 +179,7 @@ directly without staging.
 ### UI JavaScript Tests
 
 A third suite (`test/ui/`) runs the **shipped** dashboard scripts
-(`PluginPages/js/`, `js/discovery-sidebar.js`, `js/native-tabs.js`) in jsdom via Vitest, with a
+(`PluginPages/js/`, `js/client-lifecycle.js`, `js/discovery-sidebar.js`, `js/native-tabs.js`) in jsdom via Vitest, with a
 stubbed `ApiClient`. It pins behavior that only exists in JavaScript e.g.
 visibility rules, validators, tab switching, dialog flows. Runs without a container.
 
