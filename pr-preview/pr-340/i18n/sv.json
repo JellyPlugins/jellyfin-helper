@@ -345,6 +345,7 @@
   "syncPlaylistDisabledHint": "Sätt Rekommendationer till 'Aktivera' för att använda detta alternativ.",
   "recsAndMore": "och {0} till…",
   "discoveryTitle": "Upptäck nytt innehåll",
+  "discoveryNavigationTitle": "Upptäck",
   "discoveryTabTitle": "✨ Upptäck",
   "discoverySetupHint": "Visas automatiskt på startskärmen. Ladda om en gång efter aktiveringen. Inga externa plugins krävs.",
   "discoveryTabUnavailable": "Upptäck är inte tillgängligt just nu. Försök igen senare.",

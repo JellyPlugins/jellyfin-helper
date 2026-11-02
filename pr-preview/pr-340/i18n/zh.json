@@ -345,6 +345,7 @@
   "syncPlaylistDisabledHint": "Set Recommendations to Activate to enable this option.",
   "recsAndMore": "还有 {0} 项…",
   "discoveryTitle": "发现新内容",
+  "discoveryNavigationTitle": "发现",
   "discoveryTabTitle": "✨ 发现",
   "discoverySetupHint": "自动显示在主屏幕上。启用后刷新一次。无需外部插件。",
   "discoveryTabUnavailable": "发现功能当前不可用。请稍后重试。",
