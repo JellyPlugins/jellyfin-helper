@@ -315,7 +315,7 @@ test.describe('Discovery native tab - logged out', () => {
   test('no discovery entry point is rendered on the login page', async ({ page }) => {
     const auth = loadAuth();
     const base = auth.baseUrl.replace(/\/$/, '');
-    await page.goto(${base}/web/index.html#/login);
+    await page.goto(`${base}/web/index.html#/login`);
     await page.waitForTimeout(5_000);
     await expect(page.locator('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveCount(0);
     await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(0);
