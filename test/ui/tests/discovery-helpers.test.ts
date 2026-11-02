@@ -779,7 +779,7 @@ describe('injectStyles + injectNavigation', () => {
     ui.injectNavigation();
     const items = sidebar.querySelectorAll('.jfhelper-nav-discovery');
     expect(items).toHaveLength(1);
-    expect(items[0].textContent).toContain('Seerr Discovery');
+    expect(items[0].textContent).toContain('Discover');
   });
 
   test('injectNavigation is a no-op without a sidebar container', () => {

@@ -4,9 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
-using Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
@@ -33,7 +31,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private readonly IApplicationPaths _applicationPaths;
     private readonly ILogger<Plugin> _logger;
-    private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
@@ -41,17 +38,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths" /> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer" /> interface.</param>
     /// <param name="logger">Logger instance for diagnostic output.</param>
-    /// <param name="pluginLog">Plugin log for user-visible startup and cleanup entries.</param>
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger, IPluginLogService pluginLog)
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
         _applicationPaths = applicationPaths;
         _logger = logger;
-        _pluginLog = pluginLog;
         Instance = this;
         Api.UserDiscoveryController.ClearRateLimitState();
         ReportClampedConfigValues();
-        CleanupLegacyInjection();
     }
 
     /// <inheritdoc />
@@ -88,7 +82,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <inheritdoc />
     public override void OnUninstalling()
     {
-        CleanupLegacyInjection();
         CleanupDataFiles();
         CleanupRecommendationPlaylists();
         try
@@ -291,14 +284,5 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             // Best effort - if the playlists directory is inaccessible, nothing we can do.
         }
-    }
-
-    /// <summary>
-    ///     Removes index.html changes left behind by plugin versions that wrote the script tag to disk.
-    /// </summary>
-    private void CleanupLegacyInjection()
-    {
-        LegacyIndexHtmlCleanup.TryDeleteStaleTempFiles(_pluginLog, _logger, _applicationPaths.WebPath);
-        LegacyIndexHtmlCleanup.TryRemoveScriptTag(_pluginLog, _logger, _applicationPaths.WebPath);
     }
 }

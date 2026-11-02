@@ -345,6 +345,7 @@
   "syncPlaylistDisabledHint": "Activez les recommandations pour activer cette option.",
   "recsAndMore": "et {0} de plus…",
   "discoveryTitle": "Découvrir du nouveau contenu",
+  "discoveryNavigationTitle": "Découvrir",
   "discoveryTabTitle": "✨ Découvrir",
   "discoverySetupHint": "Apparaît automatiquement sur l'écran d'accueil. Rechargez une fois après l'activation. Aucun plugin externe requis.",
   "discoveryTabUnavailable": "Découvrir n'est pas disponible pour le moment. Réessayez plus tard.",

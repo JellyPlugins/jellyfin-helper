@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Model.Serialization;
@@ -10,7 +9,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 /// <summary>
-///     Tests for Plugin - the plugin bootstrap that handles legacy index.html cleanup, on-disk data-file cleanup during uninstall, and recommendation playlist directory purge.
+///     Tests for plugin startup and cleanup of plugin data and recommendation playlists during uninstall.
 /// </summary>
 [Collection("ConfigOverride")]
 public sealed class PluginTests : IDisposable
@@ -53,7 +52,7 @@ public sealed class PluginTests : IDisposable
         var loggerMock = new Mock<ILogger<Plugin>>();
         loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
-        return new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object, Mock.Of<IPluginLogService>());
+        return new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
     }
 
     [Fact]
@@ -89,19 +88,23 @@ public sealed class PluginTests : IDisposable
     }
 
     [Fact]
-    public void Ctor_StripsLegacyOnDiskScriptTagAndTempFiles()
+    public void StartupAndUninstall_DoNotModifyWebFiles()
     {
         var indexPath = Path.Join(_webPath, "index.html");
-        File.WriteAllText(
-            indexPath,
-            "<html><body><script plugin=\"Jellyfin Helper\" version=\"1\" src=\"../JellyfinHelper/Discovery/My/script?v=1\"></script>\n</body></html>");
-        var orphan = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
-        File.WriteAllText(orphan, "leftover");
+        const string html = "<html><body>Jellyfin</body></html>";
+        File.WriteAllText(indexPath, html);
+        var temporaryFile = Path.Join(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        File.WriteAllText(temporaryFile, "web file");
 
-        _ = CreatePlugin();
+        var plugin = CreatePlugin();
 
-        Assert.DoesNotContain("plugin=\"Jellyfin Helper\"", File.ReadAllText(indexPath), StringComparison.Ordinal);
-        Assert.False(File.Exists(orphan));
+        Assert.Equal(html, File.ReadAllText(indexPath));
+        Assert.Equal("web file", File.ReadAllText(temporaryFile));
+
+        plugin.OnUninstalling();
+
+        Assert.Equal(html, File.ReadAllText(indexPath));
+        Assert.Equal("web file", File.ReadAllText(temporaryFile));
     }
 
     // ReportClampedConfigValues - the "clamped hand-edited XML" warning path
@@ -134,7 +137,7 @@ public sealed class PluginTests : IDisposable
             .Callback(() => warningCount++);
 
         // Trick: build the plugin, then set Configuration via reflection, then re-run ReportClampedConfigValues indirectly by pulling the private method.
-        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object, Mock.Of<IPluginLogService>());
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
         var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>)
             .GetProperty("Configuration");
         Assert.NotNull(configProperty);
@@ -178,7 +181,7 @@ public sealed class PluginTests : IDisposable
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
             .Callback(() => clampWarnings++);
 
-        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object, Mock.Of<IPluginLogService>());
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
         var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>)
             .GetProperty("Configuration");
         configProperty!.SetValue(plugin, config);
@@ -367,7 +370,7 @@ public sealed class PluginTests : IDisposable
         var loggerMock = new Mock<ILogger<Plugin>>();
         loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
-        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object, Mock.Of<IPluginLogService>());
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
 
         Assert.Same(loggerMock.Object, plugin.Logger);
     }

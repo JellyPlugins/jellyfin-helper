@@ -148,6 +148,9 @@
         <EmbeddedResource Include="js\native-tabs.js">
             <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.native-tabs.js</LogicalName>
         </EmbeddedResource>
+        <EmbeddedResource Include="js\client-lifecycle.js">
+            <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.client-lifecycle.js</LogicalName>
+        </EmbeddedResource>
         <!-- Source module files are NOT embedded but kept for development -->
         <None Include="PluginPages\configPage.template.html"/>
         <None Include="PluginPages\css\*.css"/>

@@ -35,7 +35,9 @@
     }
 
     function isLoginPage() {
-        return /^#\/?(?:!\/)?(?:login|selectserver|addserver)(?:[/?]|$)/i.test(window.location.hash);
+        var route = window.location.hash.replace(/^#!?\/?/, '').split(/[/?]/)[0].toLowerCase();
+        if (route.endsWith('.html')) route = route.slice(0, -5);
+        return route === 'login' || route === 'selectserver' || route === 'addserver';
     }
 
     function captureDiscoveryRequest() {
@@ -55,7 +57,7 @@
     function isSameDiscoverySession(request) {
         var current = captureDiscoveryRequest();
         return request.userId === current.userId
-            && request.client === current.client && request.token === current.token && !isLoginPage();
+            && request.client === current.client && request.token === current.token && !isLoginPage() && _hostSessionChanges === 0;
     }
 
 
@@ -227,8 +229,11 @@
         style.id = 'jfhelper-discovery-styles';
         style.textContent =
             '@keyframes dspin { to { transform: rotate(360deg); } }' +
-            '.jfh-discovery-modern-link { display:flex;align-items:center;gap:16px;padding:8px 16px;color:inherit;text-decoration:none;border-radius:4px; }' +
-            '.jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
+            '.jellyfinHelperSection .jfh-discovery-sidebar-heading { box-sizing:border-box;margin:0;padding:0.45em 0.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link { box-sizing:border-box;display:grid;grid-template-columns:1.25em minmax(0,1fr);align-items:center;column-gap:0.5em;width:100%;min-width:0;max-width:100%;min-height:2.75em;padding:0.5em 0.8em;color:inherit;text-decoration:none;border-radius:0.25em; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-icon { width:1em;font-size:1.25em;line-height:1;text-align:center; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-text { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }' +
+            '.jellyfinHelperSection .jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
             '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
             // Tab content renders its own container inside the shell container: the inner one must not
             // add padding again or the grid/headers indent against the tab bar.
@@ -1564,13 +1569,6 @@
         return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
-    function initSidebar() {
-        injectNavigation();
-        if (_sidebarObserver) return;
-        _sidebarObserver = new MutationObserver(injectNavigation);
-        _sidebarObserver.observe(document.body, { childList: true, subtree: true });
-    }
-
     function getDiscoveryNavigationContainer() {
         var lists = document.querySelectorAll('.MuiDrawer-paper ul.MuiList-root');
         for (var list of lists) {
@@ -1587,7 +1585,7 @@
     }
 
     function injectNavigation() {
-        if (_discoveryDisabled || isLoginPage() || !currentDiscoveryUserId()) return;
+        if (_hostSessionChanges > 0 || _discoveryDisabled || isLoginPage() || !currentDiscoveryUserId()) return;
         var sidebar = getDiscoveryNavigationContainer();
         if (!sidebar || sidebar.querySelector('.' + NAV_ITEM_CLASS)) return;
         removeDiscoveryNavigation();
@@ -1597,8 +1595,8 @@
             section = document.createElement(modern ? 'li' : 'div');
             section.className = SECTION_CLASS;
             section.innerHTML = modern
-                ? '<div class="MuiListSubheader-root">Jellyfin Helper</div>'
-                : '<h3 class="sidebarHeader">Jellyfin Helper</h3>';
+                ? '<div class="MuiListSubheader-root jfh-discovery-sidebar-heading">Jellyfin Helper</div>'
+                : '<h3 class="sidebarHeader jfh-discovery-sidebar-heading">Jellyfin Helper</h3>';
             var mediaSection = sidebar.querySelector('.libraryMenuOptions');
             if (mediaSection) {
                 mediaSection.before(section);
@@ -1610,9 +1608,12 @@
         if (!modern) navItem.setAttribute('is', 'emby-linkbutton');
         navItem.className = (modern ? 'MuiListItemButton-root jfh-discovery-modern-link ' : 'navMenuOption lnkMediaFolder emby-button ') + NAV_ITEM_CLASS;
         navItem.href = '#';
+        var label = t('discoveryNavigationTitle', 'Discover');
+        navItem.title = label;
+        navItem.setAttribute('aria-label', label);
         navItem.innerHTML =
-            '<span class="material-icons navMenuOptionIcon" aria-hidden="true">explore</span>' +
-            '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
+            '<span class="material-icons ' + (modern ? 'jfh-discovery-navigation-icon' : 'navMenuOptionIcon') + '" aria-hidden="true">explore</span>' +
+            '<span class="' + (modern ? 'jfh-discovery-navigation-text' : 'sectionName navMenuOptionText') + '">' + esc(label) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
             var request = captureDiscoveryRequest();
@@ -1651,20 +1652,19 @@
     // The user the gates above were last decided for. An in-tab account switch must not inherit
     // the previous user's terminal 403 or in-flight probe, so a change resets the bootstrap gate.
     var _probedUserId = null;
-    // Single sidebar observer for the module, so repeated sign-ins cannot stack callbacks.
-    var _sidebarObserver = null;
     var _sessionApiClient = null;
     var _sessionToken = '';
     var _bootstrapSequence = 0;
     var _bootstrapRequest = null;
     var _lifecycleState = null;
+    var _hostSessionChanges = 0;
 
     function initDiscoveryUiFull() {
         // Render immediately; the Seerr-links config loads in parallel (fired in
         // bootstrapDiscovery) and re-renders once if it arrives late with a URL.
         injectStyles();
         registerDiscoveryTab();
-        initSidebar();
+        injectNavigation();
     }
 
     function handleDiscoveryProbe(data, startedUserId, request) {
@@ -1723,16 +1723,16 @@
         closeDiscoveryPopup(null, false);
         document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { toast.remove(); });
         if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
-            window.JellyfinHelperTabs.unregister(TAB_ID);
+            try {
+                window.JellyfinHelperTabs.unregister(TAB_ID);
+            } catch (_) {
+                // The shell can replace its controls during navigation, so the remaining cleanup must still run.
+            }
         }
         for (var id of ['jfh-tab-btn-discovery', 'jfh-tab-link-discovery', 'jfh-tab-panel-discovery']) {
-            document.getElementById(id)?.remove();
+            document.querySelectorAll('[id="' + id + '"]').forEach(function (element) { element.remove(); });
         }
         removeDiscoveryNavigation();
-        if (_sidebarObserver) {
-            _sidebarObserver.disconnect();
-            _sidebarObserver = null;
-        }
         _tabRegistered = false;
         _tabPanel = null;
         _bootstrapped = false;
@@ -1753,6 +1753,7 @@
     }
 
     function bootstrapDiscovery() {
+        if (_hostSessionChanges > 0) return;
         var session = captureDiscoveryRequest();
         if (isLoginPage() || !session.userId) {
             if (_probedUserId || _tabRegistered) teardownDiscoveryEntryPoints();
@@ -1797,34 +1798,57 @@
     }
 
     function syncDiscoveryLifecycle() {
+        if (_hostSessionChanges > 0) return;
         var session = captureDiscoveryRequest();
         var hash = window.location.hash;
-        if (_lifecycleState?.hash === hash && _lifecycleState.userId === session.userId
-            && _lifecycleState.client === session.client && _lifecycleState.token === session.token) return;
-        _lifecycleState = { hash: hash, userId: session.userId, client: session.client, token: session.token };
-        bootstrapDiscovery();
-        window.JellyfinHelperTabs?.refresh?.();
+        if ((!session.userId || isLoginPage())
+            && document.querySelector('#jfh-tab-btn-discovery, #jfh-tab-link-discovery, #jfh-tab-panel-discovery, .jfhelper-nav-discovery')) {
+            // Cached headers can restore old controls after logout, so signed out pages must also sweep orphaned elements.
+            teardownDiscoveryEntryPoints();
+        }
+        if (_lifecycleState?.hash !== hash || _lifecycleState.userId !== session.userId
+            || _lifecycleState.client !== session.client || _lifecycleState.token !== session.token) {
+            _lifecycleState = { hash: hash, userId: session.userId, client: session.client, token: session.token };
+            bootstrapDiscovery();
+            window.JellyfinHelperTabs?.refresh?.();
+        }
+        // The drawer can mount or change its links without changing the session or route.
+        if (_bootstrapped) injectNavigation();
+    }
+
+    function beforeHostSessionChange() {
+        _hostSessionChanges++;
+        teardownDiscoveryEntryPoints();
+        _lifecycleState = null;
+    }
+
+    function afterHostSessionChange() {
+        if (_hostSessionChanges > 0) _hostSessionChanges--;
+        syncDiscoveryLifecycle();
     }
 
     function initDiscoveryLifecycle() {
         // Router navigation can change the page without a browser history event, so page mutations also check the session.
         var observer = new MutationObserver(syncDiscoveryLifecycle);
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'href'] });
+        document.addEventListener('jfh:session-changing', beforeHostSessionChange);
+        document.addEventListener('jfh:session-changed', afterHostSessionChange);
+        document.addEventListener('jfh:navigation', syncDiscoveryLifecycle);
         window.addEventListener('hashchange', syncDiscoveryLifecycle);
         window.addEventListener('popstate', syncDiscoveryLifecycle);
         window.addEventListener('pageshow', syncDiscoveryLifecycle);
-        document.addEventListener('viewshow', syncDiscoveryLifecycle);
+        document.addEventListener('viewshow', syncDiscoveryLifecycle, true);
         document.addEventListener('visibilitychange', syncDiscoveryLifecycle);
-        // Injected scripts cannot subscribe to Jellyfin's authentication events, so this check covers session changes without page mutations.
-        var sessionTimer = setInterval(syncDiscoveryLifecycle, 250);
         syncDiscoveryLifecycle();
         return function () {
             observer.disconnect();
-            clearInterval(sessionTimer);
+            document.removeEventListener('jfh:session-changing', beforeHostSessionChange);
+            document.removeEventListener('jfh:session-changed', afterHostSessionChange);
+            document.removeEventListener('jfh:navigation', syncDiscoveryLifecycle);
             window.removeEventListener('hashchange', syncDiscoveryLifecycle);
             window.removeEventListener('popstate', syncDiscoveryLifecycle);
             window.removeEventListener('pageshow', syncDiscoveryLifecycle);
-            document.removeEventListener('viewshow', syncDiscoveryLifecycle);
+            document.removeEventListener('viewshow', syncDiscoveryLifecycle, true);
             document.removeEventListener('visibilitychange', syncDiscoveryLifecycle);
             teardownDiscoveryEntryPoints();
         };

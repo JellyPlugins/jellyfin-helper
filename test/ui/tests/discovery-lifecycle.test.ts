@@ -6,7 +6,7 @@ import { freshDiscoveryHelpers, REPO_ROOT, saveCoverage } from '../src/loader.js
 
 afterAll(saveCoverage);
 
-const scripts = ['native-tabs.js', 'discovery-sidebar.js'].map(name =>
+const scripts = ['client-lifecycle.js', 'native-tabs.js', 'discovery-sidebar.js'].map(name =>
   readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/js', name), 'utf8'));
 const documents: JSDOM[] = [];
 
@@ -30,7 +30,7 @@ async function settle() {
   await vi.advanceTimersByTimeAsync(200);
 }
 
-function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean; responses?: Record<string, () => Promise<unknown>> } = {}) {
+function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: boolean; initialUser?: string; responses?: Record<string, () => Promise<unknown>> } = {}) {
   // A separate document runs both shipped scripts without exposing or replacing their internal helpers.
   const dom = new JSDOM('<!doctype html><body><div class="headerRight"></div><div class="mainDrawer"><div class="mainDrawer-scrollContainer"></div></div><div class="headerTabs"><div is="emby-tabs"><div class="emby-tabs-slider"><button class="emby-tab-button emby-tab-button-active" data-index="0">Home</button><button class="emby-tab-button" data-index="1">Favorites</button></div></div></div><div id="panels"><div class="tabContent pageTabContent is-active" data-index="0"></div><div class="tabContent pageTabContent" data-index="1"></div></div></body>', {
     url: 'http://localhost/web/index.html' + (options.hash ?? '#/home'),
@@ -85,8 +85,8 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
     const button = (event.target as Element).closest('.emby-tab-button') as HTMLElement | null;
     if (button && !button.classList.contains('emby-tab-button-active')) select(Number(button.dataset.index), true);
   });
-  let userId = 'a';
-  let token = 'session-a';
+  let userId = options.initialUser ?? 'a';
+  let token = userId ? 'session-' + userId : '';
   let reply: () => Promise<unknown> = () => Promise.resolve(recommendations('Recommendations for ' + userId));
   const sourceReplies = new Map<string, () => Promise<unknown>>(Object.entries(options.responses ?? {}));
   const dispatch = (request: { url: string; type?: string }) => {
@@ -99,6 +99,7 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
   const api = {
     getCurrentUserId: () => userId,
     accessToken: () => token,
+    setAuthenticationInfo: (accessToken: string, user: string) => { userId = user || ''; token = accessToken || ''; },
     getUrl: (path: string) => path,
     ajax: vi.fn(dispatch),
   };
@@ -117,7 +118,7 @@ function clientDocument(options: { modern?: boolean; hash?: string; lateApi?: bo
   };
   return {
     w, api, tabs, route, requests,
-    setSession: (user: string, accessToken = 'session-' + user) => { userId = user; token = accessToken; },
+    setSession: (user: string, accessToken = 'session-' + user) => ((w as any).ApiClient ?? api).setAuthenticationInfo(accessToken, user),
     setReply: (next: () => Promise<unknown>) => { reply = next; },
     setSourceReply: (path: string, next: () => Promise<unknown>) => { sourceReplies.set(path, next); },
     replaceApiClient: () => {
@@ -178,6 +179,138 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test('a clean login route opens Discovery on the first authenticated Home visit without a reload', async () => {
+    const client = clientDocument({ modern, hash: '#/login.html', initialUser: '' });
+    await settle();
+    expect(client.entry()).toBeNull();
+    expect(client.ownRequests()).toBe(0);
+    client.setSession('a');
+    client.route('#/home');
+    await settle();
+    expect(client.entry()).not.toBeNull();
+    expect(client.panel()?.textContent).toContain('Recommendations for a');
+    expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+  });
+
+  test('a non-bubbling view event restores the sidebar on the same route without another probe', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    const before = client.ownRequests();
+    client.w.document.querySelector('.jfhelper-nav-discovery')!.remove();
+    client.w.document.getElementById('panels')!.dispatchEvent(new client.w.Event('viewshow'));
+    expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+    await settle();
+    expect(client.ownRequests()).toBe(before);
+  });
+
+  test('a newer Discovery selection survives an older Home completion during rapid navigation', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    for (let visit = 0; visit < 20; visit++) {
+      client.tabs.querySelector('[data-index="0"]').click();
+      expect(client.panel()?.classList.contains('is-active')).toBe(false);
+      expect(client.w.location.hash).toBe('#/home');
+      await vi.advanceTimersByTimeAsync(16);
+      (client.w as any).JellyfinHelperTabs.focus('discovery');
+      const historyLength = client.w.history.length;
+      await vi.advanceTimersByTimeAsync(16);
+      expect(client.panel()?.classList.contains('is-active')).toBe(true);
+      await vi.advanceTimersByTimeAsync(160);
+      expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+      expect(client.tabs.selectedIndex()).toBe(2);
+      expect(client.panel()?.classList.contains('is-active')).toBe(true);
+      expect(client.w.document.querySelectorAll('#panels > .tabContent.is-active')).toHaveLength(1);
+      expect(client.w.history).toHaveLength(historyLength);
+    }
+  });
+
+  test('a host selection without fresh input cannot replace the Discovery route', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const historyLength = client.w.history.length;
+    client.tabs.selectedIndex(0);
+    await settle();
+    expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+    expect(client.tabs.selectedIndex()).toBe(2);
+    expect(client.panel()?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
+  });
+
+  test.each([0, 1])('native destination %s repairs an older Discovery completion without adding history', async index => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    client.tabs.querySelector('[data-index="' + index + '"]').click();
+    await settle();
+    const historyLength = client.w.history.length;
+    // emby-tabs writes its captured index before dispatching a delayed completion.
+    client.tabs.selectedTabIndex = 2;
+    client.tabs.dispatchEvent(new client.w.CustomEvent('tabchange', { detail: { selectedTabIndex: 2, previousIndex: index } }));
+    await settle();
+    expect(client.w.location.hash).toBe(index === 0 ? '#/home' : '#/home?tab=1');
+    expect(client.tabs.selectedIndex()).toBe(index);
+    expect(client.panel()?.classList.contains('is-active')).toBe(false);
+    expect(client.w.document.querySelector('#panels > [data-index="' + index + '"]')?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
+  });
+
+  test('history restoration survives overlapping tab completions without rewriting the destination', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    client.tabs.querySelector('[data-index="0"]').click();
+    await vi.advanceTimersByTimeAsync(16);
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await vi.advanceTimersByTimeAsync(16);
+    const historyLength = client.w.history.length;
+    client.w.history.back();
+    await vi.advanceTimersByTimeAsync(16);
+    expect(client.w.location.hash).toBe('#/home');
+    client.w.history.forward();
+    await settle();
+    expect(client.w.location.hash).toBe('#/home?tab=2&jfhTab=discovery');
+    expect(client.tabs.selectedIndex()).toBe(2);
+    expect(client.panel()?.classList.contains('is-active')).toBe(true);
+    expect(client.w.history).toHaveLength(historyLength);
+  });
+
+  test('logout removes all cached copies and rejects header controls restored later on the login page', async () => {
+    const client = clientDocument({ modern });
+    await settle();
+    const original = client.entry()!;
+    const copies = Array.from({ length: 3 }, () => original.cloneNode(true) as HTMLElement);
+    copies.forEach(copy => client.w.document.body.appendChild(copy));
+    client.setSession('', '');
+    client.route('#/login.html');
+    await settle();
+    expect(client.w.document.querySelectorAll('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveLength(0);
+    client.w.document.body.appendChild(copies[0]);
+    await settle();
+    expect(client.w.document.querySelectorAll('#jfh-tab-btn-discovery, #jfh-tab-link-discovery')).toHaveLength(0);
+  });
+
+  test('a stylesheet becoming ready mounts Discovery without another route change', async () => {
+    const client = clientDocument({ modern });
+    const root = client.w.document.getElementById('panels')!;
+    let ready = false;
+    Object.defineProperty(root, 'offsetParent', { get: () => ready ? client.w.document.body : null });
+    await settle();
+    expect(client.entry()).toBeNull();
+    ready = true;
+    const stylesheet = client.w.document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    client.w.document.head.appendChild(stylesheet);
+    stylesheet.dispatchEvent(new client.w.Event('load'));
+    await settle();
+    expect(client.entry()).not.toBeNull();
+  });
+
   test('logout removes every entry and its empty sidebar section without a compass click', async () => {
     const client = clientDocument({ modern });
     await settle();
@@ -352,14 +485,26 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
       const previous = await openDialog(client, dialog);
       if (transition === 'token') client.setSession('a', 'replacement-token');
       else client.replaceApiClient();
-      expect(previous.overlay.isConnected).toBe(true);
+      expect(previous.overlay.isConnected).toBe(transition === 'client');
       previous.action.click();
+      if (transition === 'client') client.w.document.dispatchEvent(new client.w.Event('viewshow'));
       await settle();
       expect(client.requests().filter(request => request.type === 'POST')).toHaveLength(0);
       expect(client.w.document.querySelector('.jfh-discovery-toast')).toBeNull();
       expect(previous.overlay.isConnected).toBe(false);
     });
   }
+});
+
+test.each(['#/login', '#/login.html', '#!/login.html', '#/selectserver.html', '#/addserver.html'])('a retained identity cannot advertise Discovery on %s', async route => {
+  const client = clientDocument({ modern: true });
+  await settle();
+  expect(client.entry()).not.toBeNull();
+  client.route(route);
+  await settle();
+  expect(client.api.getCurrentUserId()).toBe('a');
+  expect(client.entry()).toBeNull();
+  expect(client.panel()).toBeNull();
 });
 
 test('late API initialization remains supported without a global Events object', async () => {
@@ -506,6 +651,31 @@ test('the sidebar is restored when its entire drawer is replaced', async () => {
   expect(replacement.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
 });
 
+test('the first login moves Discovery into a drawer whose Home href becomes ready later without refresh', async () => {
+  const client = clientDocument({ modern: true, hash: '#/login', initialUser: '' });
+  const drawer = client.w.document.createElement('div');
+  drawer.className = 'MuiDrawer-paper';
+  drawer.innerHTML = '<ul class="MuiList-root"><li><a href="#">Home</a></li></ul>';
+  client.w.document.body.appendChild(drawer);
+  await settle();
+  expect(client.w.document.querySelector('.jfhelper-nav-discovery')).toBeNull();
+  client.setSession('a');
+  client.route('#/home');
+  await settle();
+  expect(client.w.document.querySelector('.mainDrawer-scrollContainer .jfhelper-nav-discovery')).not.toBeNull();
+  const before = client.ownRequests();
+  drawer.querySelector('a')!.setAttribute('href', '#/home');
+  await settle();
+  expect(drawer.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
+  expect(client.w.document.querySelector('.mainDrawer-scrollContainer .jfhelper-nav-discovery')).toBeNull();
+  expect(client.w.document.querySelectorAll('.jfhelper-nav-discovery')).toHaveLength(1);
+  expect(client.ownRequests()).toBe(before);
+  client.setSession('', '');
+  client.route('#/login');
+  await settle();
+  expect(drawer.querySelector('.jfhelper-nav-discovery')).toBeNull();
+});
+
 test('navigation moves to the modern drawer and returns to the legacy drawer when it unmounts', async () => {
   const client = clientDocument({ modern: true });
   await settle();
@@ -543,6 +713,27 @@ test('modern navigation ignores unrelated lists and preserves other section acti
   window.history.replaceState(null, '', '#/login');
   ui.injectNavigation();
   expect(document.querySelector('.jfhelper-nav-discovery')).toBeNull();
+});
+
+test('modern sidebar uses a short localized label without inherited legacy spacing classes', async () => {
+  const client = clientDocument({ modern: true, responses: {
+    [translationsPath]: () => Promise.resolve({ discoveryNavigationTitle: 'Entdecken' }),
+  } });
+  const drawer = client.w.document.createElement('div');
+  drawer.className = 'MuiDrawer-paper';
+  drawer.innerHTML = '<ul class="MuiList-root"><li><a href="#/home">Home</a></li></ul>';
+  client.w.document.body.appendChild(drawer);
+  await settle();
+  const navigation = drawer.querySelector('.jfhelper-nav-discovery')!;
+  expect(navigation.textContent).toBe('exploreEntdecken');
+  expect(navigation.getAttribute('aria-label')).toBe('Entdecken');
+  expect(navigation.querySelector('.navMenuOptionIcon, .navMenuOptionText')).toBeNull();
+  expect(navigation.querySelector('.jfh-discovery-navigation-icon')).not.toBeNull();
+  expect(navigation.querySelector('.jfh-discovery-navigation-text')?.textContent).toBe('Entdecken');
+  expect(drawer.querySelector('.jfh-discovery-sidebar-heading')?.textContent).toBe('Jellyfin Helper');
+  const style = client.w.getComputedStyle(navigation);
+  expect(style.display).toBe('grid');
+  expect(style.gridTemplateColumns.replaceAll(' ', '')).toContain('minmax(0,1fr)');
 });
 
 test('request ownership includes the token and API client as well as the user', () => {

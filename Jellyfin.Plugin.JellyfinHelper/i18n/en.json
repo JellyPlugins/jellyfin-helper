@@ -345,6 +345,7 @@
   "syncPlaylistDisabledHint": "Set Recommendations to 'Activate' to enable this option.",
   "recsAndMore": "and {0} more…",
   "discoveryTitle": "Discover New Content",
+  "discoveryNavigationTitle": "Discover",
   "discoveryTabTitle": "✨ Discover",
   "discoverySetupHint": "Appears on the home page automatically. Reload once after enabling. No external plugins required.",
   "discoveryTabUnavailable": "Discovery is not available right now. Please try again later.",

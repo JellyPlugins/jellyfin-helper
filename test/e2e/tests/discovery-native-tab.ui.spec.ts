@@ -115,6 +115,30 @@ async function clickHome(page: Page): Promise<void> {
   await page.locator('.headerTabs button').filter({ visible: true }).first().click();
 }
 
+async function openSidebar(page: Page, modern: boolean) {
+  const drawer = page.locator(modern ? '.MuiDrawer-paper' : '.mainDrawer').filter({ visible: true });
+  if (modern) {
+    // User Menu is a different control; the modern drawer only exists below the desktop breakpoint.
+    const toggle = page.getByRole('button', { name: 'Open Menu', exact: true });
+    await expect(drawer.or(toggle).first(), 'Jellyfin must expose its main drawer or its exact opening control').toBeVisible({ timeout: 15_000 });
+    if (await drawer.count() === 0) {
+      await expect(toggle).toHaveCount(1);
+      await toggle.click({ timeout: 15_000 });
+    }
+  } else {
+    await page.locator('.mainDrawerButton').filter({ visible: true }).click({ timeout: 15_000 });
+  }
+  await expect(page.locator('#app-user-menu'), 'opening the sidebar must not open the user menu').toBeHidden();
+  await expect(drawer, 'exactly one main drawer must be open').toHaveCount(1);
+  await expect(drawer).toBeInViewport({ ratio: 0.9 });
+  await expect(drawer.locator('a[href="#/home"]'), 'the open drawer must contain Jellyfin navigation').toBeVisible();
+  const navigation = drawer.locator('.jfhelper-nav-discovery').filter({ visible: true });
+  await expect(navigation, 'Discovery must be present in the active drawer').toHaveCount(1, { timeout: 15_000 });
+  await expect(page.locator('.jfhelper-nav-discovery').filter({ visible: true })).toHaveCount(1);
+  await expect(navigation).toBeVisible();
+  return navigation;
+}
+
 test.describe('Discovery native tab (home page)', () => {
   // The ui-setup project enables discovery access once, but subsequent configuration saves (via API or Settings-tab) overwrite this with `DiscoveryUserAccessEnabled=false`,
   // causing a 403 during the home page mount and render assertion timeouts. Re-assert it here immediately before the spec runs, so a setup race fails loudly.
@@ -166,6 +190,77 @@ test.describe('Discovery native tab (home page)', () => {
     await page.goForward();
     await expect(page).toHaveURL(/jfhTab=discovery/);
     await expectDiscoveryRendered(page);
+  });
+
+  async function expectCleanLoginDiscovery(page: Page, modern: boolean, useSidebar: boolean) {
+    const auth = loadAuth();
+    const user = auth.normalUser ?? auth;
+    const password = auth.normalUser
+      ? process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!'
+      : process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
+    const base = auth.baseUrl.replace(/\/$/, '');
+    await page.goto(`${base}/web/index.html`, { waitUntil: 'domcontentloaded' });
+    const login = page.locator('#loginPage').filter({ visible: true });
+    const username = login.locator('#txtManualName');
+    const userCards = login.locator('#divUsers .card');
+    const addServer = page.locator('#selectServerPage .btnAddServer').filter({ visible: true });
+    const serverHost = page.locator('#txtServerHost').filter({ visible: true });
+    await expect.poll(async () => {
+      if (await username.isVisible() || await userCards.first().isVisible()) return 'login';
+      if (await serverHost.isVisible()) return 'server-address';
+      if (await addServer.isVisible()) return 'server-selection';
+      return 'loading';
+    }, { timeout: 15_000, message: 'Jellyfin must expose its initial connection or login screen' }).not.toBe('loading');
+    if (await addServer.isVisible()) {
+      await addServer.click({ timeout: 15_000 });
+      await expect(serverHost).toBeEditable({ timeout: 15_000 });
+    }
+    if (await serverHost.isVisible()) {
+      await expect(serverHost).toBeEditable();
+      await serverHost.fill(base, { timeout: 15_000 });
+      await page.locator('.addServerForm .button-submit').filter({ visible: true }).click({ timeout: 15_000 });
+    }
+    await expect(login).toBeVisible({ timeout: 15_000 });
+    await expect.poll(async () => await username.isVisible() || await userCards.first().isVisible(), {
+      timeout: 15_000, message: 'Jellyfin must show either its manual login form or its user choices',
+    }).toBe(true);
+    if (!await username.isVisible()) await login.locator('.btnManual').click({ timeout: 15_000 });
+    await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery')).toHaveCount(0);
+    await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(0);
+    await expect(username).toBeEditable();
+    await username.fill(user.userName, { timeout: 15_000 });
+    await login.locator('#txtManualPassword').fill(password, { timeout: 15_000 });
+    const [authentication] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname.toLowerCase().endsWith('/users/authenticatebyname') && response.request().method() === 'POST', { timeout: 15_000 }),
+      login.locator('.manualLoginForm .button-submit').click({ timeout: 15_000 }),
+    ]);
+    expect(authentication.ok(), 'the interactive login must be accepted by Jellyfin').toBe(true);
+    await expect(page).toHaveURL(/#\/home(?:\.html)?(?:\?|$)/);
+    await expect(discoveryEntry(page)).toHaveCount(1);
+    if (useSidebar) {
+      // Check the drawer before any native-tab activation can conceal a missing first-login entry.
+      const navigation = await openSidebar(page, modern);
+      await expect(navigation).toHaveAttribute('aria-label', 'Discover');
+      await navigation.click();
+      await expectDiscoveryRendered(page);
+    }
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await page.evaluate(() => (window as any).Dashboard.logout());
+    await expect(page).toHaveURL(/#\/(?:login|selectserver)/);
+    await expect(page.locator('#jfh-tab-link-discovery, #jfh-tab-btn-discovery, #jfh-tab-panel-discovery')).toHaveCount(0);
+    await expect(page.locator('.jfhelper-nav-discovery, .jellyfinHelperSection')).toHaveCount(0);
+  }
+
+  test('a clean browser session gets Discovery after interactive login without refreshing', async ({ page }, testInfo) => {
+    const modern = testInfo.project.metadata.discoveryLayout === 'modern';
+    await expectCleanLoginDiscovery(page, modern, !modern);
+  });
+
+  test('a clean browser session gets sidebar Discovery after interactive login without refreshing', async ({ page }, testInfo) => {
+    // Set the drawer viewport before loading Jellyfin so resize cannot repair a missed login initialization.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectCleanLoginDiscovery(page, testInfo.project.metadata.discoveryLayout === 'modern', true);
   });
 
   // F5 guard: with the Discovery tab active, a hard reload restores the
@@ -280,6 +375,34 @@ test.describe('Discovery native tab (home page)', () => {
     await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
     await expect(page.locator('#jfh-tab-panel-discovery .jfh-discovery-grid')).toHaveCount(0);
   });
+
+  for (const width of [320, 390, 640]) {
+    test('sidebar navigation stays compact inside a ' + width + 'px viewport', async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 844 });
+      await openHome(page);
+      await expect(discoveryEntry(page)).toHaveCount(1);
+      const modern = testInfo.project.metadata.discoveryLayout === 'modern';
+      const navigation = await openSidebar(page, modern);
+      await expect(navigation).toHaveAttribute('aria-label', 'Discover');
+      await navigation.evaluate(element => { (element as HTMLElement).style.fontSize = '150%'; });
+      await expect.poll(async () => {
+        const box = await navigation.boundingBox();
+        return box ? box.x : -Infinity;
+      }).toBeGreaterThanOrEqual(-1);
+      const row = await navigation.boundingBox();
+      expect(row).not.toBeNull();
+      expect(row!.x + row!.width).toBeLessThanOrEqual(width + 1);
+      if (modern) {
+        const geometry = await navigation.evaluate(element => {
+          const icon = element.querySelector('.jfh-discovery-navigation-icon')!.getBoundingClientRect();
+          const text = element.querySelector('.jfh-discovery-navigation-text')!.getBoundingClientRect();
+          return { gap: text.left - icon.right, fontSize: Number.parseFloat(getComputedStyle(element).fontSize) };
+        });
+        expect(geometry.gap).toBeGreaterThanOrEqual(0);
+        expect(geometry.gap).toBeLessThanOrEqual(geometry.fontSize);
+      }
+    });
+  }
 
   test('revoking access removes previously rendered cards and entry points', async ({ page }) => {
     const admin = await apiContext(loadAuth());
@@ -425,9 +548,24 @@ test.describe('Discovery native tab - logged out', () => {
 });
 
 test.describe('Discovery native tab - sidebar entry point', () => {
-  test('renders the sidebar navigation entry on the home page', async ({ page }) => {
+  // Modern desktop uses header navigation, not a drawer.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('opens Discovery from the first Home sidebar without activating the native tab first', async ({ page }, testInfo) => {
     await openHome(page);
-    await openDiscovery(page);
+    const navigation = await openSidebar(page, testInfo.project.metadata.discoveryLayout === 'modern');
+    await navigation.click();
+    await expectDiscoveryRendered(page);
+    await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
+  });
+
+  test('a drawer mounted after desktop navigation opens Discovery without refreshing', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openHome(page);
+    await expect(discoveryEntry(page)).toHaveCount(1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const navigation = await openSidebar(page, testInfo.project.metadata.discoveryLayout === 'modern');
+    await navigation.click();
     await expectDiscoveryRendered(page);
     await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
   });
