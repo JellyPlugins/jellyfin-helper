@@ -98,25 +98,25 @@
                     <span class="material-icons">explore</span>
                 </button>
             </div>
-            <div is="emby-tabs" id="demoHomeTabs">
-                <div class="emby-tabs-slider" role="tablist">
-                    <button type="button" class="emby-tab-button emby-tab-button-active" data-index="0"><div class="emby-button-foreground">Home</div></button>
-                    <button type="button" class="emby-tab-button" data-index="1"><div class="emby-button-foreground">Favorites</div></button>
-                </div>
-                <div class="tabs-container">
-                    <div class="tabContent pageTabContent is-active" data-index="0"></div>
-                    <div class="tabContent pageTabContent" data-index="1"></div>
-                </div>
-            </div>
             <div class="jellyfinhelper discovery"></div>
         </div>
     </div>
 
     <script src="js/mock-data.js"></script>
-    <script src="js/native-tabs.js"></script>
     <script>window.location.hash = '#/home';</script>
+    <script>
+    // Minimal shim so the shipped discovery-sidebar.js can register and render
+    // its tab without the Custom Tabs / File Transformation plugins.
+    window.JellyfinHelperTabs = {
+        register: function (id, title, onMount) {
+            var panel = document.querySelector('.jellyfinhelper.discovery');
+            if (panel && typeof onMount === 'function') onMount(panel);
+        },
+        unregister: function () {},
+        focus: function () { return true; }
+    };
+    </script>
     <script src="js/discovery-sidebar.js"></script>
-    <style>#demoHomeTabs { position: absolute; left: -9999px; top: 0; }</style>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
@@ -135,31 +135,13 @@
     }
     document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
     document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
-    var demoTabs = document.getElementById('demoHomeTabs');
-    if (demoTabs) {
-        demoTabs.selectedIndex = function (index) {
-            if (typeof index === 'number') { demoTabs._selected = index; return index; }
-            return demoTabs._selected || 0;
-        };
-        demoTabs.refresh = function () {};
-    }
     var compass = document.getElementById('demoDiscoveryCompass');
     if (compass) {
         compass.addEventListener('click', function () {
-            if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
+            // Demo-only: re-render by reloading the view.
+            switchDemoView('discovery');
         });
     }
-    setTimeout(function () {
-        if (window.JellyfinHelperTabs) window.JellyfinHelperTabs.focus('discovery');
-        var panel = document.getElementById('jfh-tab-panel-discovery');
-        var target = document.querySelector('#demoViewDiscovery .jellyfinhelper.discovery');
-        if (panel && target && !target.hasChildNodes()) {
-            target.appendChild(panel);
-            panel.style.position = 'static';
-            panel.style.left = 'auto';
-        }
-        if (panel) panel.classList.add('is-active');
-    }, 4000);
 
     fetch('i18n/en.json')
         .then(function(r) { return r.json(); })
