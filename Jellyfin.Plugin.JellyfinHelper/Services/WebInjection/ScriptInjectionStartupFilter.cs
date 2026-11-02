@@ -70,11 +70,13 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
     /// <returns>A task that completes when the response has been written.</returns>
     internal async Task InvokeAsync(HttpContext context, Func<Task> next)
     {
-        if (!IsIndexRequest(context.Request) || !IsDiscoveryEnabled())
+        if (!IsIndexRequest(context.Request) || !_configurationService.IsInitialized)
         {
             await next().ConfigureAwait(false);
             return;
         }
+
+        var discoveryEnabled = IsDiscoveryEnabled();
 
         // A compressed or partial response cannot be rewritten safely, so ask the static handler
         // for the complete, plain-text document instead.
@@ -109,7 +111,14 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
         }
 
         var html = await ReadBodyAsync(buffer, context.RequestAborted).ConfigureAwait(false);
-        var body = InjectScript(html);
+        var body = TransformIndexHtml(html, discoveryEnabled);
+        if (string.Equals(html, body, StringComparison.Ordinal))
+        {
+            buffer.Position = 0;
+            await buffer.CopyToAsync(originalBody, context.RequestAborted).ConfigureAwait(false);
+            return;
+        }
+
         var bytes = Encoding.UTF8.GetBytes(body);
 
         context.Response.ContentType = "text/html;charset=utf-8";
@@ -180,13 +189,13 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
         }
     }
 
-    private string InjectScript(string html)
+    private string TransformIndexHtml(string html, bool discoveryEnabled)
     {
         try
         {
-            if (IndexHtmlTransformer.ContainsScriptTag(html))
+            if (!discoveryEnabled)
             {
-                return html;
+                return IndexHtmlTransformer.Remove(html);
             }
 
             if (!IndexHtmlTransformer.TryInject(html, DiscoveryScriptTag.Build(_configurationService.PluginVersion), out var injected))

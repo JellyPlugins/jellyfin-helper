@@ -56,7 +56,7 @@
   </PropertyGroup>
 
   <Target Name="VitestUi" AfterTargets="VSTest" Condition="'$(RunVitest)' == 'true' And Exists('$(UiTestDir)/node_modules')">
-    <Exec Command="npm --prefix &quot;$(UiTestDir)&quot; run test:coverage" />
+    <Exec Command="npm --prefix &quot;$(UiTestDir)&quot; run test:coverage -- $(VitestArguments)" />
   </Target>
 
 </Project>

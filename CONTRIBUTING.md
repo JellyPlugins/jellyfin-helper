@@ -145,6 +145,13 @@ full config form and set `DiscoveryUserAccessEnabled=false` mid-phase, so
 stops 403ing. Turning a trampled-access setup race into a loud failure instead of
 a silent mount timeout.
 
+The native Discovery specs explicitly select both `desktop-legacy` and `modern`
+layouts. They exercise logout through Jellyfin's production logout path, retained
+panel refresh, access revocation, Home reload, and navigation from a cold dashboard.
+The isolated client lifecycle tests run both shipped scripts together and cover
+delayed responses, account replacement, and visibility changes without manually
+calling their internal bootstrap functions.
+
 **No version pinning. Always latest, by design.** CI and the nightly run resolve
 the newest published release of the official Trakt plugin on every run. This is
 intentional: Jellyfin Helper must stay compatible with the latest plugin, and the
@@ -297,6 +304,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── IndexHtmlTransformerTests.cs    # Idempotent insert/remove, missing body anchor, version-independent removal
 │   │   ├── LegacyIndexHtmlCleanupTests.cs  # Best-effort removal of tags written by older versions, no throw on IO errors
 │   │   ├── ScriptInjectionStartupFilterTests.cs # GET/HTML/200 gates, body buffering, header stripping, never throws
+│   │   ├── ScriptInjectionStaticFileTests.cs # Default file routing, relative script URLs, read only upgrades, conditional requests
 │   ├── FolderBrowser/             # Server-side folder browsing tests
 │   │   ├── FolderBrowserDtoTests.cs        # DTO defaults, mutability, reference-equality (guards against accidental record conversion)
 │   │   ├── FolderBrowserServiceTests.cs    # GetRoots per-OS, ValidatePath (traversal/null-byte/access-denied), GetChildren (symlinks)

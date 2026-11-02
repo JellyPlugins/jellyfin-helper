@@ -123,10 +123,10 @@ describe('discovery pure helpers', () => {
     expect(ui.discoveryGeneratedAt(null)).toBe(0);
   });
 
-  test('discoveryVisibleKey fingerprints the visible id/type set', () => {
+  test('discoveryVisibleKey fingerprints the visible recommendation payload', () => {
     expect(
       ui.discoveryVisibleKey({ Recommendations: [{ TmdbId: 1, MediaType: 'movie' }, { TmdbId: 2, MediaType: 'tv' }] }),
-    ).toBe('1:movie|2:tv');
+    ).toBe(JSON.stringify([{ TmdbId: 1, MediaType: 'movie' }, { TmdbId: 2, MediaType: 'tv' }]));
     expect(ui.discoveryVisibleKey({})).toBe('');
     expect(ui.discoveryVisibleKey({ Recommendations: 'nope' })).toBe('');
   });
@@ -1109,7 +1109,7 @@ describe('bootstrap probe handlers', () => {
     expect(ui.getCachedDiscoveryResult()).not.toBeNull();
   });
 
-  test('handleDiscoveryProbe with no results injects styles but not the sidebar nav', () => {
+  test('handleDiscoveryProbe keeps Discovery navigation available with no results', () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({}, { userId: 'u1' });
     window.location.hash = '#/home';
@@ -1118,7 +1118,7 @@ describe('bootstrap probe handlers', () => {
     document.body.appendChild(sidebar);
     ui.handleDiscoveryProbe({ Recommendations: [] }, 'u1');
     expect(document.getElementById('jfhelper-discovery-styles')).not.toBeNull();
-    expect(sidebar.querySelector('.jfhelper-nav-discovery')).toBeNull();
+    expect(sidebar.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
   });
 
   test('handleDiscoveryProbe discards a result from a prior account', () => {
@@ -1353,7 +1353,7 @@ describe('error messages, visible key, and reasons', () => {
     expect(ui.getUserFriendlyErrorMessage(input)).toBe(expected);
   });
 
-  test('discoveryVisibleKey joins ids and types, and bails on non-arrays', () => {
+  test('discoveryVisibleKey includes incomplete cards and rejects non-arrays', () => {
     const ui = freshDiscoveryHelpers();
     expect(ui.discoveryVisibleKey(null)).toBe('');
     expect(ui.discoveryVisibleKey({ Recommendations: 'nope' })).toBe('');
@@ -1364,7 +1364,7 @@ describe('error messages, visible key, and reasons', () => {
         { MediaType: 'tv' },
         { TmdbId: 22 },
       ],
-    })).toBe('11:movie|:tv|22:');
+    })).toBe(JSON.stringify([{ TmdbId: 11, MediaType: 'movie' }, { MediaType: 'tv' }, { TmdbId: 22 }]));
   });
 
   test('formatReason handles empty, templates, phrases, and raw fallbacks', () => {
@@ -2001,7 +2001,7 @@ describe('injectNavigation + focusDiscoveryTab', () => {
     (globalThis as any).Emby = { Page: { show } };
     ui.injectNavigation();
     (sidebar.querySelector('a') as HTMLElement).click();
-    expect(show).toHaveBeenCalledWith('/home.html');
+    expect(show).toHaveBeenCalledWith('/home');
     setHash('#/home');
     await vi.advanceTimersByTimeAsync(800);
     expect(registry.focus).toHaveBeenCalledTimes(2);
@@ -2647,7 +2647,7 @@ describe('bootstrap + tab registration', () => {
     expect(calls.some((c) => c.url === '/JellyfinHelper/Discovery/My')).toBe(true);
   });
 
-  test('an empty probe keeps the gate open, skips the sidebar, and re-probes', async () => {
+  test('an empty probe registers navigation without repeating the availability probe', async () => {
     setHash('#/home');
     const ui = freshDiscoveryHelpers();
     const calls = ajaxRouter({
@@ -2660,11 +2660,11 @@ describe('bootstrap + tab registration', () => {
     ui.bootstrapDiscovery();
     await flush();
     expect(registry.register).toHaveBeenCalledTimes(1);
-    expect(sidebar.querySelector('a')).toBeNull();
+    expect(sidebar.querySelector('a')).not.toBeNull();
     const first = calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length;
     ui.bootstrapDiscovery();
     await flush();
-    expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBeGreaterThan(first);
+    expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBe(first);
   });
 
   test('a login-page bootstrap tears down the entry points', async () => {
@@ -2800,7 +2800,8 @@ describe('bootstrap + tab registration', () => {
     ui.bootstrapDiscovery();
     await flush();
     expect(calls.filter((c) => c.url === '/JellyfinHelper/Discovery/My').length).toBeGreaterThan(afterFirst);
-    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.unregister).toHaveBeenCalledWith('discovery');
+    expect(registry.register).toHaveBeenCalledTimes(2);
   });
 
   test('a late Seerr URL re-renders the mounted panel once it arrives', async () => {
@@ -3009,4 +3010,3 @@ describe('discovery residual branch fallbacks', () => {
     expect(ui.extractErrorMessage({ responseText: '{"Detail":"nope"}' })).toBe('');
   });
 });
-

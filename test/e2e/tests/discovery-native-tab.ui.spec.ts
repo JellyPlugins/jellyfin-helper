@@ -7,12 +7,18 @@
  * access never gets an entry point at all.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { apiContext, normalUserContext, loadAuth, p } from '../setup/api-client.ts';
+import { randomUUID } from 'node:crypto';
+import { apiContext, authHeader, normalUserContext, loadAuth, p } from '../setup/api-client.ts';
 import { disableDiscoveryUserAccess, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 
 // Only the Trakt layout spec needs the official plugin: the Trakt probe reports
 // enabled only when that plugin is present.
 const OFFICIAL_TRAKT = process.env.JFH_E2E_EXTERNAL_PLUGINS === '1';
+
+test.beforeEach(async ({ page }, testInfo) => {
+  const layout = String(testInfo.project.metadata.discoveryLayout ?? 'modern');
+  await page.addInitScript(value => localStorage.setItem('layout', value), layout);
+});
 
 interface Cred {
   base: string;
@@ -209,6 +215,97 @@ test.describe('Discovery native tab (home page)', () => {
     expect(ownership.panelClasses, 'the panel is a native Jellyfin tab panel').toContain('tabContent');
     expect(ownership.panelClasses).toContain('pageTabContent');
     expect(ownership.buttons + ownership.links, 'exactly one entry point exists').toBe(1);
+  });
+
+  test('signing out removes Discovery without clicking its entry again', async ({ page }) => {
+    const auth = loadAuth();
+    const user = auth.normalUser ?? auth;
+    const password = auth.normalUser
+      ? process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!'
+      : process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
+    // A separate device session prevents logout from invalidating credentials shared by other tests.
+    const response = await page.request.post(`${auth.baseUrl}/Users/AuthenticateByName`, {
+      headers: { Authorization: authHeader().replace('jfh-e2e-device', randomUUID()) },
+      data: { Username: user.userName, Pw: password },
+    });
+    expect(response.ok()).toBeTruthy();
+    const session = await response.json() as { AccessToken: string; User: { Id: string } };
+    await openHomeAs(page, session.AccessToken, session.User.Id);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await page.evaluate(() => (window as any).Dashboard.logout());
+    await expect(page).toHaveURL(/#\/(?:login|selectserver)/);
+    await expect(page.locator('#jfh-tab-btn-discovery, #jfh-tab-link-discovery, #jfh-tab-panel-discovery')).toHaveCount(0);
+    await expect(page.locator('.jfhelper-nav-discovery, .jellyfinHelperSection')).toHaveCount(0);
+  });
+
+  test('selecting Home clears the Discovery deep link before reload', async ({ page }) => {
+    await openHome(page);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await clickHome(page);
+    await expectDiscoveryHidden(page);
+    await expect(page).not.toHaveURL(/jfhTab=discovery/);
+    await page.reload();
+    await expect(discoveryEntry(page)).toHaveCount(1);
+    await expectDiscoveryHidden(page);
+  });
+
+  test('reopening Discovery updates card details from a fresh response', async ({ page }) => {
+    let title = 'Before refresh';
+    await page.route('**/JellyfinHelper/Discovery/My', route => route.fulfill({
+      json: { Recommendations: [{ TmdbId: 123, MediaType: 'movie', Title: title, Score: 0.8, Genres: [] }] },
+    }));
+    await openHome(page);
+    await openDiscovery(page);
+    await expect(page.locator('#jfh-tab-panel-discovery .jfh-discovery-card-title')).toHaveText(title);
+    await clickHome(page);
+    await expectDiscoveryHidden(page);
+    title = 'After refresh';
+    await openDiscovery(page);
+    await expect(page.locator('#jfh-tab-panel-discovery .jfh-discovery-card-title')).toHaveText(title);
+  });
+
+  test('an empty result still exposes the available Discovery navigation', async ({ page }) => {
+    await page.route('**/JellyfinHelper/Discovery/My', route => route.fulfill({ json: { Recommendations: [] } }));
+    await openHome(page);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
+    await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(1);
+    await expect(page.locator('#jfh-tab-panel-discovery .jfh-discovery-grid')).toHaveCount(0);
+  });
+
+  test('revoking access removes previously rendered cards and entry points', async ({ page }) => {
+    const admin = await apiContext(loadAuth());
+    try {
+      await openHome(page);
+      await openDiscovery(page);
+      await expectDiscoveryRendered(page);
+      await clickHome(page);
+      await expectDiscoveryHidden(page);
+      await disableDiscoveryUserAccess(admin);
+      const denied = page.waitForResponse(response =>
+        new URL(response.url()).pathname === p('Discovery/My') && response.status() === 403);
+      await discoveryEntry(page).click();
+      await denied;
+      await expect(page.locator('#jfh-tab-btn-discovery, #jfh-tab-link-discovery, #jfh-tab-panel-discovery')).toHaveCount(0);
+      await expect(page.locator('.jfhelper-nav-discovery')).toHaveCount(0);
+    } finally {
+      await ensureDiscoveryConfigured(admin);
+      await admin.dispose();
+    }
+  });
+
+  test('a cold dashboard navigation to Home initializes Discovery', async ({ page }) => {
+    const auth = loadAuth();
+    const base = await openHomeAs(page, auth.token, auth.userId);
+    await page.goto(`${base}/web/index.html#/dashboard`);
+    await expect(page).toHaveURL(/#\/dashboard/);
+    await page.waitForFunction(() => typeof (window as any).Emby?.Page?.show === 'function');
+    await page.evaluate(() => (window as any).Emby.Page.show('/home'));
+    await expect(discoveryEntry(page)).toHaveCount(1);
+    await openDiscovery(page);
+    await expectDiscoveryRendered(page);
   });
 });
 

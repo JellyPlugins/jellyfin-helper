@@ -510,7 +510,6 @@ describe('native tabs: header fallback', () => {
     ui.ensureInjected();
     const btn = document.getElementById('jfh-tab-btn-a')!;
     layout(btn);
-    vi.advanceTimersByTime(1100);
     ui.ensureInjected();
     expect(document.getElementById('jfh-tab-link-a')).toBeNull();
     expect(document.getElementById('jfh-native-tabs-group')).toBeNull();
@@ -690,6 +689,93 @@ describe('native tabs: focus and unregister', () => {
   test('unregister tolerates an unknown id', () => {
     setupHome();
     expect(() => ui.unregister('missing')).not.toThrow();
+  });
+});
+
+describe('native tabs: activation and navigation', () => {
+  test('a delayed selection for an unregistered tab restores Home', () => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome();
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    document.getElementById('jfh-tab-panel-a')!.classList.add('is-active');
+    ui.unregister('a');
+    setup.selectedIndex(2);
+    expect(ui.repairRemovedTabSelection(setup.tabs, 2)).toBe(0);
+    expect(setup.selectedIndex()).toBe(0);
+    expect(ui.repairRemovedTabSelection(setup.tabs, 0)).toBe(0);
+    setup.selectedIndex(2);
+    setHash('#/login');
+    expect(ui.repairRemovedTabSelection(setup.tabs, 2)).toBe(2);
+  });
+
+  test('activation runs once per visit and again when a retained panel is reopened', () => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome();
+    const onMount = vi.fn();
+    const onActivate = vi.fn();
+    ui.register('a', 'Tab a', onMount, 'explore', onActivate);
+    ui.ensureInjected();
+    const panel = document.getElementById('jfh-tab-panel-a')!;
+    panel.classList.add('is-active');
+    ui.syncActiveEntry(setup.root);
+    ui.syncActiveEntry(setup.root);
+    expect(onMount).toHaveBeenCalledTimes(1);
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    panel.classList.remove('is-active');
+    ui.syncActiveEntry(setup.root);
+    panel.classList.add('is-active');
+    ui.syncActiveEntry(setup.root);
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    document.body.appendChild(panel);
+    ui.syncActiveEntry(setup.root);
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    setup.root.appendChild(panel);
+    ui.syncActiveEntry(setup.root);
+    expect(onActivate).toHaveBeenCalledTimes(3);
+    setHash('#/nowhere');
+    ui.ensureInjected();
+    setHash('#/home');
+    ui.syncActiveEntry(setup.root);
+    expect(onActivate).toHaveBeenCalledTimes(4);
+    ui.unregister('a');
+    ui.syncActiveEntry(setup.root);
+  });
+
+  test.each([0, 1])('selecting native tab %s creates a history entry without the Discovery marker', index => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a&filter=keep' });
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    setup.selectedIndex(index);
+    const before = window.history.length;
+    ui.syncSelectedTabHash(setup.tabs, index);
+    expect(window.location.hash).toBe(index === 0 ? '#/home?filter=keep' : '#/home?tab=1&filter=keep');
+    expect(window.history.length).toBe(before + 1);
+    ui.syncSelectedTabHash(setup.tabs, index);
+    expect(window.history.length).toBe(before + 1);
+  });
+
+  test('selection synchronization ignores unavailable controls and preserves the owned tab route', () => {
+    const ui = freshNativeTabsHelpers();
+    const setup = setupHome({ hash: '#/home?tab=2&jfhTab=a' });
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    ui.syncSelectedTabHash(setup.tabs, 2);
+    expect(window.location.hash).toContain('jfhTab=a');
+    ui.syncSelectedTabHash(setup.tabs, Number.NaN);
+    ui.syncSelectedTabHash(setup.tabs, 0);
+    delete (setup.tabs as any).selectedIndex;
+    ui.syncSelectedTabHash(setup.tabs, 0);
+    setup.selectedIndex = makeSelectedIndex(setup.tabs, 0);
+    setHash('#/home');
+    ui.syncSelectedTabHash(setup.tabs, 0);
+    setHash('#/nowhere');
+    ui.syncSelectedTabHash(setup.tabs, 0);
+    setup.tabs.remove();
+    setHash('#/home?tab=2&jfhTab=a');
+    ui.syncSelectedTabHash(setup.tabs, 0);
+    expect(window.location.hash).toContain('jfhTab=a');
   });
 });
 

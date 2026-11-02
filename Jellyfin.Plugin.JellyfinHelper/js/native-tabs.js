@@ -28,7 +28,8 @@
     var watchedTabs = null;
     var lastTabStripInput = 0;
     var pendingFocusId = null;
-    var visibilityCache = {};
+    var activeEntry = null;
+    var activePanel = null;
 
     function isOnHomePage() {
         var hash = window.location.hash;
@@ -282,15 +283,8 @@
         }
     }
 
-    function isTabButtonVisible(btn, id) {
-        var cached = visibilityCache[id];
-        var now = Date.now();
-        if (cached?.btn === btn && now - cached.ts < 1000) {
-            return cached.visible;
-        }
-        var visible = btn.offsetParent !== null;
-        visibilityCache[id] = { btn: btn, ts: now, visible: visible };
-        return visible;
+    function isTabButtonVisible(btn) {
+        return btn.offsetParent !== null;
     }
 
     function removeHeaderLink(linkId) {
@@ -325,7 +319,7 @@
         var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
         var linkId = LINK_ID_PREFIX + entry.id;
 
-        if (entry.index == null || (btn && isTabButtonVisible(btn, entry.id))) {
+        if (entry.index == null || (btn && isTabButtonVisible(btn))) {
             removeHeaderLink(linkId);
             return;
         }
@@ -383,9 +377,62 @@
         tabsElem.addEventListener('tabchange', function (e) {
             var picked = Number.parseInt(e.detail?.selectedTabIndex, 10);
             setTimeout(function () {
+                picked = repairRemovedTabSelection(tabsElem, picked);
                 clearStraySelection(tabsElem, picked);
+                syncSelectedTabHash(tabsElem, picked);
+                scheduleInject();
             }, 0);
         });
+    }
+
+    function repairRemovedTabSelection(tabsElem, index) {
+        if (isOnHomePage() && tabsElem.isConnected && index >= 2 && tabsElem.selectedIndex?.() === index
+            && !tabsElem.querySelectorAll('.emby-tab-button')[index]) {
+            // A removed tab can still emit its delayed selection event, so keep the native Home panel selected.
+            tabsElem.selectedIndex(0);
+            return 0;
+        }
+        return index;
+    }
+
+    function syncSelectedTabHash(tabsElem, index) {
+        if (!isOnHomePage() || !tabsElem.isConnected || Number.isNaN(index)
+            || tabsElem.selectedIndex?.() !== index || (hashParam(DEEP_LINK_PARAM) == null && hashParam('tab') == null)) {
+            return;
+        }
+        var entry = entries.find(function (item) { return item.index === index; });
+        if (entry) {
+            return;
+        }
+        var params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        params.delete(DEEP_LINK_PARAM);
+        if (index === 0) {
+            params.delete('tab');
+        } else {
+            params.set('tab', String(index));
+        }
+        var query = params.toString();
+        var hash = homeRoute() + (query ? '?' + query : '');
+        if (hash === window.location.hash) return;
+        history.pushState(history.state, '', window.location.pathname + window.location.search + hash);
+        userPickedHash = hash;
+        appliedDeepLink = null;
+    }
+
+    function syncActiveEntry(root) {
+        var entry = entries.find(function (item) {
+            var panel = document.getElementById(OWN_ID_PREFIX + 'panel-' + item.id);
+            return panel?.parentElement === root && panel.classList.contains('is-active');
+        }) || null;
+        var panel = entry ? document.getElementById(OWN_ID_PREFIX + 'panel-' + entry.id) : null;
+        if (entry === activeEntry && panel === activePanel) {
+            return;
+        }
+        activeEntry = entry || null;
+        activePanel = panel;
+        if (entry && panel?.parentElement === root) {
+            entry.onActivate?.(panel);
+        }
     }
 
     // Jellyfin only clears the previously highlighted tab, so a half applied
@@ -539,6 +586,8 @@
 
     function ensureInjected() {
         if (entries.length === 0 || !isOnHomePage()) {
+            activeEntry = null;
+            activePanel = null;
             return;
         }
 
@@ -580,7 +629,7 @@
                     var fresh = deepLinkHash(entry);
                     if (window.location.hash !== fresh) {
                         rewrittenHash = fresh;
-                        history.replaceState(history.state, '', window.location.pathname + window.location.search + fresh);
+                        history.pushState(history.state, '', window.location.pathname + window.location.search + fresh);
                     }
                 });
 
@@ -609,13 +658,6 @@
         }
         alignSlots(root, 'panel', lastIndex);
 
-        // Read visibility before acting on it so all reads share one layout.
-        entries.forEach(function (entry) {
-            var tabBtn = document.getElementById(OWN_ID_PREFIX + 'btn-' + entry.id);
-            if (tabBtn) {
-                isTabButtonVisible(tabBtn, entry.id);
-            }
-        });
         entries.forEach(ensureDiscoverable);
 
         // emby-tabs caches each tab's width at init and does not watch for new
@@ -627,6 +669,7 @@
 
         syncDeepLink(slider, root);
         applyPendingFocus();
+        syncActiveEntry(root);
     }
 
     function scheduleInject() {
@@ -640,23 +683,31 @@
         });
     }
 
-    function register(id, title, onMount, icon) {
+    function register(id, title, onMount, icon, onActivate) {
         if (!id || findEntry(id)) {
             return;
         }
-        entries.push({ id: id, title: title, onMount: onMount, icon: icon, index: null });
+        entries.push({ id: id, title: title, onMount: onMount, onActivate: onActivate, icon: icon, index: null });
         scheduleInject();
     }
 
     function unregister(id) {
+        if (activeEntry?.id === id) {
+            activeEntry = null;
+            activePanel = null;
+        }
         entries = entries.filter(function (entry) { return entry.id !== id; });
         var btn = document.getElementById(OWN_ID_PREFIX + 'btn-' + id);
-        if (btn) {
-            btn.remove();
-        }
+        var tabsElem = btn?.closest('[is="emby-tabs"]');
         var panel = document.getElementById(OWN_ID_PREFIX + 'panel-' + id);
         if (panel) {
+            if (isOnHomePage() && panel.classList.contains('is-active') && tabsElem?.selectedIndex) {
+                tabsElem.selectedIndex(0);
+            }
             panel.remove();
+        }
+        if (btn) {
+            btn.remove();
         }
         removeHeaderLink(LINK_ID_PREFIX + id);
         if (pendingFocusId === id) {
@@ -685,7 +736,7 @@
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['class', 'hidden']
+            attributeFilter: ['class', 'hidden', 'style']
         });
         window.addEventListener('hashchange', function () {
             if (window.location.hash !== rewrittenHash) {
@@ -697,6 +748,7 @@
         });
         window.addEventListener('popstate', scheduleInject);
         window.addEventListener('pageshow', scheduleInject);
+        window.addEventListener('resize', scheduleInject);
         document.addEventListener('visibilitychange', function () {
             if (!document.hidden) {
                 scheduleInject();
@@ -709,7 +761,8 @@
     window.JellyfinHelperTabs = {
         register: register,
         unregister: unregister,
-        focus: focus
+        focus: focus,
+        refresh: scheduleInject
     };
 
     init();

@@ -48,6 +48,10 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 Explore the full 8-tab admin dashboard and the per-user Discovery tab with realistic sample data.
 No Jellyfin server required.
 
+### Upgrading Discovery from an older version
+
+Remove the old Discovery tab from Custom Tabs settings if its HTML contains `<div class="jellyfinhelper discovery"></div>`. Discovery now has its own native Home tab, so the old configuration is no longer used. Preserve unrelated custom tabs and keep the external plugins they require. If nothing else needs Custom Tabs or File Transformation, you can uninstall them. Reload Jellyfin Web after upgrading.
+
 ---
 
 ## Features

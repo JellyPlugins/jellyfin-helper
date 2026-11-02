@@ -9,7 +9,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Breaking
 
-- **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. If nothing else on your server uses those plugins, you can remove them; leaving them installed is harmless and the tab still aligns with tabs they render.
+- **The Custom Tabs and File Transformation plugins are no longer needed.** The Discovery Home tab and the script injection are now built into the Helper. Remove the old Discovery tab from Custom Tabs settings when upgrading. Keep unrelated custom tabs and the plugins they need, or uninstall those plugins if nothing else uses them.
 - Verified by 94% backend unit test coverage, 97% UI test coverage, and 372 end-to-end Docker tests.
 
 ### Changed
@@ -18,6 +18,10 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **The script is injected at request time.** An `IStartupFilter` middleware patches `GET /web` responses in the plugin's own pipeline, so injection survives Jellyfin web updates and works on read-only installs without writing to the web root.
 - **Setup instructions are gone from Settings.** Discovery works out of the box once the user-access toggle is on, so the copy-paste steps and the copy button were removed and the remaining hint is one line.
 - **Legacy tags are cleaned up.** Tags that older versions wrote to `index.html` are removed on startup, so a stale copy cannot load a second time.
+- **Session changes clear Discovery completely.** Logout and account replacement remove cards, navigation, popups, and cached permissions, and pending responses cannot restore content from an earlier session.
+- **Reopening Discovery refreshes its data.** Retained panels refresh without rebuilding their shell, and selecting Home or Favorites clears the Discovery deep link before reload.
+- **Discovery navigation remains available with empty results.** The sidebar follows feature access rather than result count and moves into the modern drawer when it mounts.
+- **Read-only upgrades are normalized in the served response.** Older script tags are replaced with one current tag, or removed when Discovery access is disabled, even if startup cleanup could not change the file.
 
 ### Tests
 

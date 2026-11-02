@@ -99,7 +99,7 @@ public class ScriptInjectionStartupFilterTests
     }
 
     [Fact]
-    public async Task Invoke_IsIdempotentWhenTheTagIsAlreadyPresent()
+    public async Task Invoke_ReplacesAnOlderTagWithTheCurrentScript()
     {
         var html = "<html><body><script plugin=\"Jellyfin Helper\" version=\"0.9\" src=\"../JellyfinHelper/Discovery/My/script?v=0.9\"></script>\n</body></html>";
         var (context, body) = CreateContext();
@@ -109,8 +109,33 @@ public class ScriptInjectionStartupFilterTests
         await CreateFilter().InvokeAsync(context, () => WriteAsync(context, html));
 
         var served = ReadBody(body);
-        Assert.Equal(html, served);
+        Assert.DoesNotContain("v=0.9", served, StringComparison.Ordinal);
+        Assert.Contains("script?v=1.2.3\" defer", served, StringComparison.Ordinal);
         Assert.Equal(1, CountOccurrences(served, "plugin=\"Jellyfin Helper\""));
+    }
+
+    [Fact]
+    public async Task Invoke_RemovesLegacyTagsWhenDiscoveryIsDisabled()
+    {
+        var html = Shell.Replace("</body>", DiscoveryScriptTag.Build("0.9") + "\n</body>", StringComparison.Ordinal);
+        var (context, body) = CreateContext();
+        context.Response.ContentType = "text/html";
+
+        await CreateFilter(CreateConfig(enabled: false)).InvokeAsync(context, () => WriteAsync(context, html));
+
+        Assert.Equal(Shell, ReadBody(body));
+    }
+
+    [Fact]
+    public async Task Invoke_PreservesTheCurrentTagWithoutChangingTheDocument()
+    {
+        var html = Shell.Replace("</body>", DiscoveryScriptTag.Build("1.2.3") + "\n</body>", StringComparison.Ordinal);
+        var (context, body) = CreateContext();
+        context.Response.ContentType = "text/html";
+
+        await CreateFilter().InvokeAsync(context, () => WriteAsync(context, html));
+
+        Assert.Equal(html, ReadBody(body));
     }
 
     [Fact]

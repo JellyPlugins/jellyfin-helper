@@ -19,7 +19,7 @@ rmSync(TMP, { recursive: true, force: true });
 const NODE = process.execPath;
 const VITEST_BIN = join(HERE, '..', 'node_modules', 'vitest', 'vitest.mjs');
 
-const vitest = spawnSync(NODE, [VITEST_BIN, 'run'], { stdio: 'inherit' });
+const vitest = spawnSync(NODE, [VITEST_BIN, 'run', ...process.argv.slice(2)], { stdio: 'inherit' });
 const gate = spawnSync(
   NODE,
   [join(HERE, 'check-coverage.mjs'), '--lines=85', '--branches=80'],

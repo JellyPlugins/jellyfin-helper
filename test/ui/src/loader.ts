@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInstrumenter } from 'istanbul-lib-instrument';
@@ -60,9 +61,7 @@ const DISCOVERY_DROPS: Array<[RegExp, string]> = [
   // scope would return before reaching the test-only return. Driven separately
   // through the guard bundle (loadDiscovery).
   [/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard'],
-  [/^[ \t]*bootstrapDiscovery\(\);[ \t]*\r?$/m, 'bootstrap call'],
-  [/^[ \t]*window\.addEventListener\('hashchange', bootstrapDiscovery\);[ \t]*\r?$/m, 'hashchange bootstrap'],
-  [/^[ \t]*window\.addEventListener\('popstate', bootstrapDiscovery\);[ \t]*\r?$/m, 'popstate bootstrap'],
+  [/^[ \t]*initDiscoveryLifecycle\(\);[ \t]*\r?$/m, 'lifecycle initialization'],
 ];
 
 const NATIVE_TABS_DROPS: Array<[RegExp, string]> = [
@@ -225,7 +224,8 @@ const DISCOVERY_EXPECTED = [
   'getUserFriendlyErrorMessage', 'getCachedDiscoveryResult', 'setCachedDiscoveryResult',
   'invalidateDiscoveryResult', 'discoveryGeneratedAt', 'discoveryVisibleKey',
   'isOnHomePage', 'registerDiscoveryTab', 'focusDiscoveryTab', 'notifyTabUnavailable',
-  'resetTraktState',
+  'resetTraktState', 'captureDiscoveryRequest', 'isCurrentDiscoveryRequest', 'isSameDiscoverySession',
+  'isLoginPage', 'syncDiscoveryLifecycle', 'initDiscoveryLifecycle', 'teardownDiscoveryEntryPoints', 'disableDiscoveryUi',
   'isEmptyTraktResult', 'traktCacheFresh', 'makeTraktCacheEntry', 'spinnerHtml',
   'renderTraktNotLinked', 'renderCards', 'esc', 'formatReason', 'formatRawReasonFallback',
   'insertSlashBreaks', 'tabButton', 'checkEmptyDiscoveryState', 'renderOwnError',
@@ -234,6 +234,7 @@ const DISCOVERY_EXPECTED = [
   // discovery-sidebar.js and is driven by at least one spec below.
   'renderShell', 'renderOwnTab', 'renderTraktPersonal', 'renderTraktTrending',
   'maybeRefreshInBackground', 'injectStyles', 'injectNavigation',
+  'getDiscoveryNavigationContainer', 'removeDiscoveryNavigation',
   'handleRequest', 'handleDismissClick', 'decideAndSubmit', 'submitRequest',
   'executeDismiss', 'showProfilePopup', 'showDismissConfirmation',
   'renderDiscovery', 'fetchPermissionsAndRequest', 'setDismissSiblingHidden',
@@ -269,7 +270,8 @@ const NATIVE_TABS_EXPECTED = [
   'isOwnSlot', 'slotIndex', 'highestForeignIndex', 'relabel', 'createReservedSlot',
   'alignSlots', 'getHeaderButtonTray', 'getOrCreateGroup', 'removeGroupIfEmpty',
   'isTabButtonVisible', 'removeHeaderLink', 'createHeaderLink', 'ensureDiscoverable',
-  'hashParam', 'homeRoute', 'watchUserTabChanges', 'clearStraySelection',
+  'hashParam', 'homeRoute', 'watchUserTabChanges', 'clearStraySelection', 'syncSelectedTabHash', 'syncActiveEntry',
+  'repairRemovedTabSelection',
   'noteTabStripInput', 'deepLinkHash', 'syncDeepLink', 'applyPendingFocus',
   'ensureInjected', 'scheduleInject', 'register', 'unregister', 'focus', 'init',
 ];
@@ -301,16 +303,11 @@ export function loadNativeTabsBundle(): void {
 }
 
 export function saveCoverage(): void {
-  // Vitest 4 isolates test files, so a worker may run several files or a single
-  // file per process. Writing per pid alone would let one file overwrite another
-  // that happened to reuse the pid. Key each report by pid plus a per-process
-  // counter so every afterAll writes a distinct file; check-coverage merges them
-  // all. coverage/tmp is cleared before each run, so nothing double-counts.
+  // Each isolated worker writes a unique report because thread workers share the process ID.
   const g = globalThis as any;
   const cov = g.__coverage__;
   if (!cov) return;
-  g.__jfhCoverageSeq = (g.__jfhCoverageSeq ?? 0) + 1;
   const dir = join(REPO_ROOT, 'test', 'ui', 'coverage', 'tmp');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `coverage-${process.pid}-${g.__jfhCoverageSeq}.json`), JSON.stringify(cov));
+  writeFileSync(join(dir, `coverage-${process.pid}-${randomUUID()}.json`), JSON.stringify(cov));
 }

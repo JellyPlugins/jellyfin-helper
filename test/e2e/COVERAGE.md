@@ -2,7 +2,8 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **372 tests** (API + UI) across 58 spec files
+every UI interaction. API and UI tests span 58 spec files. CI updates the README
+test-count badge from Playwright discovery
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -325,6 +326,13 @@ the Discovery tab against Jellyfin's tab strip. `global-setup` only enables the 
 - Opening the tab renders content (grid or the explicit no-results message), never a blank panel.
 - Navigating Home ↔ Discovery 20× plus browser back/forward keeps the panel populated every time.
 - A hard reload on the `?tab=N&jfhTab=discovery` deep link repopulates the panel without a manual nav.
+- The `ui` and `ui-legacy` projects explicitly select modern and legacy desktop layouts.
+- Production logout removes cards, navigation, and the empty sidebar section without another Discovery click.
+- Selecting Home removes the Discovery deep link and a reload keeps Home selected.
+- Reopening a retained panel updates changed card details from a fresh response.
+- Empty recommendations still expose Discovery navigation because the feature remains available.
+- Disabling access after a successful render removes cached cards and all entry points on the next activation.
+- Navigating to Home from a cold dashboard initializes Discovery through Jellyfin's router.
 - The plugin **owns exactly one** `tabContent pageTabContent` panel and **no `customTab_` panel exists**,
   proving no third party tab plugin is involved.
 - **Access-disabled negative:** with `DiscoveryUserAccessEnabled=false` the bootstrap gets a 403 and

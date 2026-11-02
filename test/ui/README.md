@@ -28,6 +28,7 @@ validators are pinned without a browser.
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
+| Shipped client lifecycle (logout, account replacement, delayed responses, panel refresh, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Compose-order sync guard (.csproj vs loader) | `tests/csproj-order.test.ts` |
 | README drift guard (every test file documented) | `tests/docs.test.ts` |
@@ -44,6 +45,12 @@ npm run test:coverage   # run + coverage gate (fails below the mark)
 `dotnet test` runs this suite automatically when `test/ui/node_modules`
 exists (skip otherwise). Set `RunVitest=false` to opt out, e.g.
 `dotnet test -p:RunVitest=false`.
+
+To select a different Vitest worker pool locally, pass its options through the combined runner:
+
+```bash
+dotnet test -p:VitestArguments="--pool=threads --maxWorkers=1"
+```
 
 ## Coverage gate
 
