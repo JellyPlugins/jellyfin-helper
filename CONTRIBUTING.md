@@ -148,8 +148,13 @@ a silent mount timeout.
 The native Discovery specs explicitly select both `desktop-legacy` and `modern`
 layouts. They exercise logout through Jellyfin's production logout path, retained
 panel refresh, access revocation, Home reload, and navigation from a cold dashboard.
-Interactive login checks and opens the sidebar entry before any native-tab click,
-without reloading or seeding browser credentials.
+Interactive login has separate desktop and 390px drawer coverage, without reloading
+or seeding browser credentials. Drawer coverage opens the sidebar entry before any
+native-tab click. Jellyfin's modern desktop layout uses header navigation instead
+of a drawer, so sidebar tests set their viewport before loading the application.
+The drawer opener matches `Open Menu` exactly, excludes `User Menu`, and checks
+the open drawer's Home link and visible Discovery entry. A desktop-to-drawer
+transition also checks late mounting without a refresh.
 The isolated client lifecycle tests run the shared lifecycle, native tabs, and Discovery scripts together and cover
 delayed responses, account replacement, and visibility changes without manually
 calling their internal bootstrap functions. Rapid selections deliberately overlap

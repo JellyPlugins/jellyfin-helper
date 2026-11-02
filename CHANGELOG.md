@@ -29,7 +29,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Tests
 
 - Security regression coverage exercises delayed data responses and retired dialog events after token and API client replacement in both layouts.
-- Navigation regressions cover overlapping tab completions, late Home-link attributes, and non-bubbling view events. Interactive login opens Discovery from the sidebar before activating the native control.
+- Navigation regressions cover overlapping tab completions, late Home-link attributes, and non-bubbling view events. Interactive login covers desktop navigation and opens Discovery from the narrow-layout sidebar before activating the native control.
+- Sidebar end-to-end tests target the actual drawer opener, reject the user menu, and verify the active drawer rather than assuming a drawer exists in the modern desktop layout.
 - The end-to-end suite no longer stages Custom Tabs or File Transformation; only the official Trakt plugin is staged for the Trakt layout specs. New native-tab coverage guards injection, registration, the deep link, reload, and the access-disabled case.
 
 ## [3.0.1.4] - 2026-10-26
