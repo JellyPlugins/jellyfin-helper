@@ -2679,7 +2679,7 @@ describe('bootstrap + tab registration', () => {
     setHash('#/login');
     ui.bootstrapDiscovery();
     await flush();
-    expect(sidebar.querySelector('a')).toBeNull();
+    expect(document.querySelectorAll('.jfhelper-nav-discovery').length).toBe(0);
     expect(registry.unregister).toHaveBeenCalledWith('discovery');
   });
 
