@@ -13,8 +13,8 @@
         "changelog": "v3.1.0.0 - Discovery works without external plugins\n\n- BREAKING: the Custom Tabs and File Transformation plugins are no longer needed; the Discovery Home tab and the script injection are built into the Helper\n- The tab registers natively against Jellyfin's tab strip and keeps a stable jfhTab deep link\n- Script injection happens at request time, so it survives web updates and works on read-only installs\n- Setup instructions removed from Settings because Discovery works out of the box once enabled\n- Tags older versions wrote to index.html are cleaned up on startup\n- Verified by 94% backend unit test coverage, 97% UI test coverage, and 392 end-to-end Docker tests\n- Requires Jellyfin 12.4 - if you are on Jellyfin 10.x, stay on v2.1.0.6",
         "targetAbi": "12.4.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/3.1.0.0/JellyfinHelper_3.1.0.0.zip",
-        "checksum": "",
-        "timestamp": ""
+        "checksum": "8fa2fe8feafe887404e155087c7a90a7",
+        "timestamp": "2026-11-02T16:22:01Z"
       },
       {
         "version": "3.0.1.4",
