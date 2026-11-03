@@ -52,13 +52,17 @@ public class TrashService : ITrashService
 
     /// <inheritdoc />
     public long MoveToTrash(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)
+        => MoveToTrashWithResult(sourcePath, trashBasePath, logger, utcNow).BytesMoved;
+
+    /// <inheritdoc />
+    public (bool Success, long BytesMoved) MoveToTrashWithResult(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)
     {
         try
         {
             if (!Directory.Exists(sourcePath))
             {
                 _pluginLog.LogWarning(LogCategory, $"Source path does not exist for trash: {sourcePath}", logger: logger);
-                return 0;
+                return (false, 0);
             }
 
             // Guard: prevent re-trashing items that are already inside the trash folder. This can occur if a cleanup task's recursive directory scan inadvertently includes the trash directory.
@@ -74,7 +78,7 @@ public class TrashService : ITrashService
                     LogCategory,
                     $"Source is already inside trash folder, skipping: {sourcePath}",
                     logger: logger);
-                return 0;
+                return (false, 0);
             }
 
             var dirName = Path.GetFileName(normalizedSource);
@@ -112,12 +116,12 @@ public class TrashService : ITrashService
             }
 
             _pluginLog.LogInfo(LogCategory, $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
-            return size;
+            return (true, size);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _pluginLog.LogError(LogCategory, $"Failed to move directory to trash: {sourcePath}", ex, logger);
-            return 0;
+            return (false, 0);
         }
     }
 
@@ -973,15 +977,7 @@ public class TrashService : ITrashService
 
         if (!canRead || !canWrite)
         {
-            string issue;
-            if (!canRead && !canWrite)
-            {
-                issue = "read or write";
-            }
-            else
-            {
-                issue = !canRead ? "read" : "write";
-            }
+            var issue = !canRead && !canWrite ? "read or write" : !canRead ? "read" : "write";
 
             var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
             _pluginLog.LogWarning(LogCategory, msg, logger: logger);
@@ -1065,7 +1061,7 @@ public class TrashService : ITrashService
     /// <summary>
     ///     Attempts to create and immediately delete a temporary probe file inside the directory to verify write access.
     /// </summary>
-    private static bool CanWriteDirectory(string directoryPath)
+    private bool CanWriteDirectory(string directoryPath)
     {
         var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
         var created = false;
@@ -1091,9 +1087,9 @@ public class TrashService : ITrashService
                 {
                     File.Delete(probePath);
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // best-effort cleanup
+                    _pluginLog.LogWarning(LogCategory, $"Could not remove write-access probe: {probePath}", ex);
                 }
             }
         }

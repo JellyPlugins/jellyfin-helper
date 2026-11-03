@@ -267,14 +267,7 @@ internal static class PreferenceBuilder
         // Apply contributions. * Genres already in the vector (direct-watch): ADD the derived contribution.
         foreach (var (targetGenre, derivedWeight) in proximityContributions)
         {
-            if (vector.TryGetValue(targetGenre, out var existingWeight))
-            {
-                vector[targetGenre] = existingWeight + derivedWeight;
-            }
-            else
-            {
-                vector[targetGenre] = derivedWeight;
-            }
+            vector[targetGenre] = vector.GetValueOrDefault(targetGenre) + derivedWeight;
         }
     }
 
@@ -287,9 +280,8 @@ internal static class PreferenceBuilder
     private static Dictionary<string, Dictionary<string, int>> BuildGenreCooccurrence(UserWatchProfile profile)
     {
         var cooccurrence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in profile.WatchedItems)
+        foreach (var distinctGenres in profile.WatchedItems.Select(GetEligibleDistinctGenres))
         {
-            var distinctGenres = GetEligibleDistinctGenres(item);
             if (distinctGenres.Length < 2)
             {
                 continue;

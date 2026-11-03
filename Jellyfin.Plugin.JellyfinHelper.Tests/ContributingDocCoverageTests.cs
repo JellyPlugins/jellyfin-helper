@@ -46,9 +46,8 @@ public sealed class ContributingDocCoverageTests
 
         var undocumented = new List<string>();
 
-        foreach (var projectDir in ProjectDirs)
+        foreach (var root in ProjectDirs.Select(projectDir => Path.Join(repoRoot!, projectDir)))
         {
-            var root = Path.Combine(repoRoot!, projectDir);
             Assert.True(Directory.Exists(root), $"project directory not found: {root}");
 
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
@@ -92,9 +91,8 @@ public sealed class ContributingDocCoverageTests
         Assert.NotNull(repoRoot);
 
         var realFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var projectDir in ProjectDirs)
+        foreach (var root in ProjectDirs.Select(projectDir => Path.Join(repoRoot!, projectDir)))
         {
-            var root = Path.Combine(repoRoot!, projectDir);
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(repoRoot!, file);

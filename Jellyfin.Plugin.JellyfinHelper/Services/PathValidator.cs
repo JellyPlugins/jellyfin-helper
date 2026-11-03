@@ -37,15 +37,14 @@ internal static class PathValidator
         // Additionally resolve the real Windows system dirs from the OS, so a server installed on a drive other than C: (e.g.
         if (OperatingSystem.IsWindows())
         {
-            foreach (var folder in new[]
+            foreach (var path in new[]
             {
                 Environment.SpecialFolder.Windows,
                 Environment.SpecialFolder.ProgramFiles,
                 Environment.SpecialFolder.ProgramFilesX86,
                 Environment.SpecialFolder.CommonApplicationData,
-            })
+            }.Select(Environment.GetFolderPath))
             {
-                var path = Environment.GetFolderPath(folder);
                 if (!string.IsNullOrEmpty(path)
                     && !roots.Contains(path, StringComparer.OrdinalIgnoreCase))
                 {
@@ -199,9 +198,8 @@ internal static class PathValidator
             : StringComparison.Ordinal;
         var path = normalizedPath.TrimEnd('/', '\\');
 
-        foreach (var sensitive in SensitiveSystemRoots)
+        foreach (var s in SensitiveSystemRoots.Select(sensitive => sensitive.TrimEnd('/', '\\')))
         {
-            var s = sensitive.TrimEnd('/', '\\');
             if (string.Equals(path, s, comparison)
                 || path.StartsWith(s + "/", comparison)
                 || path.StartsWith(s + "\\", comparison))

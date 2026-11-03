@@ -67,14 +67,7 @@ public static class FileSystemHelper
     /// <param name="key">The key to increment.</param>
     internal static void IncrementCount(Dictionary<string, int> dict, string key)
     {
-        if (dict.TryGetValue(key, out var current))
-        {
-            dict[key] = current + 1;
-        }
-        else
-        {
-            dict[key] = 1;
-        }
+        dict[key] = dict.GetValueOrDefault(key) + 1;
     }
 
     /// <summary>
@@ -85,14 +78,7 @@ public static class FileSystemHelper
     /// <param name="value">The value to add.</param>
     internal static void AccumulateValue(Dictionary<string, long> dict, string key, long value)
     {
-        if (dict.TryGetValue(key, out var current))
-        {
-            dict[key] = current + value;
-        }
-        else
-        {
-            dict[key] = value;
-        }
+        dict[key] = dict.GetValueOrDefault(key) + value;
     }
 
     /// <summary>

@@ -561,17 +561,9 @@ public class ConfigurationController : ControllerBase
             : request.TrashFolderPath;
         config.TrashRetentionDays = request.TrashRetentionDays;
 
-        string language;
-        if (string.IsNullOrWhiteSpace(request.Language))
-        {
-            language = "en";
-        }
-        else
-        {
-            language = ConfigurationRequestValidator.IsLanguageSupported(request.Language) ? request.Language : "en";
-        }
-
-        config.Language = language;
+        var hasSupportedLanguage = !string.IsNullOrWhiteSpace(request.Language)
+            && ConfigurationRequestValidator.IsLanguageSupported(request.Language);
+        config.Language = hasSupportedLanguage ? request.Language : "en";
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
@@ -677,16 +669,8 @@ public class ConfigurationController : ControllerBase
     private static void NormalizePluginLogLevel(PluginConfiguration config)
     {
         // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
-        if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
-            || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
-        {
-            config.PluginLogLevel = "INFO";
-        }
-        else
-        {
-            // Persist the canonical UPPER form even if the on-disk value has drifted casing.
-            config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
-        }
+        var canonicalLevel = config.PluginLogLevel?.Trim().ToUpperInvariant();
+        config.PluginLogLevel = Array.IndexOf(ValidLogLevels, canonicalLevel) >= 0 ? canonicalLevel! : "INFO";
     }
 
     /// <summary>

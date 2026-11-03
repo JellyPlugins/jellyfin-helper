@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
@@ -52,7 +53,7 @@ public class SymlinkHandler : ILinkHandler
                     _symlinkHelper.DeleteSymlink(tempPath);
                 }
             }
-            catch
+            catch (Exception cleanupException) when (!cleanupException.IsFatal())
             {
                 // Best-effort cleanup of temp file; original link was never touched.
             }

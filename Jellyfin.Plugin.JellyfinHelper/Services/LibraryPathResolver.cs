@@ -29,7 +29,7 @@ public static class LibraryPathResolver
                 {
                     return Path.GetFullPath(p);
                 }
-                catch
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException or System.Security.SecurityException)
                 {
                     return p;
                 }

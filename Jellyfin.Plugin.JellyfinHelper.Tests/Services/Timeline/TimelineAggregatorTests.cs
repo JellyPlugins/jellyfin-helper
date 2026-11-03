@@ -286,19 +286,17 @@ public sealed class TimelineAggregatorTests
         TimelineAggregator.UpdateBaseline(baseline, currentDirs);
 
         Assert.Equal(2, baseline.Directories.Count);
-        Assert.True(baseline.Directories.ContainsKey("X"));
-        Assert.True(baseline.Directories.ContainsKey("Y"));
+        Assert.True(baseline.Directories.TryGetValue("X", out var x));
+        Assert.True(baseline.Directories.TryGetValue("Y", out var y));
         Assert.False(baseline.Directories.ContainsKey("Z"));
 
         // X updated in place, original creation date preserved.
-        var x = baseline.Directories["X"];
-        Assert.Equal(150, x.Size);
+        Assert.Equal(150, x!.Size);
         Assert.Equal(5, x.Count);
         Assert.Equal(xCreated, x.CreatedUtc);
 
         // Y added with the current scan's metadata.
-        var y = baseline.Directories["Y"];
-        Assert.Equal(yCreated, y.CreatedUtc);
+        Assert.Equal(yCreated, y!.CreatedUtc);
         Assert.Equal(400, y.Size);
         Assert.Equal(6, y.Count);
     }

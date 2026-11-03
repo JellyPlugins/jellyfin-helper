@@ -1823,7 +1823,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         strategy.Train(examples);
 
         var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
 
         var scoreTasks = Enumerable.Range(0, scoreThreads).Select(_ => Task.Run(() =>
         {

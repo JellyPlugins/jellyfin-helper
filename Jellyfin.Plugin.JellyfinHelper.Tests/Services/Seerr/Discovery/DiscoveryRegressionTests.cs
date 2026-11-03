@@ -21,6 +21,33 @@ public sealed class DiscoveryRegressionTests
     // Issue 3: ServerId=0 must be valid (Seerr uses 0-based IDs)
 
     [Theory]
+    [InlineData("movie")]
+    [InlineData("Movie")]
+    [InlineData("MOVIE")]
+    [InlineData("tv")]
+    [InlineData("Tv")]
+    [InlineData("TV")]
+    public void DiscoveryRequestDto_MediaType_AcceptsSupportedValuesBeforeControllerNormalization(string mediaType)
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 123, MediaType = mediaType };
+
+        Assert.Empty(ValidateModel(dto));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("music")]
+    [InlineData("movie\n")]
+    public void DiscoveryRequestDto_MediaType_RejectsInvalidValuesBeforeControllerNormalization(string? mediaType)
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 123, MediaType = mediaType! };
+
+        Assert.Contains(ValidateModel(dto), result => result.MemberNames.Contains(nameof(DiscoveryRequestDto.MediaType)));
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(42)]

@@ -466,9 +466,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var maxLogPopularity = 0.0;
         if (useCommunityPrior)
         {
-            foreach (var count in communityPopularity!.Values)
+            foreach (var logValue in communityPopularity!.Values.Select(count => Math.Log(1.0 + count)))
             {
-                var logValue = Math.Log(1.0 + count);
                 if (logValue > maxLogPopularity)
                 {
                     maxLogPopularity = logValue;

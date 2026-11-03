@@ -80,9 +80,8 @@ public class FolderBrowserService : IFolderBrowserService
         var entries = new List<FolderEntry>();
 
         // On Windows, list available drive letters. DriveInfo property access (IsReady, DriveType, Name) can throw for problematic drives, so all checks are inside the per-drive try/catch to ensure a single bad drive cannot abort the entire listing.
-        foreach (var drive in DriveInfo.GetDrives())
+        foreach (var entry in DriveInfo.GetDrives().Select(TryBuildDriveEntry))
         {
-            var entry = TryBuildDriveEntry(drive);
             if (entry != null)
             {
                 entries.Add(entry);

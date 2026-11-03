@@ -11,11 +11,24 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Arr;
 
-public class ArrIntegrationServiceTests
+public class ArrIntegrationServiceTests : IDisposable
 {
-    private static ArrIntegrationService CreateService(HttpMessageHandler handler, string clientName = "ArrIntegration")
+    private readonly List<HttpClient> _clients = [];
+
+    public void Dispose()
+    {
+        foreach (var client in _clients)
+        {
+            client.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private ArrIntegrationService CreateService(HttpMessageHandler handler, string clientName = "ArrIntegration")
     {
         var httpClient = new HttpClient(handler);
+        _clients.Add(httpClient);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient(clientName)).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
@@ -23,12 +36,13 @@ public class ArrIntegrationServiceTests
     }
 
     // Variant that exposes the pluginLog mock so tests can verify log calls.
-    private static ArrIntegrationService CreateServiceWithMockLog(
+    private ArrIntegrationService CreateServiceWithMockLog(
         HttpMessageHandler handler,
         out Mock<IPluginLogService> pluginLogMock)
     {
         pluginLogMock = new Mock<IPluginLogService>();
         var httpClient = new HttpClient(handler);
+        _clients.Add(httpClient);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
@@ -194,7 +208,7 @@ public class ArrIntegrationServiceTests
                     req.RequestUri != null &&
                     req.RequestUri.AbsoluteUri == "http://localhost:7878/api/v3/system/status"),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage
+            .ReturnsAsync(() => new HttpResponseMessage
             {
                 StatusCode = HttpStatusCode.OK,
                 Content = new StringContent(json)
@@ -221,7 +235,7 @@ public class ArrIntegrationServiceTests
                 ItExpr.Is<HttpRequestMessage>(req =>
                     req.Headers.Contains("X-Api-Key")),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage
+            .ReturnsAsync(() => new HttpResponseMessage
             {
                 StatusCode = HttpStatusCode.OK,
                 Content = new StringContent(json)
@@ -248,7 +262,7 @@ public class ArrIntegrationServiceTests
                     req.RequestUri != null &&
                     req.RequestUri.AbsoluteUri == "http://localhost:7878/api/v3/system/status"),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage
+            .ReturnsAsync(() => new HttpResponseMessage
             {
                 StatusCode = HttpStatusCode.OK,
                 Content = new StringContent(json)
@@ -628,16 +642,16 @@ public class ArrIntegrationServiceTests
         // IHttpClientFactory clients must NOT be disposed by callers - the factory manages handler lifetime.
         var json = "{\"appName\":\"Radarr\",\"version\":\"5.0\"}";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
-        var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(handler.Object);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
         await service.TestConnectionAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
-        // After the call, the client must NOT be disposed - reuse it to verify.
-        var ex = Record.Exception(() => httpClient.BaseAddress);
-        Assert.Null(ex); // ObjectDisposedException would be thrown here if client was disposed
+        // Sending another request actually detects disposal; reading BaseAddress does not.
+        using var reusedResponse = await httpClient.GetAsync("http://arr.local/reuse", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reusedResponse.StatusCode);
     }
 
     [Fact]
@@ -645,15 +659,15 @@ public class ArrIntegrationServiceTests
     {
         var json = "[{\"title\":\"Movie\",\"year\":2020,\"imdbId\":\"tt1\",\"tmdbId\":1,\"hasFile\":true,\"path\":\"/movies/Movie\"}]";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
-        var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(handler.Object);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
         await service.GetRadarrMoviesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
-        var ex = Record.Exception(() => httpClient.BaseAddress);
-        Assert.Null(ex);
+        using var reusedResponse = await httpClient.GetAsync("http://arr.local/reuse", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reusedResponse.StatusCode);
     }
 
     [Fact]
@@ -661,15 +675,15 @@ public class ArrIntegrationServiceTests
     {
         var json = "[{\"title\":\"Show\",\"year\":2020,\"imdbId\":\"tt2\",\"tvdbId\":2,\"tmdbId\":3,\"path\":\"/shows/Show\",\"statistics\":{\"episodeFileCount\":5,\"totalEpisodeCount\":10}}]";
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
-        var httpClient = new HttpClient(handler.Object);
+        using var httpClient = new HttpClient(handler.Object);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
 
         await service.GetSonarrSeriesAsync("http://arr.local", "apikey", cancellationToken: CancellationToken.None);
 
-        var ex = Record.Exception(() => httpClient.BaseAddress);
-        Assert.Null(ex);
+        using var reusedResponse = await httpClient.GetAsync("http://arr.local/reuse", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, reusedResponse.StatusCode);
     }
 
     // ArgumentException from ValidateArrUrl is caught inside each method:

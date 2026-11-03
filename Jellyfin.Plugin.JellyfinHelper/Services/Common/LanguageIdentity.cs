@@ -463,12 +463,9 @@ internal static class LanguageIdentity
                 continue;
             }
 
-            foreach (var exonym in row.Skip(1))
+            foreach (var exonym in row.Skip(1).OfType<string>().Where(exonym => exonym.Length > 0))
             {
-                if (!string.IsNullOrEmpty(exonym))
-                {
-                    aliases[FoldDiacritics(exonym.ToLowerInvariant())] = code;
-                }
+                aliases[FoldDiacritics(exonym.ToLowerInvariant())] = code;
             }
         }
 

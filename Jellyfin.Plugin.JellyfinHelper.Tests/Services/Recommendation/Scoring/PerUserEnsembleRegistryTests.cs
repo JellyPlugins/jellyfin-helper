@@ -155,10 +155,9 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
 
         var keep = Guid.NewGuid();
         var remove = Guid.NewGuid();
-        foreach (var id in new[] { keep, remove })
+        foreach (var ensemble in new[] { keep, remove }.Select(registry.GetOrCreateTrainableEnsembleForUser))
         {
-            var e = registry.GetOrCreateTrainableEnsembleForUser(id);
-            Assert.True(e.LearnedStrategy.Train(GenerateExamples(30)));
+            Assert.True(ensemble.LearnedStrategy.Train(GenerateExamples(30)));
         }
 
         Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));

@@ -378,14 +378,7 @@ public class MediaStatisticsResult
         {
             foreach (var kvp in dict)
             {
-                if (result.TryGetValue(kvp.Key, out var current))
-                {
-                    result[kvp.Key] = current + kvp.Value;
-                }
-                else
-                {
-                    result[kvp.Key] = kvp.Value;
-                }
+                result[kvp.Key] = result.GetValueOrDefault(kvp.Key) + kvp.Value;
             }
         }
 
@@ -399,14 +392,7 @@ public class MediaStatisticsResult
         {
             foreach (var kvp in dict)
             {
-                if (result.TryGetValue(kvp.Key, out var current))
-                {
-                    result[kvp.Key] = current + kvp.Value;
-                }
-                else
-                {
-                    result[kvp.Key] = kvp.Value;
-                }
+                result[kvp.Key] = result.GetValueOrDefault(kvp.Key) + kvp.Value;
             }
         }
 

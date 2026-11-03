@@ -342,7 +342,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupFiles("/media/movies1/Movie", "movie.nfo", "movie.srt");
         SetupTopLevelDirs("/media/movies1/Movie");
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -513,7 +513,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
         MockTrashService.Verify(
-            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
     }
 
@@ -568,7 +568,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
         MockTrashService.Verify(
-            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
     }
 
@@ -891,11 +891,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         const long orphanBytes = 12345L;
         MockTrashService
-            .Setup(t => t.MoveToTrash(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>()))
-            .Returns(orphanBytes);
+            .Setup(t => t.MoveToTrashWithResult(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns((true, orphanBytes));
         MockTrashService
-            .Setup(t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()))
-            .Returns(0L); // should never be called, but safe default
+            .Setup(t => t.MoveToTrashWithResult(videoDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns((false, 0L)); // should never be called, but safe default
 
         long? capturedBytes = null;
         MockTrackingService
@@ -914,8 +914,34 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // MoveToTrash must never have been called on the video folder
         MockTrashService.Verify(
-            t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()),
+            t => t.MoveToTrashWithResult(videoDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task ExecuteInternalAsync_ZeroByteTrashMove_CountsOnlySuccessfulMoves(bool success, int expectedDeleted)
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+        Config.UseTrash = true;
+        var libraryPath = TestPath("media");
+        var orphanDir = TestPath("media", "Empty Orphan");
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Empty Orphan", orphanDir));
+        // Completely empty wanted-list placeholders remain protected; a zero-byte subtitle is an orphan.
+        SetupFiles(orphanDir, "empty.srt");
+        SetupTopLevelDirs(orphanDir);
+        MockTrashService
+            .Setup(t => t.MoveToTrashWithResult(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns((success, 0L));
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains($"Deleted {expectedDeleted} folders", LogLevel.Information);
+        VerifyLogContains("freed 0 bytes", LogLevel.Information);
+        MockTrashService.Verify(t => t.MoveToTrashWithResult(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()), Times.Once);
+        MockTrackingService.Verify(t => t.RecordCleanup(0L, expectedDeleted, It.IsAny<ILogger>()), success ? Times.Once() : Times.Never());
     }
 
     // VideoExtensions uses OrdinalIgnoreCase, so uppercase extensions are matched without any normalisation step.
@@ -942,8 +968,8 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(orphanDir);
 
         MockTrashService
-            .Setup(t => t.MoveToTrash(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>()))
-            .Returns(1L);
+            .Setup(t => t.MoveToTrashWithResult(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns((true, 1L));
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -953,7 +979,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             Times.Once);
         // Video folder must never be passed to trash
         MockTrashService.Verify(
-            t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()),
+            t => t.MoveToTrashWithResult(videoDir, It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
     }
 

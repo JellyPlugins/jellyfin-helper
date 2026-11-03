@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -95,16 +96,10 @@ internal static class TmdbGenreMap
     {
         ArgumentNullException.ThrowIfNull(tmdbIds);
 
-        var result = new List<string>(tmdbIds.Count);
-        foreach (var id in tmdbIds)
-        {
-            if (MovieGenres.TryGetValue(id, out var name) || TvGenres.TryGetValue(id, out name))
-            {
-                result.Add(name);
-            }
-        }
-
-        return result;
+        return tmdbIds
+            .Select(id => MovieGenres.TryGetValue(id, out var name) || TvGenres.TryGetValue(id, out name) ? name : null)
+            .OfType<string>()
+            .ToList();
     }
 
     /// <summary>

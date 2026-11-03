@@ -437,7 +437,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         // Cancel immediately after first folder
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -737,19 +737,22 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         VerifyLogContains("Skipping too-new orphan", LogLevel.Debug);
         VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
         MockTrashService.Verify(
-            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Never);
     }
 
-    [Fact]
-    public async Task ExecuteInternalAsync_TrashMoveReturnsPositiveSize_CountsAndBytesAccumulated()
+    [Theory]
+    [InlineData(true, 4096L, 1, 4096L)]
+    [InlineData(true, 0L, 1, 0L)]
+    [InlineData(false, 0L, 0, 0L)]
+    [InlineData(false, 4096L, 0, 0L)]
+    public async Task ExecuteInternalAsync_TrashMoveResult_CountsOnlySuccessfulMoves(bool success, long size, int expectedDeleted, long expectedBytes)
     {
-        // A successful trash move (size > 0) must accumulate both the deleted count and
-        // the freed bytes reported in the finished summary.
+        // Empty directories count as successful moves; a failed move never contributes.
         Config.UseTrash = true;
         MockTrashService
-            .Setup(t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
-            .Returns(4096);
+            .Setup(t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
+            .Returns((success, size));
 
         var libraryPath = TestPath("media");
         var trickplayFullName = TestPath("media", "Movie.trickplay");
@@ -770,10 +773,10 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("freed 4096 bytes", LogLevel.Information);
-        VerifyLogContains("Deleted 1 folders", LogLevel.Information);
+        VerifyLogContains($"freed {expectedBytes} bytes", LogLevel.Information);
+        VerifyLogContains($"Deleted {expectedDeleted} folders", LogLevel.Information);
         MockTrashService.Verify(
-            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
             Times.Once);
     }
 

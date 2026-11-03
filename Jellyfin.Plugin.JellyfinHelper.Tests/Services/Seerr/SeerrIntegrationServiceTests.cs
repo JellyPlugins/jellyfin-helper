@@ -686,11 +686,11 @@ public partial class SeerrIntegrationServiceTests : IDisposable
 
         Assert.NotNull(request);
         Assert.Equal(1, request!.Id);
-        Assert.NotNull(request.CreatedAt);
-        Assert.Equal(2024, request.CreatedAt!.Value.Year);
-        Assert.Equal(1, request.CreatedAt.Value.Month);
-        Assert.Equal(15, request.CreatedAt.Value.Day);
-        Assert.Equal(TimeSpan.Zero, request.CreatedAt.Value.Offset);
+        var createdAt = Assert.IsType<DateTimeOffset>(request.CreatedAt);
+        Assert.Equal(2024, createdAt.Year);
+        Assert.Equal(1, createdAt.Month);
+        Assert.Equal(15, createdAt.Day);
+        Assert.Equal(TimeSpan.Zero, createdAt.Offset);
     }
 
     [Fact]

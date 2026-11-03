@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -88,7 +89,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             Api.UserDiscoveryController.ClearRateLimitState();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
@@ -126,7 +127,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             config = Configuration;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Guarded like the rest of the LogDebug calls in this class so a future
             // parameterized message does not accidentally regress the CA1873 pattern.
@@ -189,9 +190,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             // Recommendation ML/state artifacts that don't match the prefix+extension glob above (unprefixed .json weights, and the .txt batch-generation counter).
-            foreach (var name in UnprefixedDataFiles)
+            foreach (var file in UnprefixedDataFiles.Select(name => Path.Join(dataPath, name)))
             {
-                var file = Path.Combine(dataPath, name);
                 if (File.Exists(file))
                 {
                     DeleteDataFile(file);
@@ -254,7 +254,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         try
         {
-            var playlistsPath = Path.Combine(_applicationPaths.DataPath, "playlists");
+            var playlistsPath = Path.Join(_applicationPaths.DataPath, "playlists");
             if (!Directory.Exists(playlistsPath))
             {
                 return;

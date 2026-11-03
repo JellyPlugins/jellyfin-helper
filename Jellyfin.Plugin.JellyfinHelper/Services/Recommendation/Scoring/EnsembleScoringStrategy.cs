@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -1272,7 +1273,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             directory = ".";
         }
 
-        return Path.Combine(directory, "ensemble_state.json");
+        return Path.Join(directory, "ensemble_state.json");
     }
 
     /// <summary>
@@ -1495,14 +1496,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
         // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the trailing window. A mixed history (e.g.
-        var realRows = new List<MetricsSnapshot>(history.Count);
-        foreach (var snapshot in history)
-        {
-            if (double.IsFinite(snapshot.ValidationLoss))
-            {
-                realRows.Add(snapshot);
-            }
-        }
+        var realRows = history.Where(snapshot => double.IsFinite(snapshot.ValidationLoss)).ToList();
 
         if (realRows.Count < TrendMinSnapshots)
         {

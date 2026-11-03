@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Abstractions;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -168,12 +169,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         {
             _blendBounds = blendBounds;
 
-            foreach (var entry in _perUser.Values)
+            foreach (var entry in _perUser.Values.Where(entry => entry.IsValueCreated))
             {
-                if (entry.IsValueCreated)
-                {
-                    entry.Value.Reconfigure(blendBounds.AlphaMin, blendBounds.AlphaMax, blendBounds.GenrePenaltyFloor);
-                }
+                entry.Value.Reconfigure(blendBounds.AlphaMin, blendBounds.AlphaMax, blendBounds.GenrePenaltyFloor);
             }
         }
     }
@@ -352,12 +350,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Dispose only the per-user ensembles that were actually built. Each was constructed with
         // ownsNeural:false, so this leaves the shared neural (owned by the global ensemble) intact.
         // Touching a never-evaluated Lazy would construct an ensemble just to dispose it.
-        foreach (var lazy in _perUser.Values)
+        foreach (var lazy in _perUser.Values.Where(lazy => lazy.IsValueCreated))
         {
-            if (lazy.IsValueCreated)
-            {
-                lazy.Value.Dispose();
-            }
+            lazy.Value.Dispose();
         }
 
         _perUser.Clear();
@@ -533,7 +528,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private string? GetLearnedWeightsPath(Guid userId) =>
         _dataPath is null
             ? null
-            : Path.Combine(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ml_weights_{userId:N}.json"));
+            : Path.Join(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ml_weights_{userId:N}.json"));
 
     /// <summary>Builds the per-user ensemble-state path, or null when no data path is configured.</summary>
     /// <param name="userId">The user id.</param>
@@ -541,7 +536,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private string? GetEnsembleStatePath(Guid userId) =>
         _dataPath is null
             ? null
-            : Path.Combine(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ensemble_state_{userId:N}.json"));
+            : Path.Join(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ensemble_state_{userId:N}.json"));
 
     /// <summary>
     ///     Matches the 32-hex user id in <c>ml_weights_{id:N}.json</c> / <c>ensemble_state_{id:N}.json</c>.

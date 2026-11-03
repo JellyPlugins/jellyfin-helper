@@ -185,9 +185,8 @@ internal static class DiversityReranker
         {
             var relevance = remaining[i].Score;
             var maxSimilarity = 0.0;
-            foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
+            foreach (var sim in selected.Select(selectedEntry => similarity.Compute(remaining[i].Item, selectedEntry.Item)))
             {
-                var sim = similarity.Compute(remaining[i].Item, selectedItem);
                 if (sim > maxSimilarity)
                 {
                     maxSimilarity = sim;

@@ -219,9 +219,8 @@ public static class BackupSanitizer
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var kept = new List<string>(order.Count);
-        foreach (var raw in order)
+        foreach (var id in order.Select(raw => raw?.Trim()))
         {
-            var id = raw?.Trim();
             if (string.IsNullOrEmpty(id)
                 || id.Length > BackupValidator.MaxCodecCardIdLength
                 || !CodecCardCatalog.IsKnown(id)

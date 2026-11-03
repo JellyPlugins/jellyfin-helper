@@ -61,9 +61,8 @@ public static class CodecCardCatalog
 
         if (input is not null)
         {
-            foreach (var raw in input)
+            foreach (var id in input.Select(raw => raw?.Trim()))
             {
-                var id = raw?.Trim();
                 if (string.IsNullOrEmpty(id) || !KnownIds.Contains(id) || !seen.Add(id))
                 {
                     continue;

@@ -26,8 +26,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
         {
             if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true);
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not remove test folder {0}: {1}", _tempRoot, ex.Message);
+        }
         GC.SuppressFinalize(this);
     }
 
