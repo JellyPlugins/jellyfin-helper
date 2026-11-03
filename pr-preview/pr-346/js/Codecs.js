@@ -72,8 +72,7 @@ function showDonutTooltip(container, evt, segment) {
     if (info.libraries.length > 0) {
         html += '<div class="donut-tooltip-divider"></div>';
         html += '<table class="donut-tooltip-table"><tbody>';
-        for (var i = 0; i < info.libraries.length; i++) {
-            var lib = info.libraries[i];
+        for (const lib of info.libraries) {
             html += '<tr>';
             html += '<td class="donut-tooltip-lib">' + escHtml(lib.name) + '</td>';
             html += '<td class="donut-tooltip-count">' + lib.count + ' ' + (lib.count === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</td>';
@@ -131,9 +130,9 @@ function isSegmentPanelOpen(segment) {
     }
     var codecName = segment.dataset.codec;
     var rows = chartBox.querySelectorAll('.codec-clickable');
-    for (var i = 0; i < rows.length; i++) {
-        if (rows[i].dataset.codec === codecName) {
-            return rows[i].classList.contains('codec-row-active');
+    for (const row of rows) {
+        if (row.dataset.codec === codecName) {
+            return row.classList.contains('codec-row-active');
         }
     }
     return false;
@@ -197,6 +196,23 @@ function describeArc(cx, cy, outerR, innerR, startAngle, endAngle) {
         + ' Z';
 }
 
+function buildDonutTooltipLibraries(libraries, libraryProperty, label) {
+    var libEntries = [];
+    if (libraries && libraries.length > 0) {
+        for (const lib of libraries) {
+            var libPropertyValue = lib[libraryProperty];
+            var libCount = libPropertyValue?.[label] ? libPropertyValue[label] : 0;
+            if (libCount > 0) {
+                libEntries.push({name: lib.LibraryName, count: libCount});
+            }
+        }
+    }
+    libEntries.sort(function (a, b) {
+        return b.count - a.count;
+    });
+    return libEntries;
+}
+
 // SVG donut chart generator (returns only the SVG + container, no legend)
 function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     var size = 160;
@@ -239,27 +255,7 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
         var segId = chartId + '_' + i;
 
         // Build tooltip data for this segment
-        var libEntries = [];
-        if (libraries && libraries.length > 0) {
-            for (var l = 0; l < libraries.length; l++) {
-                var lib = libraries[l];
-                var libPropertyValue = lib[libraryProperty];
-                var libCount = libPropertyValue?.[entries[i].label]
-                    ? libPropertyValue[entries[i].label]
-                    : 0;
-                if (libCount > 0) {
-                    libEntries.push({
-                        name: lib.LibraryName,
-                        count: libCount
-                    });
-                }
-            }
-        }
-
-        // Sort library entries by count descending
-        libEntries.sort(function (a, b) {
-            return b.count - a.count;
-        });
+        var libEntries = buildDonutTooltipLibraries(libraries, libraryProperty, entries[i].label);
 
         _donutTooltipData[segId] = {
             codec: entries[i].label,
@@ -595,16 +591,16 @@ function attachCodecClickHandlers() {
 
 function attachDonutHoverTooltips() {
     var charts = document.querySelectorAll('.donut-container');
-    for (var c = 0; c < charts.length; c++) {
+    for (const chart of charts) {
         (function (container) {
             // Bind events directly on <path> elements (not <g>) because mouseenter/mouseleave are non-bubbling and <g> with pointer-events:none would never receive them.
             var paths = container.querySelectorAll('.donut-segment path');
 
-            for (var i = 0; i < paths.length; i++) {
+            for (const path of paths) {
                 // Desktop: mouse hover shows tooltip + highlight. A touch emits a trailing synthetic
                 // mouse sequence for click-compat; ignore it here (same guard as the click handler)
                 // so the tap's tooltip is not immediately hidden and the tap-again state is not lost.
-                paths[i].addEventListener('mouseenter', function (evt) {
+                path.addEventListener('mouseenter', function (evt) {
                     if (Date.now() - _lastTouchEndTime < 800) {
                         return;
                     }
@@ -614,7 +610,7 @@ function attachDonutHoverTooltips() {
                     _activeTooltipSegmentId = seg.dataset.segmentId;
                 });
 
-                paths[i].addEventListener('mousemove', function (evt) {
+                path.addEventListener('mousemove', function (evt) {
                     if (Date.now() - _lastTouchEndTime < 800) {
                         return;
                     }
@@ -622,7 +618,7 @@ function attachDonutHoverTooltips() {
                     showDonutTooltip(container, evt, seg);
                 });
 
-                paths[i].addEventListener('mouseleave', function () {
+                path.addEventListener('mouseleave', function () {
                     if (Date.now() - _lastTouchEndTime < 800) {
                         return;
                     }
@@ -633,7 +629,7 @@ function attachDonutHoverTooltips() {
                 });
 
                 // Desktop: click triggers the codec-row tree-view
-                paths[i].addEventListener('click', function () {
+                path.addEventListener('click', function () {
                     // Suppress touch-originated clicks (cross-browser, not just Chromium)
                     if (Date.now() - _lastTouchEndTime < 800) {
                         return;
@@ -647,7 +643,7 @@ function attachDonutHoverTooltips() {
                 // open dismisses both (toggle off). The panel state decides,
                 // not the tooltip variable, so a cleared variable can never
                 // strand an open panel with a stuck tooltip.
-                paths[i].addEventListener('touchend', function (evt) {
+                path.addEventListener('touchend', function (evt) {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
                     var seg = this.closest('.donut-segment');
@@ -696,7 +692,7 @@ function attachDonutHoverTooltips() {
                     });
                 })(seg);
             }
-        })(charts[c]);
+        })(chart);
     }
 
     // Close tooltip when tapping outside any donut segment (mobile)
@@ -705,12 +701,12 @@ function attachDonutHoverTooltips() {
         document.addEventListener('touchstart', function (evt) {
             if (_activeTooltipSegmentId && !evt.target.closest('.donut-segment')) {
                 var allContainers = document.querySelectorAll('.donut-container');
-                for (var d = 0; d < allContainers.length; d++) {
-                    hideDonutTooltip(allContainers[d]);
+                for (const container of allContainers) {
+                    hideDonutTooltip(container);
                     // Remove highlight from all segments
-                    var highlighted = allContainers[d].querySelectorAll('.donut-segment-hover');
-                    for (var h = 0; h < highlighted.length; h++) {
-                        highlighted[h].classList.remove('donut-segment-hover');
+                    var highlighted = container.querySelectorAll('.donut-segment-hover');
+                    for (const segment of highlighted) {
+                        segment.classList.remove('donut-segment-hover');
                     }
                 }
                 _activeTooltipSegmentId = null;

@@ -116,7 +116,7 @@
     }
 
     function t(key, fallback) {
-        if (_strings && _strings[key]) return _strings[key];
+        if (_strings?.[key]) return _strings[key];
         return fallback || key;
     }
 
@@ -180,7 +180,7 @@
      * @param {HTMLElement} toast - The toast DOM element to remove.
      */
     function dismissToast(toast) {
-        if (!toast || !toast.parentNode) return;
+        if (!toast?.parentNode) return;
         toast.classList.remove('jfh-discovery-toast-visible');
         toast.classList.add('jfh-discovery-toast-hidden');
         // Remove from DOM after the CSS transition completes
@@ -194,13 +194,13 @@
         if (!err) return '';
         try {
             // ApiClient.ajax may expose responseJSON directly
-            if (err.responseJSON && err.responseJSON.Message) {
+            if (err.responseJSON?.Message) {
                 return err.responseJSON.Message;
             }
             // Fall back to parsing responseText
             if (err.responseText) {
                 var parsed = JSON.parse(err.responseText);
-                if (parsed && parsed.Message) return parsed.Message;
+                if (parsed?.Message) return parsed.Message;
             }
         } catch (e) {
             // JSON parse failure - fall through to empty string
@@ -988,107 +988,110 @@
     }
 
     function renderCards(container, userDiscovery) {
-        if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
+        if (!userDiscovery?.Recommendations || userDiscovery.Recommendations.length === 0) {
             container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
             return;
         }
-        var TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
         var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-grid">';
-        var recs = userDiscovery.Recommendations;
-        for (var i = 0; i < recs.length; i++) {
-            var r = recs[i];
-            var posterUrl = r.PosterPath ? TMDB_IMG + r.PosterPath : '';
-            // Build poster with flip (front = image, back = overview)
-            var overviewText = r.Overview || '';
-            var mediaType = (r.MediaType || '').trim().toLowerCase();
-            var poster;
-            // Build external links row for the flip back side.
-            // Uses <span> with data-href + JS click handler instead of <a> to prevent
-            // the poster flip from triggering and for consistent cross-platform behavior.
-            var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
-            var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + (Number.parseInt(r.TmdbId, 10) || 0);
-            var extLinksHtml = '<div class="jfh-discovery-flip-links">' +
-                '<span class="jfh-discovery-flip-link" data-href="' + esc(tmdbExtUrl) + '">' +
-                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> TMDB</span>';
-            if (_seerrBaseUrl) {
-                var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + (Number.parseInt(r.TmdbId, 10) || 0);
-                extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
-                    '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
-            }
-            // Trakt deep link to the canonical trakt.tv page via the slug the API returns
-            // (ids.slug). The old trakt.tv/search/tmdb/:id route 404s, and slugs must never be
-            // guessed from titles, so the link renders only with a sane slug while Trakt is on.
-            if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
-                var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
-                var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
-                extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
-                    '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
-            }
-            extLinksHtml += '</div>';
-
-            if (posterUrl) {
-                poster = '<div class="jfh-discovery-card-poster">' +
-                    '<div class="jfh-discovery-flip-inner">' +
-                    '<div class="jfh-discovery-flip-front"><img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy"></div>' +
-                    '<div class="jfh-discovery-flip-back">' + extLinksHtml + '<div class="jfh-discovery-flip-back-text">' + esc(overviewText || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
-                    '</div></div>';
-            } else {
-                poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
-            }
-            var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
-            var mediaLabel = mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV');
-            var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaLabel) + '</span>' : '';
-            var ratingNum = Number(r.TmdbRating);
-            var rating = (!Number.isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
-            var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
-            var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
-            var scoreClass = getDiscoveryScoreClass(scorePercent);
-            // On the Trakt tabs the cards keep Trakt's own ranking, so the percentage is our local signal, not
-            // the sort order. Flag it with a small "Local score" tag so a lower % sitting above a higher % reads
-            // as intentional. The normal Seerr tab, which IS sorted by this score, shows no tag.
-            var isTraktTab = _activeTab === TAB_TRAKT || _activeTab === TAB_TRENDING;
-            var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
-            var scoreHtml = '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
-            var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
-            // Insert a zero-width space after each slash so "actors/directors" may break after the slash
-            // ("Features actors/" fits line 1) instead of wrapping as one unbreakable token into a third line.
-            var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
-            var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
-            var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
-            var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
-            var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
-            html += '<div class="jfh-discovery-card">' + poster +
-                '<div class="jfh-discovery-card-body">' +
-                '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
-                '<div class="jfh-discovery-card-meta">' + year + type + rating + '</div>' +
-                genresHtml +
-                scoreHtml + reason +
-                '<div class="jfh-discovery-btn-row">' +
-                '<button class="' + btnClass + '" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
-                dismissBtnHtml +
-                '</div>' +
-                '</div></div>';
+        for (const recommendation of userDiscovery.Recommendations) {
+            html += renderSidebarCardHtml(recommendation);
         }
         html += '</div></div>';
         container.innerHTML = html;
+        bindSidebarCardHandlers(container);
+    }
+
+    function renderSidebarExternalLinksHtml(r, mediaType) {
+        // Spans with data-href keep link clicks from triggering the poster flip.
+        var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
+        var tmdbId = Number.parseInt(r.TmdbId, 10) || 0;
+        var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + tmdbId;
+        var html = '<div class="jfh-discovery-flip-links">' +
+            '<span class="jfh-discovery-flip-link" data-href="' + esc(tmdbExtUrl) + '">' +
+            '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> TMDB</span>';
+        if (_seerrBaseUrl) {
+            var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + tmdbId;
+            html += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
+                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
+        }
+        // Use only canonical, validated API slugs; never guess one from a title.
+        if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
+            var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
+            var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
+            html += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
+                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
+        }
+        return html + '</div>';
+    }
+
+    function renderSidebarPosterHtml(r, mediaType) {
+        if (!r.PosterPath) {
+            return '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
+        }
+        var posterUrl = 'https://image.tmdb.org/t/p/w500' + r.PosterPath;
+        return '<div class="jfh-discovery-card-poster">' +
+            '<div class="jfh-discovery-flip-inner">' +
+            '<div class="jfh-discovery-flip-front"><img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy"></div>' +
+            '<div class="jfh-discovery-flip-back">' + renderSidebarExternalLinksHtml(r, mediaType) + '<div class="jfh-discovery-flip-back-text">' + esc(r.Overview || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
+            '</div></div>';
+    }
+
+    function renderSidebarMetadataHtml(r, mediaType) {
+        var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
+        var mediaLabel = mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV');
+        var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaLabel) + '</span>' : '';
+        var ratingNum = Number(r.TmdbRating);
+        var rating = (!Number.isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
+        var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
+        var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
+        return '<div class="jfh-discovery-card-meta">' + year + type + rating + '</div>' + genresHtml;
+    }
+
+    function renderSidebarScoreHtml(r) {
+        var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
+        var scoreClass = getDiscoveryScoreClass(scorePercent);
+        // Trakt's ranking is independent of our local match percentage.
+        var isTraktTab = _activeTab === TAB_TRAKT || _activeTab === TAB_TRENDING;
+        var localScoreTag = isTraktTab ? ' <span class="jfh-discovery-local-score">' + esc(t('discoveryLocalScore', 'Local score')) + '</span>' : '';
+        return '<div class="jfh-discovery-score ' + scoreClass + '"><div class="jfh-discovery-score-bar" style="width:' + scorePercent + '%"></div></div><div class="jfh-discovery-score-text">' + scorePercent + '% ' + t('recsMatch', 'match') + localScoreTag + '</div>';
+    }
+
+    function renderSidebarCardHtml(r) {
+        var mediaType = (r.MediaType || '').trim().toLowerCase();
+        var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
+        // Slash breaks are inserted only after escaping the reason.
+        var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
+        var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
+        var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
+        var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
+        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+        return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
+            '<div class="jfh-discovery-card-body">' +
+            '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
+            renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
+            '<div class="jfh-discovery-btn-row">' +
+            '<button class="' + btnClass + '" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+            dismissBtnHtml + '</div></div></div>';
+    }
+
+    function bindSidebarCardHandlers(container) {
         var buttons = container.querySelectorAll('.jfh-discovery-btn:not([disabled]):not(.jfh-discovery-btn-dismiss)');
-        for (var j = 0; j < buttons.length; j++) { buttons[j].addEventListener('click', handleRequest); }
+        for (const button of buttons) { button.addEventListener('click', handleRequest); }
         // Attach dismiss button handlers
         var dismissBtns = container.querySelectorAll('.jfh-discovery-btn-dismiss');
-        for (var d = 0; d < dismissBtns.length; d++) { dismissBtns[d].addEventListener('click', handleDismissClick); }
+        for (const button of dismissBtns) { button.addEventListener('click', handleDismissClick); }
         // Attach poster flip handlers
         var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
-        for (var p = 0; p < posters.length; p++) {
-            posters[p].parentElement.addEventListener('click', function () {
+        for (const poster of posters) {
+            poster.parentElement.addEventListener('click', function () {
                 this.classList.toggle('flipped');
             });
         }
         // Attach external link handlers on the flip back side.
         // Opens URLs in a new tab. stopPropagation prevents the poster flip from triggering.
         var flipLinks = container.querySelectorAll('.jfh-discovery-flip-link[data-href]');
-        for (var fl = 0; fl < flipLinks.length; fl++) {
-            flipLinks[fl].addEventListener('click', function (e) {
+        for (const link of flipLinks) {
+            link.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
                 var url = this.dataset.href;
@@ -1134,7 +1137,7 @@
         }
         btn.classList.remove('jfh-discovery-btn-failed');
         var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
-        var userId = (ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+        var userId = currentDiscoveryUserId();
         var cacheKey = serviceType + ':' + mediaType + ':' + userId;
         var cached = _permCache[cacheKey];
         if (cached && (Date.now() - cached._ts) < PERM_CACHE_TTL_MS) {
@@ -1206,7 +1209,7 @@
         injectPopupStyles();
 
         var serverIds = {};
-        for (let i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
+        for (const profile of profiles) { serverIds[profile.ServerId] = true; }
         var multiServer = Object.keys(serverIds).length > 1;
 
         var overlay = document.createElement('div');
@@ -1231,8 +1234,7 @@
 
         var list = document.createElement('div');
         list.className = 'jfh-discovery-popup-list';
-        for (let i = 0; i < profiles.length; i++) {
-            var prof = profiles[i];
+        for (const prof of profiles) {
             var item = document.createElement('button');
             item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');
             // Build the button label using safe DOM operations instead of innerHTML to prevent XSS if ProfileName/ServerName originates from a compromised Arr/Seerr instance.
@@ -1337,7 +1339,7 @@
             dataType: 'json'
         }).then(function (result) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-            if (result && result.Success) {
+            if (result?.Success) {
                 // Invalidate immediately on success so a stale pool is never
                 // served again, even if the user leaves the tab before the
                 // card-removal animation below runs.
@@ -1371,7 +1373,7 @@
             } else {
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
-                showToast(getUserFriendlyErrorMessage(result && result.Message));
+                showToast(getUserFriendlyErrorMessage(result?.Message));
                 setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
             }
         }).catch(function (err) {
@@ -1542,7 +1544,7 @@
             return t(key, REASON_PHRASES[key]);
         }
         // Any other known i18n key: substitute the anchor when present.
-        if (key && _strings && _strings[key]) {
+        if (key && _strings?.[key]) {
             var val = _strings[key];
             return relatedInfo ? val.replace('{0}', relatedInfo) : val;
         }

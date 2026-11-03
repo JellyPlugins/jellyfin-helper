@@ -428,111 +428,114 @@ var TREND_SVG_NS = 'http://www.w3.org/2000/svg';
  * reparse per frame drops touch events. Node pools are keyed off the stable <g> groups.
  */
 function applyTrendFrame(svgEl, frame, colors) {
-    var g = TREND_GEOM;
-    var chartH = g.height - g.padT - g.padB;
-    var baseY = g.padT + chartH;
-
     var area = svgEl.querySelector('.trend-area');
     if (area) area.setAttribute('points', frame.areaPoints);
     var line = svgEl.querySelector('.trend-line');
     if (line) line.setAttribute('points', frame.polyline);
 
-    // Grid: reconcile line/text pairs to the tick count, then reposition.
-    var gridGroup = svgEl.querySelector('.trend-grid');
-    if (gridGroup) {
-        var lines = gridGroup.querySelectorAll('line');
-        var texts = gridGroup.querySelectorAll('text');
-        var wantTicks = frame.ticks.length;
-        var haveTicks = lines.length;
-        while (haveTicks < wantTicks) {
-            var nl = document.createElementNS(TREND_SVG_NS, 'line');
-            nl.setAttribute('x1', g.padL);
-            nl.setAttribute('x2', g.width - g.padR);
-            nl.setAttribute('stroke', 'rgba(255,255,255,0.06)');
-            gridGroup.appendChild(nl);
-            var nt = document.createElementNS(TREND_SVG_NS, 'text');
-            nt.setAttribute('x', g.padL - 5);
-            nt.setAttribute('text-anchor', 'end');
-            nt.setAttribute('fill', 'rgba(255,255,255,0.4)');
-            nt.setAttribute('font-size', '10');
-            gridGroup.appendChild(nt);
-            haveTicks++;
-        }
-        if (haveTicks !== lines.length) {
-            lines = gridGroup.querySelectorAll('line');
-            texts = gridGroup.querySelectorAll('text');
-        }
-        for (var gi = lines.length - 1; gi >= wantTicks; gi--) {
-            lines[gi].remove();
-            if (texts[gi]) texts[gi].remove();
-        }
+    applyTrendGrid(svgEl.querySelector('.trend-grid'), frame.ticks);
+    applyTrendDots(svgEl.querySelector('.trend-dots'), frame, colors);
+    applyTrendLabels(svgEl.querySelector('.trend-xlabels'), frame.labels);
+}
+
+// Grid: reconcile line/text pairs to the tick count, then reposition.
+function applyTrendGrid(gridGroup, ticks) {
+    if (!gridGroup) return;
+    var g = TREND_GEOM;
+    var lines = gridGroup.querySelectorAll('line');
+    var texts = gridGroup.querySelectorAll('text');
+    var wantTicks = ticks.length;
+    var haveTicks = lines.length;
+    while (haveTicks < wantTicks) {
+        var nl = document.createElementNS(TREND_SVG_NS, 'line');
+        nl.setAttribute('x1', g.padL);
+        nl.setAttribute('x2', g.width - g.padR);
+        nl.setAttribute('stroke', 'rgba(255,255,255,0.06)');
+        gridGroup.appendChild(nl);
+        var nt = document.createElementNS(TREND_SVG_NS, 'text');
+        nt.setAttribute('x', g.padL - 5);
+        nt.setAttribute('text-anchor', 'end');
+        nt.setAttribute('fill', 'rgba(255,255,255,0.4)');
+        nt.setAttribute('font-size', '10');
+        gridGroup.appendChild(nt);
+        haveTicks++;
+    }
+    if (haveTicks !== lines.length) {
         lines = gridGroup.querySelectorAll('line');
         texts = gridGroup.querySelectorAll('text');
-        for (var ti = 0; ti < frame.ticks.length; ti++) {
-            var tk = frame.ticks[ti];
-            lines[ti].setAttribute('y1', tk.y.toFixed(1));
-            lines[ti].setAttribute('y2', tk.y.toFixed(1));
-            texts[ti].setAttribute('y', (tk.y + 4).toFixed(1));
-            texts[ti].textContent = tk.label;
-        }
     }
-
-    // Dots: reconcile the circle count to the visible points, then reposition.
-    var dotsGroup = svgEl.querySelector('.trend-dots');
-    if (dotsGroup) {
-        var wantDots = frame.dotRadius > 0 ? frame.points.length : 0;
-        var circles = dotsGroup.querySelectorAll('circle');
-        // Track the count locally instead of re-querying the whole group per appended node: a pan
-        // crossing a dot-count boundary can grow the pool by ~200 in one frame.
-        var haveDots = circles.length;
-        while (haveDots < wantDots) {
-            var nc = document.createElementNS(TREND_SVG_NS, 'circle');
-            nc.setAttribute('fill', colors.trendColor);
-            nc.setAttribute('opacity', '0.6');
-            dotsGroup.appendChild(nc);
-            haveDots++;
-        }
-        if (haveDots !== circles.length) circles = dotsGroup.querySelectorAll('circle');
-        for (var di = circles.length - 1; di >= wantDots; di--) circles[di].remove();
-        if (wantDots > 0) {
-            circles = dotsGroup.querySelectorAll('circle');
-            for (var ci = 0; ci < frame.points.length; ci++) {
-                var xy = frame.points[ci].split(',');
-                circles[ci].setAttribute('cx', xy[0]);
-                circles[ci].setAttribute('cy', xy[1]);
-                circles[ci].setAttribute('r', frame.dotRadius);
-            }
-        }
+    for (var gi = lines.length - 1; gi >= wantTicks; gi--) {
+        lines[gi].remove();
+        if (texts[gi]) texts[gi].remove();
     }
+    lines = gridGroup.querySelectorAll('line');
+    texts = gridGroup.querySelectorAll('text');
+    for (var ti = 0; ti < ticks.length; ti++) {
+        var tk = ticks[ti];
+        lines[ti].setAttribute('y1', tk.y.toFixed(1));
+        lines[ti].setAttribute('y2', tk.y.toFixed(1));
+        texts[ti].setAttribute('y', (tk.y + 4).toFixed(1));
+        texts[ti].textContent = tk.label;
+    }
+}
 
-    // X-axis labels: reconcile count then reposition and relabel.
-    var xGroup = svgEl.querySelector('.trend-xlabels');
-    if (xGroup) {
-        var labelNodes = xGroup.querySelectorAll('text');
-        var haveLabels = labelNodes.length;
-        while (haveLabels < frame.labels.length) {
-            var nlbl = document.createElementNS(TREND_SVG_NS, 'text');
-            nlbl.setAttribute('y', baseY + 18);
-            nlbl.setAttribute('fill', 'rgba(255,255,255,0.55)');
-            nlbl.setAttribute('font-size', '10');
-            nlbl.setAttribute('font-weight', '500');
-            xGroup.appendChild(nlbl);
-            haveLabels++;
-        }
-        if (haveLabels !== labelNodes.length) labelNodes = xGroup.querySelectorAll('text');
-        for (var li = labelNodes.length - 1; li >= frame.labels.length; li--) labelNodes[li].remove();
-        labelNodes = xGroup.querySelectorAll('text');
-        for (var lj = 0; lj < frame.labels.length; lj++) {
-            var lb = frame.labels[lj];
-            labelNodes[lj].setAttribute('x', lb.x.toFixed(1));
-            labelNodes[lj].setAttribute('text-anchor', lb.anchor);
-            labelNodes[lj].textContent = lb.text;
+// Dots: reconcile the circle count to the visible points, then reposition.
+function applyTrendDots(dotsGroup, frame, colors) {
+    if (!dotsGroup) return;
+    var wantDots = frame.dotRadius > 0 ? frame.points.length : 0;
+    var circles = dotsGroup.querySelectorAll('circle');
+    // Track the count locally instead of re-querying the whole group per appended node: a pan
+    // crossing a dot-count boundary can grow the pool by ~200 in one frame.
+    var haveDots = circles.length;
+    while (haveDots < wantDots) {
+        var nc = document.createElementNS(TREND_SVG_NS, 'circle');
+        nc.setAttribute('fill', colors.trendColor);
+        nc.setAttribute('opacity', '0.6');
+        dotsGroup.appendChild(nc);
+        haveDots++;
+    }
+    if (haveDots !== circles.length) circles = dotsGroup.querySelectorAll('circle');
+    for (var di = circles.length - 1; di >= wantDots; di--) circles[di].remove();
+    if (wantDots > 0) {
+        circles = dotsGroup.querySelectorAll('circle');
+        for (var ci = 0; ci < frame.points.length; ci++) {
+            var xy = frame.points[ci].split(',');
+            circles[ci].setAttribute('cx', xy[0]);
+            circles[ci].setAttribute('cy', xy[1]);
+            circles[ci].setAttribute('r', frame.dotRadius);
         }
     }
 }
 
+// X-axis labels: reconcile count then reposition and relabel.
+function applyTrendLabels(xGroup, labels) {
+    if (!xGroup) return;
+    var g = TREND_GEOM;
+    var baseY = g.height - g.padB;
+    var labelNodes = xGroup.querySelectorAll('text');
+    var haveLabels = labelNodes.length;
+    while (haveLabels < labels.length) {
+        var nlbl = document.createElementNS(TREND_SVG_NS, 'text');
+        nlbl.setAttribute('y', baseY + 18);
+        nlbl.setAttribute('fill', 'rgba(255,255,255,0.55)');
+        nlbl.setAttribute('font-size', '10');
+        nlbl.setAttribute('font-weight', '500');
+        xGroup.appendChild(nlbl);
+        haveLabels++;
+    }
+    if (haveLabels !== labelNodes.length) labelNodes = xGroup.querySelectorAll('text');
+    for (var li = labelNodes.length - 1; li >= labels.length; li--) labelNodes[li].remove();
+    labelNodes = xGroup.querySelectorAll('text');
+    for (var lj = 0; lj < labels.length; lj++) {
+        var lb = labels[lj];
+        labelNodes[lj].setAttribute('x', lb.x.toFixed(1));
+        labelNodes[lj].setAttribute('text-anchor', lb.anchor);
+        labelNodes[lj].textContent = lb.text;
+    }
+}
+
 function renderTrendChart(timeline) {
-    if (!timeline || !timeline.dataPoints || timeline.dataPoints.length < 2) {
+    if (!timeline?.dataPoints || timeline.dataPoints.length < 2) {
         return { html: '<div class="trend-empty">' + escHtml(T('trendEmpty', 'Not enough historical data yet. Trend data is collected with each scan.')) + '</div>', chartState: null };
     }
 

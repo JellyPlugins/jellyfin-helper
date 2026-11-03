@@ -26,7 +26,7 @@ function initFolderBrowser() {
 function openFolderBrowserDialog() {
     removeDialogById('folderBrowserOverlay');
 
-    var currentPath = (document.getElementById('cfgTrashPath') || {}).value || '';
+    var currentPath = document.getElementById('cfgTrashPath')?.value || '';
 
     // Build the dialog shell
     var overlay = document.createElement('div');
@@ -106,68 +106,7 @@ function openFolderBrowserDialog() {
     overlay.focus();
 
     document.getElementById('folderBrowserSelect').addEventListener('click', function () {
-        var newName = (document.getElementById('folderBrowserNewName') || {}).value || '';
-        var selectedPath = state.currentPath || '';
-        if (newName.trim()) {
-            // Append the new folder name to the current path
-            var sep;
-            if (selectedPath.includes('/')) {
-                sep = '/';
-            } else if (selectedPath.includes('\\')) {
-                sep = '\\';
-            } else {
-                sep = '/';
-            }
-            if (selectedPath && !selectedPath.endsWith(sep) && !selectedPath.endsWith('/') && !selectedPath.endsWith('\\')) {
-                selectedPath += sep;
-            }
-            selectedPath += newName.trim();
-        }
-        if (selectedPath) {
-            // Validate path locally before attempting save - shows specific error in picker
-            var pathError = validateTrashPath(selectedPath, true);
-            if (pathError) {
-                var listingEl = document.getElementById('folderBrowserListing');
-                if (listingEl) {
-                    listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
-                }
-                return;
-            }
-
-            // Close the folder browser immediately so any subsequent dialogs
-            // (e.g. the trash relocation dialog) appear in the foreground.
-            closeDialog();
-
-            // Update the input field with the selected path
-            var input = document.getElementById('cfgTrashPath');
-            if (input) {
-                input.value = selectedPath;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-
-            // Trigger save.
-            var payload = buildSettingsPayload();
-            payload.TrashFolderPath = selectedPath;
-            doSaveSettings(payload, {
-                quiet: true,
-                element: null,
-                onSuccess: function () {
-                    // Show success feedback on the browse button
-                    var icon = document.getElementById('btnBrowseTrash');
-                    if (!icon) return;
-                    icon.innerHTML = mi('check_circle');
-                    icon.style.color = getCssVar('--color-success', '#2ecc71');
-                    icon.style.opacity = '1';
-                    setTimeout(function () {
-                        icon.innerHTML = mi('folder_open');
-                        icon.style.color = '#00a4dc';
-                        icon.style.opacity = '0.8';
-                    }, 2000);
-                }
-            });
-        } else {
-            closeDialog();
-        }
+        selectFolderBrowserPath(state);
     });
 
     // Load library roots for quick jump
@@ -187,6 +126,64 @@ function openFolderBrowserDialog() {
     }
 }
 
+/** Joins a new folder name using the selected server path's separator. */
+function appendFolderBrowserName(selectedPath, newName) {
+    var trimmedName = newName.trim();
+    if (!trimmedName) return selectedPath;
+
+    var sep = selectedPath.includes('/') || !selectedPath.includes('\\') ? '/' : '\\';
+    if (selectedPath && !selectedPath.endsWith('/') && !selectedPath.endsWith('\\')) {
+        selectedPath += sep;
+    }
+    return selectedPath + trimmedName;
+}
+
+/** Validates and saves the picker selection, leaving invalid paths open for correction. */
+function selectFolderBrowserPath(state) {
+    var newName = document.getElementById('folderBrowserNewName')?.value || '';
+    var selectedPath = appendFolderBrowserName(state.currentPath || '', newName);
+    if (!selectedPath) {
+        closeDialog();
+        return;
+    }
+
+    var pathError = validateTrashPath(selectedPath, true);
+    if (pathError) {
+        var listingEl = document.getElementById('folderBrowserListing');
+        if (listingEl) {
+            listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
+        }
+        return;
+    }
+
+    // Close before saving so subsequent dialogs (e.g. trash relocation) appear in front.
+    closeDialog();
+    var input = document.getElementById('cfgTrashPath');
+    if (input) {
+        input.value = selectedPath;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    var payload = buildSettingsPayload();
+    payload.TrashFolderPath = selectedPath;
+    doSaveSettings(payload, {
+        quiet: true,
+        element: null,
+        onSuccess: function () {
+            var icon = document.getElementById('btnBrowseTrash');
+            if (!icon) return;
+            icon.innerHTML = mi('check_circle');
+            icon.style.color = getCssVar('--color-success', '#2ecc71');
+            icon.style.opacity = '1';
+            setTimeout(function () {
+                icon.innerHTML = mi('folder_open');
+                icon.style.color = '#00a4dc';
+                icon.style.opacity = '0.8';
+            }, 2000);
+        }
+    });
+}
+
 /**
  * Loads library paths and shows quick-jump buttons.
  */
@@ -197,9 +194,9 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
 
         var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + escHtml(T('trashBrowseLibraryRoots', 'Library Roots')) + ':</div>';
         h += '<div style="display:flex;flex-wrap:wrap;gap:0.3em;">';
-        for (var i = 0; i < paths.length; i++) {
-            var itemPath = paths[i].path || paths[i].Path || '';
-            var itemName = paths[i].name || paths[i].Name || '';
+        for (var pathEntry of paths) {
+            var itemPath = pathEntry.path || pathEntry.Path || '';
+            var itemName = pathEntry.name || pathEntry.Name || '';
             h += '<button type="button" class="action-btn folder-browser-quick-btn" data-path="' + escAttr(itemPath) + '" style="padding:0.2em 0.6em;font-size:0.78em;display:inline-flex;align-items:center;gap:0.2em;"><span style="font-size:0.9em;">' + mi('folder') + '</span>' + escHtml(itemName) + '</button>';
         }
         h += '</div>';
@@ -208,8 +205,8 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
 
         // Attach click handlers
         var btns = quickJumpEl.querySelectorAll('.folder-browser-quick-btn');
-        for (var j = 0; j < btns.length; j++) {
-            btns[j].addEventListener('click', function () {
+        for (var btn of btns) {
+            btn.addEventListener('click', function () {
                 var p = this.dataset.path;
                 if (p) browseTo(p, listing, breadcrumb, state);
             });
@@ -248,78 +245,88 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
         // Update breadcrumb
         breadcrumbEl.textContent = state.currentPath ? (T('trashBrowseCurrentPath', 'Current path') + ': ' + state.currentPath) : '';
 
-        // Build listing
-        var h = '';
-
-        // Go up button
-        if (canGoUp && parentPath) {
-            h += '<div class="folder-browser-item folder-browser-up" data-path="' + escAttr(parentPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
-            h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
-            h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
-            h += '</div>';
-        } else if (state.currentPath) {
-            // Show "go to roots" when at top
-            h += '<div class="folder-browser-item folder-browser-up" data-path="" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
-            h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
-            h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
-            h += '</div>';
-        }
-
-        if (error && dirs.length === 0) {
-            h += '<div style="padding:1em;text-align:center;opacity:0.6;">' + mi('error') + ' ' + escHtml(error) + '</div>';
-        } else if (dirs.length === 0) {
-            h += '<div style="padding:1em;text-align:center;opacity:0.5;">' + T('trashBrowseEmpty', 'This folder is empty.') + '</div>';
-        } else {
-            for (var i = 0; i < dirs.length; i++) {
-                var dir = dirs[i];
-                var dirName = dir.Name || dir.name || '';
-                var dirPath = dir.Path || dir.path || '';
-                var hasKids = dir.HasChildren || dir.hasChildren || false;
-                h += '<div class="folder-browser-item" data-path="' + escAttr(dirPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.15s;">';
-                h += '<span style="font-size:1.1em;color:' + (hasKids ? '#f39c12' : '#7f8c8d') + ';">' + mi(hasKids ? 'folder' : 'folder_open') + '</span>';
-                h += '<span>' + escHtml(dirName) + '</span>';
-                if (hasKids) h += '<span style="font-size:0.8em;opacity:0.4;margin-left:auto;">' + mi('expand_more') + '</span>';
-                h += '</div>';
-            }
-        }
-
-        if (error && dirs.length > 0) {
-            h += '<div style="padding:0.5em 0.8em;font-size:0.82em;opacity:0.6;">' + mi('warning') + ' ' + escHtml(error) + '</div>';
-        }
-
-        listingEl.innerHTML = h;
-
-        // Attach click/keyboard handlers to directory items
-        var items = listingEl.querySelectorAll('.folder-browser-item');
-        for (var j = 0; j < items.length; j++) {
-            // Make items keyboard-operable (focusable + role)
-            items[j].setAttribute('tabindex', '0');
-            items[j].setAttribute('role', 'button');
-            items[j].addEventListener('click', function () {
-                var targetPath = this.dataset.path;
-                if (targetPath === '') {
-                    // Go to roots
-                    browseTo(null, listingEl, breadcrumbEl, state);
-                } else {
-                    browseTo(targetPath, listingEl, breadcrumbEl, state);
-                }
-            });
-            items[j].addEventListener('keydown', function (e) {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    this.click();
-                }
-            });
-            // Hover/focus effect
-            items[j].addEventListener('mouseenter', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
-            items[j].addEventListener('mouseleave', function () { this.style.background = ''; });
-            items[j].addEventListener('focus', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
-            items[j].addEventListener('blur', function () { this.style.background = ''; });
-        }
+        listingEl.innerHTML = renderFolderBrowserListing(dirs, parentPath, canGoUp, state.currentPath, error);
+        attachFolderBrowserItemHandlers(listingEl, breadcrumbEl, state);
     }, function () {
         if (requestId !== state.requestId) return;
         state.currentPath = null;
         breadcrumbEl.textContent = '';
         listingEl.innerHTML = '<div style="padding:1em;text-align:center;">' + mi('error') + ' ' + T('trashBrowseError', 'Cannot access this directory.') + '</div>';
     });
+}
+
+/** Builds navigation, directory rows and any inline browse error. */
+function renderFolderBrowserListing(dirs, parentPath, canGoUp, currentPath, error) {
+    var h = '';
+    // Go up button
+    if (canGoUp && parentPath) {
+        h += '<div class="folder-browser-item folder-browser-up" data-path="' + escAttr(parentPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
+        h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
+        h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
+        h += '</div>';
+    } else if (currentPath) {
+        // Show "go to roots" when at top
+        h += '<div class="folder-browser-item folder-browser-up" data-path="" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
+        h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
+        h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
+        h += '</div>';
+    }
+
+    if (error && dirs.length === 0) {
+        h += '<div style="padding:1em;text-align:center;opacity:0.6;">' + mi('error') + ' ' + escHtml(error) + '</div>';
+    } else if (dirs.length === 0) {
+        h += '<div style="padding:1em;text-align:center;opacity:0.5;">' + T('trashBrowseEmpty', 'This folder is empty.') + '</div>';
+    } else {
+        for (var dir of dirs) {
+            h += folderBrowserDirectoryHtml(dir);
+        }
+    }
+
+    if (error && dirs.length > 0) {
+        h += '<div style="padding:0.5em 0.8em;font-size:0.82em;opacity:0.6;">' + mi('warning') + ' ' + escHtml(error) + '</div>';
+    }
+
+    return h;
+}
+
+/** Renders a single escaped server directory entry. */
+function folderBrowserDirectoryHtml(dir) {
+    var dirName = dir.Name || dir.name || '';
+    var dirPath = dir.Path || dir.path || '';
+    var hasKids = dir.HasChildren || dir.hasChildren || false;
+    var h = '<div class="folder-browser-item" data-path="' + escAttr(dirPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.15s;">';
+    h += '<span style="font-size:1.1em;color:' + (hasKids ? '#f39c12' : '#7f8c8d') + ';">' + mi(hasKids ? 'folder' : 'folder_open') + '</span>';
+    h += '<span>' + escHtml(dirName) + '</span>';
+    if (hasKids) h += '<span style="font-size:0.8em;opacity:0.4;margin-left:auto;">' + mi('expand_more') + '</span>';
+    return h + '</div>';
+}
+
+/** Makes each rendered row mouse- and keyboard-operable. */
+function attachFolderBrowserItemHandlers(listingEl, breadcrumbEl, state) {
+    var items = listingEl.querySelectorAll('.folder-browser-item');
+    for (var item of items) {
+        // Make items keyboard-operable (focusable + role)
+        item.setAttribute('tabindex', '0');
+        item.setAttribute('role', 'button');
+        item.addEventListener('click', function () {
+            var targetPath = this.dataset.path;
+            if (targetPath === '') {
+                // Go to roots
+                browseTo(null, listingEl, breadcrumbEl, state);
+            } else {
+                browseTo(targetPath, listingEl, breadcrumbEl, state);
+            }
+        });
+        item.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                this.click();
+            }
+        });
+        // Hover/focus effect
+        item.addEventListener('mouseenter', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
+        item.addEventListener('mouseleave', function () { this.style.background = ''; });
+        item.addEventListener('focus', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
+        item.addEventListener('blur', function () { this.style.background = ''; });
+    }
 }

@@ -27,7 +27,7 @@ function initTabs() {
 function doTabSwitch(clickedBtn, tabId) {
     // Cleanup previous tab (e.g. stop auto-refresh timers) - only if leaving the logs tab
     var previousTab = document.querySelector('.tab-content.active');
-    if (previousTab && previousTab.id === 'tab-logs' && typeof destroyLogsTab
+    if (previousTab?.id === 'tab-logs' && typeof destroyLogsTab
         === 'function') {
         destroyLogsTab();
     }

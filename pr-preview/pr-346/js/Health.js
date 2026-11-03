@@ -143,68 +143,74 @@ function loadTrashHealthSection() {
                 existingTrash.remove();
             }
 
-            var totalItems = 0;
-            var totalSize = 0;
-            for (const lib of data.Libraries) {
-                totalItems += lib.Items.length;
-                for (const trashItem of lib.Items) {
-                    totalSize += trashItem.Size || 0;
-                }
-            }
-
-            var html = '<div class="health-card" id="trashHealthSection">';
-            html += '<div class="section-title">' + mi('delete') + escHtml(T('trashContents',
-                'Trash Contents')) + '</div>';
-
-            // Summary card
-            html += '<div class="health-grid">';
-            html += '<div class="health-item"><div class="health-value ' + (totalItems
-            > 0 ? 'health-warn' : 'health-ok') + '">' + totalItems + '</div>';
-            html += '<div class="health-label">' + escHtml(T('trashItems', 'Items in Trash'))
-                + '</div></div>';
-            html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
-                + formatBytes(totalSize) + '</div>';
-            html += '<div class="health-label">' + escHtml(T('trashTotalSize', 'Trash Size'))
-                + '</div></div>';
-            html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
-                + data.RetentionDays + 'd</div>';
-            html += '<div class="health-label">' + escHtml(T('trashRetentionDays',
-                'Retention')) + '</div></div>';
-            html += '</div>';
-
-            if (data.Libraries.length > 0) {
-                html += '<div id="trashDetailContainer">';
-                for (const trashLib of data.Libraries) {
-                    html += '<div class="trash-library-block">';
-                    html += '<h4 class="trash-library-heading">' + mi('folder') + escHtml(
-                            trashLib.LibraryName)
-                        + ' <span class="trash-library-count">('
-                        + trashLib.Items.length + ' ' + escHtml(T('items', 'items'))
-                        + ')</span></h4>';
-                    html += '<div class="health-detail-list"><ul>';
-                    for (const item of trashLib.Items) {
-                        var purgeInfo = item.PurgeDate ? ' - ' + escHtml(T('purgesOn', 'purges'))
-                            + ' ' + new Date(item.PurgeDate).toLocaleDateString() : '';
-                        html += '<li>' + escHtml(item.OriginalName || item.Name)
-                            + ' <span class="trash-item-meta">(' + formatBytes(item.Size)
-                            + purgeInfo + ')</span></li>';
-                    }
-                    html += '</ul></div></div>';
-                }
-                html += '</div>';
-            } else {
-                html += '<p class="trash-empty-hint">' + escHtml(T('trashEmpty',
-                    'Trash is empty.')) + '</p>';
-            }
-
-            html += '</div>';
-            container.insertAdjacentHTML('beforeend', html);
+            container.insertAdjacentHTML('beforeend', renderTrashHealthSection(data));
         }, function () {
             console.warn(
                 'Jellyfin Helper: Could not load trash contents for health tab');
         });
     }, function () { /* Config load failed - silently skip */
     });
+}
+
+// Keep request lifecycle guards separate from the trash summary and per-library markup.
+function renderTrashHealthSection(data) {
+    var totalItems = 0;
+    var totalSize = 0;
+    for (const lib of data.Libraries) {
+        totalItems += lib.Items.length;
+        for (const trashItem of lib.Items) {
+            totalSize += trashItem.Size || 0;
+        }
+    }
+
+    var html = '<div class="health-card" id="trashHealthSection">';
+    html += '<div class="section-title">' + mi('delete') + escHtml(T('trashContents',
+        'Trash Contents')) + '</div>';
+
+    // Summary card
+    html += '<div class="health-grid">';
+    html += '<div class="health-item"><div class="health-value ' + (totalItems
+    > 0 ? 'health-warn' : 'health-ok') + '">' + totalItems + '</div>';
+    html += '<div class="health-label">' + escHtml(T('trashItems', 'Items in Trash'))
+        + '</div></div>';
+    html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
+        + formatBytes(totalSize) + '</div>';
+    html += '<div class="health-label">' + escHtml(T('trashTotalSize', 'Trash Size'))
+        + '</div></div>';
+    html += '<div class="health-item"><div class="health-value" style="font-size:1.2em;">'
+        + data.RetentionDays + 'd</div>';
+    html += '<div class="health-label">' + escHtml(T('trashRetentionDays',
+        'Retention')) + '</div></div>';
+    html += '</div>';
+
+    if (data.Libraries.length > 0) {
+        html += '<div id="trashDetailContainer">';
+        for (const trashLib of data.Libraries) {
+            html += renderTrashHealthLibrary(trashLib);
+        }
+        html += '</div>';
+    } else {
+        html += '<p class="trash-empty-hint">' + escHtml(T('trashEmpty',
+            'Trash is empty.')) + '</p>';
+    }
+
+    return html + '</div>';
+}
+
+function renderTrashHealthLibrary(trashLib) {
+    var html = '<div class="trash-library-block">';
+    html += '<h4 class="trash-library-heading">' + mi('folder') + escHtml(trashLib.LibraryName)
+        + ' <span class="trash-library-count">('
+        + trashLib.Items.length + ' ' + escHtml(T('items', 'items')) + ')</span></h4>';
+    html += '<div class="health-detail-list"><ul>';
+    for (const item of trashLib.Items) {
+        var purgeInfo = item.PurgeDate ? ' - ' + escHtml(T('purgesOn', 'purges'))
+            + ' ' + new Date(item.PurgeDate).toLocaleDateString() : '';
+        html += '<li>' + escHtml(item.OriginalName || item.Name)
+            + ' <span class="trash-item-meta">(' + formatBytes(item.Size)
+            + purgeInfo + ')</span></li>';
+    }
+    return html + '</ul></div></div>';
 }
 
 function fillHealthData(data) {
