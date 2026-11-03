@@ -23,6 +23,19 @@ function ajaxRouter(routes: Record<string, unknown> = {}, failures: string[] = [
 }
 
 describe('shared extras', () => {
+  test.each([null, undefined, false, 0])('save overlay ignores absent or falsy elements: %s', (element) => {
+    expect(() => ui.showAutoSaveIndicatorOverlay(element, true)).not.toThrow();
+  });
+
+  test('save overlay ignores detached elements and preserves unrelated preceding siblings', () => {
+    const detached = document.createElement('div');
+    ui.showAutoSaveIndicatorOverlay(detached, true);
+    expect(detached.previousElementSibling).toBeNull();
+    document.body.innerHTML = '<div id="unrelated">keep</div><div id="saved"></div>';
+    ui.showAutoSaveIndicatorOverlay(document.getElementById('saved'), true);
+    expect(document.getElementById('unrelated')!.textContent).toBe('keep');
+  });
+
   test('loadTranslations error and catch', async () => {
     ajaxRouter({}, ['Translations']);
     let called = false;
@@ -175,5 +188,77 @@ describe('shared extras', () => {
     vi.advanceTimersByTime(60);
     expect(item.classList.contains('health-active')).toBe(true);
     expect(document.getElementById('healthDetailPanel')?.classList.contains('file-tree-panel-visible')).toBe(true);
+  });
+});
+
+describe('toggle panel binding', () => {
+  function mount(panelScope?: string, groupAttr?: string) {
+    document.body.innerHTML = '<div id="scope">'
+      + '<button class="audit-toggle active" data-panel="p1" data-group="a">first</button>'
+      + '<button class="audit-toggle" data-panel="p1" data-group="a">second</button>'
+      + '<button class="audit-toggle active" data-panel="p2" data-group="b">third</button>'
+      + '<div id="p1" class="file-tree-panel"></div>'
+      + '<div id="p2" class="file-tree-panel file-tree-panel-visible">old</div></div>'
+      + '<div id="outside" class="file-tree-panel file-tree-panel-visible">keep</div>';
+    const opts = {
+      itemSelector: '.audit-toggle', activeClass: 'active', panelScope, groupAttr,
+      getPanelId: vi.fn((item: HTMLElement) => item.dataset.panel),
+      renderContent: vi.fn((item: HTMLElement) => '<span>' + item.textContent + '</span>'),
+    };
+    ui.attachTogglePanelHandlers(opts);
+    return { opts, items: [...document.querySelectorAll('.audit-toggle')] as HTMLElement[] };
+  }
+
+  test('binding twice does not duplicate callbacks and keeps each callback element correct', () => {
+    const { opts, items } = mount('#scope', 'data-group');
+    ui.attachTogglePanelHandlers(opts);
+    items[1].click();
+    expect(opts.getPanelId).toHaveBeenCalledExactlyOnceWith(items[1]);
+    expect(opts.renderContent).toHaveBeenCalledExactlyOnceWith(items[1]);
+    expect(document.getElementById('p1')!.textContent).toBe('second');
+    expect(items.map((item) => item.classList.contains('active'))).toEqual([false, true, false]);
+    expect(document.getElementById('p2')!.textContent).toBe('');
+    expect(document.getElementById('outside')!.textContent).toBe('keep');
+    items[2].click();
+    expect(opts.getPanelId).toHaveBeenLastCalledWith(items[2]);
+    expect(opts.renderContent).toHaveBeenLastCalledWith(items[2]);
+    expect(document.getElementById('p1')!.textContent).toBe('');
+    expect(items.map((item) => item.classList.contains('active'))).toEqual([false, false, true]);
+  });
+
+  test('keyboard opens, switching visible content does not scroll, and toggling closes', () => {
+    const { opts, items } = mount('#scope');
+    items[0].classList.remove('active');
+    const scroll = vi.spyOn(document.getElementById('p1')!, 'scrollIntoView');
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+    items[0].dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    vi.advanceTimersByTime(50);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    items[1].click();
+    vi.advanceTimersByTime(50);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    const space = new KeyboardEvent('keydown', { key: ' ', cancelable: true });
+    items[1].dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(document.getElementById('p1')!.innerHTML).toBe('');
+    expect(document.getElementById('p1')!.classList.contains('file-tree-panel-visible')).toBe(false);
+    expect(opts.renderContent).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([undefined, '[invalid'])('omitted or invalid scope falls back to the document: %s', (scope) => {
+    const { items } = mount(scope);
+    items[1].click();
+    expect(document.getElementById('outside')!.innerHTML).toBe('');
+  });
+
+  test('irrelevant keys and missing panels do not render or clear existing content', () => {
+    const { opts, items } = mount('#scope');
+    items[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(opts.getPanelId).not.toHaveBeenCalled();
+    items[1].dataset.panel = 'missing';
+    items[1].click();
+    expect(opts.renderContent).not.toHaveBeenCalled();
+    expect(document.getElementById('p2')!.textContent).toBe('old');
   });
 });

@@ -126,6 +126,7 @@ const CONFIG_EXPECTED = [
         'collapseAllTreeNodes', 'expandOneTreeNode', 'runTreeAction',
         'setTreeCappedNote', 'refreshTreeCappedNote', 'pruneFileTreeRegistry',
         'bindFileTreeHandlers', 'aggregateDict',
+        'attachTogglePanelHandlers',
         'normalizeStatisticsLibraries', 'orderLibrariesByName', 'appendMissingUnionLibraries',
         'pluralize', 'formatTimeAgo', 'describeApiError', 'createDialogOverlay',
         'createDialogBtn', 'removeDialogById',
