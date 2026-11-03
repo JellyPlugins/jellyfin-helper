@@ -561,9 +561,10 @@ public class ConfigurationController : ControllerBase
             : request.TrashFolderPath;
         config.TrashRetentionDays = request.TrashRetentionDays;
 
-        var hasSupportedLanguage = !string.IsNullOrWhiteSpace(request.Language)
-            && ConfigurationRequestValidator.IsLanguageSupported(request.Language);
-        config.Language = hasSupportedLanguage ? request.Language : "en";
+        var requestedLanguage = request.Language?.Trim();
+        config.Language = ConfigurationRequestValidator.IsLanguageSupported(requestedLanguage)
+            ? requestedLanguage!
+            : "en";
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
