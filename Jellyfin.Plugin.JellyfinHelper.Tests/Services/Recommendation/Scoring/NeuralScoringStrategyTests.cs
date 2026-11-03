@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
@@ -367,6 +368,61 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.Equal(score, explanation.FinalScore, 8);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ScoreWithExplanation_ReleasesReadLockOnSuccessAndFailure(bool throwDuringForwardPass)
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+
+        if (throwDuringForwardPass)
+        {
+            // Inject an invalid tensor to force an exception after the read lock was acquired.
+            var weightsField = typeof(NeuralScoringStrategy).GetField("_weightsH4O", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(weightsField);
+            weightsField.SetValue(strategy, Array.Empty<double>());
+            Assert.Throws<IndexOutOfRangeException>(() => strategy.ScoreWithExplanation(new CandidateFeatures()));
+        }
+        else
+        {
+            var explanation = strategy.ScoreWithExplanation(new CandidateFeatures());
+            Assert.InRange(explanation.FinalScore, 0.0, 1.0);
+        }
+
+        Assert.False(rwLock.IsReadLockHeld);
+        try
+        {
+            Assert.True(rwLock.TryEnterWriteLock(0));
+        }
+        finally
+        {
+            if (rwLock.IsWriteLockHeld)
+            {
+                rwLock.ExitWriteLock();
+            }
+        }
+    }
+
+    [Fact]
+    public void ScoreWithExplanation_DisposedLockAtAcquisition_ReturnsNeutralExplanation()
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+
+        // Model the disposal race after the initial _disposed check without timing or sleeps.
+        rwLock.Dispose();
+        var explanation = strategy.ScoreWithExplanation(new CandidateFeatures());
+
+        Assert.Equal(0.5, explanation.FinalScore);
+        Assert.Equal(strategy.Name, explanation.StrategyName);
+        Assert.False(rwLock.IsReadLockHeld);
+    }
+
     [Fact]
     public void ScoreWithExplanation_ZeroValuedNamedFeatures_CarryNoContribution()
     {
@@ -417,6 +473,32 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var examples = GenerateExamples(NeuralScoringStrategy.MinTrainingExamples);
 
         Assert.True(strategy.Train(examples));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Train_OptionalHeldOutMetrics_UsesOnlySufficientHeldOutSlice(int heldOutCount)
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var examples = GenerateExamples(NeuralScoringStrategy.MinTrainingExamples);
+        IReadOnlyList<TrainingExample>? heldOut = heldOutCount < 0
+            ? null
+            : Enumerable.Range(0, heldOutCount).Select(_ => new TrainingExample
+            {
+                Features = new CandidateFeatures { GenreSimilarity = 0.9 },
+                Label = 0.0
+            }).ToArray();
+
+        Assert.True(strategy.Train(examples, heldOut));
+
+        var metricsSource = heldOutCount >= 2 ? heldOut! : examples;
+        var (precision, recall, ndcg) = RankingMetrics.ComputeAll(metricsSource, strategy);
+        Assert.Equal(precision, strategy.LastPrecisionAtK);
+        Assert.Equal(recall, strategy.LastRecallAtK);
+        Assert.Equal(ndcg, strategy.LastNdcgAtK);
     }
 
     [Fact]
@@ -1307,13 +1389,17 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Train_WithDropout_WeightsConvergeWithoutNaN()
     {
-        // Dropout is activated when trainIdx.Length >= MinExamplesForDropout (30). We use exactly MinExamplesForDropout examples so that the training split (which is ~80% of examples after the val split) just reaches the threshold.
+        // The validation split does not receive gradients, so it cannot count toward dropout activation.
         var strategy = new NeuralScoringStrategy();
         var initialWH = strategy.GetCurrentWeightsHidden().ToArray();
         var initialWO = strategy.GetCurrentWeightsOutput().ToArray();
 
-        // >= MinExamplesForDropout examples to guarantee dropout is active during training.
-        var examples = GenerateExamples(NeuralScoringStrategy.MinExamplesForDropout);
+        var exampleCount = (int)Math.Ceiling(NeuralScoringStrategy.MinExamplesForDropout /
+            (1.0 - NeuralScoringStrategy.ValidationSplitRatio));
+        var validationCount = Math.Max(NeuralScoringStrategy.MinValidationExamples,
+            (int)(exampleCount * NeuralScoringStrategy.ValidationSplitRatio));
+        Assert.True(exampleCount - validationCount >= NeuralScoringStrategy.MinExamplesForDropout);
+        var examples = GenerateExamples(exampleCount);
         var trained = strategy.Train(examples);
 
         Assert.True(trained, "Train should return true with enough examples");
@@ -1375,6 +1461,23 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         {
             var score = strategy.Score(features);
             Assert.InRange(score, 0.0, 1.0);
+        });
+    }
+
+    [Fact]
+    public void ScoreAndScoreVector_ConcurrentDistinctInputs_MatchExplanationScores()
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var features = GenerateExamples(12).Select(example => example.Features).ToArray();
+        var expected = features.Select(feature => strategy.ScoreWithExplanation(feature).FinalScore).ToArray();
+
+        // Explanation uses fresh buffers; both fast paths share thread-local hidden-layer buffers.
+        // Distinct candidates expose cross-thread contamination that range-only checks would miss.
+        Parallel.For(0, 240, i =>
+        {
+            var index = i % features.Length;
+            Assert.Equal(expected[index], strategy.Score(features[index]));
+            Assert.Equal(expected[index], strategy.ScoreVector(features[index].ToVector()));
         });
     }
 
