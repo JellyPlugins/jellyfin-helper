@@ -122,8 +122,11 @@ function send(res, status, body) {
   res.end(payload);
 }
 function log(method, path, status) {
+  // Escape control/line-separator characters even when a caller sends an adversarial URL.
+  const safe = (value) => String(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) =>
+    String.raw`\u${c.codePointAt(0).toString(16).padStart(4, '0')}`);
   // eslint-disable-next-line no-console
-  console.log(`[mock-seerr] ${method} ${path} -> ${status}`);
+  console.log(`[mock-seerr] ${safe(method)} ${safe(path)} -> ${status}`);
 }
 function readBody(req) {
   return new Promise((resolve) => {

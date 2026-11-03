@@ -16,8 +16,18 @@ public interface ITrashService
     /// <param name="trashBasePath">The base path of the trash folder.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="utcNow">Optional fixed UTC timestamp for the trash entry. Defaults to <see cref="DateTime.UtcNow" />.</param>
-    /// <returns>The total size in bytes of the trashed directory, or 0 if the operation failed.</returns>
+    /// <returns>The total size in bytes of the trashed directory, or 0 for an empty directory or a failed operation. Use <see cref="MoveToTrashWithResult"/> when success must be distinguished from size.</returns>
     long MoveToTrash(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null);
+
+    /// <summary>
+    ///     Moves a directory to trash and reports success independently of its byte size.
+    /// </summary>
+    /// <param name="sourcePath">The full path of the directory to trash.</param>
+    /// <param name="trashBasePath">The base path of the trash folder.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="utcNow">Optional fixed UTC timestamp for the trash entry.</param>
+    /// <returns>A success flag and the total size in bytes of the moved directory.</returns>
+    (bool Success, long BytesMoved) MoveToTrashWithResult(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null);
 
     /// <summary>
     ///     Moves a single file to the trash folder instead of permanently deleting it.

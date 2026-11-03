@@ -465,9 +465,8 @@ public class TrashController : ControllerBase
             ? new[] { containingLibrary }.Concat(libraryFolders.Where(f => !string.Equals(f, containingLibrary, StringComparison.Ordinal)))
             : libraryFolders;
 
-        foreach (var folder in candidateLibraries)
+        foreach (var perLibraryNew in candidateLibraries.Select(folder => ResolveRelativeTrashPath(folder, newPath)))
         {
-            var perLibraryNew = ResolveRelativeTrashPath(folder, newPath);
             if (perLibraryNew == null)
             {
                 continue;
@@ -492,9 +491,8 @@ public class TrashController : ControllerBase
         }
 
         var existingOldFoldersForMerge = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
-        foreach (var folder in libraryFolders)
+        foreach (var perLibraryOld in libraryFolders.Select(folder => ResolveRelativeTrashPath(folder, oldPath)))
         {
-            var perLibraryOld = ResolveRelativeTrashPath(folder, oldPath);
             if (perLibraryOld == null || !existingOldFoldersForMerge.Contains(perLibraryOld, StringComparer.OrdinalIgnoreCase))
             {
                 continue;

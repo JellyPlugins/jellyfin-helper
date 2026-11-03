@@ -4,10 +4,29 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Reverse-lookup contract for TmdbGenreMap: mapping Jellyfin genre strings back to TMDb movie/TV genre IDs.
+///     Forward- and reverse-lookup contracts between Jellyfin genre names and TMDb movie/TV genre IDs.
 /// </summary>
 public class TmdbGenreMapReverseLookupTests
 {
+    [Fact]
+    public void ToJellyfinGenres_MovieTvAndUnknownIds_PreserveKnownOrderAndDuplicates()
+    {
+        var result = TmdbGenreMap.ToJellyfinGenres([18, 10759, -1, 10765, 18, int.MaxValue]);
+
+        Assert.Equal(["Drama", "Action & Adventure", "Sci-Fi & Fantasy", "Drama"], result);
+    }
+
+    [Fact]
+    public void ToJellyfinGenres_EmptyOrUnknownIds_ReturnEmpty()
+    {
+        Assert.Empty(TmdbGenreMap.ToJellyfinGenres([]));
+        Assert.Empty(TmdbGenreMap.ToJellyfinGenres([0, -1, int.MaxValue]));
+    }
+
+    [Fact]
+    public void ToJellyfinGenres_NullInput_Throws()
+        => Assert.Throws<ArgumentNullException>(() => TmdbGenreMap.ToJellyfinGenres(null!));
+
     [Theory]
     [InlineData("Action", 28)]
     [InlineData("Science Fiction", 878)]

@@ -71,6 +71,22 @@ public class CodecCardCatalogTests
     }
 
     [Fact]
+    public void Normalize_DirtyOrder_DropsNullsAndBlanksBeforeAppendingMissingCanonicalIds()
+    {
+        var input = new[] { null!, string.Empty, "   ", " watched ", "containers", " containers ", "CONTAINERS", "unknown" };
+        var expected = new[] { "watched", "containers" }
+            .Concat(CodecCardCatalog.Canonical.Where(id => id is not ("watched" or "containers")))
+            .ToArray();
+
+        var result = CodecCardCatalog.Normalize(input);
+
+        Assert.Equal(expected, result);
+        Assert.Equal(expected, CodecCardCatalog.Normalize(result));
+        Assert.Null(input[0]);
+        Assert.Equal(" watched ", input[3]);
+    }
+
+    [Fact]
     public void Normalize_MissingIds_AppendedInCanonicalOrder()
     {
         // A partial order keeps its leading explicit ids, then the omitted canonical ids are

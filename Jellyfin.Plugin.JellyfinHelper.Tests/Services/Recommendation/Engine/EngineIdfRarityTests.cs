@@ -118,4 +118,32 @@ public sealed class EngineIdfRarityTests
         Assert.Equal(1.0, table["OnlyB"]);
         Assert.Equal(1.0, table["OnlyC"]);
     }
+
+    [Fact]
+    public void BuildGenreStudioIdfTable_DuplicateAndBlankTerms_DoNotChangeDocumentFrequency()
+    {
+        var harness = EngineTestFactory.Create();
+        List<BaseItem> cleanItems =
+        [
+            MakeMovie("A", ["Common", "OnlyA"], ["StudioCommon", "StudioA"]),
+            MakeMovie("B", ["Common", "OnlyB"], ["StudioCommon", "StudioB"])
+        ];
+        List<BaseItem> noisyItems =
+        [
+            MakeMovie("A", ["Common", "common", "OnlyA", "OnlyA", "", " ", null!],
+                ["StudioCommon", "studiocommon", "StudioA", "StudioA", "", " ", null!]),
+            MakeMovie("B", ["Common", "COMMON", "OnlyB", "OnlyB", "", " ", null!],
+                ["StudioCommon", "STUDIOCOMMON", "StudioB", "StudioB", "", " ", null!])
+        ];
+
+        var clean = harness.Engine.BuildGenreStudioIdfTable(cleanItems);
+        var noisy = harness.Engine.BuildGenreStudioIdfTable(noisyItems);
+
+        Assert.Equal(clean.Count, noisy.Count);
+        Assert.All(clean, entry => Assert.Equal(entry.Value, noisy[entry.Key]));
+        Assert.Equal(0.0, noisy["Common"]);
+        Assert.Equal(0.0, noisy["StudioCommon"]);
+        Assert.Equal(1.0, noisy["OnlyA"]);
+        Assert.Equal(1.0, noisy["StudioA"]);
+    }
 }

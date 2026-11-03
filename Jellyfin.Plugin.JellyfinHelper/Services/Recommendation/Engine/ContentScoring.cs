@@ -308,10 +308,6 @@ internal static class ContentScoring
     {
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
-        Debug.Assert(
-            !mismatch,
-            $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
-                + "All three watched-item set lists must have the same length.");
         if (mismatch)
         {
             var afterIncrement = Interlocked.Increment(ref _parallelArrayMismatchCount);
@@ -327,6 +323,11 @@ internal static class ContentScoring
                     watchedStudioSets.Count);
             }
         }
+
+        Debug.Assert(
+            !mismatch,
+            $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
+                + "All three watched-item set lists must have the same length.");
     }
 
     /// <summary>
@@ -392,12 +393,9 @@ internal static class ContentScoring
     internal static HashSet<Guid> BuildSeriesExcludeSet(Guid seriesId, UserWatchProfile profile)
     {
         var set = new HashSet<Guid> { seriesId };
-        foreach (var w in profile.WatchedItems)
+        foreach (var w in profile.WatchedItems.Where(item => item.SeriesId == seriesId))
         {
-            if (w.SeriesId == seriesId)
-            {
-                set.Add(w.ItemId);
-            }
+            set.Add(w.ItemId);
         }
 
         return set;

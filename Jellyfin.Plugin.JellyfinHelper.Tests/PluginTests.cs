@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Model.Serialization;
@@ -105,6 +106,20 @@ public sealed class PluginTests : IDisposable
 
         Assert.Equal(html, File.ReadAllText(indexPath));
         Assert.Equal("web file", File.ReadAllText(temporaryFile));
+    }
+
+    [Fact]
+    public void OnUninstalling_InvalidatesRateLimitAndReconcileKeys()
+    {
+        var plugin = CreatePlugin();
+        var userId = Guid.NewGuid();
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
+        var reconcileKey = UserDiscoveryController.BuildReconcileKey(userId);
+
+        plugin.OnUninstalling();
+
+        Assert.NotEqual(rateLimitKey, UserDiscoveryController.BuildRateLimitKey(userId));
+        Assert.NotEqual(reconcileKey, UserDiscoveryController.BuildReconcileKey(userId));
     }
 
     // ReportClampedConfigValues - the "clamped hand-edited XML" warning path
@@ -236,6 +251,24 @@ public sealed class PluginTests : IDisposable
         Assert.False(File.Exists(ensembleState), "ensemble_state.json must be removed on uninstall");
         Assert.False(File.Exists(batchGeneration), "batch-generation counter must be removed on uninstall");
         Assert.False(File.Exists(prefixedCache));
+    }
+
+    [Fact]
+    public void OnUninstalling_SparseUnprefixedArtifacts_DoesNotDeleteDirectoriesOrUnrelatedFiles()
+    {
+        var weights = Path.Join(_dataPath, "ml_weights.json");
+        var directory = Path.Join(_dataPath, "ensemble_state.json");
+        var unrelated = Path.Join(_dataPath, "unrelated.json");
+        File.WriteAllText(weights, "{}");
+        File.WriteAllText(unrelated, "{}");
+        Directory.CreateDirectory(directory);
+
+        CreatePlugin().OnUninstalling();
+
+        Assert.False(File.Exists(weights));
+        Assert.False(File.Exists(Path.Join(_dataPath, "neural_weights.json")));
+        Assert.True(Directory.Exists(directory));
+        Assert.True(File.Exists(unrelated));
     }
 
     [Fact]

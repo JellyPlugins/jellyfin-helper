@@ -230,7 +230,7 @@ public class NullableDateTimeConverterTests
             var back = JsonSerializer.Deserialize<Container>(json, CreateOptions());
             Assert.NotNull(back);
             Assert.NotNull(back!.Value);
-            Assert.Equal(container.Value.Value.ToUniversalTime(), back.Value!.Value.ToUniversalTime());
+            Assert.Equal(Assert.IsType<DateTime>(container.Value).ToUniversalTime(), Assert.IsType<DateTime>(back.Value).ToUniversalTime());
         }
         finally
         {
@@ -254,9 +254,10 @@ public class NullableDateTimeConverterTests
         Assert.NotNull(back!.Value);
 
         // Kind must survive round-trip.
-        Assert.Equal(DateTimeKind.Utc, back.Value!.Value.Kind);
+        var backValue = Assert.IsType<DateTime>(back.Value);
+        Assert.Equal(DateTimeKind.Utc, backValue.Kind);
         // Ticks must be identical - no timezone shift happens.
-        Assert.Equal(container.Value.Value.Ticks, back.Value.Value.Ticks);
+        Assert.Equal(Assert.IsType<DateTime>(container.Value).Ticks, backValue.Ticks);
         // Full equality (including Kind) holds now.
         Assert.Equal(container.Value, back.Value);
     }
@@ -268,11 +269,11 @@ public class NullableDateTimeConverterTests
         var json = "{\"Value\":\"2024-06-15T10:30:00+00:00\"}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
-        Assert.NotNull(result!.Value);
-        Assert.NotEqual(DateTimeKind.Unspecified, result.Value!.Value.Kind);
+        var value = Assert.IsType<DateTime>(result!.Value);
+        Assert.NotEqual(DateTimeKind.Unspecified, value.Kind);
         Assert.Equal(
             new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
-            result.Value.Value.ToUniversalTime());
+            value.ToUniversalTime());
     }
 
     [Fact]
@@ -282,14 +283,14 @@ public class NullableDateTimeConverterTests
         var json = "{\"Value\":\"2024-06-15T12:30:00+02:00\"}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
-        Assert.NotNull(result!.Value);
+        var value = Assert.IsType<DateTime>(result!.Value);
         // Kind is Local (or Utc if the machine happens to be UTC), never Unspecified for
         // offset-carrying strings.
-        Assert.NotEqual(DateTimeKind.Unspecified, result.Value!.Value.Kind);
+        Assert.NotEqual(DateTimeKind.Unspecified, value.Kind);
         // Instant must match 2024-06-15T10:30:00Z regardless of Kind.
         Assert.Equal(
             new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Utc),
-            result.Value.Value.ToUniversalTime());
+            value.ToUniversalTime());
     }
 
     [Fact]
@@ -316,11 +317,11 @@ public class NullableDateTimeConverterTests
             var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
 
             Assert.NotNull(result);
-            Assert.NotNull(result!.Value);
+            var value = Assert.IsType<DateTime>(result!.Value);
             // Positive fields assertion: it MUST parse to June 15th, 2024.
-            Assert.Equal(2024, result.Value!.Value.Year);
-            Assert.Equal(6, result.Value.Value.Month);
-            Assert.Equal(15, result.Value.Value.Day);
+            Assert.Equal(2024, value.Year);
+            Assert.Equal(6, value.Month);
+            Assert.Equal(15, value.Day);
         }
         finally
         {
@@ -343,7 +344,7 @@ public class NullableDateTimeConverterTests
         Assert.NotNull(back);
         Assert.NotNull(back!.Value);
         // Round-trip must preserve the point in time.
-        Assert.Equal(container.Value.Value.ToUniversalTime(), back.Value!.Value.ToUniversalTime());
+        Assert.Equal(Assert.IsType<DateTime>(container.Value).ToUniversalTime(), Assert.IsType<DateTime>(back.Value).ToUniversalTime());
     }
 
     [Fact]

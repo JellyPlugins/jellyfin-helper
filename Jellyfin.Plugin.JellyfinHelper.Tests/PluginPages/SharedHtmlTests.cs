@@ -430,7 +430,7 @@ public partial class SharedHtmlTests : ConfigPageTestBase
         // Match array of hex color strings
         var match = Regex.Match(HtmlContent, @"var\s+DONUT_COLORS\s*=\s*\[([^\]]+)\]");
         Assert.True(match.Success, "DONUT_COLORS array not found.");
-        var colorCount = Regex.Matches(match.Groups[1].Value, @"#[0-9a-fA-F]{6}").Count;
+        var colorCount = Regex.Count(match.Groups[1].Value, @"#[0-9a-fA-F]{6}");
         Assert.True(colorCount >= 10, $"Expected at least 10 donut colors, found {colorCount}.");
     }
 

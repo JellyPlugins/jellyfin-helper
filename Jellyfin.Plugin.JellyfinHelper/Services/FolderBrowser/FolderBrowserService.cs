@@ -77,17 +77,8 @@ public class FolderBrowserService : IFolderBrowserService
     /// </summary>
     private List<FolderEntry> GetWindowsRootEntries()
     {
-        var entries = new List<FolderEntry>();
-
         // On Windows, list available drive letters. DriveInfo property access (IsReady, DriveType, Name) can throw for problematic drives, so all checks are inside the per-drive try/catch to ensure a single bad drive cannot abort the entire listing.
-        foreach (var drive in DriveInfo.GetDrives())
-        {
-            var entry = TryBuildDriveEntry(drive);
-            if (entry != null)
-            {
-                entries.Add(entry);
-            }
-        }
+        var entries = DriveInfo.GetDrives().Select(TryBuildDriveEntry).OfType<FolderEntry>().ToList();
 
         entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return entries;
@@ -178,7 +169,7 @@ public class FolderBrowserService : IFolderBrowserService
         try
         {
             var normalizedPath = Path.GetFullPath(path);
-            var dirInfo = new DirectoryInfo(normalizedPath);
+            var dirInfo = new DirectoryInfo(PathValidator.ResolveDirectoryPath(normalizedPath));
 
             if (!dirInfo.Exists)
             {
@@ -252,7 +243,7 @@ public class FolderBrowserService : IFolderBrowserService
                     entries.Add(new FolderEntry
                     {
                         Name = subdir.Name,
-                        Path = subdir.FullName,
+                        Path = Path.Join(normalizedPath, subdir.Name),
                         HasChildren = SafeHasSubdirectories(subdir.FullName)
                     });
                 }
@@ -342,11 +333,23 @@ public class FolderBrowserService : IFolderBrowserService
                 return "This is a protected system folder and cannot be browsed.";
             }
 
-            // Verify directory exists - use Attributes to distinguish access-denied from missing. Directory.Exists() returns false for BOTH cases, which would collapse permission errors into the wrong "does not exist" message.
-            return ValidateDirectoryTarget(normalized, path);
+            // Resolve ancestor links before existence probes, not just a link at the final component.
+            // Continue browsing the resolved path so a lexical alias cannot bypass the protected-root check.
+            return ValidateDirectoryTarget(PathValidator.ResolveDirectoryPath(normalized));
+        }
+        catch (SecurityException)
+        {
+            return "This is a protected system folder and cannot be browsed.";
+        }
+
+        // Windows rejects an oversized path shape; Unix reports oversized components as an access failure.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                  && (ex is not PathTooLongException || !OperatingSystem.IsWindows()))
+        {
+            return ErrorCannotAccessDirectory;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
-                                       or PathTooLongException or SecurityException)
+                                       or PathTooLongException)
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
@@ -358,15 +361,15 @@ public class FolderBrowserService : IFolderBrowserService
     }
 
     /// <summary>
-    ///     Verifies that resolves to a browsable directory: it exists, is a directory (not a file), and , when it is a symlink , does not resolve to a sensitive system target.
+    ///     Verifies an ancestor-resolved path exists as a browsable directory, not a file.
     /// </summary>
-    private string? ValidateDirectoryTarget(string normalized, string path)
+    private static string? ValidateDirectoryTarget(string normalized)
     {
         try
         {
             if (Directory.Exists(normalized))
             {
-                return ValidateExistingDirectory(normalized, path);
+                return ValidateExistingDirectory(normalized);
             }
 
             if (File.Exists(normalized))
@@ -409,28 +412,15 @@ public class FolderBrowserService : IFolderBrowserService
     }
 
     /// <summary>
-    ///     Validates a path already confirmed to exist as a directory: rejects a non-directory entry and, for symlinks, refuses a browse into a link that resolves to a sensitive system target.
+    ///     Revalidates the resolved target before reading its attributes and rejects a non-directory entry.
     /// </summary>
-    private string? ValidateExistingDirectory(string normalized, string path)
+    private static string? ValidateExistingDirectory(string normalized)
     {
         // Path exists AND is a directory - happy path.
-        var attrs = new DirectoryInfo(normalized).Attributes;
+        var attrs = new DirectoryInfo(PathValidator.ResolveDirectoryPath(normalized)).Attributes;
         if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
         {
             return "Path must point to a directory.";
-        }
-
-        // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see through a directory link whose own path is innocuous but which points at a sensitive target (e.g.
-        if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
-        {
-            var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
-            if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
-            {
-                _logger.LogWarning(
-                    "Folder-browse request refused: {Path} is a link to a sensitive system path",
-                    SanitizeForLog(path));
-                return "This is a protected system folder and cannot be browsed.";
-            }
         }
 
         return null;
@@ -464,7 +454,7 @@ public class FolderBrowserService : IFolderBrowserService
     {
         try
         {
-            foreach (var childPath in Directory.EnumerateDirectories(path))
+            foreach (var childPath in Directory.EnumerateDirectories(PathValidator.ResolveDirectoryPath(path)))
             {
                 try
                 {
@@ -497,25 +487,12 @@ public class FolderBrowserService : IFolderBrowserService
     /// <returns>True if the directory should be hidden from the browser.</returns>
     private static bool IsSystemOrHiddenCritical(DirectoryInfo dirInfo)
     {
-        // Hide sensitive system / application directories from listings entirely, on every OS - Jellyfin's own /config, /data, /cache and OS roots like /etc, C:\Windows.
-        if (PathValidator.IsSensitiveSystemPath(dirInfo.FullName))
-        {
-            return true;
-        }
-
-        // Symlink/junction escape guard: IsSensitiveSystemPath is purely lexical and Path.GetFullPath does NOT dereference symlinks on .NET, so a directory link whose OWN path is innocuous (e.g.
+        // Apply the same ancestor-link guard to listings and HasChildren probes as to direct browsing.
         try
         {
-            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
-            {
-                var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
-                if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
-                {
-                    return true;
-                }
-            }
+            _ = PathValidator.ResolveDirectoryPath(dirInfo.FullName);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
         {
             // Cannot resolve the link (broken, permission, cyclic) - treat as unlistable/critical
             // so an unresolvable reparse point is never browsed into.

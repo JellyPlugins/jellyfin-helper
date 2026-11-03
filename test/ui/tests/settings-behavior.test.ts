@@ -42,6 +42,10 @@ describe('validateTrashPath matrix', () => {
     expect(ui.validateTrashPath('   ', true)).toMatch(/required/i);
   });
 
+  test.each([undefined, null, false, 0, NaN])('falsy path %s is rejected without calling trim', (path) => {
+    expect(ui.validateTrashPath(path, true)).toMatch(/required/i);
+  });
+
   test('invalid characters are rejected', () => {
     expect(ui.validateTrashPath('a?b', true)).toMatch(/invalid characters/i);
     expect(ui.validateTrashPath('a|b', true)).toMatch(/invalid characters/i);
@@ -59,6 +63,8 @@ describe('validateTrashPath matrix', () => {
   test('dot and dot-dot segments rejected', () => {
     expect(ui.validateTrashPath('/media/../trash', true)).toMatch(/directory references/i);
     expect(ui.validateTrashPath('/media/./trash', true)).toMatch(/directory references/i);
+    expect(ui.validateTrashPath('/media/trash/..', true)).toMatch(/directory references/i);
+    expect(ui.validateTrashPath('/media/ /trash', true)).toMatch(/invalid/i);
   });
 
   test('sensitive system path rejected', () => {
@@ -88,6 +94,25 @@ describe('validateTrashPath matrix', () => {
   });
 });
 
+describe('showTrashPathError optional DOM parents', () => {
+  test('missing input is a no-op rather than a null dereference', () => {
+    document.body.innerHTML = '';
+    expect(() => ui.showTrashPathError('bad path')).not.toThrow();
+    expect(document.getElementById('trashPathErrorMsg')).toBeNull();
+  });
+
+  test('inserts an escaped error after the input wrapper', () => {
+    document.body.innerHTML = '<div id="wrapper"><input id="cfgTrashPath"></div>';
+    ui.showTrashPathError('<script>bad path</script>');
+    const error = document.getElementById('trashPathErrorMsg')!;
+    expect(document.getElementById('wrapper')!.nextElementSibling).toBe(error);
+    expect(error.querySelector('script')).toBeNull();
+    expect(error.textContent).toContain('<script>bad path</script>');
+    ui.showTrashPathError(null);
+    expect(document.getElementById('trashPathErrorMsg')).toBeNull();
+  });
+});
+
 describe('isSensitiveSystemPath', () => {
   test('empty and relative paths are never sensitive', () => {
     expect(ui.isSensitiveSystemPath('')).toBe(false);
@@ -103,6 +128,19 @@ describe('isSensitiveSystemPath', () => {
   test('a prefix match that is not a path boundary is safe', () => {
     // /configuration is not under /config even though the string starts with it.
     expect(ui.isSensitiveSystemPath('/configuration')).toBe(false);
+  });
+
+  test('normalization keeps protected roots and path boundaries intact', () => {
+    expect(ui.isSensitiveSystemPath('/ETC///')).toBe(true);
+    expect(ui.isSensitiveSystemPath('C:\\Windows\\\\')).toBe(true);
+    expect(ui.isSensitiveSystemPath('/configuration///')).toBe(false);
+  });
+
+  test('long slash runs do not change the protected-path decision', () => {
+    const slashes = '/'.repeat(100_000);
+    expect(ui.isSensitiveSystemPath('/etc' + slashes + 'file')).toBe(true);
+    expect(ui.isSensitiveSystemPath('/media' + slashes + 'file')).toBe(false);
+    expect(ui.isSensitiveSystemPath(slashes)).toBe(false);
   });
 });
 
@@ -179,6 +217,20 @@ describe('library multiselect summary branches', () => {
     expect(wrap.dataset.missingValues).toBe('Ghost');
     // Only A is a real checkbox and it is checked; the missing one is appended.
     expect(ui.getLibraryMultiSelectValue('w')).toBe('A, Ghost');
+  });
+
+  test('only own selections are summarized and stale names keep their original order', () => {
+    document.body.innerHTML = '<div id="w"></div>';
+    const selected = Object.assign(Object.create({ inherited: 'Inherited' }), {
+      c: 'C', ghost: 'Ghost', a: 'A', old: 'Old',
+    });
+    ui.renderLibraryMultiSelect('w', libs, selected, 'excluded');
+    expect(document.querySelector('#w .library-multiselect-summary')!.textContent).toBe('C, Ghost +2');
+    expect(document.getElementById('w')!.dataset.missingValues).toBe('Ghost, Old');
+    expect(ui.getLibraryMultiSelectValue('w')).toBe('A, C, Ghost, Old');
+    expect([...document.querySelectorAll('#w input')].map((el) => el.id)).toEqual([
+      'w_lib_0', 'w_lib_1', 'w_lib_2', 'w_lib_3',
+    ]);
   });
 
   test('updateLibraryMultiSelectSummary recomputes after manual checkbox edits', () => {
@@ -408,6 +460,66 @@ describe('attachBackupHandlers import flow', () => {
       (globalThis as any).FileReader = realReader;
     }
   });
+
+  test.each([null, { Language: '' }, { Language: 'de' }, 'failure'])(
+    'post-import refresh tolerates configuration response %s and restores scroll after rebuilding', async (cfg) => {
+      const calls = ajaxRouter({ 'Backup/Import': { Summary: { ConfigurationRestored: true } } });
+      const ajax = (globalThis as any).ApiClient.ajax;
+      let configReads = 0;
+      (globalThis as any).ApiClient.ajax = (opts: any) => {
+        if (opts.url === 'JellyfinHelper/Configuration' && opts.type === 'GET') {
+          configReads++;
+          if (configReads === 1) {
+            return cfg === 'failure' ? Promise.reject(new Error('unavailable')) : Promise.resolve(cfg);
+          }
+          return Promise.resolve({ Language: 'en', RadarrInstances: [], SonarrInstances: [] });
+        }
+        return ajax(opts);
+      };
+      document.body.innerHTML = '<div class="mainAnimatedPage"><div id="backupMsg"></div>' +
+        '<div id="statsResult"></div></div>';
+      const scrollContainer = document.querySelector('.mainAnimatedPage') as HTMLElement;
+      scrollContainer.scrollTop = 135;
+      const realReader = (globalThis as any).FileReader;
+      (globalThis as any).FileReader = class {
+        onload: any = null;
+        readAsText() { this.onload?.({ target: { result: '{}' } }); }
+      };
+      try {
+        ui.doBackupImport({ name: 'b.json', size: 2 } as File);
+        await flush();
+        expect(document.getElementById('backupMsg')!.textContent).toMatch(/success/i);
+        scrollContainer.scrollTop = 5;
+        await vi.advanceTimersByTimeAsync(1499);
+        expect(configReads).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(configReads).toBe(2);
+        expect(calls.some((call) => call.url === 'JellyfinHelper/Translations')).toBe(true);
+        expect(document.getElementById('settingsForm')).not.toBeNull();
+        await vi.advanceTimersByTimeAsync(50);
+        expect(scrollContainer.scrollTop).toBe(135);
+      } finally {
+        (globalThis as any).FileReader = realReader;
+      }
+    },
+  );
+
+  test('a UTF-16 BOM backup remains readable without changing its JSON payload', async () => {
+    const calls = ajaxRouter({ 'Backup/Import': { Summary: {} } });
+    backupForm();
+    const content = '{"message":"Grüße"}';
+    const bytes = new Uint8Array(2 + content.length * 2);
+    bytes.set([0xff, 0xfe]);
+    for (let i = 0; i < content.length; i++) {
+      bytes[2 + i * 2] = content.charCodeAt(i) & 0xff;
+      bytes[3 + i * 2] = content.charCodeAt(i) >> 8;
+    }
+    ui.doBackupImport(new File([bytes], 'utf16.json', { type: 'application/json' }));
+    await vi.waitFor(() => {
+      const post = calls.find((call) => call.url.includes('Backup/Import'));
+      expect(post?.body).toEqual({ message: 'Grüße' });
+    });
+  });
 });
 
 describe('refreshDiscoveryAccessState hint and button wiring', () => {
@@ -588,6 +700,43 @@ async function renderSettings(extra: Record<string, unknown> = {}, failures: str
 }
 
 describe('loadSettings wiring and interactions', () => {
+  test.each([
+    ['cfgTrickplayMode', 'TrickplayTaskMode'],
+    ['cfgEmptyFolderMode', 'EmptyMediaFolderTaskMode'],
+    ['cfgSubtitleMode', 'OrphanedSubtitleTaskMode'],
+    ['cfgLinkMode', 'LinkRepairTaskMode'],
+    ['cfgRecommendationsMode', 'RecommendationsTaskMode'],
+    ['cfgSeerrMode', 'SeerrCleanupTaskMode'],
+  ])('%s autosave retains its own element and mode binding', async (id, field) => {
+    const calls = await renderSettings();
+    const select = document.getElementById(id) as HTMLSelectElement;
+    select.value = select.value === 'Activate' ? 'DryRun' : 'Activate';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flush();
+    const puts = calls.filter((c) => c.url === 'JellyfinHelper/Configuration' && c.method === 'PUT');
+    expect(puts).toHaveLength(1);
+    expect((puts[0].body as Record<string, unknown>)[field]).toBe(select.value);
+    expect(select.dataset.saveGuard).toBe('1');
+    if (id !== 'cfgRecommendationsMode') {
+      expect((puts[0].body as Record<string, unknown>).RecommendationsTaskMode).toBe('Activate');
+    }
+  });
+
+  test('language and task mode options keep their labels, order and selections', async () => {
+    await renderSettings();
+    const langs = document.getElementById('cfgLang') as HTMLSelectElement;
+    expect([...langs.options].map((option) => [option.value, option.text])).toEqual([
+      ['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'],
+      ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe'], ['sv', 'Svenska'],
+    ]);
+    const task = document.getElementById('cfgTrickplayMode') as HTMLSelectElement;
+    expect([...task.options].map((option) => [option.value, option.text])).toEqual([
+      ['Activate', 'Activate'], ['DryRun', 'Dry Run'], ['Deactivate', 'Deactivate'],
+    ]);
+    expect(langs.value).toBe('en');
+    expect(task.value).toBe('DryRun');
+  });
+
   test('orphan age input clamps above the max on input', async () => {
     await renderSettings();
     const input = document.getElementById('cfgOrphanAge') as HTMLInputElement;
@@ -738,5 +887,62 @@ describe('loud save drives the band to saved then hides it', () => {
     await vi.advanceTimersByTimeAsync(3000);
     expect(band.classList.contains('is-visible')).toBe(false);
     expect(calls.some((c) => String(c.url) === 'JellyfinHelper/Configuration' && c.body !== undefined)).toBe(true);
+  });
+});
+
+describe('save band visual states', () => {
+  function bandDom() {
+    document.body.innerHTML = '<div id="settingsSaveBand" aria-hidden="true">' +
+      '<span class="settings-save-band-icon"></span><span class="settings-save-band-text"></span></div>';
+    return document.getElementById('settingsSaveBand')!;
+  }
+
+  test.each([
+    ['unsaved', 'Unsaved changes', 'settings-save-band-dot'],
+    ['saving', 'Saving Settings...', 'btn-spinner'],
+    ['saved', 'All changes saved', 'check_circle'],
+    ['error', 'Failed to save settings.', 'error'],
+  ])('%s sets the matching icon, text, class and accessibility state', (kind, label, icon) => {
+    const band = bandDom();
+    ui.renderSaveBand('saving');
+    ui.renderSaveBand(kind);
+    expect([...band.classList].filter((name) => name !== 'is-visible')).toEqual(['is-' + kind]);
+    expect(band.getAttribute('aria-hidden')).toBe('false');
+    expect(band.querySelector('.settings-save-band-text')!.textContent).toBe(label);
+    const statusIcon = band.querySelector('.settings-save-band-icon')!;
+    if (kind === 'saved' || kind === 'error') {
+      expect(statusIcon.querySelector('path')!.getAttribute('d')).toBe(
+        new DOMParser().parseFromString(ui.mi(icon), 'text/html').querySelector('path')!.getAttribute('d'),
+      );
+    } else {
+      expect(statusIcon.querySelector('.' + icon)).not.toBeNull();
+    }
+  });
+
+  test('hidden retains the saved state during fade-out and clears it only after the transition', async () => {
+    const band = bandDom();
+    ui.renderSaveBand('saved');
+    ui.renderSaveBand('hidden');
+    expect(band.classList.contains('is-saved')).toBe(true);
+    expect(band.classList.contains('is-visible')).toBe(false);
+    expect(band.getAttribute('aria-hidden')).toBe('true');
+    await vi.advanceTimersByTimeAsync(319);
+    expect(band.classList.contains('is-saved')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(band.classList.contains('is-saved')).toBe(false);
+    expect(band.textContent).toBe('');
+  });
+
+  test('a visible state cancels pending fade cleanup and tolerates missing status nodes', async () => {
+    document.body.innerHTML = '<div id="settingsSaveBand"></div>';
+    const band = document.getElementById('settingsSaveBand')!;
+    ui.renderSaveBand('saved');
+    ui.renderSaveBand('hidden');
+    ui.renderSaveBand('error');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(band.classList.contains('is-error')).toBe(true);
+    expect(band.classList.contains('is-visible')).toBe(true);
+    document.body.innerHTML = '';
+    expect(() => ui.renderSaveBand('unsaved')).not.toThrow();
   });
 });

@@ -86,6 +86,20 @@ describe('setArrInstanceApiKeys and collect', () => {
     document.getElementById('Radarr_0_skipCert')!.remove();
     expect(ui.collectArrInstances('Radarr')[0].SkipCertificateValidation).toBe(false);
   });
+
+  test('collect keeps row order and skips incomplete rows', () => {
+    arrShell([
+      { Name: 'A', Url: 'http://a', ApiKey: 'ka', SkipCertificateValidation: true },
+      { Name: 'B', Url: 'http://b', ApiKey: 'kb' },
+      { Name: 'C', Url: 'http://c', ApiKey: 'kc' },
+    ]);
+    document.getElementById('Radarr_1_key')!.remove();
+    document.querySelector<HTMLElement>('.arr-instance-row[data-index="2"]')!.dataset.libsStash = 'Movies';
+    expect(ui.collectArrInstances('Radarr')).toMatchObject([
+      { Name: 'A', ApiKey: 'ka', SkipCertificateValidation: true },
+      { Name: 'C', ApiKey: 'kc', Libraries: 'Movies', SkipCertificateValidation: false },
+    ]);
+  });
 });
 
 describe('createArrCountText', () => {
@@ -122,9 +136,63 @@ describe('add and remove instances', () => {
     expect(put).toBeDefined();
     expect((put!.body as any).RadarrInstances.map((i: any) => i.Name)).toEqual(['B']);
   });
+
+  test('rebound handlers use the clicked row and its current index exactly once', async () => {
+    const calls = ajaxRouter({ TestConnection: { Success: false, Message: 'no' } });
+    arrShell([
+      { Name: 'A', Url: 'http://a', ApiKey: 'ka' },
+      { Name: 'B', Url: 'http://b', ApiKey: 'kb', SkipCertificateValidation: true },
+      { Name: 'C', Url: 'http://c', ApiKey: 'kc' },
+    ]);
+    // Production settings rows are separate from the compare controls refreshed by autosave.
+    const settingsRows = document.createElement('div');
+    settingsRows.append(...document.getElementById('arrButtons')!.childNodes);
+    document.getElementById('settingsForm')!.appendChild(settingsRows);
+    ui.attachTestHandlers();
+    ui.attachTestHandlers();
+    ui.attachRemoveHandlers('Radarr');
+    ui.attachRemoveHandlers('Radarr');
+    document.querySelector<HTMLButtonElement>('.btnRemoveArr[data-index="0"]')!.click();
+    await flush();
+    const beforeClick = calls.length;
+    document.getElementById('Radarr_0_btnTest')!.click();
+    await flush();
+    const probes = calls.slice(beforeClick).filter((c) => String(c.url).includes('TestConnection'));
+    expect(probes).toHaveLength(1);
+    expect(probes[0].body).toMatchObject({ Name: 'B', Url: 'http://b', ApiKey: 'kb', SkipCertificateValidation: true });
+    document.querySelector<HTMLButtonElement>('.btnRemoveArr[data-index="1"]')!.click();
+    await flush();
+    expect(ui.collectArrInstances('Radarr').map((i: any) => i.Name)).toEqual(['B']);
+    const checkbox = document.getElementById('Radarr_0_skipCert')!;
+    expect(document.querySelector('label[for="Radarr_0_skipCert"]')).not.toBeNull();
+    expect(checkbox).toHaveProperty('checked', true);
+  });
 });
 
 describe('compare and status badges', () => {
+  test.each([null, undefined, false, 0, '', {}, { Success: false }])('falsy probe response %j paints an error', async (response) => {
+    const calls = ajaxRouter({ TestConnection: response });
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({ RadarrInstances: [{ Url: 'http://r', ApiKey: 'k' }], SonarrInstances: [] });
+    await flush();
+    expect(document.getElementById('arrStatusRadarr')!.classList.contains('is-error')).toBe(true);
+    expect(calls.filter((c) => String(c.url).includes('TestConnection'))).toHaveLength(1);
+  });
+
+  test('both types filter null, falsy and incomplete instance entries', async () => {
+    const calls = ajaxRouter({ TestConnection: { Success: true } });
+    const incomplete = [null, undefined, false, 0, '', {}, { Url: '' }, { Url: 'u' }, { Url: 'u', ApiKey: '' }];
+    document.body.innerHTML = '<div id="arrButtons"></div><div id="arrResult"></div>';
+    ui.initArrButtons({
+      RadarrInstances: [...incomplete, { Name: 'R', Url: 'http://r', ApiKey: 'kr' }],
+      SonarrInstances: [...incomplete, { Name: 'S', Url: 'http://s', ApiKey: 'ks' }],
+    });
+    await flush();
+    expect(document.querySelectorAll('#arrSelectRadarr option')).toHaveLength(1);
+    expect(document.querySelectorAll('#arrSelectSonarr option')).toHaveLength(1);
+    expect(calls.filter((c) => String(c.url).includes('TestConnection'))).toHaveLength(2);
+  });
+
   function compareShell() {
     ajaxRouter({
       'TestConnection': { Success: true },

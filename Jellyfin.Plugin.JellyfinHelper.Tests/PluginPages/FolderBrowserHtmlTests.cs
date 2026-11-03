@@ -140,7 +140,13 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
     public void Html_FolderBrowser_AppendsNewFolderNameToCurrentPath()
     {
         Assert.Matches(
-            new Regex(@"function\s+openFolderBrowserDialog[\s\S]*?selectedPath\s*\+=\s*newName\.trim"),
+            new Regex(@"function\s+openFolderBrowserDialog[\s\S]*?selectFolderBrowserPath\(state\)"),
+            HtmlContent);
+        Assert.Matches(
+            new Regex(@"function\s+selectFolderBrowserPath[\s\S]*?appendFolderBrowserName\(state\.currentPath\s*\|\|\s*'',\s*newName\)"),
+            HtmlContent);
+        Assert.Matches(
+            new Regex(@"function\s+appendFolderBrowserName[\s\S]*?newName\.trim\(\)[\s\S]*?return\s+selectedPath\s*\+\s*trimmedName"),
             HtmlContent);
     }
 

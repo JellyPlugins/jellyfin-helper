@@ -371,25 +371,52 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         // Absolute path: single trash folder
         try
         {
-            var fullPath = Path.GetFullPath(queryPath);
-
-            // Never report a library root as an existing trash folder.
-            // If it were reported, the relocate/delete flow could target the entire library.
-            var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var isLibraryRoot = normalizedAllRoots.Any(root =>
-                string.Equals(root, fullPathTrimmed, comparison));
-
-            if (isLibraryRoot)
+            if (PathValidator.HasTraversalSegment(queryPath))
             {
                 return;
             }
 
-            if (Directory.Exists(fullPath))
+            var fullPath = Path.GetFullPath(queryPath);
+            var resolvedPath = PathValidator.ResolveDirectoryPath(fullPath);
+            if (string.Equals(
+                    resolvedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    Path.GetPathRoot(resolvedPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    comparison))
+            {
+                return;
+            }
+
+            // Never report a library root as an existing trash folder.
+            // If it were reported, the relocate/delete flow could target the entire library.
+            var fullPathTrimmed = resolvedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            foreach (var root in normalizedAllRoots)
+            {
+                try
+                {
+                    // Restore the separator so a trimmed filesystem root ("C:") does not become drive-relative.
+                    var resolvedRoot = PathValidator.ResolveDirectoryPath(root + Path.DirectorySeparatorChar);
+                    if (string.Equals(
+                            resolvedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            fullPathTrimmed,
+                            comparison))
+                    {
+                        return;
+                    }
+                }
+                catch (System.Security.SecurityException)
+                {
+                    // A protected library root cannot equal the already-validated non-protected trash target.
+                    // Do not let an unrelated protected library disable legitimate external trash directories.
+                }
+            }
+
+            if (Directory.Exists(resolvedPath))
             {
                 existingPaths.Add(fullPath);
             }
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException
+                                       or UnauthorizedAccessException or System.Security.SecurityException)
         {
             // Skip invalid paths silently
         }

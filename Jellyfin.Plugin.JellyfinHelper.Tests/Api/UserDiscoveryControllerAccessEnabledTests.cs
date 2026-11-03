@@ -169,7 +169,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         var result = await CreateController(userId).GetMyServiceInfo("radarr", CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var services = Assert.IsAssignableFrom<IEnumerable<SeerrServiceInfo>>(ok.Value);
+        var services = Assert.IsType<IEnumerable<SeerrServiceInfo>>(ok.Value, exactMatch: false);
         Assert.Empty(services);
     }
 
@@ -208,7 +208,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         var result = await CreateController(userId).GetMyServiceInfo("radarr", CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var services = Assert.IsAssignableFrom<IEnumerable<SeerrServiceInfo>>(ok.Value);
+        var services = Assert.IsType<IEnumerable<SeerrServiceInfo>>(ok.Value, exactMatch: false);
         Assert.Empty(services);
     }
 
@@ -232,7 +232,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         var result = await CreateController(userId).GetMyServiceInfo("radarr", CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var services = Assert.IsAssignableFrom<IEnumerable<SeerrServiceInfo>>(ok.Value);
+        var services = Assert.IsType<IEnumerable<SeerrServiceInfo>>(ok.Value, exactMatch: false);
         var svc = Assert.Single(services);
         Assert.Equal(1, svc.Id);
         Assert.Equal("Radarr-4K", svc.Name);

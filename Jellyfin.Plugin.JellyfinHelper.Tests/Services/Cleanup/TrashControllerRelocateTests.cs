@@ -31,7 +31,7 @@ public class TrashControllerRelocateTests : IDisposable
         }
     }
 
-    private TrashController CreateController(PluginConfiguration config, List<string> libraryFolders, Mock<ITrashService>? trashServiceMock = null)
+    private static TrashController CreateController(PluginConfiguration config, List<string> libraryFolders, Mock<ITrashService>? trashServiceMock = null)
     {
         var libraryManager = TestMockFactory.CreateLibraryManager();
         var pluginLog = TestMockFactory.CreatePluginLogService();
@@ -303,6 +303,49 @@ public class TrashControllerRelocateTests : IDisposable
             It.IsAny<string>(),
             It.Is<string>(s => s == Path.Combine(moviesRoot, ".jellyfin-trash-2")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Never);
+    }
+
+    [Fact]
+    public void RelocateTrash_AbsoluteOldMalformedRelativeNew_DoesNotMoveToAnyLibrary()
+    {
+        var library = Path.Join(_testRoot, "library");
+        var source = Path.Join(_testRoot, "old-trash");
+        Directory.CreateDirectory(library);
+        Directory.CreateDirectory(source);
+        var trashService = new Mock<ITrashService>();
+        var controller = CreateController(new PluginConfiguration(), [library], trashService);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = source, NewTrashPath = "bad\0relative" });
+
+        var response = Assert.IsType<TrashRelocateResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Equal(0, response.Moved);
+        trashService.Verify(service => service.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Never);
+        Assert.True(Directory.Exists(source));
+    }
+
+    [Fact]
+    public void RelocateTrash_RelativeOldAbsoluteNew_SkipsInvalidAndMissingSourcesWhileAccumulatingMoves()
+    {
+        var first = Path.Join(_testRoot, "first");
+        var second = Path.Join(_testRoot, "second");
+        var missing = Path.Join(_testRoot, "missing");
+        var firstTrash = Path.Join(first, ".old-trash");
+        var secondTrash = Path.Join(second, ".old-trash");
+        var destination = Path.Join(_testRoot, "destination");
+        Directory.CreateDirectory(firstTrash);
+        Directory.CreateDirectory(secondTrash);
+        Directory.CreateDirectory(missing);
+        var trashService = new Mock<ITrashService>();
+        trashService.Setup(service => service.RelocateTrashContents(firstTrash, destination, It.IsAny<Microsoft.Extensions.Logging.ILogger>())).Returns((2, 1));
+        trashService.Setup(service => service.RelocateTrashContents(secondTrash, destination, It.IsAny<Microsoft.Extensions.Logging.ILogger>())).Returns((3, 0));
+        var controller = CreateController(new PluginConfiguration(), [string.Empty, first, missing, second], trashService);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = ".old-trash", NewTrashPath = destination });
+
+        var response = Assert.IsType<TrashRelocateResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Equal(5, response.Moved);
+        Assert.Equal(1, response.Failed);
+        trashService.Verify(service => service.RelocateTrashContents(It.IsAny<string>(), destination, It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Exactly(2));
     }
 
     [Fact]

@@ -82,6 +82,62 @@ public class TrashServiceTests : IDisposable
         Assert.Contains("source_movie", Path.GetFileName(trashDirectory));
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1024, true)]
+    public void MoveToTrashWithResult_ValidDirectory_ReportsSuccessRegardlessOfSize(int size, bool hasFile)
+    {
+        var source = Path.Join(_testRoot, "source");
+        var trash = Path.Join(_testRoot, "trash");
+        Directory.CreateDirectory(source);
+        if (hasFile)
+        {
+            File.WriteAllBytes(Path.Join(source, "movie.mkv"), new byte[size]);
+        }
+
+        var result = _trashService.MoveToTrashWithResult(source, trash, _loggerMock, Now);
+
+        Assert.True(result.Success);
+        Assert.Equal(size, result.BytesMoved);
+        Assert.False(Directory.Exists(source));
+        Assert.Single(Directory.GetDirectories(trash));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MoveToTrashWithResult_MissingOrAlreadyTrashedSource_ReportsFailure(bool alreadyTrashed)
+    {
+        var trash = Path.Join(_testRoot, "trash");
+        var source = Path.Join(alreadyTrashed ? trash : _testRoot, "source");
+        if (alreadyTrashed)
+        {
+            Directory.CreateDirectory(source);
+        }
+
+        var result = _trashService.MoveToTrashWithResult(source, trash, _loggerMock, Now);
+
+        Assert.False(result.Success);
+        Assert.Equal(0, result.BytesMoved);
+        Assert.Equal(alreadyTrashed, Directory.Exists(source));
+    }
+
+    [Fact]
+    public void MoveToTrashWithResult_DestinationIsFile_ReportsFailureAndPreservesSource()
+    {
+        var source = Path.Join(_testRoot, "source");
+        var trash = Path.Join(_testRoot, "trash");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(trash, "occupied");
+
+        var result = _trashService.MoveToTrashWithResult(source, trash, _loggerMock, Now);
+
+        Assert.False(result.Success);
+        Assert.Equal(0, result.BytesMoved);
+        Assert.True(Directory.Exists(source));
+    }
+
     [Fact]
     public void MoveFileToTrash_NonExistentFile_ReturnsZero()
     {
@@ -485,10 +541,8 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(dirName, item.FullName);
         Assert.Equal(2048, item.Size);
         Assert.True(item.IsDirectory);
-        Assert.NotNull(item.TrashedAt);
-        Assert.Equal(new DateTime(2026, 3, 15, 14, 0, 0, DateTimeKind.Utc), item.TrashedAt.Value);
-        Assert.NotNull(item.PurgesAt);
-        Assert.Equal(new DateTime(2026, 4, 14, 14, 0, 0, DateTimeKind.Utc), item.PurgesAt.Value);
+        Assert.Equal(new DateTime(2026, 3, 15, 14, 0, 0, DateTimeKind.Utc), Assert.IsType<DateTime>(item.TrashedAt));
+        Assert.Equal(new DateTime(2026, 4, 14, 14, 0, 0, DateTimeKind.Utc), Assert.IsType<DateTime>(item.PurgesAt));
     }
 
     [Fact]
@@ -508,10 +562,8 @@ public class TrashServiceTests : IDisposable
         Assert.Equal(fileName, item.FullName);
         Assert.Equal(512, item.Size);
         Assert.False(item.IsDirectory);
-        Assert.NotNull(item.TrashedAt);
-        Assert.Equal(new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc), item.TrashedAt.Value);
-        Assert.NotNull(item.PurgesAt);
-        Assert.Equal(new DateTime(2026, 6, 8, 10, 0, 0, DateTimeKind.Utc), item.PurgesAt.Value);
+        Assert.Equal(new DateTime(2026, 6, 1, 10, 0, 0, DateTimeKind.Utc), Assert.IsType<DateTime>(item.TrashedAt));
+        Assert.Equal(new DateTime(2026, 6, 8, 10, 0, 0, DateTimeKind.Utc), Assert.IsType<DateTime>(item.PurgesAt));
     }
 
     [Fact]

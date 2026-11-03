@@ -101,10 +101,10 @@ public sealed class EngineStaticHelpersTests
         var map = InvokeExtractBillingWeightMap(people);
 
         Assert.Equal(2, map.Count);
-        Assert.True(map.ContainsKey("Lead Actor"));
-        Assert.True(map.ContainsKey("The Director"));
+        Assert.True(map.TryGetValue("Lead Actor", out var leadWeight));
+        Assert.True(map.TryGetValue("The Director", out var directorWeight));
         // Top-billed (SortOrder 0) must weigh at least as much as the next-billed entry.
-        Assert.True(map["Lead Actor"] >= map["The Director"]);
+        Assert.True(leadWeight >= directorWeight);
     }
 
     [Fact]

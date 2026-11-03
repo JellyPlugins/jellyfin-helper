@@ -1,10 +1,48 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { flush } from '../src/apiStub.js';
-import { loadConfigPage, saveCoverage } from '../src/loader.js';
+import { loadConfigPage, REPO_ROOT, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
 
 afterAll(saveCoverage);
+
+describe('neutral trend badge contrast', () => {
+  test.each(['dark', 'light'])('%s scheme uses an opaque neutral pair with AA small-text contrast', (scheme) => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Trends.css'), 'utf8');
+    document.head.appendChild(style);
+    try {
+      const rules = Array.from(style.sheet!.cssRules);
+      const defaultRule = rules.find((r) => (r as CSSStyleRule).selectorText === '.trend-diff-stat.diff-neutral') as CSSStyleRule;
+      const lightRules = rules.find((r) => (r as CSSMediaRule).conditionText === '(prefers-color-scheme: light)') as CSSMediaRule;
+      expect(defaultRule).toBeDefined();
+      expect(lightRules).toBeDefined();
+      const lightRule = Array.from(lightRules.cssRules).find((r) => (r as CSSStyleRule).selectorText === '.trend-diff-stat.diff-neutral') as CSSStyleRule;
+      const badge = scheme === 'light' ? lightRule : defaultRule;
+      function luminance(property: string) {
+        const color = badge.style.getPropertyValue(property).trim();
+        // Opaque colors make the ratio independent of the host surface, including white and black.
+        const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(color);
+        expect(rgb).not.toBeNull();
+        const channels = rgb!.slice(1).map(Number);
+        expect(new Set(channels).size).toBe(1);
+        const linear = channels.map((v) => {
+          const c = v / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      }
+      const foreground = luminance('color');
+      const background = luminance('background');
+      const ratio = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      style.remove();
+    }
+  });
+});
 
 function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
   (globalThis as any).ApiClient = {
@@ -42,6 +80,11 @@ const timeline = () => ({
 });
 
 describe('renderTrendChart', () => {
+  test.each([undefined, false, 0, '', { dataPoints: null }, { dataPoints: false }])('falsy timeline %j stays empty', (tl) => {
+    const out = ui.renderTrendChart(tl);
+    expect(out.chartState).toBeNull();
+    expect(out.html).toContain('trend-empty');
+  });
   test('short timelines render the empty state', () => {
     for (const tl of [null, {}, { dataPoints: [] }, { dataPoints: [timeline().dataPoints[0]] }]) {
       const out = ui.renderTrendChart(tl);
@@ -148,6 +191,55 @@ describe('renderTrendChart', () => {
       document.documentElement.style.removeProperty('--color-primary-light');
       document.documentElement.style.removeProperty('--color-primary');
     }
+  });
+});
+
+describe('applyTrendFrame', () => {
+  test('grows, shrinks and reuses SVG node pools without reparsing', () => {
+    document.body.innerHTML = ui.renderTrendChart(timeline()).html;
+    const svg = document.querySelector('svg')!;
+    const area = svg.querySelector('.trend-area')!;
+    const line = svg.querySelector('.trend-line')!;
+    const tick = svg.querySelector('.trend-grid line')!;
+    const dot = svg.querySelector('.trend-dots circle')!;
+    const label = svg.querySelector('.trend-xlabels text')!;
+    const frame = (n: number, radius = 3) => ({
+      areaPoints: '1,2 3,4 5,6', polyline: '1,2 3,4', dotRadius: radius,
+      ticks: Array.from({ length: n }, (_, i) => ({ y: 10 + i, label: '<tick' + i + '>' })),
+      points: Array.from({ length: n }, (_, i) => i + ',' + (i + 2)),
+      labels: Array.from({ length: n }, (_, i) => ({ x: 20 + i, anchor: 'middle', text: '<label' + i + '>' })),
+    });
+    ui.applyTrendFrame(svg, frame(8), { trendColor: '#123456' });
+    expect(svg.querySelectorAll('.trend-grid line')).toHaveLength(8);
+    expect(svg.querySelectorAll('.trend-grid text')).toHaveLength(8);
+    expect(svg.querySelectorAll('.trend-dots circle')).toHaveLength(8);
+    expect(svg.querySelectorAll('.trend-xlabels text')).toHaveLength(8);
+    expect(svg.querySelector('.trend-grid line')).toBe(tick);
+    expect(svg.querySelector('.trend-dots circle')).toBe(dot);
+    expect(svg.querySelector('.trend-xlabels text')).toBe(label);
+    expect(svg.querySelector('.trend-grid text')!.textContent).toBe('<tick0>');
+    expect(svg.querySelector('.trend-xlabels text')!.textContent).toBe('<label0>');
+    expect(svg.querySelector('label0')).toBeNull();
+    expect(area.getAttribute('points')).toBe('1,2 3,4 5,6');
+    expect(line.getAttribute('points')).toBe('1,2 3,4');
+    ui.applyTrendFrame(svg, frame(1, 0), { trendColor: '#123456' });
+    expect(svg.querySelectorAll('.trend-grid line')).toHaveLength(1);
+    expect(svg.querySelectorAll('.trend-grid text')).toHaveLength(1);
+    expect(svg.querySelectorAll('.trend-dots circle')).toHaveLength(0);
+    expect(svg.querySelectorAll('.trend-xlabels text')).toHaveLength(1);
+    expect(svg.querySelector('.trend-grid line')).toBe(tick);
+    expect(svg.querySelector('.trend-xlabels text')).toBe(label);
+    ui.applyTrendFrame(svg, frame(2), { trendColor: '#123456' });
+    expect(svg.querySelectorAll('.trend-dots circle')).toHaveLength(2);
+    expect(svg.querySelector('.trend-dots circle')!.getAttribute('fill')).toBe('#123456');
+    expect(svg.querySelector('.trend-area')).toBe(area);
+    expect(svg.querySelector('.trend-line')).toBe(line);
+    expect(document.querySelector('svg')).toBe(svg);
+  });
+
+  test('missing SVG groups are tolerated', () => {
+    document.body.innerHTML = '<svg></svg>';
+    expect(() => ui.applyTrendFrame(document.querySelector('svg'), {}, {})).not.toThrow();
   });
 });
 

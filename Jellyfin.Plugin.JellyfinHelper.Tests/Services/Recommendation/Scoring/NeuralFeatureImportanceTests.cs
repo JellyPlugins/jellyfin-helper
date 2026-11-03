@@ -182,8 +182,8 @@ public class NeuralFeatureImportanceTests
         Assert.Equal(run1.Count, run2.Count);
         foreach (var kv in run1)
         {
-            Assert.True(run2.ContainsKey(kv.Key));
-            Assert.Equal(kv.Value, run2[kv.Key], precision: 12);
+            Assert.True(run2.TryGetValue(kv.Key, out var otherValue));
+            Assert.Equal(kv.Value, otherValue, precision: 12);
         }
     }
 

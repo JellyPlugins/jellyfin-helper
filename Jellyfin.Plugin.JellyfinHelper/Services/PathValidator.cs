@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -25,7 +26,18 @@ internal static class PathValidator
     private static readonly string[] SensitiveSystemRoots = BuildSensitiveSystemRoots();
 
     private static string[] BuildSensitiveSystemRoots()
+        => BuildSensitiveSystemRoots(OperatingSystem.IsWindows(), Environment.GetFolderPath);
+
+    /// <summary>
+    ///     Builds the protected root set with explicit platform inputs so alternative Windows installations
+    ///     and missing special folders can be validated independently of the host operating system.
+    /// </summary>
+    /// <param name="isWindows">Whether Windows special folders should be resolved.</param>
+    /// <param name="resolveFolder">Resolves a Windows special folder to its current path.</param>
+    /// <returns>The protected roots, without duplicate Windows paths.</returns>
+    internal static string[] BuildSensitiveSystemRoots(bool isWindows, Func<Environment.SpecialFolder, string> resolveFolder)
     {
+        ArgumentNullException.ThrowIfNull(resolveFolder);
         var roots = new List<string>
         {
             "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
@@ -35,22 +47,18 @@ internal static class PathValidator
         };
 
         // Additionally resolve the real Windows system dirs from the OS, so a server installed on a drive other than C: (e.g.
-        if (OperatingSystem.IsWindows())
+        if (isWindows)
         {
-            foreach (var folder in new[]
+            foreach (var path in new[]
             {
                 Environment.SpecialFolder.Windows,
                 Environment.SpecialFolder.ProgramFiles,
                 Environment.SpecialFolder.ProgramFilesX86,
                 Environment.SpecialFolder.CommonApplicationData,
-            })
+            }.Select(resolveFolder)
+                .Where(path => !string.IsNullOrEmpty(path) && !roots.Contains(path, StringComparer.OrdinalIgnoreCase)))
             {
-                var path = Environment.GetFolderPath(folder);
-                if (!string.IsNullOrEmpty(path)
-                    && !roots.Contains(path, StringComparer.OrdinalIgnoreCase))
-                {
-                    roots.Add(path);
-                }
+                roots.Add(path);
             }
         }
 
@@ -199,18 +207,66 @@ internal static class PathValidator
             : StringComparison.Ordinal;
         var path = normalizedPath.TrimEnd('/', '\\');
 
-        foreach (var sensitive in SensitiveSystemRoots)
-        {
-            var s = sensitive.TrimEnd('/', '\\');
-            if (string.Equals(path, s, comparison)
+        return SensitiveSystemRoots.Select(sensitive => sensitive.TrimEnd('/', '\\'))
+            .Any(s => string.Equals(path, s, comparison)
                 || path.StartsWith(s + "/", comparison)
-                || path.StartsWith(s + "\\", comparison))
+                || path.StartsWith(s + "\\", comparison));
+    }
+
+    /// <summary>
+    ///     Resolves directory links in every path component, refusing protected targets before probing their descendants.
+    ///     Missing components remain lexical so callers can perform their usual existence checks.
+    /// </summary>
+    /// <param name="path">The absolute directory path.</param>
+    /// <returns>The path with directory links resolved.</returns>
+    internal static string ResolveDirectoryPath(string path)
+        => ResolveDirectoryPath(path, 0);
+
+    private static string ResolveDirectoryPath(string path, int linkDepth)
+    {
+        if (linkDepth >= 40)
+        {
+            throw new IOException("Too many directory links.");
+        }
+
+        var normalized = Path.GetFullPath(path);
+        // Device namespaces bypass normal Windows path canonicalization and protected-root matching.
+        if (OperatingSystem.IsWindows() &&
+            (normalized.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+             normalized.StartsWith(@"\\.\", StringComparison.Ordinal)))
+        {
+            throw new SecurityException("Device directory paths are not allowed.");
+        }
+
+        if (IsSensitiveSystemPath(normalized))
+        {
+            throw new SecurityException("Protected system directory.");
+        }
+
+        var root = Path.GetPathRoot(normalized)!;
+        var resolved = root;
+        var segments = normalized[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        foreach (var segment in segments)
+        {
+            resolved = Path.Join(resolved, segment);
+            if (IsSensitiveSystemPath(resolved))
             {
-                return true;
+                throw new SecurityException("Protected system directory.");
+            }
+
+            var directory = new DirectoryInfo(resolved);
+            if (directory.LinkTarget is not null)
+            {
+                // Resolve only this hop: following a whole chain here could probe a protected target.
+                var target = directory.ResolveLinkTarget(returnFinalTarget: false)
+                    ?? throw new IOException("Cannot resolve directory link.");
+                resolved = ResolveDirectoryPath(target.FullName, linkDepth + 1);
             }
         }
 
-        return false;
+        return resolved;
     }
 
     /// <summary>

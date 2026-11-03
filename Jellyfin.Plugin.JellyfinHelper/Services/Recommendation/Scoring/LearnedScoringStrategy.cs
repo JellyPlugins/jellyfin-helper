@@ -413,20 +413,17 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             // Determine whether to use k-fold cross-validation or simple split
             var useKFold = examples.Count >= KFoldCount * MinExamplesPerFold;
-            var kFoldLossSum = 0.0;
-            var kFoldLossCount = 0;
+            var kFoldLoss = (Sum: 0.0, Count: 0);
 
             if (useKFold)
             {
-                RunKFoldCrossValidation(
+                kFoldLoss = RunKFoldCrossValidation(
                     examples,
                     rawVectors,
                     effectiveWeights,
                     allIndices,
                     rng,
-                    useStandardization,
-                    ref kFoldLossSum,
-                    ref kFoldLossCount);
+                    useStandardization);
             }
 
             RunFinalTrainingPass(
@@ -436,8 +433,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 allIndices,
                 rng,
                 useStandardization,
-                kFoldLossSum,
-                kFoldLossCount);
+                kFoldLoss);
 
             LogFeatureImportance();
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
@@ -471,22 +467,21 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <param name="allIndices">The shuffled index array spanning all examples.</param>
     /// <param name="rng">The deterministic RNG used for per-epoch shuffling.</param>
     /// <param name="useStandardization">Whether Z-score standardization should be applied.</param>
-    /// <param name="kFoldLossSum">Accumulator for the summed per-fold validation loss.</param>
-    /// <param name="kFoldLossCount">Accumulator for the number of folds that contributed a loss.</param>
-    private void RunKFoldCrossValidation(
+    /// <returns>The summed per-fold validation loss and the number of contributing folds.</returns>
+    private (double Sum, int Count) RunKFoldCrossValidation(
         IReadOnlyList<TrainingExample> examples,
         double[][] rawVectors,
         double[] effectiveWeights,
         int[] allIndices,
         Random rng,
-        bool useStandardization,
-        ref double kFoldLossSum,
-        ref int kFoldLossCount)
+        bool useStandardization)
     {
         // Each fold computes standardization statistics from its TRAINING fold only, preventing validation data from leaking into the feature normalization.
         var foldSize = examples.Count / KFoldCount;
         var savedWeights = (double[])_weights.Clone();
         var savedBias = _bias;
+        var kFoldLossSum = 0.0;
+        var kFoldLossCount = 0;
 
         for (var fold = 0; fold < KFoldCount; fold++)
         {
@@ -543,6 +538,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Restore weights for final training on all data
         _weights = savedWeights;
         _bias = savedBias;
+        return (kFoldLossSum, kFoldLossCount);
     }
 
     /// <summary>
@@ -554,8 +550,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <param name="allIndices">The shuffled index array spanning all examples.</param>
     /// <param name="rng">The deterministic RNG used for per-epoch shuffling.</param>
     /// <param name="useStandardization">Whether Z-score standardization should be applied.</param>
-    /// <param name="kFoldLossSum">The summed per-fold validation loss from k-fold cross-validation.</param>
-    /// <param name="kFoldLossCount">The number of folds that contributed a loss.</param>
+    /// <param name="kFoldLoss">The summed validation loss and contributing fold count from cross-validation.</param>
     private void RunFinalTrainingPass(
         IReadOnlyList<TrainingExample> examples,
         double[][] rawVectors,
@@ -563,8 +558,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         int[] allIndices,
         Random rng,
         bool useStandardization,
-        double kFoldLossSum,
-        int kFoldLossCount)
+        (double Sum, int Count) kFoldLoss)
     {
         // Clone raw vectors for the final pass so standardization doesn't
         // mutate the originals (rawVectors stays pristine for ranking metrics).
@@ -591,8 +585,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         // Store validation loss for ensemble alpha gating
         // K-fold average loss is more reliable; fall back to training loss if k-fold wasn't used
-        _lastValidationLoss = kFoldLossCount > 0
-            ? kFoldLossSum / kFoldLossCount
+        _lastValidationLoss = kFoldLoss.Count > 0
+            ? kFoldLoss.Sum / kFoldLoss.Count
             : finalLoss;
 
         // Persist Z-score statistics from the final (all-data) pass so scoring
@@ -668,20 +662,24 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <param name="rawVectors">The raw (unstandardized) feature vectors for this pass.</param>
     private void WarmStartWeightsForModeChange(bool useStandardization, double[][] rawVectors)
     {
-        var standardizationModeChanged = useStandardization != (_featureMeans is not null);
-        if (!standardizationModeChanged)
-        {
-            return;
-        }
-
         if (useStandardization)
         {
+            if (_featureMeans is not null)
+            {
+                return;
+            }
+
             // raw -> standardized: rescale using the stats the final pass will train under.
             var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
             RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
         }
-        else if (_featureMeans is not null && _featureStdDevs is not null)
+        else
         {
+            if (_featureMeans is null || _featureStdDevs is null)
+            {
+                return;
+            }
+
             // standardized -> raw: reverse using the stats the current weights were trained under.
             RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
         }

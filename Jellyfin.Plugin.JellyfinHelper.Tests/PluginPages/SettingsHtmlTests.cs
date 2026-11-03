@@ -119,7 +119,7 @@ public partial class SettingsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_TaskModeEnumValues_MatchSelectOptions()
     {
-        foreach (var value in Enum.GetNames(typeof(TaskMode)))
+        foreach (var value in Enum.GetNames<TaskMode>())
         {
             Assert.Contains(value, HtmlContent);
         }

@@ -131,7 +131,7 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
         // PosterPath must be validated against a safe pattern before use in src URL.
         // The safe approach uses a regex test + encodeURI rather than escHtml.
         Assert.Matches(
-            new Regex(@"function\s+renderDiscoveryCard[\s\S]*?encodeURI\s*\(rawPoster\)"),
+            new Regex(@"function\s+renderDiscoveryPoster[\s\S]*?encodeURI\s*\(rawPoster\)"),
             HtmlContent);
     }
 

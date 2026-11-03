@@ -1093,22 +1093,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
-            batchCall: () =>
-            {
-                var batch = _userDataManager.GetUserDataBatch(items, user);
-                if (batch is null)
-                {
-                    return null;
-                }
-
-                // Accept whatever dictionary shape Jellyfin hands back.
-                if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
-                {
-                    return readOnly;
-                }
-
-                return new Dictionary<Guid, UserItemData>(batch);
-            },
+            // Dictionary implements IReadOnlyDictionary; a null result still triggers per-item fallback.
+            batchCall: () => _userDataManager.GetUserDataBatch(items, user),
             fallbackValue: null,
             onFailure: ex => _pluginLog.LogWarning(
                 LogCategory,

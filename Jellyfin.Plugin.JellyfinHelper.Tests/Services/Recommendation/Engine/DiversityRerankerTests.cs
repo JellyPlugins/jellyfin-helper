@@ -450,6 +450,53 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void FindBestMmrIndex_EmptySelection_DoesNotAllocatePerCandidate()
+    {
+        var method = typeof(DiversityReranker).GetMethod(
+            "FindBestMmrIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var cacheType = typeof(DiversityReranker).GetNestedType("SimilarityCache", System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        Assert.NotNull(cacheType);
+        var cache = Activator.CreateInstance(cacheType!, nonPublic: true);
+        var selected = BuildLinearlyDecreasingCandidates(0);
+        var small = new object?[] { BuildLinearlyDecreasingCandidates(20), selected, cache };
+        var large = new object?[] { BuildLinearlyDecreasingCandidates(500), selected, cache };
+
+        // Warm reflection/JIT outside the measurement; only candidate-count-dependent allocation matters.
+        for (var i = 0; i < 20; i++)
+        {
+            method!.Invoke(null, small);
+            method.Invoke(null, large);
+        }
+
+        var beforeSmall = GC.GetAllocatedBytesForCurrentThread();
+        var smallResult = method!.Invoke(null, small);
+        var smallBytes = GC.GetAllocatedBytesForCurrentThread() - beforeSmall;
+        var beforeLarge = GC.GetAllocatedBytesForCurrentThread();
+        var largeResult = method.Invoke(null, large);
+        var largeBytes = GC.GetAllocatedBytesForCurrentThread() - beforeLarge;
+
+        Assert.Equal(0, Assert.IsType<int>(smallResult));
+        Assert.Equal(0, Assert.IsType<int>(largeResult));
+        Assert.True(largeBytes <= smallBytes + 1024,
+            $"MMR allocated more with 500 candidates: {largeBytes} bytes versus {smallBytes} bytes for 20.");
+    }
+
+    [Fact]
+    public void ApplyDiversityReranking_500Candidates100Results_PreservesUniqueSeededOrdering()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(500);
+
+        var first = DiversityReranker.ApplyDiversityReranking(candidates, 100, seed: 42);
+        var second = DiversityReranker.ApplyDiversityReranking(candidates, 100, seed: 42);
+
+        Assert.Equal(100, first.Count);
+        Assert.Equal(100, first.Select(item => item.Item.Id).Distinct().Count());
+        Assert.Equal(first.Select(item => item.Item.Id), second.Select(item => item.Item.Id));
+        Assert.Same(candidates[0].Item, first[0].Item);
+    }
+
+    [Fact]
     public void ApplyDiversityReranking_StudioIsAnIndependentDiversityAxis()
     {
         // Identical genre everywhere ({Action}) so genre similarity is constant; the only thing MMR can vary is studio.

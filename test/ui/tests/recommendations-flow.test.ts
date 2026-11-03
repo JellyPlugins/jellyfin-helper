@@ -243,6 +243,57 @@ describe('discovery request through the profile popup', () => {
     expect(document.getElementById('seerrUserPopup')).toBeNull();
   });
 
+  test.each([0, 1, 2])('profile button %s retains its own server, profile and folder', async (index) => {
+    const calls = ajaxRouter(popupRoutes([
+      { Id: 1, Name: 'First', Profiles: [{ Id: 2, Name: 'HD' }, { Id: 3, Name: '4K' }], ActiveProfileId: 2, ActiveDirectory: '/first' },
+      { id: 0, Name: '', name: '<Second>', profiles: [{ id: 4, name: '<SD>' }], activeProfileId: 4, activeDirectory: '/second' },
+    ], { 'Discovery/Request': { Success: true } }));
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    const btn = document.querySelector('#discoveryGrid .discovery-request-btn') as HTMLButtonElement;
+    btn.click();
+    await flush();
+    const profiles = document.querySelectorAll<HTMLButtonElement>('.discovery-popup-user');
+    expect(profiles).toHaveLength(3);
+    expect(profiles[2].textContent).toContain('<SD>');
+    expect(profiles[2].textContent).toContain('<Second>');
+    expect(profiles[2].querySelector('sd')).toBeNull();
+    profiles[index].click();
+    await flush();
+    const expected = [
+      { ServerId: 1, ProfileId: 2, RootFolder: '/first' },
+      { ServerId: 1, ProfileId: 3, RootFolder: '/first' },
+      { ServerId: 0, ProfileId: 4, RootFolder: '/second' },
+    ];
+    expect(calls.find((c) => c.url.includes('Discovery/Request'))!.body).toMatchObject(expected[index]);
+    expect(document.activeElement).toBe(btn);
+  });
+
+  test.each([
+    { Id: 0, Profiles: [{ Id: 0, Name: 'Zero' }, { Id: 1, Name: 'Other' }], ActiveProfileId: 0, ActiveDirectory: '/zero' },
+    { Id: 0, id: 9, Profiles: [{ Id: 0, id: 8, Name: 'Zero' }, { Id: 1, Name: 'Other' }], ActiveProfileId: 0, activeProfileId: 7, ActiveDirectory: '/zero' },
+  ])('PascalCase zero identifiers remain selected and are submitted, case %#', async (service) => {
+    const calls = ajaxRouter(popupRoutes([
+      service,
+      { Id: 2, Name: 'Second', Profiles: [{ Id: 3, Name: 'Second profile' }], ActiveProfileId: 3 },
+    ], { 'Discovery/Request': { Success: true } }));
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    (document.querySelector('#discoveryGrid .discovery-request-btn') as HTMLButtonElement).click();
+    await flush();
+    const profiles = document.querySelectorAll<HTMLButtonElement>('.discovery-popup-user');
+    expect(profiles).toHaveLength(3);
+    expect(profiles[0].textContent).toContain('Server #0');
+    expect(profiles[0].classList.contains('discovery-popup-user-default')).toBe(true);
+    expect(profiles[1].classList.contains('discovery-popup-user-default')).toBe(false);
+    profiles[0].click();
+    await flush();
+    expect(calls.find((call) => call.url.includes('Discovery/Request'))!.body)
+      .toMatchObject({ TmdbId: 5, ServerId: 0, ProfileId: 0, RootFolder: '/zero' });
+  });
+
   test('closing an already removed popup is idempotent', async () => {
     ajaxRouter(popupRoutes([{ id: 1, profiles: [{ id: 4, name: 'HD' }] }]));
     document.body.innerHTML = '<div id="recsContent"></div>';
@@ -594,6 +645,36 @@ describe('recommendations tab render variants', () => {
     expect(activity).not.toContain('StaleItem');
   });
 
+  test.each(['success', 'failure'])('a cached selection supersedes an in-flight profile and activity %s', async (outcome) => {
+    const pending = deferredRouter((u) => u.includes('WatchProfile/') || u.includes('UserActivity/User/'));
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    waiting(pending, 'WatchProfile/')[0].resolve({ WatchedMovieCount: 7, GenreDistribution: {} });
+    waiting(pending, 'UserActivity/User/')[0].resolve(activityRow('CachedAlice'));
+    await flush();
+    const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
+    select.value = '1';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    select.value = '0';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    expect(waiting(pending, 'WatchProfile/')).toHaveLength(2);
+    expect(waiting(pending, 'UserActivity/User/')).toHaveLength(2);
+    const staleProfile = waiting(pending, 'WatchProfile/')[1];
+    const staleActivity = waiting(pending, 'UserActivity/User/')[1];
+    if (outcome === 'success') {
+      staleProfile.resolve({ WatchedMovieCount: 99, GenreDistribution: {} });
+      staleActivity.resolve(activityRow('StaleBob'));
+    } else {
+      staleProfile.reject(new Error('stale failure'));
+      staleActivity.reject(new Error('stale failure'));
+    }
+    await flush();
+    expect(document.getElementById('recsUserProfile')!.textContent).toContain('7 Watched');
+    expect(document.getElementById('recsUserActivity')!.textContent).toContain('CachedAlice');
+    expect(document.getElementById('recsUserActivity')!.textContent).not.toContain('StaleBob');
+  });
+
   test('undefined discovery payload counts as empty', async () => {
     const routes = fullRoutes();
     routes['JellyfinHelper/Discovery'] = undefined;
@@ -645,6 +726,39 @@ describe('recommendations loading variants', () => {
     const options = document.querySelectorAll('#recsUserSelect option');
     expect(options).toHaveLength(2);
     expect(options[0].textContent).toContain('0 items');
+  });
+
+  test('unavailable storage falls back to the first user and selection still works', async () => {
+    ajaxRouter(fullRoutes());
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('unavailable'); });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('unavailable'); });
+    try {
+      document.body.innerHTML = '<div id="recsContent"></div>';
+      ui.initRecommendationsTab();
+      await flush();
+      const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
+      expect(select.value).toBe('0');
+      select.value = '1';
+      select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await flush();
+      expect(document.getElementById('recsUserGrid')!.textContent).toMatch(/no recommendations/i);
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+
+  test('an invalid selection supersedes an in-flight discovery response', async () => {
+    const pending = deferredRouter((u) => u === 'JellyfinHelper/Discovery');
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    const select = document.getElementById('recsUserSelect') as HTMLSelectElement;
+    select.value = '99';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    pending[0].resolve([{ UserId: 'u1', Recommendations: [{ Title: 'StaleDiscovery', MediaType: 'movie', TmdbId: 1 }] }]);
+    await flush();
+    expect(document.getElementById('discoveryGrid')!.textContent).not.toContain('StaleDiscovery');
   });
 
   test('a stale recommendation response cannot overwrite the newer one', async () => {

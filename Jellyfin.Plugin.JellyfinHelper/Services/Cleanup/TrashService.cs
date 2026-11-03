@@ -52,13 +52,17 @@ public class TrashService : ITrashService
 
     /// <inheritdoc />
     public long MoveToTrash(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)
+        => MoveToTrashWithResult(sourcePath, trashBasePath, logger, utcNow).BytesMoved;
+
+    /// <inheritdoc />
+    public (bool Success, long BytesMoved) MoveToTrashWithResult(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)
     {
         try
         {
             if (!Directory.Exists(sourcePath))
             {
                 _pluginLog.LogWarning(LogCategory, $"Source path does not exist for trash: {sourcePath}", logger: logger);
-                return 0;
+                return (false, 0);
             }
 
             // Guard: prevent re-trashing items that are already inside the trash folder. This can occur if a cleanup task's recursive directory scan inadvertently includes the trash directory.
@@ -74,7 +78,7 @@ public class TrashService : ITrashService
                     LogCategory,
                     $"Source is already inside trash folder, skipping: {sourcePath}",
                     logger: logger);
-                return 0;
+                return (false, 0);
             }
 
             var dirName = Path.GetFileName(normalizedSource);
@@ -112,12 +116,12 @@ public class TrashService : ITrashService
             }
 
             _pluginLog.LogInfo(LogCategory, $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
-            return size;
+            return (true, size);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _pluginLog.LogError(LogCategory, $"Failed to move directory to trash: {sourcePath}", ex, logger);
-            return 0;
+            return (false, 0);
         }
     }
 
@@ -952,6 +956,25 @@ public class TrashService : ITrashService
             };
         }
 
+        // Elevated admins may intentionally probe dedicated external trash directories.
+        // Resolve every link component before existence checks or write probes, including
+        // ancestors of missing paths, and use the resolved target rather than its alias.
+        try
+        {
+            fullPath = ResolveAccessProbePath(fullPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException
+                                   or ArgumentException or NotSupportedException)
+        {
+            return new TrashPathAccessResult
+            {
+                Exists = false,
+                CanRead = false,
+                CanWrite = false,
+                ErrorMessage = "Access check refused for a protected or unverifiable path."
+            };
+        }
+
         // If the path exists as a directory, check read/write on it directly.
         if (Directory.Exists(fullPath))
         {
@@ -973,15 +996,8 @@ public class TrashService : ITrashService
 
         if (!canRead || !canWrite)
         {
-            string issue;
-            if (!canRead && !canWrite)
-            {
-                issue = "read or write";
-            }
-            else
-            {
-                issue = !canRead ? "read" : "write";
-            }
+            var missingAccess = !canRead ? "read" : "write";
+            var issue = !canRead && !canWrite ? "read or write" : missingAccess;
 
             var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
             _pluginLog.LogWarning(LogCategory, msg, logger: logger);
@@ -1049,7 +1065,9 @@ public class TrashService : ITrashService
     ///     Attempts to enumerate the contents of a directory to verify read access.
     ///     Returns true if enumeration succeeds, false if access is denied.
     /// </summary>
-    private static bool CanReadDirectory(string directoryPath)
+    /// <param name="directoryPath">The directory whose contents are probed.</param>
+    /// <returns>Whether the directory can be enumerated.</returns>
+    internal virtual bool CanReadDirectory(string directoryPath)
     {
         try
         {
@@ -1065,13 +1083,15 @@ public class TrashService : ITrashService
     /// <summary>
     ///     Attempts to create and immediately delete a temporary probe file inside the directory to verify write access.
     /// </summary>
-    private static bool CanWriteDirectory(string directoryPath)
+    /// <param name="directoryPath">The directory in which to create the probe.</param>
+    /// <returns>Whether the probe can be created.</returns>
+    internal virtual bool CanWriteDirectory(string directoryPath)
     {
         var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
         var created = false;
         try
         {
-            using (File.Create(probePath))
+            using (File.Open(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 // File created successfully - write access confirmed.
             }
@@ -1089,17 +1109,30 @@ public class TrashService : ITrashService
             {
                 try
                 {
-                    File.Delete(probePath);
+                    DeleteWriteAccessProbe(probePath);
                 }
-                catch
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // best-effort cleanup
+                    _pluginLog.LogWarning(LogCategory, $"Could not remove write-access probe: {probePath}", ex);
                 }
             }
         }
     }
 
     // Filesystem seams (overridable for tests).
+
+    /// <summary>
+    ///     Resolves static ancestor links and refuses protected or unverifiable targets.
+    ///     Resolution and subsequent I/O are not atomic: a concurrent local writer may
+    ///     still replace an ordinary resolved ancestor before an access probe uses it.
+    /// </summary>
+    /// <param name="path">The normalized path to resolve.</param>
+    /// <returns>The resolved path used for existence, read and write probes.</returns>
+    internal virtual string ResolveAccessProbePath(string path) => PathValidator.ResolveDirectoryPath(path);
+
+    /// <summary>Removes the temporary file created by a successful write-access probe.</summary>
+    /// <param name="probePath">The probe file to remove.</param>
+    internal virtual void DeleteWriteAccessProbe(string probePath) => File.Delete(probePath);
 
     /// <summary>
     ///     Determines whether <paramref name="path" /> is an existing reparse point

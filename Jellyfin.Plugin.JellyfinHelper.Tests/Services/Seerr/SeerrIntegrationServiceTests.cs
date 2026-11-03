@@ -345,6 +345,27 @@ public partial class SeerrIntegrationServiceTests : IDisposable
         Assert.Contains("api/v1/settings/main", capturedRequest!.RequestUri!.ToString());
     }
 
+    [Theory]
+    [InlineData("http://localhost:5055", "http://localhost:5055/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/", "http://localhost:5055/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/seerr", "http://localhost:5055/seerr/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/seerr/", "http://localhost:5055/seerr/api/v1/settings/main")]
+    public async Task TestConnection_UriSlash_PreservesReverseProxyBasePath(string baseUrl, string expectedUri)
+    {
+        Uri? capturedUri = null;
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedUri = req.RequestUri)
+            .ReturnsAsync(CreateResponse(HttpStatusCode.OK, "{}"));
+        var service = CreateService(mock.Object, out _, out _);
+
+        await service.TestConnectionAsync(baseUrl, ApiKey, cancellationToken: CancellationToken.None);
+
+        Assert.NotNull(capturedUri);
+        Assert.Equal(expectedUri, capturedUri.AbsoluteUri);
+    }
+
     [Fact]
     public async Task Cleanup_NoRequests_ReturnsZeroCounts()
     {
@@ -686,11 +707,11 @@ public partial class SeerrIntegrationServiceTests : IDisposable
 
         Assert.NotNull(request);
         Assert.Equal(1, request!.Id);
-        Assert.NotNull(request.CreatedAt);
-        Assert.Equal(2024, request.CreatedAt!.Value.Year);
-        Assert.Equal(1, request.CreatedAt.Value.Month);
-        Assert.Equal(15, request.CreatedAt.Value.Day);
-        Assert.Equal(TimeSpan.Zero, request.CreatedAt.Value.Offset);
+        var createdAt = Assert.IsType<DateTimeOffset>(request.CreatedAt);
+        Assert.Equal(2024, createdAt.Year);
+        Assert.Equal(1, createdAt.Month);
+        Assert.Equal(15, createdAt.Day);
+        Assert.Equal(TimeSpan.Zero, createdAt.Offset);
     }
 
     [Fact]

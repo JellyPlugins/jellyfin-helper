@@ -22,6 +22,14 @@ function isSeerrConfigured(url, key) {
     return !!((url || '').trim() && (key || '').trim());
 }
 
+// Keep the visual and accessibility states of prerequisite-dependent wrappers in sync.
+function setSettingsWrapperEnabled(wrapper, enabled) {
+    if (!wrapper) return;
+    wrapper.style.opacity = enabled ? '' : '0.5';
+    wrapper.style.pointerEvents = enabled ? '' : 'none';
+    wrapper.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+}
+
 // Refresh the Discovery access wrapper UI state based on current form values.
 // Extracted to avoid duplicated DOM manipulation in multiple event handlers.
 function refreshDiscoveryAccessState() {
@@ -31,11 +39,7 @@ function refreshDiscoveryAccessState() {
     var discEnabled = recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
-    if (wrapper) {
-        wrapper.style.opacity = discEnabled ? '' : '0.5';
-        wrapper.style.pointerEvents = discEnabled ? '' : 'none';
-        wrapper.setAttribute('aria-disabled', discEnabled ? 'false' : 'true');
-    }
+    setSettingsWrapperEnabled(wrapper, discEnabled);
     var chk = document.getElementById('cfgDiscoveryUserAccess');
     if (chk) {
         // Disabled only, never unchecked: the choice must survive a prereq dip and
@@ -78,7 +82,7 @@ function updateRecsTabVisibility(taskMode) {
     if (btn) btn.style.display = show ? '' : 'none';
     if (panel) panel.style.display = show ? '' : 'none';
     // If the hidden tab was active, switch to overview
-    if (!show && btn && btn.classList.contains('active')) {
+    if (!show && btn?.classList.contains('active')) {
         var overviewBtn = document.querySelector('.tab-btn[data-tab="overview"]');
         if (overviewBtn) overviewBtn.click();
     }
@@ -87,19 +91,11 @@ function updateRecsTabVisibility(taskMode) {
 // Update Seerr greyed-out UI state based on whether URL+Key are configured
 function updateSeerrUIState(isConfigured) {
     var taskW = document.querySelector('.seerr-task-mode-wrapper');
-    if (taskW) {
-        taskW.style.opacity = isConfigured ? '' : '0.5';
-        taskW.style.pointerEvents = isConfigured ? '' : 'none';
-        taskW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
-    }
+    setSettingsWrapperEnabled(taskW, isConfigured);
     var taskSel = document.getElementById('cfgSeerrMode');
     if (taskSel) taskSel.disabled = !isConfigured;
     var ageW = document.querySelector('.seerr-age-wrapper');
-    if (ageW) {
-        ageW.style.opacity = isConfigured ? '' : '0.5';
-        ageW.style.pointerEvents = isConfigured ? '' : 'none';
-        ageW.setAttribute('aria-disabled', isConfigured ? 'false' : 'true');
-    }
+    setSettingsWrapperEnabled(ageW, isConfigured);
     var ageInput = document.getElementById('cfgSeerrAgeDays');
     if (ageInput) ageInput.disabled = !isConfigured;
     var count = document.getElementById('arrCountSeerr');
@@ -212,23 +208,35 @@ function renderSaveBand(kind) {
     band.setAttribute('aria-hidden', 'false');
     band.classList.add('is-visible');
 
-    if (kind === 'unsaved') {
-        band.classList.add('is-unsaved');
-        if (icon) icon.innerHTML = '<span class="settings-save-band-dot" aria-hidden="true"></span>';
-        if (text) text.textContent = T('settingsUnsavedChanges', 'Unsaved changes');
-    } else if (kind === 'saving') {
-        band.classList.add('is-saving');
-        if (icon) icon.innerHTML = '<span class="btn-spinner"></span>';
-        if (text) text.textContent = T('savingSettings', 'Saving Settings...');
-    } else if (kind === 'saved') {
-        band.classList.add('is-saved');
-        if (icon) icon.innerHTML = mi('check_circle');
-        if (text) text.textContent = T('settingsAllSaved', 'All changes saved');
-    } else if (kind === 'error') {
-        band.classList.add('is-error');
-        if (icon) icon.innerHTML = mi('error');
-        if (text) text.textContent = T('settingsError', 'Failed to save settings.');
+    renderSaveBandStatus(band, icon, text, kind);
+}
+
+function renderSaveBandStatus(band, icon, text, kind) {
+    var iconHtml;
+    var label;
+    switch (kind) {
+        case 'unsaved':
+            iconHtml = '<span class="settings-save-band-dot" aria-hidden="true"></span>';
+            label = T('settingsUnsavedChanges', 'Unsaved changes');
+            break;
+        case 'saving':
+            iconHtml = '<span class="btn-spinner"></span>';
+            label = T('savingSettings', 'Saving Settings...');
+            break;
+        case 'saved':
+            iconHtml = mi('check_circle');
+            label = T('settingsAllSaved', 'All changes saved');
+            break;
+        case 'error':
+            iconHtml = mi('error');
+            label = T('settingsError', 'Failed to save settings.');
+            break;
+        default:
+            return;
     }
+    band.classList.add('is-' + kind);
+    if (icon) icon.innerHTML = iconHtml;
+    if (text) text.textContent = label;
 }
 
 /** * Drives the floating save band from the current dirty state. * * Rules: * • Untouched form / clean & never changed -> hidden (transparent). */
@@ -276,7 +284,7 @@ function refreshSaveBand() {
     _settingsSavedHideTimer = setTimeout(function () {
         _settingsSavedHideTimer = null;
         var b = getSaveBand();
-        if (b && b.classList.contains('is-saved')) {
+        if (b?.classList.contains('is-saved')) {
             renderSaveBand('hidden');
             _settingsInteracted = false;
         }
@@ -454,8 +462,8 @@ function loadSettings(onDone) {
         h += '<label for="cfgLang">' + escHtml(T('language', 'Dashboard Language')) + '</label>';
         h += '<select id="cfgLang">';
         var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe'], ['sv', 'Svenska']];
-        for (var i = 0; i < langs.length; i++) {
-            h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
+        for (const lang of langs) {
+            h += '<option value="' + lang[0] + '"' + (cfg.Language === lang[0] ? ' selected' : '') + '>' + lang[1] + '</option>';
         }
         h += '</select>';
         h += '</div>'; // /Card 1 (General)
@@ -488,8 +496,8 @@ function loadSettings(onDone) {
             }
             s += '</div><select id="' + id + '"' + (isDisabled ? ' disabled' : '') + '>';
 
-            for (var tm = 0; tm < taskModes.length; tm++) {
-                s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
+            for (const taskMode of taskModes) {
+                s += '<option value="' + taskMode[0] + '"' + (currentVal === taskMode[0] ? ' selected' : '') + '>' + taskMode[1] + '</option>';
             }
             s += '</select>';
             if (descText) {
@@ -728,7 +736,7 @@ function buildSettingsPayload() {
         })(),
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
-            if (!checkbox || !checkbox.checked) return false;
+            if (!checkbox?.checked) return false;
             // Force false when prerequisites are not met (Recommendations must not be deactivated + Seerr configured). DryRun keeps the flag for its read-only UI. This prevents stale "true" from being persisted when the admin deactivates recommendations or clears Seerr config while the checkbox was previously enabled.
             var recsMode = document.getElementById('cfgRecommendationsMode')?.value || '';
             var seerrUrl = document.getElementById('cfgSeerrUrl')?.value || '';
@@ -748,15 +756,15 @@ function buildSettingsPayload() {
  * @param {Object} [options] - Optional. { quiet: true, element: HTMLElement } for auto-save (no button animation, shows / indicator instead).
  */
 function doSaveSettings(payload, options) {
-    var quiet = options && options.quiet;
-    var indicatorEl = options && options.element;
+    var quiet = options?.quiet;
+    var indicatorEl = options?.element;
     var btn = document.getElementById('btnSaveSettings');
 
     // Pre-save validation: reject invalid trash paths before sending to server
     var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
     if (trashError) {
         showTrashPathError(trashError);
-        if (options && options.onError) options.onError();
+        if (options?.onError) options.onError();
         return;
     }
     if (payload.UseTrash && typeof payload.TrashFolderPath === 'string') {
@@ -820,19 +828,12 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             options.onSuccess();
         }
     }, function (err) {
+        // A failed save must not bypass the path-change confirmation on the next attempt.
+        _trashPathChangeHandled = false;
         // Structured diagnostic: try to give the user (and support) a concrete hint instead of a generic "Failed to save settings." toast.
         var diag = describeApiError(err);
 
-        var errorMsg = '';
-        // Prefer the server-provided message field (our controllers always emit
-        // { message: "..." } on validation / model-binding errors).
-        try {
-            var errData = err && (err.responseJSON
-                || (typeof err.responseText === 'string' && err.responseText.length > 0
-                    ? JSON.parse(err.responseText)
-                    : null));
-            if (errData?.message) errorMsg = String(errData.message);
-        } catch { /* body was not JSON (e.g. HTML from a proxy) - fall through */ }
+        var errorMsg = getConfigurationSaveErrorMessage(err);
 
         // Emit a rich console log so users copy/pasting into a GitHub issue give us
         // everything we need in one shot (status, kind, body snippet).
@@ -863,6 +864,19 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             probeBackendReachability(diag);
         }
     });
+}
+
+// Invalid or non-JSON proxy bodies must not obscure the save diagnostic.
+function getConfigurationSaveErrorMessage(err) {
+    try {
+        var errData = err && (err.responseJSON
+            || (typeof err.responseText === 'string' && err.responseText.length > 0
+                ? JSON.parse(err.responseText)
+                : null));
+        return errData?.message ? String(errData.message) : '';
+    } catch {
+        return '';
+    }
 }
 
 /** * Compose a compact user-facing error label for the save band. * Priority: server-provided message > HTTP status hint > generic fallback. */
@@ -913,8 +927,8 @@ function removeTrashDialog() {
 
 function formatPathList(paths) {
     var s = '';
-    for (var i = 0; i < paths.length; i++) {
-        s += '\n  • ' + paths[i];
+    for (const path of paths) {
+        s += '\n  • ' + path;
     }
     return s;
 }
@@ -1123,6 +1137,7 @@ function doBackupImport(file) {
     var msg = document.getElementById('backupMsg');
     msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('backupImporting', 'Importing backup…')) + '</div>';
 
+    // Preserve BOM-aware decoding for UTF-16 backups; Blob.text() always decodes as UTF-8.
     var reader = new FileReader();
     reader.onload = function (e) {
         var json = e.target.result;
@@ -1168,29 +1183,7 @@ function doBackupImport(file) {
 
             msg.innerHTML = '<div class="success-msg">' + successMsg + '</div>';
 
-            // Reload settings to reflect restored configuration (including possibly changed language)
-            var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
-            var savedScroll = scrollContainer.scrollTop;
-
-            function reloadAfterImport() {
-                loadTranslations(function () {
-                    rebuildUI();
-                    var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
-                    if (settingsBtn) settingsBtn.click();
-                    setTimeout(function () {
-                        scrollContainer.scrollTop = savedScroll;
-                    }, 50);
-                });
-            }
-
-            setTimeout(function () {
-                apiGet('JellyfinHelper/Configuration', function (cfg) {
-                    _currentLang = (cfg && cfg.Language) || _currentLang;
-                    reloadAfterImport();
-                }, function () {
-                    reloadAfterImport();
-                });
-            }, 1500);
+            reloadSettingsAfterBackupImport();
         }, function (err) {
             var errorText = escHtml(T('backupImportError', 'Failed to import backup.'));
             try {
@@ -1207,6 +1200,32 @@ function doBackupImport(file) {
         msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupImportError', 'Failed to import backup.')) + '</div>';
     };
     reader.readAsText(file);
+}
+
+// Preserve the scroll position while the restored language and form are reloaded.
+function reloadSettingsAfterBackupImport() {
+    var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
+    var savedScroll = scrollContainer.scrollTop;
+
+    function reloadAfterImport() {
+        loadTranslations(function () {
+            rebuildUI();
+            var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
+            if (settingsBtn) settingsBtn.click();
+            setTimeout(function () {
+                scrollContainer.scrollTop = savedScroll;
+            }, 50);
+        });
+    }
+
+    setTimeout(function () {
+        apiGet('JellyfinHelper/Configuration', function (cfg) {
+            _currentLang = cfg?.Language || _currentLang;
+            reloadAfterImport();
+        }, function () {
+            reloadAfterImport();
+        });
+    }, 1500);
 }
 
 function attachSeerrHandlers() {
@@ -1348,48 +1367,42 @@ function attachAutoSaveHandlers() {
     }
     // Task mode dropdowns - auto-save on change
     var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
-    for (var i = 0; i < taskModeIds.length; i++) {
-        (function (id) {
-            var el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('change', function () {
-                // Update Recommendations tab visibility only after save succeeds
-                if (id === 'cfgRecommendationsMode') {
-                    var isActive = el.value === 'Activate';
-                    doSaveSettings(buildSettingsPayload(), {
-                        quiet: true,
-                        element: el,
-                        onSuccess: function () {
-                            updateRecsTabVisibility(el.value);
-                            // Clear the persisted playlist preference only on Deactivate.
-                            // Performed inside onSuccess so the DOM stays in sync with the server
-                            // even if the save request fails.
-                            if (el.value === 'Deactivate') {
-                                var chkPost = document.getElementById('cfgSyncPlaylist');
-                                if (chkPost) chkPost.checked = false;
-                            }
-                            // Update playlist sync toggle greyed-out state
-                            var wrapper = document.getElementById('playlistSyncWrapper');
-                            if (wrapper) {
-                                wrapper.style.opacity = isActive ? '' : '0.5';
-                                wrapper.style.pointerEvents = isActive ? '' : 'none';
-                                wrapper.setAttribute('aria-disabled', isActive ? 'false' : 'true');
-                            }
-                            var chk = document.getElementById('cfgSyncPlaylist');
-                            if (chk) chk.disabled = !isActive;
-                            var hint = document.querySelector('.playlist-sync-disabled-hint');
-                            if (hint) hint.style.display = isActive ? 'none' : '';
-
-                            // Update discovery access toggle greyed-out state. Checked state is kept
-                            // while disabled so it survives a mode round-trip; the payload forcer guards the save.
-                            refreshDiscoveryAccessState();
+    for (const id of taskModeIds) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        el.addEventListener('change', function () {
+            // Update Recommendations tab visibility only after save succeeds
+            if (id === 'cfgRecommendationsMode') {
+                var isActive = el.value === 'Activate';
+                doSaveSettings(buildSettingsPayload(), {
+                    quiet: true,
+                    element: el,
+                    onSuccess: function () {
+                        updateRecsTabVisibility(el.value);
+                        // Clear the persisted playlist preference only on Deactivate.
+                        // Performed inside onSuccess so the DOM stays in sync with the server
+                        // even if the save request fails.
+                        if (el.value === 'Deactivate') {
+                            var chkPost = document.getElementById('cfgSyncPlaylist');
+                            if (chkPost) chkPost.checked = false;
                         }
-                    });
-                    return;
-                }
-                doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
-            });
-        })(taskModeIds[i]);
+                        // Update playlist sync toggle greyed-out state
+                        var wrapper = document.getElementById('playlistSyncWrapper');
+                        setSettingsWrapperEnabled(wrapper, isActive);
+                        var chk = document.getElementById('cfgSyncPlaylist');
+                        if (chk) chk.disabled = !isActive;
+                        var hint = document.querySelector('.playlist-sync-disabled-hint');
+                        if (hint) hint.style.display = isActive ? 'none' : '';
+
+                        // Update discovery access toggle greyed-out state. Checked state is kept
+                        // while disabled so it survives a mode round-trip; the payload forcer guards the save.
+                        refreshDiscoveryAccessState();
+                    }
+                });
+                return;
+            }
+            doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
+        });
     }
 
     // Playlist sync toggle - auto-save on change
@@ -1457,7 +1470,7 @@ function attachAutoSaveHandlers() {
 function showInlineCheckboxIndicator(checkbox, success) {
     if (!checkbox) return;
     var label = checkbox.nextElementSibling;
-    if (!label || label.tagName !== 'LABEL') return;
+    if (label?.tagName !== 'LABEL') return;
 
     var ok = success !== false;
 
@@ -1488,7 +1501,7 @@ function showLibraryMultiSelectIndicator(wrapperId, success) {
     if (!wrapper) return;
     // The label is the previous sibling of the wrapper
     var label = wrapper.previousElementSibling;
-    if (!label || label.tagName !== 'LABEL') return;
+    if (label?.tagName !== 'LABEL') return;
 
     var ok = success !== false;
 
@@ -1626,8 +1639,8 @@ function parseCommaSeparatedSet(str) {
     var set = {};
     if (!str) return set;
     var parts = str.split(',');
-    for (var i = 0; i < parts.length; i++) {
-        var v = parts[i].trim();
+    for (const part of parts) {
+        var v = part.trim();
         if (v) set[v.toLowerCase()] = v;
     }
     return set;
@@ -1652,29 +1665,21 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     // Identify selected libraries that are no longer returned by the API
     // (renamed/deleted). Store them so getLibraryMultiSelectValue() can preserve them.
     var available = {};
-    for (var ai = 0; ai < libraries.length; ai++) {
-        available[libraryEntryName(libraries[ai]).toLowerCase()] = true;
+    for (const library of libraries) {
+        available[libraryEntryName(library).toLowerCase()] = true;
     }
     var missingSelected = [];
-    for (var key in selectedSet) {
-        if (Object.hasOwn(selectedSet, key) && !available[key]) {
-            missingSelected.push(selectedSet[key]);
+    for (const [key, name] of Object.entries(selectedSet)) {
+        if (!available[key]) {
+            missingSelected.push(name);
         }
     }
     wrapper.dataset.missingValues = missingSelected.join(', ');
 
-    var selectedCount = Object.keys(selectedSet).length;
-    var noneSelectedLabel = libraryMultiSelectEmptyLabel(type);
-
     var h = '<div class="library-multiselect" data-type="' + type + '">';
     // Summary/toggle button
     h += '<button type="button" class="library-multiselect-toggle">';
-    var summaryText = noneSelectedLabel;
-    if (selectedCount > 0) {
-        var selectedNames = [];
-        for (var k in selectedSet) { if (Object.hasOwn(selectedSet, k)) selectedNames.push(selectedSet[k]); }
-        summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
-    }
+    var summaryText = libraryMultiSelectSummary(Object.values(selectedSet), type);
     h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
     h += '<span class="library-multiselect-chevron">' + mi('expand_more') + '</span>';
     h += '</button>';
@@ -1709,13 +1714,18 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
 
     // Attach change handlers to checkboxes for auto-save with overlay indicator on the toggle button
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
-    for (var ci = 0; ci < checkboxes.length; ci++) {
-        checkboxes[ci].addEventListener('change', function () {
+    for (const checkbox of checkboxes) {
+        checkbox.addEventListener('change', function () {
             updateLibraryMultiSelectSummary(wrapperId);
             var indicatorTarget = wrapper.querySelector('.library-multiselect-toggle') || wrapper;
             doSaveSettings(buildSettingsPayload(), { quiet: true, element: indicatorTarget });
         });
     }
+}
+
+function libraryMultiSelectSummary(names, type) {
+    if (names.length === 0) return libraryMultiSelectEmptyLabel(type);
+    return names.length <= 3 ? names.join(', ') : names.slice(0, 2).join(', ') + ' +' + (names.length - 2);
 }
 
 /**
@@ -1736,25 +1746,15 @@ function updateLibraryMultiSelectSummary(wrapperId) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
-    var count = 0;
-    for (var i = 0; i < checkboxes.length; i++) {
-        if (checkboxes[i].checked) count++;
+    var names = [];
+    for (const checkbox of checkboxes) {
+        if (checkbox.checked) names.push(checkbox.value);
     }
     var summary = wrapper.querySelector('.library-multiselect-summary');
     if (!summary) return;
 
     var widget = wrapper.querySelector('.library-multiselect');
-    var noneSelectedLabel = libraryMultiSelectEmptyLabel(widget ? widget.dataset.type : 'excluded');
-
-    if (count === 0) {
-        summary.textContent = noneSelectedLabel;
-    } else {
-        var names = [];
-        for (var j = 0; j < checkboxes.length; j++) {
-            if (checkboxes[j].checked) names.push(checkboxes[j].value);
-        }
-        summary.textContent = names.length <= 3 ? names.join(', ') : names.slice(0, 2).join(', ') + ' +' + (names.length - 2);
-    }
+    summary.textContent = libraryMultiSelectSummary(names, widget ? widget.dataset.type : 'excluded');
 }
 
 /**
@@ -1774,15 +1774,15 @@ function getLibraryMultiSelectValue(wrapperId) {
         return wrapper.dataset.initialValue || '';
     }
     var selected = [];
-    for (var i = 0; i < checkboxes.length; i++) {
-        if (checkboxes[i].checked) selected.push(checkboxes[i].value);
+    for (const checkbox of checkboxes) {
+        if (checkbox.checked) selected.push(checkbox.value);
     }
     // Preserve previously-excluded library names that are no longer returned by the API (e.g. renamed or deleted libraries).
     var missingValues = wrapper.dataset.missingValues;
     if (missingValues) {
         var parts = missingValues.split(',');
-        for (var m = 0; m < parts.length; m++) {
-            var v = parts[m].trim();
+        for (const part of parts) {
+            var v = part.trim();
             if (v) selected.push(v);
         }
     }
@@ -1862,9 +1862,9 @@ function isSensitiveSystemPath(path) {
     if (!isAbsolute) return false;
     // Normalize separators to '/' and case-fold for a stable comparison (Windows roots are
     // case-insensitive; on Linux the standard mounts are lowercase anyway).
-    var norm = path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
-    for (var i = 0; i < SENSITIVE_SYSTEM_ROOTS.length; i++) {
-        var root = SENSITIVE_SYSTEM_ROOTS[i].replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+    var norm = trimTrailingSlashes(path.replaceAll('\\', '/')).toLowerCase();
+    for (const sensitiveRoot of SENSITIVE_SYSTEM_ROOTS) {
+        var root = trimTrailingSlashes(sensitiveRoot.replaceAll('\\', '/')).toLowerCase();
         if (norm === root || norm.startsWith(root + '/')) {
             return true;
         }
@@ -1916,8 +1916,7 @@ function validateTrashPath(path, useTrash) {
 
     // 6. Split into segments and validate each one
     var segments = segmentPart.split(/[/\\]/);
-    for (var i = 0; i < segments.length; i++) {
-        var seg = segments[i];
+    for (const seg of segments) {
 
         // Empty segment (defensive - should not happen after double-slash check)
         if (!seg) {
@@ -1966,8 +1965,8 @@ function showTrashPathError(errorMsg) {
         errDiv.style.fontSize = '0.85em';
         errDiv.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
         // Insert after the position:relative wrapper div, not inside it
-        var inputWrapper = input.parentNode;
-        if (inputWrapper && inputWrapper.parentNode) {
+        var inputWrapper = input?.parentNode;
+        if (inputWrapper?.parentNode) {
             inputWrapper.parentNode.insertBefore(errDiv, inputWrapper.nextSibling);
         }
     }
@@ -1990,22 +1989,60 @@ function showTrashPathChangeDialog(payload, options) {
     var oldPath = _previousTrashPath;
     var newPath = (payload.TrashFolderPath || '').trim();
 
+    // Keep the save/relocate pipeline outside the dialog's click and lookup callbacks.
+    // Both access-check outcomes use it with the same captured paths and save options.
+    function doRelocateTrash() {
+        if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathMoving', 'Moving trash content…')) + '</div>';
+        _trashPathChangeHandled = true;
+        doSaveSettings(payload, {
+            quiet: !!options?.quiet,
+            element: options?.element || null,
+            onSuccess: function () {
+                _trashPathChangeHandled = false;
+                _previousTrashPath = newPath;
+                apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
+                    var moved = result?.Moved || 0;
+                    var failed = result?.Failed || 0;
+                    if (failed === 0 && moved > 0) {
+                        if (msg) {
+                            msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
+                            setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                        }
+                    } else if (failed > 0) {
+                        var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
+                        if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
+                    } else if (msg) {
+                        // 0 moved, 0 failed: likely a permission issue on the source or empty source
+                        msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
+                    }
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
+                }, function () {
+                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashPathMoveError', 'Failed to move trash content.')) + '</div>';
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
+                });
+            },
+            onError: function (errMsg) {
+                if (typeof options?.onError === 'function') options.onError(errMsg);
+            }
+        });
+    }
+
     // Query the server for existing folders at the OLD path
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
-        var paths = (data && data.Paths) || [];
+        var paths = data?.Paths || [];
         if (paths.length === 0) {
             // No old content exists - save directly, update tracking on success.
             // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
             _trashPathChangeHandled = true;
             doSaveSettings(payload, {
-                quiet: !!(options && options.quiet),
-                element: (options && options.element) || null,
+                quiet: !!options?.quiet,
+                element: options?.element || null,
                 onSuccess: function () {
                     _trashPathChangeHandled = false;
                     _previousTrashPath = newPath;
-                    if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
                 },
-                onError: (options && options.onError) || undefined
+                onError: options?.onError || undefined
             });
             return;
         }
@@ -2029,49 +2066,11 @@ function showTrashPathChangeDialog(payload, options) {
         d.btnRow.appendChild(createDialogBtn(T('trashPathMoveContent', 'Move Content'), 'success', function () {
             removeTrashDialog();
 
-            // Extracted helper: saves settings then relocates trash content.
-            // Used by both the access-check success path and the graceful-degradation fallback.
-            function doRelocateTrash() {
-                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathMoving', 'Moving trash content…')) + '</div>';
-                _trashPathChangeHandled = true;
-                doSaveSettings(payload, {
-                    quiet: !!(options && options.quiet),
-                    element: (options && options.element) || null,
-                    onSuccess: function () {
-                        _trashPathChangeHandled = false;
-                        _previousTrashPath = newPath;
-                        apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
-                            var moved = result?.Moved || 0;
-                            var failed = result?.Failed || 0;
-                            if (failed === 0 && moved > 0) {
-                                if (msg) {
-                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
-                                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
-                                }
-                            } else if (failed > 0) {
-                                var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
-                                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
-                            } else if (msg) {
-                                // 0 moved, 0 failed: likely a permission issue on the source or empty source
-                                msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
-                            }
-                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                        }, function () {
-                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashPathMoveError', 'Failed to move trash content.')) + '</div>';
-                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                        });
-                    },
-                    onError: function (errMsg) {
-                        if (options && typeof options.onError === 'function') options.onError(errMsg);
-                    }
-                });
-            }
-
             if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathCheckingAccess', 'Checking permissions…')) + '</div>';
 
             // Proactive access check on the NEW path before attempting relocation
             apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
-                if (accessData && accessData.AllAccessible === false) {
+                if (accessData?.AllAccessible === false) {
                     // Access check failed - show the specific error from the server
                     var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
                     var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
@@ -2102,14 +2101,14 @@ function showTrashPathChangeDialog(payload, options) {
                 // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
                 _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
-                    quiet: !!(options && options.quiet),
-                    element: (options && options.element) || null,
+                    quiet: !!options?.quiet,
+                    element: options?.element || null,
                     onSuccess: function () {
                         _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
-                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        if (typeof options?.onSuccess === 'function') options.onSuccess();
                     },
-                    onError: (options && options.onError) || undefined
+                    onError: options?.onError || undefined
                 });
             }, function () {
                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
@@ -2123,14 +2122,14 @@ function showTrashPathChangeDialog(payload, options) {
         // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
         _trashPathChangeHandled = true;
         doSaveSettings(payload, {
-            quiet: !!(options && options.quiet),
-            element: (options && options.element) || null,
+            quiet: !!options?.quiet,
+            element: options?.element || null,
             onSuccess: function () {
                 _trashPathChangeHandled = false;
                 _previousTrashPath = newPath;
-                if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                if (typeof options?.onSuccess === 'function') options.onSuccess();
             },
-            onError: (options && options.onError) || undefined
+            onError: options?.onError || undefined
         });
     });
 }

@@ -259,13 +259,13 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         else if (config.UseTrash)
         {
             PluginLog.LogInfo(TaskName, $"Moving orphaned media folder to trash: {topDir.FullName}", Logger);
-            var size = TrashService.MoveToTrash(topDir.FullName, trashPath, Logger);
-            if (size <= 0)
+            var result = TrashService.MoveToTrashWithResult(topDir.FullName, trashPath, Logger);
+            if (!result.Success)
             {
                 return;
             }
 
-            bytesFreed += size;
+            bytesFreed += result.BytesMoved;
             deletedCount++;
         }
         else

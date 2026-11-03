@@ -36,7 +36,7 @@ var SVG = {
  */
 function getCssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name);
-    return (v && v.trim()) || fallback || '';
+    return v?.trim() || fallback || '';
 }
 
 function getScoreThresholdClass(percent, highClass, midClass, lowClass) {
@@ -117,13 +117,20 @@ function allowSafeHtml(s) {
         .replaceAll(/&lt;br\s*\/?&gt;/g, '<br>');
 }
 
+function trimTrailingSlashes(path) {
+    // Avoid repeated regex start-position attempts on long slash runs followed by a non-slash.
+    var end = path.length;
+    while (end > 0 && path[end - 1] === '/') end--;
+    return path.slice(0, end);
+}
+
 function getPathSegments(fullPath, rootPaths) {
     if (!fullPath) return [];
     var normalized = fullPath.replaceAll('\\', '/');
 
     var bestRoot = '';
-    for (var i = 0; i < rootPaths.length; i++) {
-        var root = rootPaths[i].replaceAll('\\', '/').replace(/\/+$/, '');
+    for (const rootPath of rootPaths) {
+        var root = trimTrailingSlashes(rootPath.replaceAll('\\', '/'));
         var matchesRoot = normalized === root || normalized.startsWith(root + '/');
         if (matchesRoot && root.length > bestRoot.length) {
             bestRoot = root;
@@ -145,8 +152,7 @@ function getPathSegments(fullPath, rootPaths) {
 // (path -> short label such as "1920x800") attaches a per-file detail to each leaf.
 function buildPathTree(paths, rootPaths, meta) {
     var root = {name: 'root', children: {}, items: []};
-    for (var i = 0; i < paths.length; i++) {
-        var path = paths[i];
+    for (const path of paths) {
         var segments = getPathSegments(path, rootPaths || []);
         var currentNode = root;
 
@@ -577,8 +583,8 @@ function appendMissingUnionLibraries(libs, groups) {
 // Aggregate dictionaries across libraries
 function aggregateDict(libraries, prop) {
     var result = {};
-    for (var i = 0; i < libraries.length; i++) {
-        var dict = libraries[i][prop];
+    for (const library of libraries) {
+        var dict = library[prop];
         if (dict) {
             for (var key in dict) {
                 if (Object.hasOwn(dict, key)) {
@@ -592,7 +598,7 @@ function aggregateDict(libraries, prop) {
 
 /** * Reusable auto-save feedback indicator. * Temporarily replaces the chevron/arrow of a dropdown element with a check_circle or error icon. */
 function showAutoSaveIndicatorOverlay(element, success) {
-    if (!element || !element.parentNode) return;
+    if (!element?.parentNode) return;
 
     var ok = success !== false;
     var fadeDelay = ok ? 2000 : 3000;
@@ -697,7 +703,7 @@ function showAutoSaveIndicatorOverlay(element, success) {
 function removeExistingSaveIndicatorOverlay(element) {
     var existing = element.previousElementSibling;
 
-    if (existing && existing.classList.contains('fade-element')) {
+    if (existing?.classList.contains('fade-element')) {
         clearTimeout(existing._fadeTimer);
         clearTimeout(existing._removeTimer);
         existing.remove();
@@ -767,34 +773,41 @@ function describeApiError(err) {
     if (err && typeof err === 'object') {
         if (typeof err.status === 'number') status = err.status;
         if (typeof err.statusText === 'string') statusText = err.statusText;
-        // ApiClient exposes the raw text via responseText; some paths expose response. Note: bracket notation on the message field is intentional.
-        var errMessage = err['message'];
-        if (typeof err.responseText === 'string' && err.responseText.length > 0) {
-            snippet = err.responseText;
-        } else if (typeof err.response === 'string' && err.response.length > 0) {
-            snippet = err.response;
-        } else if (errMessage) {
-            snippet = String(errMessage);
-        }
+        snippet = getApiErrorSnippet(err);
     } else if (err) {
         snippet = String(err);
     }
 
     if (snippet.length > 200) snippet = snippet.substring(0, 200) + '\u2026';
 
-    var kind = 'unknown';
-    if (status === 0) kind = 'network';
-    else if (status === 401 || status === 403) kind = 'unauthorized';
-    else if (status === 404) kind = 'notfound';
-    else if (status >= 500) kind = 'server';
-    else if (status >= 400) {
+    return {status: status, statusText: statusText, snippet: snippet, kind: classifyApiError(status, snippet)};
+}
+
+// Response bodies take precedence over an Error's message, but only nonempty strings qualify.
+function getApiErrorSnippet(err) {
+    // ApiClient exposes the raw text via responseText; some paths expose response. Note: bracket notation on the message field is intentional.
+    var errMessage = err['message'];
+    if (typeof err.responseText === 'string' && err.responseText.length > 0) {
+        return err.responseText;
+    }
+    if (typeof err.response === 'string' && err.response.length > 0) {
+        return err.response;
+    }
+    return errMessage ? String(errMessage) : '';
+}
+
+function classifyApiError(status, snippet) {
+    if (status === 0) return 'network';
+    if (status === 401 || status === 403) return 'unauthorized';
+    if (status === 404) return 'notfound';
+    if (status >= 500) return 'server';
+    if (status >= 400) {
         // 4xx with HTML body typically means proxy/WAF; JSON body means our own server.
         var trimmed = snippet.trim();
         var looksLikeHtml = trimmed.length > 0 && trimmed.startsWith('<');
-        kind = looksLikeHtml ? 'proxy' : 'server';
+        return looksLikeHtml ? 'proxy' : 'server';
     }
-
-    return {status: status, statusText: statusText, snippet: snippet, kind: kind};
+    return 'unknown';
 }
 
 /**
@@ -973,11 +986,11 @@ function formatTimeAgo(utcTimestamp) {
 function collectFlatPaths(libraries, prop) {
     var paths = [];
     if (libraries) {
-        for (var i = 0; i < libraries.length; i++) {
-            var libPaths = libraries[i][prop];
+        for (const library of libraries) {
+            var libPaths = library[prop];
             if (libPaths) {
-                for (var j = 0; j < libPaths.length; j++) {
-                    paths.push(libPaths[j]);
+                for (const path of libPaths) {
+                    paths.push(path);
                 }
             }
         }
@@ -989,11 +1002,11 @@ function collectFlatPaths(libraries, prop) {
 function collectDictPaths(libraries, prop, key) {
     var paths = [];
     if (libraries) {
-        for (var i = 0; i < libraries.length; i++) {
-            var dict = libraries[i][prop];
+        for (const library of libraries) {
+            var dict = library[prop];
             if (dict?.[key]) {
-                for (var j = 0; j < dict[key].length; j++) {
-                    paths.push(dict[key][j]);
+                for (const path of dict[key]) {
+                    paths.push(path);
                 }
             }
         }
@@ -1064,6 +1077,22 @@ function removeDialogById(id) {
 // Used by Codecs (codec rows) and Health (health items) for
 // expanding/collapsing detail panels with file trees.
 
+function clearSameGroupToggleItems(items, opts, groupVal) {
+    for (const item of items) {
+        var sameGroup = !opts.groupAttr || item.getAttribute(opts.groupAttr) === groupVal;
+        if (sameGroup) item.classList.remove(opts.activeClass);
+    }
+}
+
+function closeOtherTogglePanels(scope, panelId) {
+    for (const panel of scope.querySelectorAll('.file-tree-panel')) {
+        if (panel.id !== panelId) {
+            panel.innerHTML = '';
+            panel.classList.remove('file-tree-panel-visible');
+        }
+    }
+}
+
 /** * Attach click handlers to clickable items that toggle a detail panel. * * @param {Object} opts * @param {string} opts.itemSelector - CSS selector for the clickable items (e.g. */
 function attachTogglePanelHandlers(opts) {
     // Optional CSS scope limiting which panels close each other (e.g. Codecs drill-down
@@ -1078,16 +1107,16 @@ function attachTogglePanelHandlers(opts) {
         }
     }
     var items = document.querySelectorAll(opts.itemSelector);
-    for (var i = 0; i < items.length; i++) {
-        if (items[i].dataset.toggleBound) continue;
-        items[i].dataset.toggleBound = '1';
-        items[i].addEventListener('keydown', function (e) {
+    for (const item of items) {
+        if (item.dataset.toggleBound) continue;
+        item.dataset.toggleBound = '1';
+        item.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 this.click();
             }
         });
-        items[i].addEventListener('click', function () {
+        item.addEventListener('click', function () {
             // One-shot scroll flags are consumed on every activation, including the
             // toggle-close path below: a tap that only closes a panel must not leak
             // a stale flag into the next unrelated panel open.
@@ -1110,25 +1139,16 @@ function attachTogglePanelHandlers(opts) {
             // Remove active state from sibling items
             var groupVal = opts.groupAttr ? this.getAttribute(opts.groupAttr) : null;
             var allItems = document.querySelectorAll(opts.itemSelector);
-            for (var j = 0; j < allItems.length; j++) {
-                var sameGroup = !opts.groupAttr || allItems[j].getAttribute(opts.groupAttr) === groupVal;
-                if (sameGroup) allItems[j].classList.remove(opts.activeClass);
-            }
+            clearSameGroupToggleItems(allItems, opts, groupVal);
 
             // Close all other panels within the scope (never outside it, so e.g. the
             // Library Explorer results survive donut drill-downs).
-            var allPanels = scope.querySelectorAll('.file-tree-panel');
-            for (var p = 0; p < allPanels.length; p++) {
-                if (allPanels[p].id !== panelId) {
-                    allPanels[p].innerHTML = '';
-                    allPanels[p].classList.remove('file-tree-panel-visible');
-                }
-            }
+            closeOtherTogglePanels(scope, panelId);
             // Deactivate items in other groups
             if (opts.groupAttr) {
-                for (var r = 0; r < allItems.length; r++) {
-                    if (allItems[r].getAttribute(opts.groupAttr) !== groupVal) {
-                        allItems[r].classList.remove(opts.activeClass);
+                for (const otherItem of allItems) {
+                    if (otherItem.getAttribute(opts.groupAttr) !== groupVal) {
+                        otherItem.classList.remove(opts.activeClass);
                     }
                 }
             }

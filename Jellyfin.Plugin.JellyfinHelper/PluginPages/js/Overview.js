@@ -95,15 +95,9 @@ function loadCleanupStats() {
     });
 }
 
-function fillOverviewData(data) {
-    var movies = (data.Movies && Array.isArray(data.Movies)) ? data.Movies : [];
-    var tvShows = (data.TvShows && Array.isArray(data.TvShows)) ? data.TvShows : [];
-    var libraries = (data.Libraries && Array.isArray(data.Libraries)) ? data.Libraries : [];
-    var totalVideoFileCount = data.TotalVideoFileCount || 0;
+function renderOverviewMediaCards(data, movies, tvShows) {
     var totalAudioFileCount = data.TotalAudioFileCount || 0;
-
     var overviewHtml = '';
-    overviewHtml += '<div class="stats-grid">';
     overviewHtml += '<div class="stat-card stat-card-link" role="button" tabindex="0" data-codec-explore-library="'
         + CODEC_EXPLORER_TYPE_MOVIES + '" title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">';
     overviewHtml += '<h3>' + mi('movie') + escHtml(T('movieVideoData', 'Video Data - Movies')) + '</h3>';
@@ -139,8 +133,11 @@ function fillOverviewData(data) {
         overviewHtml += '<p class="stat-detail">' + totalBookFileCount + ' ' + (totalBookFileCount === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</p>';
         overviewHtml += '</div>';
     }
+    return overviewHtml;
+}
 
-    overviewHtml += '<div class="stat-card"><h3>' + mi('image') + escHtml(T('trickplayData', 'Trickplay Data')) + '</h3>';
+function renderOverviewTrickplayCard(data, libraries) {
+    var overviewHtml = '<div class="stat-card"><h3>' + mi('image') + escHtml(T('trickplayData', 'Trickplay Data')) + '</h3>';
     // Alongside totals stay the headline; Jellyfin managed images get their own line. Without alongside data the internal total becomes the headline instead of leaving the card at zero, and a zero internal figure renders no line at all.
     var alongsideSize = data.TotalTrickplaySize || 0;
     var internalSize = data.InternalTrickplaySize || 0;
@@ -154,7 +151,19 @@ function fillOverviewData(data) {
         overviewHtml += '<p class="stat-detail">' + formatBytes(internalSize) + ' ' + internalBadge + '</p>';
     }
     overviewHtml += '</div>';
+    return overviewHtml;
+}
 
+function fillOverviewData(data) {
+    var movies = (data.Movies && Array.isArray(data.Movies)) ? data.Movies : [];
+    var tvShows = (data.TvShows && Array.isArray(data.TvShows)) ? data.TvShows : [];
+    var libraries = (data.Libraries && Array.isArray(data.Libraries)) ? data.Libraries : [];
+    var totalVideoFileCount = data.TotalVideoFileCount || 0;
+    var totalAudioFileCount = data.TotalAudioFileCount || 0;
+
+    var overviewHtml = '<div class="stats-grid">';
+    overviewHtml += renderOverviewMediaCards(data, movies, tvShows);
+    overviewHtml += renderOverviewTrickplayCard(data, libraries);
     overviewHtml += '<div class="stat-card"><h3>' + mi('edit_note') + escHtml(T('subtitleData', 'Subtitles')) + '</h3>';
     overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
     var subFiles = 0;
@@ -176,13 +185,23 @@ function fillOverviewData(data) {
     overviewHtml += '<div class="section-title">' + mi('storage') + escHtml(T('storageDistribution', 'Storage Distribution')) + ' - <span class="color-primary">' + formatBytes(grandTotal) + ' ' + escHtml(T('total', 'Total')) + '</span></div>';
     overviewHtml += buildBarSegments(data);
 
-    overviewHtml += '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
-    overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
-    overviewHtml += '<thead><tr>';
     // Books column only when a book library exists (same gate as the Books stat
     // card above): everywhere else it would be an all-zero column, and book
     // files must not hide inside Other when books are actually present.
     var hasBooks = (data.TotalBookFileCount || 0) > 0;
+    overviewHtml += renderOverviewLibraryTable(libraries, hasBooks);
+    overviewHtml += '<div id="cleanup-stats-container"></div>';
+
+    var overviewContainer = document.getElementById('overviewContent');
+    if (overviewContainer) {
+        overviewContainer.innerHTML = overviewHtml;
+    }
+}
+
+function renderOverviewLibraryTable(libraries, hasBooks) {
+    var overviewHtml = '<div class="section-title">' + mi('library_books') + escHtml(T('perLibraryBreakdown', 'Per-Library Breakdown')) + '</div>';
+    overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
+    overviewHtml += '<thead><tr>';
     overviewHtml += '<th>' + escHtml(T('library', 'Library')) + '</th><th>' + escHtml(T('type', 'Type')) + '</th><th>' + escHtml(T('video', 'Video')) + '</th><th>' + escHtml(T('audio', 'Audio')) + '</th><th>' + escHtml(T('images', 'Images')) + '</th>';
     if (hasBooks) {
         overviewHtml += '<th>' + escHtml(T('books', 'Books')) + '</th>';
@@ -192,50 +211,41 @@ function fillOverviewData(data) {
     overviewHtml += '</tr></thead><tbody>';
 
     for (const lib of libraries) {
-        overviewHtml += '<tr>';
-        // The library name links into the Codecs Library Explorer pre-scoped to
-        // that library. Dimensions without data for its media type render greyed out.
-        // Only link libraries the Explorer can actually scope to: boxset libraries
-        // are deliberately excluded from its scope picker, so a link there would open
-        // an empty "no library" state - a clickable void. Nameless rows render plain
-        // text for the same reason: an empty button would be clickable void.
-        var explorable = !!lib.LibraryName
-            && (lib.CollectionType || '').toLowerCase() !== 'boxsets';
-        if (explorable) {
-            overviewHtml += '<td><button type="button" class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
-                + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
-                + escHtml(lib.LibraryName) + '</button></td>';
-        } else if (lib.LibraryName) {
-            overviewHtml += '<td><span class="codec-explore-name">' + escHtml(lib.LibraryName) + '</span></td>';
-        } else {
-            overviewHtml += '<td></td>';
-        }
-        overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
-        overviewHtml += librarySizeCell(lib.VideoSize, lib.VideoFileCount || 0, 'file', 'file', 'files', 'files');
-        overviewHtml += librarySizeCell(lib.AudioSize, lib.AudioFileCount || 0, 'file', 'file', 'files', 'files');
-        overviewHtml += librarySizeCell(lib.ImageSize, lib.ImageFileCount || 0, 'file', 'file', 'files', 'files');
-        if (hasBooks) {
-            overviewHtml += librarySizeCell(lib.BookSize || 0, lib.BookFileCount || 0, 'file', 'file', 'files', 'files');
-        }
-        overviewHtml += librarySizeCell(lib.SubtitleSize, lib.SubtitleFileCount || 0, 'file', 'file', 'files', 'files');
-        overviewHtml += librarySizeCell(lib.TrickplaySize, lib.TrickplayFolderCount || 0, 'folder', 'folder', 'folders', 'folders');
-        // Other folds in NFO metadata and unrecognized sidecars (counts likewise
-        // combined). eBooks get their own Books column (when present) instead of
-        // hiding inside Other, so every row still sums exactly to its Total:
-        // TotalSize already covers all buckets server-side.
-        var otherSize = (lib.OtherSize || 0) + (lib.NfoSize || 0);
-        var otherCount = (lib.OtherFileCount || 0) + (lib.NfoFileCount || 0);
-        overviewHtml += librarySizeCell(otherSize, otherCount, 'file', 'file', 'files', 'files');
-        overviewHtml += '<td><strong><span class="library-table-bytes">' + formatBytes(lib.TotalSize) + '</span></strong></td>';
-        overviewHtml += '</tr>';
+        overviewHtml += renderOverviewLibraryRow(lib, hasBooks);
     }
 
     overviewHtml += '</tbody></table></div>';
+    return overviewHtml;
+}
 
-    overviewHtml += '<div id="cleanup-stats-container"></div>';
-
-    var overviewContainer = document.getElementById('overviewContent');
-    if (overviewContainer) {
-        overviewContainer.innerHTML = overviewHtml;
+function renderOverviewLibraryRow(lib, hasBooks) {
+    var overviewHtml = '<tr>';
+    // Only named libraries included in the Explorer scope picker can be linked.
+    var explorable = !!lib.LibraryName
+        && (lib.CollectionType || '').toLowerCase() !== 'boxsets';
+    if (explorable) {
+        overviewHtml += '<td><button type="button" class="codec-explore-link" data-codec-explore-library="' + escAttr(lib.LibraryName) + '"'
+            + ' title="' + escAttr(T('explorerOpenTooltip', 'Open in Library Explorer')) + '">'
+            + escHtml(lib.LibraryName) + '</button></td>';
+    } else if (lib.LibraryName) {
+        overviewHtml += '<td><span class="codec-explore-name">' + escHtml(lib.LibraryName) + '</span></td>';
+    } else {
+        overviewHtml += '<td></td>';
     }
+    overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
+    overviewHtml += librarySizeCell(lib.VideoSize, lib.VideoFileCount || 0, 'file', 'file', 'files', 'files');
+    overviewHtml += librarySizeCell(lib.AudioSize, lib.AudioFileCount || 0, 'file', 'file', 'files', 'files');
+    overviewHtml += librarySizeCell(lib.ImageSize, lib.ImageFileCount || 0, 'file', 'file', 'files', 'files');
+    if (hasBooks) {
+        overviewHtml += librarySizeCell(lib.BookSize || 0, lib.BookFileCount || 0, 'file', 'file', 'files', 'files');
+    }
+    overviewHtml += librarySizeCell(lib.SubtitleSize, lib.SubtitleFileCount || 0, 'file', 'file', 'files', 'files');
+    overviewHtml += librarySizeCell(lib.TrickplaySize, lib.TrickplayFolderCount || 0, 'folder', 'folder', 'folders', 'folders');
+    // Other folds in NFO metadata and unrecognized sidecars; books keep their own column.
+    var otherSize = (lib.OtherSize || 0) + (lib.NfoSize || 0);
+    var otherCount = (lib.OtherFileCount || 0) + (lib.NfoFileCount || 0);
+    overviewHtml += librarySizeCell(otherSize, otherCount, 'file', 'file', 'files', 'files');
+    overviewHtml += '<td><strong><span class="library-table-bytes">' + formatBytes(lib.TotalSize) + '</span></strong></td>';
+    overviewHtml += '</tr>';
+    return overviewHtml;
 }

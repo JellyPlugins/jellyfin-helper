@@ -184,10 +184,12 @@ internal static class DiversityReranker
         for (var i = 0; i < remaining.Count; i++)
         {
             var relevance = remaining[i].Score;
+            var candidateItem = remaining[i].Item;
+            // Keep this inner maximum allocation-free; comparisons also ignore NaN/nonpositive values.
             var maxSimilarity = 0.0;
-            foreach (var selectedItem in selected.Select(selectedEntry => selectedEntry.Item))
+            for (var selectedIndex = 0; selectedIndex < selected.Count; selectedIndex++)
             {
-                var sim = similarity.Compute(remaining[i].Item, selectedItem);
+                var sim = similarity.Compute(candidateItem, selected[selectedIndex].Item);
                 if (sim > maxSimilarity)
                 {
                     maxSimilarity = sim;

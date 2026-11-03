@@ -1717,8 +1717,8 @@ public class PreferenceBuilderTests
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
 
         // Ghost never contributed a direct row (all its rows are phantom), yet proximity inserts it.
-        Assert.True(vector.ContainsKey("Ghost"), "Ghost must be inserted via the new-genre proximity path.");
-        Assert.InRange(vector["Ghost"], 0.0000001, 1.0);
+        Assert.True(vector.TryGetValue("Ghost", out var ghostWeight), "Ghost must be inserted via the new-genre proximity path.");
+        Assert.InRange(ghostWeight, 0.0000001, 1.0);
 
         // Vector stays max-normalized.
         var max = vector.Values.Max();

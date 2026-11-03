@@ -119,6 +119,22 @@ public sealed class BackupCodecCardOrderTests : IDisposable
     }
 
     [Fact]
+    public void Sanitize_DirtyCodecOrder_TrimsDropsNullsAndPreservesFirstOccurrenceInPlace()
+    {
+        var backup = new BackupData();
+        var order = backup.CodecCardOrder;
+        order.AddRange([null!, string.Empty, "   ", " resolutions ", "containers", " resolutions", "CONTAINERS", "unknown", " watched "]);
+
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Same(order, backup.CodecCardOrder);
+        Assert.Equal(["resolutions", "containers", "watched"], order);
+
+        BackupSanitizer.Sanitize(backup);
+        Assert.Equal(["resolutions", "containers", "watched"], order);
+    }
+
+    [Fact]
     public void Validate_UnknownId_ProducesWarningNotError()
     {
         var backup = MakeMinimalValidBackup();

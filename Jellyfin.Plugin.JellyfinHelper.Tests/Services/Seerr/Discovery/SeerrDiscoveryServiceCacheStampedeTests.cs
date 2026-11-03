@@ -340,18 +340,10 @@ internal sealed class CountingHttpHandler : HttpMessageHandler
         lock (_lock)
         {
             // Find the best-matching registered path suffix (longest match wins).
-            string? matchedKey = null;
-            foreach (var key in _queues.Keys)
-            {
-                if (url.EndsWith(key, StringComparison.Ordinal)
-                    || (request.RequestUri?.PathAndQuery ?? string.Empty).EndsWith(key, StringComparison.Ordinal))
-                {
-                    if (matchedKey == null || key.Length > matchedKey.Length)
-                    {
-                        matchedKey = key;
-                    }
-                }
-            }
+            var pathAndQuery = request.RequestUri?.PathAndQuery ?? string.Empty;
+            var matchedKey = _queues.Keys
+                .Where(key => url.EndsWith(key, StringComparison.Ordinal) || pathAndQuery.EndsWith(key, StringComparison.Ordinal))
+                .MaxBy(key => key.Length);
 
             // Increment request counter for matched key (or the raw URL for unregistered paths).
             var countKey = matchedKey ?? url;

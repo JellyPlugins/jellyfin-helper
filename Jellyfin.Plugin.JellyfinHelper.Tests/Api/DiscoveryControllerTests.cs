@@ -35,8 +35,10 @@ public class DiscoveryControllerTests : IDisposable
     {
         _cache.Dispose();
         try { File.Delete(_tempCachePath); }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not remove test cache {0}: {1}", _tempCachePath, ex.Message);
+        }
         GC.SuppressFinalize(this);
     }
 

@@ -440,10 +440,20 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
         var watched = new HashSet<(int TmdbId, string MediaType)> { (1, "movie") };
         store.MarkWatched(userId, watched);
-        var firstTimestamp = store.LoadForUser(userId)!.Entries[0].WatchedAtUtc;
+        var persisted = store.LoadForUser(userId)!;
+        Assert.True(persisted.Entries[0].WasWatched);
+        Assert.NotNull(persisted.Entries[0].WatchedAtUtc);
 
-        // Wait a moment so a re-mark would produce a different timestamp.
-        Thread.Sleep(20);
+        // Seed a distinct, recent timestamp through the existing persistence seam.
+        // Reload because LoadForUser returns a defensive copy, not the cached entry.
+        var firstTimestamp = DateTime.UtcNow.AddDays(-1);
+        persisted.Entries[0].WatchedAtUtc = firstTimestamp;
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        File.WriteAllText(filePath, System.Text.Json.JsonSerializer.Serialize(new[] { persisted }));
+        store = CreateStore();
+        Assert.Equal(firstTimestamp, store.LoadForUser(userId)!.Entries[0].WatchedAtUtc);
+
+        store.MarkWatched(userId, watched);
         store.MarkWatched(userId, watched);
         var secondTimestamp = store.LoadForUser(userId)!.Entries[0].WatchedAtUtc;
 
@@ -852,24 +862,27 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     public void SaveInternal_UserWithMoreThanMaxEntries_KeepsOnlyMostRecent200()
     {
         // Cap at MaxEntriesPerUser=200. A user who accumulates 250 shown items must have the oldest-by-activity 50 evicted, keeping the 200 most recently active.
-        var store = CreateStore();
         var userId = Guid.NewGuid();
 
-        // Show 250 items in one batch - RecordShown assigns DateTime.UtcNow to all of them, but the eviction code uses GetLatestActivityUtc which will tie.
-        var oldBatch = new List<DiscoveryRecommendation>();
+        // Seed older entries explicitly so ordering does not depend on clock resolution or sleeps.
+        // One day old is safely inside the independent 365-day age-eviction limit.
+        var oldTimestamp = DateTime.UtcNow.AddDays(-1);
+        var oldResult = new DiscoveryFeedbackResult { UserId = userId };
         for (var i = 1; i <= 50; i++)
         {
-            oldBatch.Add(new DiscoveryRecommendation
+            oldResult.Entries.Add(new DiscoveryFeedbackEntry
             {
                 TmdbId = i,
                 MediaType = "movie",
-                Title = $"Old-{i}"
+                Title = $"Old-{i}",
+                ShownAtUtc = oldTimestamp
             });
         }
 
-        store.RecordShown(userId, "User", oldBatch);
-
-        Thread.Sleep(50); // ensure the second batch has strictly later ShownAtUtc
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        File.WriteAllText(filePath, System.Text.Json.JsonSerializer.Serialize(new[] { oldResult }));
+        var store = CreateStore();
+        Assert.Equal(50, store.LoadForUser(userId)!.Entries.Count);
 
         var newBatch = new List<DiscoveryRecommendation>();
         for (var i = 51; i <= 250; i++)
@@ -889,12 +902,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         // Cap invariant.
         Assert.Equal(200, result!.Entries.Count);
         // The 50 oldest entries (TmdbId 1..50) must have been evicted; the 200 newest
-        // (TmdbId 51..250) must remain. Sample a handful to confirm.
-        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 1);
-        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 25);
-        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 50);
-        Assert.Contains(result.Entries, e => e.TmdbId == 51);
-        Assert.Contains(result.Entries, e => e.TmdbId == 250);
+        // (TmdbId 51..250) must remain, not just a sample of the retained entries.
+        Assert.Equal(Enumerable.Range(51, 200), result.Entries.Select(e => e.TmdbId).Order());
     }
 
     [Fact]

@@ -365,8 +365,8 @@ public class I18NServiceTests : IDisposable
 
         foreach (var key in newKeys)
         {
-            Assert.True(translations.ContainsKey(key), $"English translations missing new key: '{key}'");
-            Assert.False(string.IsNullOrWhiteSpace(translations[key]), $"English translation for '{key}' is empty");
+            Assert.True(translations.TryGetValue(key, out var translation), $"English translations missing new key: '{key}'");
+            Assert.False(string.IsNullOrWhiteSpace(translation), $"English translation for '{key}' is empty");
         }
     }
 
@@ -383,9 +383,9 @@ public class I18NServiceTests : IDisposable
     {
         var translations = I18NService.GetTranslations(lang);
 
-        Assert.True(translations.ContainsKey("settingsError"), $"'{lang}' missing settingsError");
-        Assert.True(translations.ContainsKey("settingsLoadError"), $"'{lang}' missing settingsLoadError");
-        Assert.NotEqual(translations["settingsError"], translations["settingsLoadError"]);
+        Assert.True(translations.TryGetValue("settingsError", out var settingsError), $"'{lang}' missing settingsError");
+        Assert.True(translations.TryGetValue("settingsLoadError", out var settingsLoadError), $"'{lang}' missing settingsLoadError");
+        Assert.NotEqual(settingsError, settingsLoadError);
     }
 
     [Fact]
@@ -432,7 +432,7 @@ public class I18NServiceTests : IDisposable
         // Use a barrier so all 8 tasks race into GetTranslations at the same instant,
         // maximising the chance of exposing duplicate-factory invocations.
         const int taskCount = 8;
-        var barrier = new Barrier(taskCount);
+        using var barrier = new Barrier(taskCount);
 
         var tasks = Enumerable.Range(0, taskCount).Select(_ => Task.Run(() =>
         {

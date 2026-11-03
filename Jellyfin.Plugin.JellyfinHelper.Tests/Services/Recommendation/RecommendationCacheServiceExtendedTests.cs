@@ -38,7 +38,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private RecommendationCacheService CreateService(string dataPath)
+    private static RecommendationCacheService CreateService(string dataPath)
     {
         var pathsMock = new Mock<IApplicationPaths>();
         pathsMock.Setup(p => p.DataPath).Returns(dataPath);

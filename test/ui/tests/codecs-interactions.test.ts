@@ -409,6 +409,23 @@ describe('donut hover touch guards', () => {
     expect(h264.classList.contains('donut-segment-hover')).toBe(false);
     expect(hevc.classList.contains('donut-segment-hover')).toBe(true);
   });
+
+  test('hover listeners retain their chart container and outside taps clear all charts', async () => {
+    await render();
+    // Earlier touch tests share this module's last-touch timestamp; leave the suppression window.
+    await vi.advanceTimersByTimeAsync(900);
+    const cards = [...document.querySelectorAll('.chart-box')].filter((c) => c.querySelector('.donut-segment'));
+    const first = cards[0].querySelector('.donut-segment')!;
+    const second = cards[1].querySelector('.donut-segment')!;
+    hover(first.querySelector('path')!, 'mouseenter');
+    hover(second.querySelector('path')!, 'mouseenter');
+    expect(cards[0].querySelector('.donut-tooltip')!.classList.contains('visible')).toBe(true);
+    expect(cards[1].querySelector('.donut-tooltip')!.classList.contains('visible')).toBe(true);
+    expect(cards[1].querySelector('.donut-tooltip-codec')!.textContent).toBe((second as HTMLElement).dataset.codec);
+    document.body.dispatchEvent(new window.Event('touchstart', { bubbles: true }));
+    expect(document.querySelectorAll('.donut-tooltip.visible')).toHaveLength(0);
+    expect(document.querySelectorAll('.donut-segment-hover')).toHaveLength(0);
+  });
 });
 
 describe('fillCodecsData descriptors', () => {

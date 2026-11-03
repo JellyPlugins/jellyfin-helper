@@ -77,7 +77,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
     // Validates a DiscoveryRequestDto using Data Annotations + IValidatableObject, mirroring what
     // [ApiController] does in the MVC pipeline before the action body is entered.
-    private static IList<ValidationResult> ValidateDto(object dto)
+    private static List<ValidationResult> ValidateDto(object dto)
     {
         var results = new List<ValidationResult>();
         Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true);
@@ -590,9 +590,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         var accepted = 0;
         var rejected = 0;
-        foreach (var r in results)
+        foreach (var obj in results.Select(result => Assert.IsType<ObjectResult>(result.Result)))
         {
-            var obj = Assert.IsType<ObjectResult>(r.Result);
             if (obj.StatusCode == 201)
             {
                 accepted++;

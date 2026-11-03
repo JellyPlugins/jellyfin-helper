@@ -971,15 +971,43 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Theory]
+    [InlineData(null, "en")]
+    [InlineData("", "en")]
+    [InlineData("zz", "en")]
+    [InlineData("DE", "en")]
+    [InlineData("de", "de")]
+    [InlineData("fr", "fr")]
+    [InlineData(" de ", "de")]
+    [InlineData("\tfr\n", "fr")]
+    [InlineData(" zz ", "en")]
+    [InlineData("   ", "en")]
+    public async Task UpdateConfiguration_LanguageSelection_StoresSupportedValueOrFallsBack(string? language, string expected)
+    {
+        _config.Language = "es";
+        var request = new ConfigurationUpdateRequest { Language = language! };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(expected, _config.Language);
+    }
+
+    [Theory]
     [InlineData("GARBAGE", "INFO")]
     [InlineData("warn", "WARN")]
-    public async Task UpdateConfiguration_PersistedLogLevel_Normalized(string persisted, string expected)
+    [InlineData(null, "INFO")]
+    [InlineData("", "INFO")]
+    [InlineData("   ", "INFO")]
+    [InlineData("  dEbUg\t", "DEBUG")]
+    [InlineData("trace", "INFO")]
+    public async Task UpdateConfiguration_PersistedLogLevel_Normalized(string? persisted, string expected)
     {
         // Legacy configs may hold an unknown level (e.g. "TRACE" from an older schema) or mixed
         // case. ApplyRequestToConfig must self-heal unknown values to INFO and upper-case the rest.
-        _config.PluginLogLevel = persisted;
+        _config.PluginLogLevel = persisted!;
         var request = new ConfigurationUpdateRequest();
-        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
         Assert.Equal(expected, _config.PluginLogLevel);
     }
 

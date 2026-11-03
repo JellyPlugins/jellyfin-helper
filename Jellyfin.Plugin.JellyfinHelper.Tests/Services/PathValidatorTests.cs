@@ -7,6 +7,35 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 public class PathValidatorTests
 {
+    [Fact]
+    public void ResolveDirectoryPath_ProtectedMissingPath_ThrowsBeforeExistenceCheck()
+    {
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+
+        Assert.Throws<System.Security.SecurityException>(() =>
+            PathValidator.ResolveDirectoryPath(Path.Join(protectedRoot, "does-not-exist", "child")));
+    }
+
+    [Fact]
+    public void ResolveDirectoryPath_MissingComponents_PreservesNormalizedPath()
+    {
+        var path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "child");
+
+        Assert.Equal(Path.GetFullPath(path), PathValidator.ResolveDirectoryPath(path));
+    }
+
+    [Theory]
+    [InlineData(@"\\?\C:\Windows")]
+    [InlineData(@"\\.\C:\Windows")]
+    public void ResolveDirectoryPath_WindowsDeviceNamespace_IsRejected(string path)
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows device namespace semantics.");
+
+        Assert.Throws<System.Security.SecurityException>(() => PathValidator.ResolveDirectoryPath(path));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -148,6 +177,54 @@ public class PathValidatorTests
     [InlineData("")]
     public void IsSensitiveSystemPath_NullOrEmpty_ReturnsFalse(string? path)
         => Assert.False(PathValidator.IsSensitiveSystemPath(path));
+
+    [Fact]
+    public void BuildSensitiveSystemRoots_WindowsFolders_AppendsDistinctNonemptyAlternateDrivePaths()
+    {
+        var calls = new List<Environment.SpecialFolder>();
+        var paths = new Dictionary<Environment.SpecialFolder, string>
+        {
+            [Environment.SpecialFolder.Windows] = @"D:\Windows",
+            [Environment.SpecialFolder.ProgramFiles] = @"c:\program files",
+            [Environment.SpecialFolder.ProgramFilesX86] = string.Empty,
+            [Environment.SpecialFolder.CommonApplicationData] = @"d:\windows",
+        };
+
+        var roots = PathValidator.BuildSensitiveSystemRoots(true, folder =>
+        {
+            calls.Add(folder);
+            return paths[folder];
+        });
+
+        Assert.Equal(4, calls.Count);
+        Assert.Equal(@"D:\Windows", roots[^1]);
+        Assert.Single(roots, path => string.Equals(path, @"D:\Windows", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(roots, path => string.Equals(path, @"C:\Program Files", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(string.Empty, roots);
+        Assert.Contains("/config", roots);
+    }
+
+    [Fact]
+    public void BuildSensitiveSystemRoots_NonWindows_DoesNotResolveWindowsFolders()
+    {
+        var roots = PathValidator.BuildSensitiveSystemRoots(false, _ => throw new InvalidOperationException("Windows folder resolution must not run."));
+
+        Assert.Contains("/etc", roots);
+        Assert.Contains(@"C:\Windows", roots);
+    }
+
+    [Fact]
+    public void BuildSensitiveSystemRoots_NullResolver_Throws()
+        => Assert.Throws<ArgumentNullException>(() => PathValidator.BuildSensitiveSystemRoots(true, null!));
+
+    [Theory]
+    [InlineData("/config\\plugins", true)]
+    [InlineData("/config/", true)]
+    [InlineData("/config\\", true)]
+    [InlineData("/configuration\\plugins", false)]
+    [InlineData(@"C:\Windows-backup", false)]
+    public void IsSensitiveSystemPath_SeparatorBoundaries_DoNotConfusePrefixes(string path, bool expected)
+        => Assert.Equal(expected, PathValidator.IsSensitiveSystemPath(path));
 
     [Theory]
     [InlineData("/config")]

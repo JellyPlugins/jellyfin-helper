@@ -104,7 +104,7 @@ public class GrowthTimelineControllerTests
 
         // Retry-After must communicate the remaining window: a positive integer no larger than 30s.
         Assert.True(_controller.Response.Headers.ContainsKey("Retry-After"));
-        var retryAfter = int.Parse(_controller.Response.Headers["Retry-After"]!, System.Globalization.CultureInfo.InvariantCulture);
+        var retryAfter = int.Parse(_controller.Response.Headers.RetryAfter!, System.Globalization.CultureInfo.InvariantCulture);
         Assert.InRange(retryAfter, 1, 30);
     }
 

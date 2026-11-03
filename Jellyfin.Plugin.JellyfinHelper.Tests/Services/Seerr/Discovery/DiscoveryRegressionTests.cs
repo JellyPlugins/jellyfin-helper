@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -19,6 +21,61 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public sealed class DiscoveryRegressionTests
 {
     // Issue 3: ServerId=0 must be valid (Seerr uses 0-based IDs)
+
+    [Theory]
+    [InlineData("movie")]
+    [InlineData("Movie")]
+    [InlineData("MOVIE")]
+    [InlineData("tv")]
+    [InlineData("Tv")]
+    [InlineData("TV")]
+    public void DiscoveryRequestDto_MediaType_AcceptsSupportedValuesBeforeControllerNormalization(string mediaType)
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 123, MediaType = mediaType };
+
+        Assert.Empty(ValidateModel(dto));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("music")]
+    [InlineData("movie\n")]
+    public void DiscoveryRequestDto_MediaType_RejectsInvalidValuesBeforeControllerNormalization(string? mediaType)
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 123, MediaType = mediaType! };
+
+        Assert.Contains(ValidateModel(dto), result => result.MemberNames.Contains(nameof(DiscoveryRequestDto.MediaType)));
+    }
+
+    [Theory]
+    [InlineData("tr-TR", "MOVIE", true)]
+    [InlineData("tr-TR", "mOvIe", true)]
+    [InlineData("tr-TR", "TV", true)]
+    [InlineData("tr-TR", "MOVİE", false)]
+    [InlineData("en-US", "MOVIE", true)]
+    [InlineData("de-DE", "music", false)]
+    public void DiscoveryRequestDto_MediaType_ValidationIsCultureIndependent(string culture, string mediaType, bool expected)
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            // A fresh attribute exercises regex construction under this culture, rather than a cached validator.
+            var property = typeof(DiscoveryRequestDto).GetProperty(nameof(DiscoveryRequestDto.MediaType));
+            var attribute = property!.GetCustomAttribute<RegularExpressionAttribute>();
+            Assert.NotNull(attribute);
+
+            Assert.Equal(expected, attribute.IsValid(mediaType));
+            var errors = ValidateModel(new DiscoveryRequestDto { TmdbId = 123, MediaType = mediaType });
+            Assert.Equal(!expected, errors.Any(error => error.MemberNames.Contains(nameof(DiscoveryRequestDto.MediaType))));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
+    }
 
     [Theory]
     [InlineData(0)]

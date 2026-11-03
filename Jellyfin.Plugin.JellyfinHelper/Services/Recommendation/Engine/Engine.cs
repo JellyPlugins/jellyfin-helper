@@ -466,14 +466,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var maxLogPopularity = 0.0;
         if (useCommunityPrior)
         {
-            foreach (var count in communityPopularity!.Values)
-            {
-                var logValue = Math.Log(1.0 + count);
-                if (logValue > maxLogPopularity)
-                {
-                    maxLogPopularity = logValue;
-                }
-            }
+            maxLogPopularity = communityPopularity!.Values
+                .Select(count => Math.Log(1.0 + count))
+                .Where(logValue => logValue > 0.0)
+                .DefaultIfEmpty(0.0)
+                .Max();
         }
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();

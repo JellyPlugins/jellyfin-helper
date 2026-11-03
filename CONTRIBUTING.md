@@ -203,6 +203,9 @@ See [`test/ui/README.md`](test/ui/README.md) for the suite map and
 
 Tests mirror the source structure:
 
+`TestFixtures/TestMockFactoryTests.cs` checks null-argument diagnostics and immediate
+read/mutate callback behavior in the shared configuration mock factory.
+
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every registered service must resolve
@@ -893,7 +896,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `TrashServiceRelocateTests.cs`
 - `TrashServiceReparseAndRaceTests.cs` - Tests TrashService reparse-point guard and concurrent-move race safety
 - `TrashServiceSecurityTests.cs` - Security tests: TrashService resists path traversal, null bytes, and malicious names
-- `TrashServiceTests.cs` - Tests trash move, timestamp parsing, retention purge, and contents/summary listing
+- `TrashServiceTests.cs` - Tests trash move (including explicit success for empty directories), timestamp parsing, retention purge, and contents/summary listing
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Common/`
 
@@ -1059,6 +1062,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EngineTestFactory.cs`
 - `PluginSingletonLifecycleTests.cs`
 - `TestDataGenerator.cs` - Central generator for test data objects like VirtualFolderInfo and LibraryStatistics
+- `FixtureFactoryTests.cs` - Library factory null/default/custom-location contracts and controller JSON-body setup validation, UTF-8 length, and cancellation overrides
 - `TestMockFactory.cs` - Central factory for commonly used mocks and PluginLogService instances across tests
 
 `Jellyfin.Plugin.JellyfinHelper/Api/`
@@ -1216,7 +1220,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `CleanupTrackingService.cs`
 - `ICleanupConfigHelper.cs`
 - `ICleanupTrackingService.cs`
-- `ITrashService.cs`
+- `ITrashService.cs` - Cleanup callers use `MoveToTrashWithResult` to distinguish a successful zero-byte move from failure; `MoveToTrash` retains its legacy byte-count contract
 - `TrashItemInfo.cs`
 - `TrashPathAccessResult.cs`
 - `TrashService.cs`

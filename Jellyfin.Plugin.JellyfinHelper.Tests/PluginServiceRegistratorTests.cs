@@ -49,7 +49,7 @@ public class PluginServiceRegistratorTests : IDisposable
     /// <summary>
     ///     Registers all services against a fresh collection. Plugin.Instance may or may not exist depending on test ordering - the registrator uses the null-conditional so it tolerates either state.
     /// </summary>
-    private static IServiceCollection Register()
+    private static ServiceCollection Register()
     {
         var sc = new ServiceCollection();
         var host = new Mock<IServerApplicationHost>();

@@ -62,7 +62,7 @@ public sealed class CleanupTaskReparseGuardTests
             // The link is never traversed and never trashed.
             _fileSystemMock.Verify(f => f.GetFiles(linkedDir), Times.Never);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -105,7 +105,7 @@ public sealed class CleanupTaskReparseGuardTests
             // The subtree behind the link was never enumerated, and nothing was deleted/trashed.
             _fileSystemMock.Verify(f => f.GetFiles(reparseSubDir), Times.Never);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -174,7 +174,7 @@ public sealed class CleanupTaskReparseGuardTests
             // The entry is never traversed, trashed, or counted.
             _fileSystemMock.Verify(f => f.GetFiles(unreadableDir), Times.Never);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -217,7 +217,7 @@ public sealed class CleanupTaskReparseGuardTests
             // The subtree behind the failed stat was never enumerated, and nothing was deleted/trashed.
             _fileSystemMock.Verify(f => f.GetFiles(unreadableSubDir), Times.Never);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -261,7 +261,7 @@ public sealed class CleanupTaskReparseGuardTests
             VerifyLogContains(_loggerMock, "Could not stat entry, treating tree as unresolved", LogLevel.Warning);
             VerifyLogContains(_loggerMock, "unresolved symlinked/unreadable subdirectory", LogLevel.Warning);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -319,7 +319,7 @@ public sealed class CleanupTaskReparseGuardTests
 
     // CleanTrickplayTask
 
-    public sealed class Trickplay : CleanupTaskTestBase
+    public sealed class TrickplayReparseGuards : CleanupTaskTestBase
     {
         private readonly Mock<ILibraryManager> _libraryManagerMock = TestMockFactory.CreateLibraryManager();
         private readonly Mock<IFileSystem> _fileSystemMock = TestMockFactory.CreateFileSystem();
@@ -357,7 +357,7 @@ public sealed class CleanupTaskReparseGuardTests
 
             VerifyLogContains(_loggerMock, "Skipping symlinked trickplay directory (reparse point)", LogLevel.Warning);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
@@ -391,7 +391,7 @@ public sealed class CleanupTaskReparseGuardTests
 
             VerifyLogContains(_loggerMock, "Skipping symlinked trickplay directory (reparse point)", LogLevel.Warning);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
         }
 
@@ -451,7 +451,7 @@ public sealed class CleanupTaskReparseGuardTests
 
             VerifyLogContains(_loggerMock, "Could not stat directory, skipping", LogLevel.Warning);
             MockTrashService.Verify(
-                t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+                t => t.MoveToTrashWithResult(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
                 Times.Never);
             MockTrackingService.Verify(
                 t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),

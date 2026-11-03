@@ -127,18 +127,10 @@ internal static class ContentAffinityResolver
             return [];
         }
 
-        var writers = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var person in people)
-        {
-            if (person.Type == PersonKind.Writer
-                && !string.IsNullOrWhiteSpace(person.Name)
-                && seen.Add(person.Name))
-            {
-                writers.Add(person.Name);
-            }
-        }
-
-        return writers;
+        return people
+            .Where(person => person.Type == PersonKind.Writer && !string.IsNullOrWhiteSpace(person.Name))
+            .Select(person => person.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }

@@ -610,7 +610,19 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            ReleaseReadLockSafely();
+            // Keep acquisition and release visible in this method. A failed acquisition owns
+            // no lock to release; retain the shutdown-race guard used by the other score paths.
+            if (_rwLock.IsReadLockHeld)
+            {
+                try
+                {
+                    _rwLock.ExitReadLock();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The underlying lock resources were disposed during shutdown.
+                }
+            }
         }
     }
 

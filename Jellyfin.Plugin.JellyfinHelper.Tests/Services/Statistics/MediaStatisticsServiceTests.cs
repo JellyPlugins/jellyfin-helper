@@ -4167,12 +4167,12 @@ public class MetadataExtractionTests
         var lookup = baseService.BuildItemLookup();
 
         Assert.Equal(2, lookup.Count);
-        Assert.True(lookup.ContainsKey(pathA));
+        Assert.True(lookup.TryGetValue(pathA, out var firstItem));
         Assert.True(lookup.ContainsKey(pathB));
         // Case-insensitive keying: an upper-cased variant resolves to the same entry.
         Assert.True(lookup.ContainsKey(pathA.ToUpperInvariant()));
         // First writer wins on a duplicate path.
-        Assert.Same(itemA.Object, lookup[pathA]);
+        Assert.Same(itemA.Object, firstItem);
     }
 
     /// <summary>

@@ -221,6 +221,9 @@ public static class TestMockFactory
     /// <param name="cfg">The configuration instance to mutate in callbacks.</param>
     public static void SetupReadAndMutate(Mock<IPluginConfigurationService> mock, PluginConfiguration cfg)
     {
+        ArgumentNullException.ThrowIfNull(mock);
+        ArgumentNullException.ThrowIfNull(cfg);
+
         mock.Setup(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()))
             .Callback<Action<PluginConfiguration>>(mutate => mutate(cfg));
     }

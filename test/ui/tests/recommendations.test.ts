@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ajaxRouter, flush } from '../src/apiStub.js';
-import { freshConfigPage, saveCoverage, UiBridge } from '../src/loader.js';
+import { freshConfigPage, REPO_ROOT, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
 beforeEach(() => {
@@ -8,6 +10,75 @@ beforeEach(() => {
 });
 
 afterAll(saveCoverage);
+
+describe('discovery text contrast', () => {
+  function rules(file: string) {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper', 'PluginPages', 'css', file), 'utf8');
+    document.head.appendChild(style);
+    const result = Array.from(style.sheet!.cssRules);
+    style.remove();
+    return result;
+  }
+
+  function declaration(cssRules: CSSRule[], selector: string, property: string, light: boolean): string {
+    let value = '';
+    for (const rule of cssRules) {
+      if (rule.type === CSSRule.MEDIA_RULE) {
+        const media = rule as CSSMediaRule;
+        if (light && media.conditionText === '(prefers-color-scheme: light)') {
+          value = declaration(Array.from(media.cssRules), selector, property, light) || value;
+        }
+      } else if (rule.type === CSSRule.STYLE_RULE) {
+        const style = rule as CSSStyleRule;
+        if (style.selectorText === selector) value = style.style.getPropertyValue(property) || value;
+      }
+    }
+    return value.trim();
+  }
+
+  function color(value: string): number[] {
+    if (value.startsWith('#')) {
+      const hex = value.length === 4 ? value.slice(1).split('').map((c) => c + c).join('') : value.slice(1);
+      return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16)).concat(1);
+    }
+    return value.match(/[\d.]+/g)!.map(Number);
+  }
+
+  function composite(foreground: number[], background: number[], alpha = foreground[3]): number[] {
+    return background.slice(0, 3).map((channel, index) => foreground[index] * alpha + channel * (1 - alpha));
+  }
+
+  function contrast(foreground: number[], background: number[]): number {
+    const luminance = (rgb: number[]) => rgb.slice(0, 3).map((channel) => {
+      const srgb = channel / 255;
+      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+    const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+    return (values[0] + 0.05) / (values[1] + 0.05);
+  }
+
+  test('small hover labels meet 4.5:1 on the shipped cyan accent', () => {
+    const css = rules('Recommendations.css');
+    const primary = color(declaration(rules('Shared.css'), ':root', '--color-primary', false));
+    const foreground = color(declaration(css, '.discovery-request-btn:hover:not(:disabled)', 'color', false));
+    expect(contrast(foreground, primary)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test.each([
+    [false, '#101010'], [false, '#1c1c1e'], [false, '#2b2b2b'],
+    [true, '#ffffff'], [true, '#f2f2f2'],
+  ])('rating labels account for background alpha and shared tag opacity (light=%s, surface=%s)', (light, surface) => {
+    const css = rules('Recommendations.css');
+    const card = composite(color(declaration(css, '.discovery-card', 'background', light)), color(surface));
+    const opacity = Number(declaration(css, '.recs-tag-rating', 'opacity', light)
+      || declaration(css, '.recs-tag', 'opacity', light) || '1');
+    const foreground = composite(color(declaration(css, '.recs-tag-rating', 'color', light)), card, opacity);
+    const tagBackground = composite(color(declaration(css, '.recs-tag-rating', 'background', light)), card);
+    const background = composite(tagBackground, card, opacity);
+    expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
+  });
+});
 
 describe('getTopGenresFromDistribution', () => {
   test('sorts by count and caps', () => {
@@ -32,6 +103,11 @@ describe('findUserDiscovery matches case-insensitively', () => {
 
   test('entries without any id fall through to a later match', () => {
     expect(ui.findUserDiscovery([{}, { userId: 'abc' }], 'ABC')).toMatchObject({ userId: 'abc' });
+  });
+
+  test('duplicate ids return the first matching object without copying', () => {
+    const first = { UserId: '', userId: 'abc', Recommendations: [] };
+    expect(ui.findUserDiscovery([first, { UserId: 'ABC' }], 'ABC')).toBe(first);
   });
 });
 
@@ -112,6 +188,14 @@ describe('request response handling', () => {
     const btn = buttonInGrid();
     ui.handleDiscoveryRequestResponse({ Success: false }, btn, 5, 'movie');
     expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toMatch(/fail/i);
+  });
+
+  test.each([null, undefined, false, 0, '', { Success: 0 }])('falsy response %s stays on the error path', (response) => {
+    const btn = buttonInGrid();
+    ui.handleDiscoveryRequestResponse(response, btn, 5, 'movie');
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('discovery-request-done')).toBe(false);
     expect(btn.textContent).toMatch(/fail/i);
   });
 
@@ -329,6 +413,15 @@ describe('renderDiscoveryCards list variants', () => {
     const g = document.getElementById('g')!;
     ui.renderDiscoveryCards(g, null, null);
     expect(g.textContent).toMatch(/no suggestions/i);
+  });
+
+  test.each([undefined, false, 0, '', {}, { Recommendations: null }, { Recommendations: false }, { Recommendations: [] }])('missing or falsy recommendations %s retain the empty state', (discovery) => {
+    document.body.innerHTML = '<div id="g"></div><span id="count">9</span>';
+    const grid = document.getElementById('g')!;
+    const count = document.getElementById('count')!;
+    ui.renderDiscoveryCards(grid, count, discovery);
+    expect(grid.textContent).toMatch(/no suggestions/i);
+    expect(count.textContent).toBe('0');
   });
 
   test('generated-at footer renders for valid dates and is skipped for garbage', () => {

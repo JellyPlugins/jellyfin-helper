@@ -39,14 +39,7 @@ internal static class RankingMetrics
         var effectiveK = Math.Min(k, predictedScores.Length);
         var topKIndices = GetTopKIndices(predictedScores, effectiveK);
 
-        var relevantInTopK = 0;
-        foreach (var idx in topKIndices)
-        {
-            if (labels[idx] > relevanceThreshold)
-            {
-                relevantInTopK++;
-            }
-        }
+        var relevantInTopK = topKIndices.Count(idx => labels[idx] > relevanceThreshold);
 
         return (double)relevantInTopK / effectiveK;
     }
@@ -89,14 +82,7 @@ internal static class RankingMetrics
         var effectiveK = Math.Min(k, predictedScores.Length);
         var topKIndices = GetTopKIndices(predictedScores, effectiveK);
 
-        var relevantInTopK = 0;
-        foreach (var idx in topKIndices)
-        {
-            if (labels[idx] > relevanceThreshold)
-            {
-                relevantInTopK++;
-            }
-        }
+        var relevantInTopK = topKIndices.Count(idx => labels[idx] > relevanceThreshold);
 
         return (double)relevantInTopK / totalRelevant;
     }
@@ -175,9 +161,8 @@ internal static class RankingMetrics
         var totalN = 0.0;
         var groupCount = 0;
 
-        foreach (var g in groups)
+        foreach (var list in groups.Select(group => group.ToList()))
         {
-            var list = g.ToList();
             var preds = new double[list.Count];
             var labs = new double[list.Count];
             for (var i = 0; i < list.Count; i++)

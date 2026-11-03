@@ -441,7 +441,7 @@ public class RecommendationPlaylistServiceTests
         Assert.DoesNotContain(seriesId, capturedItemIds);
     }
 
-    private static BaseItem BuildFakePlaylist(string name)
+    private static MediaBrowser.Controller.Playlists.Playlist BuildFakePlaylist(string name)
     {
         // Playlist is a Folder subclass in Jellyfin; using the concrete Playlist type
         // keeps the property surface (Name, Id) intact for the SUT.
