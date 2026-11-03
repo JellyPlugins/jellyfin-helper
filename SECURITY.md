@@ -14,9 +14,10 @@
 Jellyfin Helper processes media libraries, external API keys, and filesystem operations. To ensure data safety and system integrity, the plugin implements strict backend safety mechanisms:
 
 * **Filesystem Isolation & Path Traversal Protection (`PathValidator`, `ReparsePointGuard`)**
-  * Cleanup, deletion, link repair, and trash relocation operations are strictly sandboxed within configured media library directories.
+  * Media cleanup and link repair validate configured library boundaries. Elevated administrators may also configure dedicated trash directories outside those libraries.
   * Explicit rejection of sensitive system paths (e.g., `/config`, `/etc`, `C:\Windows`).
-  * Fail-closed checks for symlinks, junctions, and reparse points (`ReparsePointGuard`) prevent infinite recursion and path-traversal escapes outside media roots.
+  * Reparse-point checks guard cleanup traversal; folder browsing and trash-access probes resolve existing directory links in every path component and reject protected targets, unresolved links, and cycles.
+  * These checks are path-based, not a handle-bound operating-system sandbox. A local actor who can concurrently replace ordinary ancestor directories can still race validation and subsequent I/O. Keep library/trash ancestors under trusted ownership; do not classify this residual local-writer risk as conclusively eliminated by the static-link checks.
 
 * **API Key & Credential Masking (`ApiKeyMaskResolver`)**
   * API keys for integrated services (Overseerr, Jellyseerr, Radarr, Sonarr) are masked in responses (`ConfigurationResponse`) and never sent in plain text to the web frontend.

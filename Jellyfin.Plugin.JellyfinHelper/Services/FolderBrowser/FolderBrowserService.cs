@@ -341,7 +341,10 @@ public class FolderBrowserService : IFolderBrowserService
         {
             return "This is a protected system folder and cannot be browsed.";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        // Windows rejects an oversized path shape; Unix reports oversized components as an access failure.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                  && (ex is not PathTooLongException || !OperatingSystem.IsWindows()))
         {
             return ErrorCannotAccessDirectory;
         }
