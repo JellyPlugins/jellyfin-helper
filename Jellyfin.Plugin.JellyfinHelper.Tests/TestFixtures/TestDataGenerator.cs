@@ -23,22 +23,34 @@ public static class TestDataGenerator
     /// <param name="name">The name of the library (default is "Movies").</param>
     /// <param name="locations">The folder locations for the library.</param>
     /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for movies.</returns>
+    /// <exception cref="ArgumentNullException">The locations array is null.</exception>
     public static VirtualFolderInfo CreateMovieLibrary(string name = "Movies", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.movies, locations.Length > 0 ? locations : [TestPath("media", "movies")]);
+    {
+        ArgumentNullException.ThrowIfNull(locations);
+        return CreateLibrary(name, CollectionTypeOptions.movies, locations.Length > 0 ? locations : [TestPath("media", "movies")]);
+    }
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a TV show library.</summary>
     /// <param name="name">The name of the library (default is "TV Shows").</param>
     /// <param name="locations">The folder locations for the library.</param>
     /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for TV shows.</returns>
+    /// <exception cref="ArgumentNullException">The locations array is null.</exception>
     public static VirtualFolderInfo CreateTvShowLibrary(string name = "TV Shows", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.tvshows, locations.Length > 0 ? locations : [TestPath("media", "tv")]);
+    {
+        ArgumentNullException.ThrowIfNull(locations);
+        return CreateLibrary(name, CollectionTypeOptions.tvshows, locations.Length > 0 ? locations : [TestPath("media", "tv")]);
+    }
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a music library.</summary>
     /// <param name="name">The name of the library (default is "Music").</param>
     /// <param name="locations">The folder locations for the library.</param>
     /// <returns>A new <see cref="VirtualFolderInfo"/> instance configured for music.</returns>
+    /// <exception cref="ArgumentNullException">The locations array is null.</exception>
     public static VirtualFolderInfo CreateMusicLibrary(string name = "Music", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.music, locations.Length > 0 ? locations : [TestPath("media", "music")]);
+    {
+        ArgumentNullException.ThrowIfNull(locations);
+        return CreateLibrary(name, CollectionTypeOptions.music, locations.Length > 0 ? locations : [TestPath("media", "music")]);
+    }
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> with custom settings.</summary>
     /// <param name="name">The name of the library.</param>

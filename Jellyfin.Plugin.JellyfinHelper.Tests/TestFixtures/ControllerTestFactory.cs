@@ -159,12 +159,15 @@ public static class ControllerTestFactory
     /// <param name="contentLength">The content length of the JSON body. If null, it will be calculated based on the JSON body content.</param>
     /// <param name="requestAborted">Optional cancellation token to inject as HttpContext.RequestAborted.</param>
     /// <returns>The controller with the JSON body added to its request.</returns>
+    /// <exception cref="ArgumentNullException">The controller is null.</exception>
     public static ControllerBase AddJsonBodyToController(
         ControllerBase controller,
         string jsonBody,
         long? contentLength = null,
         CancellationToken requestAborted = default)
     {
+        ArgumentNullException.ThrowIfNull(controller);
+
         var httpContext = new DefaultHttpContext();
         var bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
         var requestBodyStream = new MemoryStream(bodyBytes);

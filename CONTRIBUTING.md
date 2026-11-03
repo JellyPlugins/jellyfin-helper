@@ -1062,6 +1062,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `EngineTestFactory.cs`
 - `PluginSingletonLifecycleTests.cs`
 - `TestDataGenerator.cs` - Central generator for test data objects like VirtualFolderInfo and LibraryStatistics
+- `FixtureFactoryTests.cs` - Library factory null/default/custom-location contracts and controller JSON-body setup validation, UTF-8 length, and cancellation overrides
 - `TestMockFactory.cs` - Central factory for commonly used mocks and PluginLogService instances across tests
 
 `Jellyfin.Plugin.JellyfinHelper/Api/`

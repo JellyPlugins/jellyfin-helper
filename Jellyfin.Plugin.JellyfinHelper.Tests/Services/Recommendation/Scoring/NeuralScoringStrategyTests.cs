@@ -906,14 +906,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void ImplementsIScoringStrategy()
     {
         var strategy = new NeuralScoringStrategy();
-        Assert.IsAssignableFrom<IScoringStrategy>(strategy);
+        Assert.IsType<IScoringStrategy>(strategy, exactMatch: false);
     }
 
     [Fact]
     public void ImplementsITrainableStrategy()
     {
         var strategy = new NeuralScoringStrategy();
-        Assert.IsAssignableFrom<ITrainableStrategy>(strategy);
+        Assert.IsType<ITrainableStrategy>(strategy, exactMatch: false);
     }
 
     // Four-Hidden-Layer Architecture Tests
@@ -1519,8 +1519,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             YearProximityScore = 0.8
         };
 
-        var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
-        var exceptions = new ConcurrentBag<Exception>();
+        var scores = new ConcurrentBag<double>();
 
         // Run several consecutive Train() calls while hammering Score() in parallel.
         const int trainRounds = 5;
@@ -1528,37 +1527,23 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         for (var round = 0; round < trainRounds; round++)
         {
-            var trainTask = Task.Run(() =>
-            {
-                try
-                {
-                    strategy.Train(examples);
-                }
-                catch (Exception ex)
-                {
-                    exceptions.Add(ex);
-                }
-            }, TestContext.Current.CancellationToken);
+            var trainTask = Task.Run(
+                () => Assert.True(strategy.Train(examples)),
+                TestContext.Current.CancellationToken);
 
             var scoreTasks = Enumerable.Range(0, scorersPerRound).Select(_ => Task.Run(() =>
             {
-                try
+                for (var i = 0; i < 10; i++)
                 {
-                    for (var i = 0; i < 10; i++)
-                    {
-                        scores.Add(strategy.Score(features));
-                    }
+                    scores.Add(strategy.Score(features));
                 }
-                catch (Exception ex)
-                {
-                    exceptions.Add(ex);
-                }
-            })).ToArray();
+            }, TestContext.Current.CancellationToken)).ToArray();
 
             await Task.WhenAll(new[] { trainTask }.Concat(scoreTasks));
         }
 
-        Assert.Empty(exceptions);
+        // Task.WhenAll propagates failures with their original stack traces; no exception is swallowed.
+        Assert.Equal(trainRounds * scorersPerRound * 10, scores.Count);
 
         // Every score collected must be a finite value in [0, 1].
         Assert.All(scores, s => Assert.True(

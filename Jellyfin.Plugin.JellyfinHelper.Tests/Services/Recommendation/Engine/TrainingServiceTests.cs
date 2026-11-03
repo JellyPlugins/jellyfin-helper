@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -381,6 +382,45 @@ public class TrainingServiceTests
         Assert.True(
             strategy.LastReceivedTrainSet!.Count <= baselineStrategy.LastReceivedTrainSet!.Count,
             $"incremental training must not enlarge the training set (baseline={baselineStrategy.LastReceivedTrainSet!.Count}, incremental={strategy.LastReceivedTrainSet!.Count})");
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(40, 12)]
+    public void ApplyIncrementalSampling_SameInput_PreservesRecentAndDeterministicUniqueOldSample(
+        int oldCount, int expectedOldSampleCount)
+    {
+        var generatedAt = new DateTime(2026, 11, 3, 0, 0, 0, DateTimeKind.Utc);
+        var recent = Enumerable.Range(0, 3).Select(i => new TrainingExample
+        {
+            Features = new CandidateFeatures(),
+            GeneratedAtUtc = generatedAt.AddDays(-1).AddHours(i)
+        }).ToList();
+        var examples = Enumerable.Range(0, oldCount).Select(_ => new TrainingExample
+        {
+            Features = new CandidateFeatures(),
+            GeneratedAtUtc = generatedAt.AddDays(-2)
+        }).Concat(recent).ToList();
+        var originalOrder = examples.ToArray();
+        RecommendationResult[] previous = [new() { GeneratedAt = generatedAt }];
+        using var sut = CreateSut();
+
+        // Exercise the sampler directly, without stochastic example building or held-out splitting.
+        var method = typeof(TrainingService).GetMethod("ApplyIncrementalSampling", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var sample = method.CreateDelegate<Func<List<TrainingExample>, IReadOnlyList<RecommendationResult>, List<TrainingExample>>>(sut);
+
+        var first = sample(examples, previous);
+        var second = sample(examples, previous);
+
+        Assert.Equal(3 + expectedOldSampleCount, first.Count);
+        Assert.Equal(recent, first.Take(3));
+        Assert.Equal(first, second);
+        Assert.Equal(first.Count, first.Distinct(ReferenceEqualityComparer.Instance).Count());
+        Assert.All(first, example => Assert.Contains(example, examples));
+        Assert.All(first.Skip(3), example => Assert.True(example.GeneratedAtUtc < generatedAt.AddDays(-1)));
+        Assert.Equal(originalOrder, examples);
     }
 
     [Fact]
