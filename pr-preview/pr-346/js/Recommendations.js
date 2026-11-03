@@ -773,11 +773,11 @@ function collectSeerrQualityProfiles(services) {
         var profiles = svc.Profiles || svc.profiles || [];
         for (var profile of profiles) {
             allProfiles.push({
-                serverId: svc.Id || svc.id,
-                serverName: svc.Name || svc.name || ('Server #' + escHtml(String(svc.Id || svc.id || ''))),
-                profileId: profile.Id || profile.id,
+                serverId: svc.Id ?? svc.id,
+                serverName: svc.Name || svc.name || ('Server #' + escHtml(String(svc.Id ?? svc.id ?? ''))),
+                profileId: profile.Id ?? profile.id,
                 profileName: profile.Name || profile.name,
-                isDefault: (profile.Id || profile.id) === (svc.ActiveProfileId || svc.activeProfileId),
+                isDefault: (profile.Id ?? profile.id) === (svc.ActiveProfileId ?? svc.activeProfileId),
                 rootFolder: svc.ActiveDirectory || svc.activeDirectory || ''
             });
         }
