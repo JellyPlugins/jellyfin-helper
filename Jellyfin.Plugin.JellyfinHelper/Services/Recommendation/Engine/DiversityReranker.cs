@@ -184,12 +184,17 @@ internal static class DiversityReranker
         for (var i = 0; i < remaining.Count; i++)
         {
             var relevance = remaining[i].Score;
-            // Preserve the zero baseline and ignore NaN/nonpositive values, as the comparison loop did.
-            var maxSimilarity = selected
-                .Select(selectedEntry => similarity.Compute(remaining[i].Item, selectedEntry.Item))
-                .Where(sim => sim > 0.0)
-                .DefaultIfEmpty(0.0)
-                .Max();
+            var candidateItem = remaining[i].Item;
+            // Keep this inner maximum allocation-free; comparisons also ignore NaN/nonpositive values.
+            var maxSimilarity = 0.0;
+            for (var selectedIndex = 0; selectedIndex < selected.Count; selectedIndex++)
+            {
+                var sim = similarity.Compute(candidateItem, selected[selectedIndex].Item);
+                if (sim > maxSimilarity)
+                {
+                    maxSimilarity = sim;
+                }
+            }
 
             var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
 
