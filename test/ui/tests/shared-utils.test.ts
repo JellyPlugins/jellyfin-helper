@@ -85,6 +85,29 @@ describe('getScoreThresholdClass boundaries', () => {
   });
 });
 
+describe('trimTrailingSlashes', () => {
+  test.each([
+    ['', ''],
+    ['/', ''],
+    ['///', ''],
+    ['/media///', '/media'],
+    ['/media//nested/', '/media//nested'],
+    ['https://server/path///', 'https://server/path'],
+    ['/media/😀///', '/media/😀'],
+    ['C:\\media\\', 'C:\\media\\'],
+    ['/media///?query=1', '/media///?query=1'],
+    ['/media///\n', '/media///\n'],
+  ])('removes only the trailing slash suffix from %s', (input, expected) => {
+    expect(ui.trimTrailingSlashes(input)).toBe(expected);
+  });
+
+  test('handles long matching and nonmatching suffixes without regex backtracking', () => {
+    const slashes = '/'.repeat(100_000);
+    expect(ui.trimTrailingSlashes('/media' + slashes)).toBe('/media');
+    expect(ui.trimTrailingSlashes(slashes + 'tail')).toBe(slashes + 'tail');
+  });
+});
+
 describe('getPathSegments', () => {
   test('strips the longest matching root', () => {
     expect(ui.getPathSegments('/media/Movies/f.mkv', ['/media', '/media/Movies'])).toEqual(['f.mkv']);
@@ -97,5 +120,11 @@ describe('getPathSegments', () => {
 
   test('keeps the full path when no root matches', () => {
     expect(ui.getPathSegments('/other/f.mkv', ['/media'])).toEqual(['other', 'f.mkv']);
+  });
+
+  test('trims root suffixes while preserving nested-root precedence', () => {
+    expect(ui.getPathSegments('/media/Movies/f.mkv', ['/media///', '/media/Movies///'])).toEqual(['f.mkv']);
+    expect(ui.getPathSegments('C:\\media\\f.mkv', ['C:\\media\\\\'])).toEqual(['f.mkv']);
+    expect(ui.getPathSegments('/media/f.mkv', ['/'])).toEqual(['media', 'f.mkv']);
   });
 });

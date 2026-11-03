@@ -137,7 +137,7 @@ public class MediaStatisticsControllerTests : IDisposable
         // Clients need actionable retry guidance: a positive delay capped at the 30s MinScanInterval.
         Assert.True(_controller.Response.Headers.ContainsKey("Retry-After"));
         var retryAfter = int.Parse(
-            _controller.Response.Headers["Retry-After"]!,
+            _controller.Response.Headers.RetryAfter!,
             System.Globalization.CultureInfo.InvariantCulture);
         Assert.InRange(retryAfter, 1, 30);
     }

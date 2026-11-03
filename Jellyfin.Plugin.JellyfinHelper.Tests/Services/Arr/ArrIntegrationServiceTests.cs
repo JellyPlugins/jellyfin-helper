@@ -805,7 +805,7 @@ public class ArrIntegrationServiceTests : IDisposable
 
     // A chunked transfer-encoded response has ContentLength == null. The previous guard (`ContentLength > limit`) silently passed null through.
 
-    private static HttpContent MakeChunkedContent(int sizeBytes)
+    private static ByteArrayContent MakeChunkedContent(int sizeBytes)
     {
         // Simulate chunked encoding: ContentLength remains null (not set) while the
         // stream yields the requested number of bytes.

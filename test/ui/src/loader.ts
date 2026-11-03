@@ -119,7 +119,7 @@ const CONFIG_EXPECTED = [
         'updateSeerrUIState', 'validateTrashPath', 'isSensitiveSystemPath',
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',
         'escHtml', 'escAttr', 'allowSafeHtml', 'mi', 'getCssVar', 'loadTranslations', 'applyStaticTranslations', 'showButtonFeedback', 'apiGetOptional',
-        'formatBytes', 'getScoreThresholdClass', 'getPathSegments',
+        'formatBytes', 'getScoreThresholdClass', 'trimTrailingSlashes', 'getPathSegments',
         'collectFlatPaths', 'collectDictPaths', 'buildPathTree', 'countTreeItems',
         'encodeTreeKey', 'resolveTreeNode', 'renderTreeLevel', 'renderTreeFolder',
         'renderTreeLeaf', 'renderFileTree', 'toggleTreeNode', 'ensureTreeChildren',

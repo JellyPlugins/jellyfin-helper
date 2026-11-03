@@ -31,7 +31,7 @@ public class TrashControllerRelocateTests : IDisposable
         }
     }
 
-    private TrashController CreateController(PluginConfiguration config, List<string> libraryFolders, Mock<ITrashService>? trashServiceMock = null)
+    private static TrashController CreateController(PluginConfiguration config, List<string> libraryFolders, Mock<ITrashService>? trashServiceMock = null)
     {
         var libraryManager = TestMockFactory.CreateLibraryManager();
         var pluginLog = TestMockFactory.CreatePluginLogService();

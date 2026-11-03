@@ -104,6 +104,19 @@ describe('isSensitiveSystemPath', () => {
     // /configuration is not under /config even though the string starts with it.
     expect(ui.isSensitiveSystemPath('/configuration')).toBe(false);
   });
+
+  test('normalization keeps protected roots and path boundaries intact', () => {
+    expect(ui.isSensitiveSystemPath('/ETC///')).toBe(true);
+    expect(ui.isSensitiveSystemPath('C:\\Windows\\\\')).toBe(true);
+    expect(ui.isSensitiveSystemPath('/configuration///')).toBe(false);
+  });
+
+  test('long slash runs do not change the protected-path decision', () => {
+    const slashes = '/'.repeat(100_000);
+    expect(ui.isSensitiveSystemPath('/etc' + slashes + 'file')).toBe(true);
+    expect(ui.isSensitiveSystemPath('/media' + slashes + 'file')).toBe(false);
+    expect(ui.isSensitiveSystemPath(slashes)).toBe(false);
+  });
 });
 
 describe('buildSettingsPayload zero and string round-trips', () => {

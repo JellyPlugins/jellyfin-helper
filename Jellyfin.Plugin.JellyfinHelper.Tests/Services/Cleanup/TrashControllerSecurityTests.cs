@@ -26,7 +26,7 @@ public class TrashControllerSecurityTests : IDisposable
     /// <summary>
     ///     Creates a TrashController with the given configuration and library folders.
     /// </summary>
-    private TrashController CreateController(PluginConfiguration config, List<string> libraryFolders)
+    private static TrashController CreateController(PluginConfiguration config, List<string> libraryFolders)
     {
         var libraryManager = TestMockFactory.CreateLibraryManager();
         var pluginLog = TestMockFactory.CreatePluginLogService();

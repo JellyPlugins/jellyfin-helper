@@ -58,7 +58,7 @@ public sealed class HttpResponseReaderTests
         }
     }
 
-    private static HttpContent KnownLengthContent(byte[] payload) => new ByteArrayContent(payload);
+    private static ByteArrayContent KnownLengthContent(byte[] payload) => new ByteArrayContent(payload);
 
     [Fact]
     public async Task ReadLimitedAsync_BodyUnderLimit_ReturnsBody()

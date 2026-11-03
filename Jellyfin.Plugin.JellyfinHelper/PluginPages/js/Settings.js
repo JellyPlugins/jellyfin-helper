@@ -1862,9 +1862,9 @@ function isSensitiveSystemPath(path) {
     if (!isAbsolute) return false;
     // Normalize separators to '/' and case-fold for a stable comparison (Windows roots are
     // case-insensitive; on Linux the standard mounts are lowercase anyway).
-    var norm = path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+    var norm = trimTrailingSlashes(path.replaceAll('\\', '/')).toLowerCase();
     for (var i = 0; i < SENSITIVE_SYSTEM_ROOTS.length; i++) {
-        var root = SENSITIVE_SYSTEM_ROOTS[i].replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+        var root = trimTrailingSlashes(SENSITIVE_SYSTEM_ROOTS[i].replaceAll('\\', '/')).toLowerCase();
         if (norm === root || norm.startsWith(root + '/')) {
             return true;
         }

@@ -77,7 +77,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
     // Validates a DiscoveryRequestDto using Data Annotations + IValidatableObject, mirroring what
     // [ApiController] does in the MVC pipeline before the action body is entered.
-    private static IList<ValidationResult> ValidateDto(object dto)
+    private static List<ValidationResult> ValidateDto(object dto)
     {
         var results = new List<ValidationResult>();
         Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true);
