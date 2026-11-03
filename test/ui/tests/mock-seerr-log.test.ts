@@ -42,7 +42,7 @@ describe('mock Seerr request logging', () => {
       expect(output).toHaveBeenCalledTimes(1);
       const line = output.mock.calls[0][0] as string;
       expect(line).not.toContain(control);
-      expect(line).toContain('\\u' + control.charCodeAt(0).toString(16).padStart(4, '0'));
+      expect(line).toContain(String.raw`\u${control.codePointAt(0)!.toString(16).padStart(4, '0')}`);
       expect(line.endsWith(' -> 404')).toBe(true);
     },
   );
@@ -52,6 +52,12 @@ describe('mock Seerr request logging', () => {
     const response = await request('/not-found?query=normal', 'GET\u2028FORGED', 'test-key');
     expect(response.status).toBe(404);
     expect(output).toHaveBeenCalledWith('[mock-seerr] GET\\u2028FORGED /not-found?query=normal -> 404');
+  });
+
+  test('ordinary Unicode and astral characters remain intact', () => {
+    const { log, output } = mockLogger();
+    log('GET', '/media/🎬/café', 200);
+    expect(output).toHaveBeenCalledWith('[mock-seerr] GET /media/🎬/café -> 200');
   });
 
   test('health stays unauthenticated while API authentication and 404 dispatch stay intact', async () => {

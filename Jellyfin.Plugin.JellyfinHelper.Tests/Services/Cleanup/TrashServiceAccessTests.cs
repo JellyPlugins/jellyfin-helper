@@ -23,8 +23,10 @@ public sealed class TrashServiceAccessTests : IDisposable
         _mockPluginLog = new Mock<IPluginLogService>();
         _mockLogger = TestMockFactory.CreateLogger();
         _service = new TrashService(_mockPluginLog.Object);
-        _testRoot = Path.Join(Path.GetTempPath(), $"trash-access-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_testRoot);
+        var requestedRoot = Path.Join(Path.GetTempPath(), $"trash-access-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(requestedRoot);
+        // Canonicalize the trusted OS temp location first: macOS /var aliases /private/var.
+        _testRoot = PathValidator.ResolveDirectoryPath(CanonicalizeTrustedDirectory(requestedRoot));
     }
 
     public void Dispose()
@@ -332,6 +334,7 @@ public sealed class TrashServiceAccessTests : IDisposable
     [InlineData("missing/child")]
     public void CheckPathAccess_AliasRetargetedAfterResolution_StillProbesOriginalSafeTarget(string suffix)
     {
+        ArgumentNullException.ThrowIfNull(suffix);
         var external = Path.Join(_testRoot, "external-trash");
         Directory.CreateDirectory(external);
         var link = Path.Join(_testRoot, "alias");
@@ -354,6 +357,40 @@ public sealed class TrashServiceAccessTests : IDisposable
         Assert.Empty(Directory.GetFiles(external, ".jfh-access-probe-*"));
         // This covers replacement of a resolved-away alias, not replacement of an
         // ordinary ancestor in the resolved target itself (still a TOCTOU concern).
+    }
+
+    [Fact]
+    public void CanonicalizeTrustedDirectory_ResolvesAncestorAliasesBeforeProbeExpectations()
+    {
+        var target = Path.Join(_testRoot, "target");
+        var child = Path.Join(target, "child");
+        var alias = Path.Join(_testRoot, "temp-alias");
+        Directory.CreateDirectory(child);
+        DirectoryLinkTestHelper.Create(alias, target);
+
+        var canonical = PathValidator.ResolveDirectoryPath(CanonicalizeTrustedDirectory(Path.Join(alias, "child")));
+        var service = new GuardedAccessTrashService(_mockPluginLog.Object);
+        var result = service.CheckPathAccess(canonical, _mockLogger.Object);
+
+        Assert.Equal(child, canonical);
+        Assert.True(result.HasFullAccess);
+        Assert.NotEmpty(service.AccessProbePaths);
+        Assert.All(service.AccessProbePaths, path => Assert.Equal(child, path));
+    }
+
+    private static string CanonicalizeTrustedDirectory(string path)
+    {
+        var normalized = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(normalized)!;
+        var resolved = root;
+        foreach (var segment in normalized[root.Length..].Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var directory = new DirectoryInfo(Path.Join(resolved, segment));
+            resolved = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName;
+        }
+
+        return resolved;
     }
 
     private sealed class GuardedAccessTrashService : TrashService
