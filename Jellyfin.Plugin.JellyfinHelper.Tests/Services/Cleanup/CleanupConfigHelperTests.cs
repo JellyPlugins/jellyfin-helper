@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -659,6 +660,115 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteFilesystemRoot_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, Path.GetPathRoot(Path.GetTempPath())!));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_DedicatedExternalAlias_WithProtectedLibrary_ReturnsIt()
+    {
+        var helper = CreateHelper();
+        var root = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Join(root, "external-trash");
+        var alias = Path.Join(root, "alias");
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+        Directory.CreateDirectory(target);
+        try
+        {
+            DirectoryLinkTestHelper.Create(alias, target);
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Protected", Locations = [protectedRoot] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, alias);
+
+            Assert.Equal(Path.GetFullPath(alias), Assert.Single(result));
+        }
+        finally
+        {
+            if (new DirectoryInfo(alias).LinkTarget is not null)
+            {
+                Directory.Delete(alias);
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteProtectedRoot_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, protectedRoot));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, Path.Join(protectedRoot, "missing")));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteTraversalIntoExistingFolder_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+        var root = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(root, "child"));
+        try
+        {
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, Path.Join(root, "child", "..")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteLinkToProtectedAncestor_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+        var root = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var link = Path.Join(root, "alias");
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+        try
+        {
+            DirectoryLinkTestHelper.Create(link, protectedRoot);
+
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, link));
+            var existingDescendant = Path.Join(link, OperatingSystem.IsWindows() ? "System32" : "ssl");
+            Assert.True(Directory.Exists(existingDescendant));
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, existingDescendant));
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, Path.Join(link, "missing")));
+        }
+        finally
+        {
+            if (new DirectoryInfo(link).LinkTarget is not null)
+            {
+                Directory.Delete(link);
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GetExistingTrashFoldersForPath_AbsolutePath_MatchesLibraryRoot_ReturnsEmpty()
     {
         // Safety guard: if the trash query resolves to a real library root, the method must
@@ -745,6 +855,44 @@ public class CleanupConfigHelperTests
             {
                 Directory.Delete(parent, recursive: true);
             }
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsoluteAliasesOfLibraryRoot_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var root = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Join(root, "library");
+        var registered = Path.Join(root, "registered-alias");
+        var queried = Path.Join(root, "queried-alias");
+        Directory.CreateDirectory(target);
+        try
+        {
+            DirectoryLinkTestHelper.Create(registered, target);
+            DirectoryLinkTestHelper.Create(queried, target);
+
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Movies", Locations = [registered] }
+            ]);
+
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, queried));
+            Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, target));
+        }
+        finally
+        {
+            if (new DirectoryInfo(registered).LinkTarget is not null)
+            {
+                Directory.Delete(registered);
+            }
+
+            if (new DirectoryInfo(queried).LinkTarget is not null)
+            {
+                Directory.Delete(queried);
+            }
+
+            Directory.Delete(root, recursive: true);
         }
     }
 

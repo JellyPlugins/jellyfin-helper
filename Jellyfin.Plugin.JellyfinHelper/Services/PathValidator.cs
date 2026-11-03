@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -210,6 +211,62 @@ internal static class PathValidator
             .Any(s => string.Equals(path, s, comparison)
                 || path.StartsWith(s + "/", comparison)
                 || path.StartsWith(s + "\\", comparison));
+    }
+
+    /// <summary>
+    ///     Resolves directory links in every path component, refusing protected targets before probing their descendants.
+    ///     Missing components remain lexical so callers can perform their usual existence checks.
+    /// </summary>
+    /// <param name="path">The absolute directory path.</param>
+    /// <returns>The path with directory links resolved.</returns>
+    internal static string ResolveDirectoryPath(string path)
+        => ResolveDirectoryPath(path, 0);
+
+    private static string ResolveDirectoryPath(string path, int linkDepth)
+    {
+        if (linkDepth >= 40)
+        {
+            throw new IOException("Too many directory links.");
+        }
+
+        var normalized = Path.GetFullPath(path);
+        // Device namespaces bypass normal Windows path canonicalization and protected-root matching.
+        if (OperatingSystem.IsWindows() &&
+            (normalized.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+             normalized.StartsWith(@"\\.\", StringComparison.Ordinal)))
+        {
+            throw new SecurityException("Device directory paths are not allowed.");
+        }
+
+        if (IsSensitiveSystemPath(normalized))
+        {
+            throw new SecurityException("Protected system directory.");
+        }
+
+        var root = Path.GetPathRoot(normalized)!;
+        var resolved = root;
+        var segments = normalized[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        foreach (var segment in segments)
+        {
+            resolved = Path.Join(resolved, segment);
+            if (IsSensitiveSystemPath(resolved))
+            {
+                throw new SecurityException("Protected system directory.");
+            }
+
+            var directory = new DirectoryInfo(resolved);
+            if (directory.LinkTarget is not null)
+            {
+                // Resolve only this hop: following a whole chain here could probe a protected target.
+                var target = directory.ResolveLinkTarget(returnFinalTarget: false)
+                    ?? throw new IOException("Cannot resolve directory link.");
+                resolved = ResolveDirectoryPath(target.FullName, linkDepth + 1);
+            }
+        }
+
+        return resolved;
     }
 
     /// <summary>

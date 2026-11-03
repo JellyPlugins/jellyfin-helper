@@ -375,6 +375,9 @@ public sealed class SimilarityComputerTests
     [MemberData(nameof(PeopleSimilarityZeroCases))]
     public void ComputePeopleSimilarityWeighted_ReturnsZero(string[] candidate, string[] weightNames, double[] weightValues)
     {
+        Assert.NotNull(weightNames);
+        Assert.NotNull(weightValues);
+        Assert.Equal(weightNames.Length, weightValues.Length);
         var candidateSet = new HashSet<string>(candidate, StringComparer.OrdinalIgnoreCase);
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < weightNames.Length; i++)

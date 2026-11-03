@@ -7,6 +7,35 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 public class PathValidatorTests
 {
+    [Fact]
+    public void ResolveDirectoryPath_ProtectedMissingPath_ThrowsBeforeExistenceCheck()
+    {
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+
+        Assert.Throws<System.Security.SecurityException>(() =>
+            PathValidator.ResolveDirectoryPath(Path.Join(protectedRoot, "does-not-exist", "child")));
+    }
+
+    [Fact]
+    public void ResolveDirectoryPath_MissingComponents_PreservesNormalizedPath()
+    {
+        var path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "child");
+
+        Assert.Equal(Path.GetFullPath(path), PathValidator.ResolveDirectoryPath(path));
+    }
+
+    [Theory]
+    [InlineData(@"\\?\C:\Windows")]
+    [InlineData(@"\\.\C:\Windows")]
+    public void ResolveDirectoryPath_WindowsDeviceNamespace_IsRejected(string path)
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows device namespace semantics.");
+
+        Assert.Throws<System.Security.SecurityException>(() => PathValidator.ResolveDirectoryPath(path));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

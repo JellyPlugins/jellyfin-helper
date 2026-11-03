@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Model.Serialization;
@@ -105,6 +106,20 @@ public sealed class PluginTests : IDisposable
 
         Assert.Equal(html, File.ReadAllText(indexPath));
         Assert.Equal("web file", File.ReadAllText(temporaryFile));
+    }
+
+    [Fact]
+    public void OnUninstalling_InvalidatesRateLimitAndReconcileKeys()
+    {
+        var plugin = CreatePlugin();
+        var userId = Guid.NewGuid();
+        var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
+        var reconcileKey = UserDiscoveryController.BuildReconcileKey(userId);
+
+        plugin.OnUninstalling();
+
+        Assert.NotEqual(rateLimitKey, UserDiscoveryController.BuildRateLimitKey(userId));
+        Assert.NotEqual(reconcileKey, UserDiscoveryController.BuildReconcileKey(userId));
     }
 
     // ReportClampedConfigValues - the "clamped hand-edited XML" warning path

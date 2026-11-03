@@ -85,17 +85,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         CleanupDataFiles();
         CleanupRecommendationPlaylists();
-        try
-        {
-            Api.UserDiscoveryController.ClearRateLimitState();
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug(ex, "[OnUninstalling] ClearRateLimitState failed (best-effort)");
-            }
-        }
+        Api.UserDiscoveryController.ClearRateLimitState();
 
         base.OnUninstalling();
     }

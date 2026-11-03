@@ -24,7 +24,19 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
     {
         try
         {
-            if (Directory.Exists(_tempRoot)) Directory.Delete(_tempRoot, recursive: true);
+            if (Directory.Exists(_tempRoot))
+            {
+                // Unlink junctions without recursive mount-point cleanup or following their targets.
+                foreach (var entry in new DirectoryInfo(_tempRoot).EnumerateDirectories())
+                {
+                    if (entry.LinkTarget is not null)
+                    {
+                        Directory.Delete(entry.FullName);
+                    }
+                }
+
+                Directory.Delete(_tempRoot, recursive: true);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -212,5 +224,96 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         var result = _service.GetChildren(missing);
 
         Assert.NotNull(result.Error);
+    }
+
+    [Theory]
+    [Trait("Category", "Security")]
+    [InlineData("existing")]
+    [InlineData("existing-file")]
+    [InlineData("does-not-exist")]
+    [InlineData("does-not-exist/child")]
+    public void GetChildren_ProtectedAncestorLink_RejectsExistingAndMissingDescendants(string suffix)
+    {
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+        var link = Path.Join(_tempRoot, "protected-link");
+        DirectoryLinkTestHelper.Create(link, protectedRoot);
+
+        var descendant = suffix switch
+        {
+            "existing" => OperatingSystem.IsWindows() ? "System32" : "ssl",
+            "existing-file" => OperatingSystem.IsWindows() ? "win.ini" : "passwd",
+            _ => suffix,
+        };
+        var path = Path.Join(link, descendant);
+        if (suffix == "existing")
+        {
+            Assert.True(Directory.Exists(path));
+            Assert.False(File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint));
+        }
+        else if (suffix == "existing-file")
+        {
+            Assert.True(File.Exists(path));
+        }
+
+        var result = _service.GetChildren(path);
+
+        Assert.Equal("This is a protected system folder and cannot be browsed.", result.Error);
+        Assert.Equal(result.Error, _service.ValidatePath(path));
+        Assert.Empty(result.Directories);
+        Assert.Null(result.CurrentPath);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void GetChildren_LinkTargetWithProtectedAncestor_IsRejectedAndHidden()
+    {
+        var protectedRoot = OperatingSystem.IsWindows()
+            ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+            : "/etc";
+        var ancestor = Path.Join(_tempRoot, "ancestor");
+        var link = Path.Join(_tempRoot, "indirect");
+        DirectoryLinkTestHelper.Create(ancestor, protectedRoot);
+        DirectoryLinkTestHelper.Create(link, Path.Join(ancestor, OperatingSystem.IsWindows() ? "System32" : "ssl"));
+        Directory.CreateDirectory(Path.Join(_tempRoot, "ok"));
+
+        Assert.Equal("This is a protected system folder and cannot be browsed.", _service.GetChildren(link).Error);
+        var listing = _service.GetChildren(_tempRoot);
+        Assert.Null(listing.Error);
+        Assert.DoesNotContain(listing.Directories, entry => entry.Name is "ancestor" or "indirect");
+        Assert.Contains(listing.Directories, entry => entry.Name == "ok");
+    }
+
+    [Fact]
+    public void GetChildren_SafeAncestorLink_PreservesBrowsePathsAndHasChildren()
+    {
+        var target = Path.Join(_tempRoot, "target");
+        Directory.CreateDirectory(Path.Join(target, "child", "grandchild", "leaf"));
+        var link = Path.Join(_tempRoot, "alias");
+        DirectoryLinkTestHelper.Create(link, target);
+        var requested = Path.Join(link, "child");
+
+        var result = _service.GetChildren(requested);
+
+        Assert.Null(result.Error);
+        Assert.Equal(requested, result.CurrentPath);
+        Assert.Equal(link, result.ParentPath);
+        var entry = Assert.Single(result.Directories);
+        Assert.Equal(Path.Join(requested, "grandchild"), entry.Path);
+        Assert.True(entry.HasChildren);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void GetChildren_CyclicAncestorLink_FailsClosed()
+    {
+        var link = Path.Join(_tempRoot, "cycle");
+        DirectoryLinkTestHelper.Create(link, link);
+
+        var result = _service.GetChildren(Path.Join(link, "child"));
+
+        Assert.Equal("Cannot access this directory.", result.Error);
+        Assert.Empty(result.Directories);
     }
 }
