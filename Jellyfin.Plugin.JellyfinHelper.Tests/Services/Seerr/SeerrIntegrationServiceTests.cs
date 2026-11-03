@@ -345,6 +345,27 @@ public partial class SeerrIntegrationServiceTests : IDisposable
         Assert.Contains("api/v1/settings/main", capturedRequest!.RequestUri!.ToString());
     }
 
+    [Theory]
+    [InlineData("http://localhost:5055", "http://localhost:5055/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/", "http://localhost:5055/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/seerr", "http://localhost:5055/seerr/api/v1/settings/main")]
+    [InlineData("http://localhost:5055/seerr/", "http://localhost:5055/seerr/api/v1/settings/main")]
+    public async Task TestConnection_UriSlash_PreservesReverseProxyBasePath(string baseUrl, string expectedUri)
+    {
+        Uri? capturedUri = null;
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedUri = req.RequestUri)
+            .ReturnsAsync(CreateResponse(HttpStatusCode.OK, "{}"));
+        var service = CreateService(mock.Object, out _, out _);
+
+        await service.TestConnectionAsync(baseUrl, ApiKey, cancellationToken: CancellationToken.None);
+
+        Assert.NotNull(capturedUri);
+        Assert.Equal(expectedUri, capturedUri.AbsoluteUri);
+    }
+
     [Fact]
     public async Task Cleanup_NoRequests_ReturnsZeroCounts()
     {

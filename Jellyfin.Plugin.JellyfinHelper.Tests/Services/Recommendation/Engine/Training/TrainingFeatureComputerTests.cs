@@ -344,6 +344,7 @@ public class TrainingFeatureComputerTests
     [MemberData(nameof(BestLanguageAffinityCases))]
     public void ComputeBestLanguageAffinity_Tier(string[] candidate, string? primaryLang, string[] preferred, string[] tolerated, string[] profileKeys, double expected)
     {
+        Assert.NotNull(profileKeys);
         var preferredLangs = new HashSet<string>(preferred, StringComparer.OrdinalIgnoreCase);
         var toleratedLangs = new HashSet<string>(tolerated, StringComparer.OrdinalIgnoreCase);
         var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase);

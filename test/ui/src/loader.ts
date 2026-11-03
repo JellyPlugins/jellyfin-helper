@@ -144,7 +144,7 @@ const CONFIG_EXPECTED = [
         'wheelZoomFactor', 'wheelHitsZoomLimit', 'toggleInsightPanel', 'buildLargestTree',
         'sumPositiveSizes', 'buildRecentTree', 'buildRecentItemRow', 'insightLibrarySortOrder',
         'groupByLibrary', 'getInsightTypeBadge', 'formatInsightDate',
-        'renderTrendChart', 'loadTrendData', 'loadInsightsData', 'renderInsightCards',
+        'renderTrendChart', 'applyTrendFrame', 'loadTrendData', 'loadInsightsData', 'renderInsightCards',
         'polarToCartesian', 'describeArc', 'renderDonutSvg', 'renderCodecBreakdown',
         'renderDonutChart', 'collectCodecPaths', 'collectTrackLabelMeta',
         'collectDrilldownMeta', 'collectResolutionDimensions', 'countWatchedUsers',

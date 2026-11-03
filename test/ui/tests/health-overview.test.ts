@@ -209,6 +209,46 @@ describe('fillOverviewData', () => {
     expect(document.getElementById('overviewContent')!.innerHTML).toContain('Books');
   });
 
+  test('preserves conditional cards, ordered columns, counts and escaped library links', () => {
+    document.body.innerHTML = '<div id="overviewContent"></div>';
+    ui.fillOverviewData({
+      ...data(), TotalBookFileCount: 1, TotalBookSize: 9, TotalTrickplaySize: 11,
+      Libraries: [
+        { ...data().Libraries[0], LibraryName: '<Movies>', BookSize: 9, BookFileCount: 1,
+          TrickplaySize: 11, TrickplayFolderCount: 1, OtherSize: 2, OtherFileCount: 2, NfoSize: 3, NfoFileCount: 1 },
+        { LibraryName: 'Box', CollectionType: 'BOXSETS', TotalSize: 0 },
+        { LibraryName: '', TotalSize: 0 },
+      ],
+    });
+    const c = document.getElementById('overviewContent')!;
+    const headers = [...c.querySelectorAll('th')].map((th) => th.textContent);
+    expect(headers).toEqual(['Library', 'Type', 'Video', 'Audio', 'Images', 'Books', 'Subtitles', 'Trickplay', 'Other', 'Total']);
+    const row = c.querySelector('tbody tr')!;
+    expect(row.querySelector('button')!.textContent).toBe('<Movies>');
+    expect(row.querySelector('button')!.dataset.codecExploreLibrary).toBe('<Movies>');
+    expect(c.querySelector('movies')).toBeNull();
+    expect(row.children[5].textContent).toContain('1 file');
+    expect(row.children[7].textContent).toContain('1 folder');
+    expect(row.children[8].textContent).toContain('5.00 B');
+    expect(row.children[8].textContent).toContain('3 files');
+    expect(c.querySelectorAll('tbody button')).toHaveLength(1);
+    expect(c.querySelectorAll('.stat-card')).toHaveLength(7);
+    expect(c.querySelector('.stat-card-full')).not.toBeNull();
+    const trickplay = [...c.querySelectorAll('.stat-card')].find((card) => card.querySelector('h3')!.textContent!.includes('Trickplay'))!;
+    expect(trickplay.querySelector('.stat-value')!.textContent).toBe('11.00 B');
+    expect(trickplay.querySelector('.trickplay-internal-badge')).not.toBeNull();
+  });
+
+  test('zero internal trickplay stays absent and no-books layout has six cards', () => {
+    document.body.innerHTML = '<div id="overviewContent"></div>';
+    ui.fillOverviewData({ ...data(), InternalTrickplaySize: 0 });
+    const c = document.getElementById('overviewContent')!;
+    expect(c.querySelectorAll('.stat-card')).toHaveLength(6);
+    expect(c.querySelector('.stat-card-full')).toBeNull();
+    expect(c.querySelector('.trickplay-internal-badge')).toBeNull();
+    expect([...c.querySelectorAll('th')].map((th) => th.textContent)).not.toContain('Books');
+  });
+
   test('missing container does not throw', () => {
     document.body.innerHTML = '';
     expect(() => ui.fillOverviewData(data())).not.toThrow();
