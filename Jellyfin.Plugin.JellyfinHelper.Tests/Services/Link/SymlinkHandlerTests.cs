@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -136,5 +138,24 @@ public class SymlinkHandlerTests
         Assert.Throws<IOException>(() => _handler.WriteTarget("/link", "/new-target"));
 
         _symlinkHelper.Verify(h => h.DeleteSymlink("/link"), Times.Never);
+    }
+
+    [Fact]
+    public void WriteTarget_CleanupFailure_LogsTemporaryPathAndExceptionWithoutReplacingOriginalFailure()
+    {
+        const string tempPath = "/link.jfh-tmp";
+        var original = new IOException("replace failed");
+        var cleanup = new UnauthorizedAccessException("cleanup denied");
+        var log = new Mock<IPluginLogService>();
+        var handler = new SymlinkHandler(_symlinkHelper.Object, log.Object);
+        _symlinkHelper.Setup(helper => helper.IsSymlink(tempPath)).Returns(true);
+        _symlinkHelper.Setup(helper => helper.ReplaceSymlink(tempPath, "/link")).Throws(original);
+        _symlinkHelper.Setup(helper => helper.DeleteSymlink(tempPath)).Throws(cleanup);
+
+        var thrown = Assert.Throws<IOException>(() => handler.WriteTarget("/link", "/target"));
+
+        Assert.Same(original, thrown);
+        log.Verify(logger => logger.LogWarning("LinkRepair", It.Is<string>(message => message.Contains(tempPath, StringComparison.Ordinal)), cleanup, It.IsAny<ILogger>()), Times.Once);
+        _symlinkHelper.Verify(helper => helper.DeleteSymlink("/link"), Times.Never);
     }
 }

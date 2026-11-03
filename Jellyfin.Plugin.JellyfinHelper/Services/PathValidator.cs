@@ -25,7 +25,18 @@ internal static class PathValidator
     private static readonly string[] SensitiveSystemRoots = BuildSensitiveSystemRoots();
 
     private static string[] BuildSensitiveSystemRoots()
+        => BuildSensitiveSystemRoots(OperatingSystem.IsWindows(), Environment.GetFolderPath);
+
+    /// <summary>
+    ///     Builds the protected root set with explicit platform inputs so alternative Windows installations
+    ///     and missing special folders can be validated independently of the host operating system.
+    /// </summary>
+    /// <param name="isWindows">Whether Windows special folders should be resolved.</param>
+    /// <param name="resolveFolder">Resolves a Windows special folder to its current path.</param>
+    /// <returns>The protected roots, without duplicate Windows paths.</returns>
+    internal static string[] BuildSensitiveSystemRoots(bool isWindows, Func<Environment.SpecialFolder, string> resolveFolder)
     {
+        ArgumentNullException.ThrowIfNull(resolveFolder);
         var roots = new List<string>
         {
             "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
@@ -35,7 +46,7 @@ internal static class PathValidator
         };
 
         // Additionally resolve the real Windows system dirs from the OS, so a server installed on a drive other than C: (e.g.
-        if (OperatingSystem.IsWindows())
+        if (isWindows)
         {
             foreach (var path in new[]
             {
@@ -43,13 +54,10 @@ internal static class PathValidator
                 Environment.SpecialFolder.ProgramFiles,
                 Environment.SpecialFolder.ProgramFilesX86,
                 Environment.SpecialFolder.CommonApplicationData,
-            }.Select(Environment.GetFolderPath))
+            }.Select(resolveFolder)
+                .Where(path => !string.IsNullOrEmpty(path) && !roots.Contains(path, StringComparer.OrdinalIgnoreCase)))
             {
-                if (!string.IsNullOrEmpty(path)
-                    && !roots.Contains(path, StringComparer.OrdinalIgnoreCase))
-                {
-                    roots.Add(path);
-                }
+                roots.Add(path);
             }
         }
 
@@ -198,17 +206,10 @@ internal static class PathValidator
             : StringComparison.Ordinal;
         var path = normalizedPath.TrimEnd('/', '\\');
 
-        foreach (var s in SensitiveSystemRoots.Select(sensitive => sensitive.TrimEnd('/', '\\')))
-        {
-            if (string.Equals(path, s, comparison)
+        return SensitiveSystemRoots.Select(sensitive => sensitive.TrimEnd('/', '\\'))
+            .Any(s => string.Equals(path, s, comparison)
                 || path.StartsWith(s + "/", comparison)
-                || path.StartsWith(s + "\\", comparison))
-            {
-                return true;
-            }
-        }
-
-        return false;
+                || path.StartsWith(s + "\\", comparison));
     }
 
     /// <summary>

@@ -2646,12 +2646,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     instance, _secretProtector.Unprotect(instance.ApiKey), cancellationToken).ConfigureAwait(false);
                 if (items != null)
                 {
-                    foreach (var tmdbId in items.Select(tmdbSelector))
+                    foreach (var tmdbId in items.Select(tmdbSelector).Where(tmdbId => tmdbId > 0))
                     {
-                        if (tmdbId > 0)
-                        {
-                            excluded.Add((tmdbId, mediaType));
-                        }
+                        excluded.Add((tmdbId, mediaType));
                     }
                 }
             }

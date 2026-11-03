@@ -190,12 +190,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             // Recommendation ML/state artifacts that don't match the prefix+extension glob above (unprefixed .json weights, and the .txt batch-generation counter).
-            foreach (var file in UnprefixedDataFiles.Select(name => Path.Join(dataPath, name)))
+            foreach (var file in UnprefixedDataFiles.Select(name => Path.Join(dataPath, name)).Where(File.Exists))
             {
-                if (File.Exists(file))
-                {
-                    DeleteDataFile(file);
-                }
+                DeleteDataFile(file);
             }
 
             // Per-user recommendation model/state files (ml_weights_{id}.json / ensemble_state_{id}.json).

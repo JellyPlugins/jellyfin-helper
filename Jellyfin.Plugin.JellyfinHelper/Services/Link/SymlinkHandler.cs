@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
@@ -10,14 +11,24 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 public class SymlinkHandler : ILinkHandler
 {
     private readonly ISymlinkHelper _symlinkHelper;
+    private readonly IPluginLogService? _pluginLog;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SymlinkHandler" /> class.
     /// </summary>
     /// <param name="symlinkHelper">The symlink helper for filesystem operations.</param>
     public SymlinkHandler(ISymlinkHelper symlinkHelper)
+        : this(symlinkHelper, null)
+    {
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="SymlinkHandler"/> class with plugin-specific cleanup diagnostics.</summary>
+    /// <param name="symlinkHelper">The filesystem symlink operations.</param>
+    /// <param name="pluginLog">The plugin log service, or null for standalone use.</param>
+    public SymlinkHandler(ISymlinkHelper symlinkHelper, IPluginLogService? pluginLog)
     {
         _symlinkHelper = symlinkHelper;
+        _pluginLog = pluginLog;
     }
 
     /// <inheritdoc />
@@ -55,7 +66,15 @@ public class SymlinkHandler : ILinkHandler
             }
             catch (Exception cleanupException) when (!cleanupException.IsFatal())
             {
-                // Best-effort cleanup of temp file; original link was never touched.
+                var message = $"Failed to remove temporary symlink '{tempPath}'.";
+                if (_pluginLog is not null)
+                {
+                    _pluginLog.LogWarning("LinkRepair", message, cleanupException);
+                }
+                else
+                {
+                    System.Diagnostics.Trace.TraceWarning("{0} {1}", message, cleanupException);
+                }
             }
 
             throw;

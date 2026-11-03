@@ -977,7 +977,8 @@ public class TrashService : ITrashService
 
         if (!canRead || !canWrite)
         {
-            var issue = !canRead && !canWrite ? "read or write" : !canRead ? "read" : "write";
+            var missingAccess = !canRead ? "read" : "write";
+            var issue = !canRead && !canWrite ? "read or write" : missingAccess;
 
             var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
             _pluginLog.LogWarning(LogCategory, msg, logger: logger);
@@ -1045,7 +1046,9 @@ public class TrashService : ITrashService
     ///     Attempts to enumerate the contents of a directory to verify read access.
     ///     Returns true if enumeration succeeds, false if access is denied.
     /// </summary>
-    private static bool CanReadDirectory(string directoryPath)
+    /// <param name="directoryPath">The directory whose contents are probed.</param>
+    /// <returns>Whether the directory can be enumerated.</returns>
+    internal virtual bool CanReadDirectory(string directoryPath)
     {
         try
         {
@@ -1061,7 +1064,9 @@ public class TrashService : ITrashService
     /// <summary>
     ///     Attempts to create and immediately delete a temporary probe file inside the directory to verify write access.
     /// </summary>
-    private bool CanWriteDirectory(string directoryPath)
+    /// <param name="directoryPath">The directory in which to create the probe.</param>
+    /// <returns>Whether the probe can be created.</returns>
+    internal virtual bool CanWriteDirectory(string directoryPath)
     {
         var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
         var created = false;
@@ -1085,7 +1090,7 @@ public class TrashService : ITrashService
             {
                 try
                 {
-                    File.Delete(probePath);
+                    DeleteWriteAccessProbe(probePath);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -1096,6 +1101,10 @@ public class TrashService : ITrashService
     }
 
     // Filesystem seams (overridable for tests).
+
+    /// <summary>Removes the temporary file created by a successful write-access probe.</summary>
+    /// <param name="probePath">The probe file to remove.</param>
+    internal virtual void DeleteWriteAccessProbe(string probePath) => File.Delete(probePath);
 
     /// <summary>
     ///     Determines whether <paramref name="path" /> is an existing reparse point

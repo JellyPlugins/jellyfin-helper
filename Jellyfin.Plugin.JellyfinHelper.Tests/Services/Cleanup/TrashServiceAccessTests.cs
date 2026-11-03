@@ -97,6 +97,47 @@ public sealed class TrashServiceAccessTests : IDisposable
         Assert.Null(result.ErrorMessage);
     }
 
+    [Theory]
+    [InlineData(false, false, "read or write")]
+    [InlineData(false, true, "read")]
+    [InlineData(true, false, "write")]
+    [InlineData(true, true, null)]
+    public void CheckPathAccess_ProbeResults_ReportExactMissingPermission(bool canRead, bool canWrite, string? missingAccess)
+    {
+        var service = new PermissionProbeTrashService(_mockPluginLog.Object, canRead, canWrite);
+
+        var result = service.CheckPathAccess(_testRoot, _mockLogger.Object);
+
+        Assert.True(result.Exists);
+        Assert.Equal(canRead, result.CanRead);
+        Assert.Equal(canWrite, result.CanWrite);
+        Assert.Equal(canRead && canWrite, result.HasFullAccess);
+        if (missingAccess is null)
+        {
+            Assert.Null(result.ErrorMessage);
+        }
+        else
+        {
+            Assert.Equal($"Insufficient permissions: cannot {missingAccess} path '{Path.GetFullPath(_testRoot)}'.", result.ErrorMessage);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckPathAccess_WriteProbeCleanupFailure_IsLoggedWithoutLosingConfirmedAccess(bool accessDenied)
+    {
+        Exception failure = accessDenied ? new UnauthorizedAccessException("probe cleanup denied") : new IOException("probe cleanup failed");
+        var service = new ProbeCleanupFailureTrashService(_mockPluginLog.Object, failure);
+
+        var result = service.CheckPathAccess(_testRoot, _mockLogger.Object);
+
+        Assert.True(result.HasFullAccess);
+        var probe = Assert.IsType<string>(service.ProbePath);
+        Assert.True(File.Exists(probe));
+        _mockPluginLog.Verify(log => log.LogWarning("Trash", It.Is<string>(message => message.Contains(probe, StringComparison.Ordinal)), failure, It.IsAny<ILogger>()), Times.Once);
+    }
+
     [Fact]
     public void CheckPathAccess_DeeplyNestedNonExistentPath_WritableAncestor_ReturnsCanCreate()
     {
@@ -142,5 +183,40 @@ public sealed class TrashServiceAccessTests : IDisposable
                 It.IsAny<Exception>(),
                 It.IsAny<ILogger>()),
             Times.Once);
+    }
+    private sealed class PermissionProbeTrashService : TrashService
+    {
+        private readonly bool _canRead;
+        private readonly bool _canWrite;
+
+        public PermissionProbeTrashService(IPluginLogService pluginLog, bool canRead, bool canWrite)
+            : base(pluginLog)
+        {
+            _canRead = canRead;
+            _canWrite = canWrite;
+        }
+
+        internal override bool CanReadDirectory(string directoryPath) => _canRead;
+
+        internal override bool CanWriteDirectory(string directoryPath) => _canWrite;
+    }
+
+    private sealed class ProbeCleanupFailureTrashService : TrashService
+    {
+        private readonly Exception _failure;
+
+        public ProbeCleanupFailureTrashService(IPluginLogService pluginLog, Exception failure)
+            : base(pluginLog)
+        {
+            _failure = failure;
+        }
+
+        public string? ProbePath { get; private set; }
+
+        internal override void DeleteWriteAccessProbe(string probePath)
+        {
+            ProbePath = probePath;
+            throw _failure;
+        }
     }
 }

@@ -239,6 +239,24 @@ public sealed class PluginTests : IDisposable
     }
 
     [Fact]
+    public void OnUninstalling_SparseUnprefixedArtifacts_DoesNotDeleteDirectoriesOrUnrelatedFiles()
+    {
+        var weights = Path.Join(_dataPath, "ml_weights.json");
+        var directory = Path.Join(_dataPath, "ensemble_state.json");
+        var unrelated = Path.Join(_dataPath, "unrelated.json");
+        File.WriteAllText(weights, "{}");
+        File.WriteAllText(unrelated, "{}");
+        Directory.CreateDirectory(directory);
+
+        CreatePlugin().OnUninstalling();
+
+        Assert.False(File.Exists(weights));
+        Assert.False(File.Exists(Path.Join(_dataPath, "neural_weights.json")));
+        Assert.True(Directory.Exists(directory));
+        Assert.True(File.Exists(unrelated));
+    }
+
+    [Fact]
     public void OnUninstalling_DeletesPerUserRecommendationModelFiles()
     {
         // One pair of id-suffixed files per user with a trained per-user model. Uninstall must sweep all of
