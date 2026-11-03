@@ -202,8 +202,16 @@
 }
 
 .trend-diff-stat.diff-neutral {
-    color: rgba(255, 255, 255, 0.4);
-    background: rgba(255, 255, 255, 0.05);
+    /* Opaque neutral colors keep small no-change labels readable on any host surface. */
+    color: #b3b3b3;
+    background: #2a2a2a;
+}
+
+@media (prefers-color-scheme: light) {
+    .trend-diff-stat.diff-neutral {
+        color: #4d4d4d;
+        background: #eeeeee;
+    }
 }
 
 /* --- Library Insights Cards & Panels --- */

@@ -45,7 +45,7 @@ function renderRecommendations(container, results) {
     }
     var html = '';
     var totalRecs = 0, totalUsers = results.length;
-    for (var i = 0; i < results.length; i++) { totalRecs += results[i].Recommendations ? results[i].Recommendations.length : 0; }
+    for (var result of results) { totalRecs += result.Recommendations ? result.Recommendations.length : 0; }
     html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + escHtml(T('recsUsers', 'Users')) + '</span><span class="recs-info-sep">\u2022</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + escHtml(T('recsTotal', 'Recommendations')) + '</span></div>';
     html += '<div class="recs-user-selector"><label for="recsUserSelect">' + escHtml(T('recsSelectUser', 'Select User')) + ': </label><select id="recsUserSelect" class="recs-select">';
     for (var u = 0; u < results.length; u++) {
@@ -93,17 +93,21 @@ function renderRecommendations(container, results) {
     if (discoveryContainer) { renderDiscoverySection(discoveryContainer); }
 
     // Restore previously selected user from browser storage (fallback: first user)
-    var initialIdx = 0;
+    var initialIdx = getSavedRecommendationUserIndex(results);
+    if (recsSelect && initialIdx > 0) { recsSelect.value = '' + initialIdx; }
+    onUserChanged(initialIdx);
+}
+
+function getSavedRecommendationUserIndex(results) {
     try {
         var savedUserId = (localStorage.getItem('jh_recsSelectedUser') || '').toLowerCase();
         if (savedUserId) {
             for (var s = 0; s < results.length; s++) {
-                if ((results[s].UserId || '').toLowerCase() === savedUserId) { initialIdx = s; break; }
+                if ((results[s].UserId || '').toLowerCase() === savedUserId) { return s; }
             }
         }
     } catch { /* localStorage unavailable - use default */ }
-    if (recsSelect && initialIdx > 0) { recsSelect.value = '' + initialIdx; }
-    onUserChanged(initialIdx);
+    return 0;
 }
 
 function onUserChanged(index) {
@@ -291,17 +295,18 @@ function renderRecommendationCard(rec, rank) {
 }
 
 function loadUserWatchProfile(index) {
+    // A cached or invalid selection also supersedes any in-flight request.
+    var reqId = ++_profileReqId;
     var container = document.getElementById('recsUserProfile');
     if (!container || !_recsResults) return;
     var result = _recsResults[index];
-    if (!result || !result.UserId) { container.innerHTML = ''; return; }
+    if (!result?.UserId) { container.innerHTML = ''; return; }
     // Return cached profile if already fetched (avoids redundant API calls on user switch)
     if (result._cachedProfile !== undefined) {
         renderCompactWatchProfile(container, result._cachedProfile);
         return;
     }
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
-    var reqId = ++_profileReqId;
     apiGet('JellyfinHelper/Recommendations/WatchProfile/' + result.UserId, function (profile) {
         if (reqId !== _profileReqId) return;
         result._cachedProfile = profile;
@@ -324,7 +329,7 @@ function renderCompactWatchProfile(container, profile) {
     if (topGenres.length > 0) {
         html += '<div class="recs-profile-compact-genres"><span class="recs-profile-compact-genres-label">' + T('recsTopGenres', 'Top Genres') + ':</span> ';
         var gl = [];
-        for (var g = 0; g < topGenres.length; g++) { gl.push(escHtml(topGenres[g])); }
+        for (var genre of topGenres) { gl.push(escHtml(genre)); }
         html += gl.join(', ') + '</div>';
     }
     html += '</div>';
@@ -332,17 +337,17 @@ function renderCompactWatchProfile(container, profile) {
 }
 
 function loadUserActivity(index) {
+    var reqId = ++_activityReqId;
     var container = document.getElementById('recsUserActivity');
     if (!container || !_recsResults) return;
     var result = _recsResults[index];
-    if (!result || !result.UserId) { container.innerHTML = ''; return; }
+    if (!result?.UserId) { container.innerHTML = ''; return; }
     // Return cached activity if already fetched (avoids redundant API calls on user switch)
     if (result._cachedActivity !== undefined) {
         renderCompactActivityTable(container, result._cachedActivity);
         return;
     }
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
-    var reqId = ++_activityReqId;
     apiGet('JellyfinHelper/UserActivity/User/' + result.UserId, function (items) {
         if (reqId !== _activityReqId) return;
         result._cachedActivity = items;
@@ -437,12 +442,13 @@ var _discoveryAllUsersCacheTimestamp = 0;
 var _discoveryCacheTtlMs = 5 * 60 * 1000;
 
 function loadDiscoveryForUser(index) {
+    var reqId = ++_discoveryReqId;
     var grid = document.getElementById('discoveryGrid');
     var countSpan = document.getElementById('discoveryCount');
     if (!grid) return;
 
     var results = _recsResults;
-    if (!results || !results[index]) return;
+    if (!results?.[index]) return;
     var result = results[index];
 
     var cacheAge = Date.now() - _discoveryAllUsersCacheTimestamp;
@@ -463,14 +469,12 @@ function loadDiscoveryForUser(index) {
     // Cache expired - invalidate ALL per-user caches so fresh data is fetched
     if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
         _discoveryAllUsersCache = undefined;
-        for (var k = 0; k < results.length; k++) {
-            if (results[k]) { results[k]._cachedDiscovery = undefined; }
+        for (var userResult of results) {
+            if (userResult) { userResult._cachedDiscovery = undefined; }
         }
     }
 
     grid.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
-    var reqId = ++_discoveryReqId;
-
     apiGet('JellyfinHelper/Discovery', function (data) {
         if (reqId !== _discoveryReqId) return;
         // Cache the full API response globally so subsequent user switches don't re-fetch
@@ -489,16 +493,16 @@ function loadDiscoveryForUser(index) {
 function findUserDiscovery(allData, userId) {
     if (!allData || allData.length === 0 || !userId) return null;
     var targetId = userId.toLowerCase();
-    for (var d = 0; d < allData.length; d++) {
-        if ((allData[d].UserId || allData[d].userId || '').toLowerCase() === targetId) {
-            return allData[d];
+    for (var discovery of allData) {
+        if ((discovery.UserId || discovery.userId || '').toLowerCase() === targetId) {
+            return discovery;
         }
     }
     return null;
 }
 
 function renderDiscoveryCards(grid, countSpan, userDiscovery) {
-    if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
+    if (!userDiscovery?.Recommendations || userDiscovery.Recommendations.length === 0) {
         if (countSpan) countSpan.textContent = '0';
         var message = T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.');
         grid.innerHTML = '<div class="recs-profile-compact-empty">' + message + '</div>';
@@ -532,28 +536,16 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     grid.innerHTML = html;
 
     var buttons = grid.querySelectorAll('.discovery-request-btn:not([disabled])');
-    for (var b = 0; b < buttons.length; b++) {
-        buttons[b].addEventListener('click', handleDiscoveryRequest);
+    for (var button of buttons) {
+        button.addEventListener('click', handleDiscoveryRequest);
     }
 }
 
 function renderDiscoveryCard(rec, index) {
     var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
-    var rawPoster = rec.PosterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(rec.PosterPath)
-        ? rec.PosterPath
-        : '';
-    var posterUrl = rawPoster
-        ? 'https://image.tmdb.org/t/p/w185' + encodeURI(rawPoster)
-        : '';
-
     var html = '<div class="discovery-card" data-index="' + index + '">';
-
-    if (posterUrl) {
-        html += '<div class="discovery-card-poster"><img src="' + posterUrl + '" alt="" loading="lazy"></div>';
-    } else {
-        html += '<div class="discovery-card-poster discovery-card-poster-empty">' + mi('image') + '</div>';
-    }
+    html += renderDiscoveryPoster(rec.PosterPath);
 
     html += '<div class="discovery-card-body">';
     html += '<div class="discovery-card-title">' + escHtml(rec.Title || T('recsUnknownTitle', 'Unknown')) + '</div>';
@@ -600,6 +592,17 @@ function renderDiscoveryCard(rec, index) {
 
     html += '</div></div>';
     return html;
+}
+
+function renderDiscoveryPoster(posterPath) {
+    var rawPoster = posterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(posterPath)
+        ? posterPath
+        : '';
+    if (!rawPoster) {
+        return '<div class="discovery-card-poster discovery-card-poster-empty">' + mi('image') + '</div>';
+    }
+    var posterUrl = 'https://image.tmdb.org/t/p/w185' + encodeURI(rawPoster);
+    return '<div class="discovery-card-poster"><img src="' + posterUrl + '" alt="" loading="lazy"></div>';
 }
 
 function handleDiscoveryRequest(e) {
@@ -676,21 +679,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     }
 
     // Collect all profiles across all servers
-    var allProfiles = [];
-    for (var s = 0; s < services.length; s++) {
-        var svc = services[s];
-        var profiles = svc.Profiles || svc.profiles || [];
-        for (var p = 0; p < profiles.length; p++) {
-            allProfiles.push({
-                serverId: svc.Id || svc.id,
-                serverName: svc.Name || svc.name || ('Server #' + escHtml(String(svc.Id || svc.id || ''))),
-                profileId: profiles[p].Id || profiles[p].id,
-                profileName: profiles[p].Name || profiles[p].name,
-                isDefault: (profiles[p].Id || profiles[p].id) === (svc.ActiveProfileId || svc.activeProfileId),
-                rootFolder: svc.ActiveDirectory || svc.activeDirectory || ''
-            });
-        }
-    }
+    var allProfiles = collectSeerrQualityProfiles(services);
 
     // If no profiles found, submit with defaults
     if (allProfiles.length === 0) {
@@ -725,8 +714,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     var list = document.createElement('div');
     list.className = 'discovery-popup-list';
 
-    for (var i = 0; i < allProfiles.length; i++) {
-        var prof = allProfiles[i];
+    for (var prof of allProfiles) {
         var item = document.createElement('button');
         item.className = 'discovery-popup-user' + (prof.isDefault ? ' discovery-popup-user-default' : '');
         var label = escHtml(prof.profileName);
@@ -775,8 +763,26 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         var el = document.getElementById('seerrUserPopup');
         if (el) el.remove();
         // Restore focus to the trigger button if still in DOM
-        if (btn && btn.isConnected) { btn.focus(); }
+        if (btn?.isConnected) { btn.focus(); }
     }
+}
+
+function collectSeerrQualityProfiles(services) {
+    var allProfiles = [];
+    for (var svc of services) {
+        var profiles = svc.Profiles || svc.profiles || [];
+        for (var profile of profiles) {
+            allProfiles.push({
+                serverId: svc.Id ?? svc.id,
+                serverName: svc.Name || svc.name || ('Server #' + escHtml(String(svc.Id ?? svc.id ?? ''))),
+                profileId: profile.Id ?? profile.id,
+                profileName: profile.Name || profile.name,
+                isDefault: (profile.Id ?? profile.id) === (svc.ActiveProfileId ?? svc.activeProfileId),
+                rootFolder: svc.ActiveDirectory || svc.activeDirectory || ''
+            });
+        }
+    }
+    return allProfiles;
 }
 
 /**
@@ -784,7 +790,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
  * Manages button state, card removal animation, and counter updates.
  */
 function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
-    if (res && res.Success) {
+    if (res?.Success) {
         btn.disabled = true;
         btn.classList.add('discovery-request-done');
         btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
@@ -807,7 +813,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
                     }
                     // Show empty state when all cards have been removed
                     if (!document.contains(grid)) return;
-                    if (grid && grid.querySelectorAll('.discovery-card').length === 0) {
+                    if (grid?.querySelectorAll('.discovery-card').length === 0) {
                         grid.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') + '</p></div>';
                     }
                 }, 300);
@@ -868,9 +874,8 @@ function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
 function markDiscoveryItemRequested(tmdbId, mediaType) {
     // Update the cached discovery data so the item is marked as already requested and won't reappear when switching between users and back.
     function markInDiscovery(userDiscovery) {
-        if (!userDiscovery || !userDiscovery.Recommendations) return;
-        for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
-            var rec = userDiscovery.Recommendations[r];
+        if (!userDiscovery?.Recommendations) return;
+        for (var rec of userDiscovery.Recommendations) {
             var recTmdbId = Number.parseInt(rec.TmdbId, 10);
             var recMediaType = String(rec.MediaType || '').trim().toLowerCase();
             if (recTmdbId === tmdbId && (!mediaType || recMediaType === mediaType)) {
@@ -882,15 +887,15 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
     // Mark in per-user cached discovery (from _recsResults)
     var results = _recsResults;
     if (results) {
-        for (var i = 0; i < results.length; i++) {
-            markInDiscovery(results[i]?._cachedDiscovery);
+        for (var result of results) {
+            markInDiscovery(result?._cachedDiscovery);
         }
     }
 
     // Also mark in the global all-users cache so switching users doesn't resurface the item
     if (Array.isArray(_discoveryAllUsersCache)) {
-        for (var u = 0; u < _discoveryAllUsersCache.length; u++) {
-            markInDiscovery(_discoveryAllUsersCache[u]);
+        for (var userDiscovery of _discoveryAllUsersCache) {
+            markInDiscovery(userDiscovery);
         }
     }
 }
