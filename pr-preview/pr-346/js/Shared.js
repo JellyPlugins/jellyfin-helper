@@ -117,13 +117,20 @@ function allowSafeHtml(s) {
         .replaceAll(/&lt;br\s*\/?&gt;/g, '<br>');
 }
 
+function trimTrailingSlashes(path) {
+    // Avoid repeated regex start-position attempts on long slash runs followed by a non-slash.
+    var end = path.length;
+    while (end > 0 && path[end - 1] === '/') end--;
+    return path.slice(0, end);
+}
+
 function getPathSegments(fullPath, rootPaths) {
     if (!fullPath) return [];
     var normalized = fullPath.replaceAll('\\', '/');
 
     var bestRoot = '';
     for (var i = 0; i < rootPaths.length; i++) {
-        var root = rootPaths[i].replaceAll('\\', '/').replace(/\/+$/, '');
+        var root = trimTrailingSlashes(rootPaths[i].replaceAll('\\', '/'));
         var matchesRoot = normalized === root || normalized.startsWith(root + '/');
         if (matchesRoot && root.length > bestRoot.length) {
             bestRoot = root;

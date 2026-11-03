@@ -60,6 +60,7 @@ const sharedModuleGlobals = {
     escAttr: 'writable',
     escHtml: 'writable',
     allowSafeHtml: 'writable',
+    trimTrailingSlashes: 'readonly',
     getPathSegments: 'writable',
     normalizeStatisticsLibraries: 'readonly',
     orderLibrariesByName: 'readonly',
