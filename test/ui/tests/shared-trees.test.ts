@@ -23,6 +23,16 @@ describe('collectFlatPaths and collectDictPaths', () => {
     expect(ui.collectDictPaths(libs, 'D', 'hevc')).toEqual([]);
     expect(ui.collectDictPaths(null, 'D', 'h264')).toEqual([]);
   });
+
+  test('both collectors preserve library order and duplicate paths', () => {
+    const libraries = [
+      { P: ['/b', '/a'], D: { codec: ['/b', '/a'] } },
+      { P: [], D: null },
+      { P: ['/a', '/c'], D: { codec: ['/a', '/c'] } },
+    ];
+    expect(ui.collectFlatPaths(libraries, 'P')).toEqual(['/b', '/a', '/a', '/c']);
+    expect(ui.collectDictPaths(libraries, 'D', 'codec')).toEqual(['/b', '/a', '/a', '/c']);
+  });
 });
 
 describe('aggregateDict', () => {
@@ -32,6 +42,11 @@ describe('aggregateDict', () => {
 
   test('ignores missing dictionaries', () => {
     expect(ui.aggregateDict([{}, { C: null }], 'C')).toEqual({});
+  });
+
+  test('does not aggregate inherited keys or drop zero values', () => {
+    const dictionary = Object.assign(Object.create({ inherited: 99 }), { zero: 0, total: 2 });
+    expect(ui.aggregateDict([{ C: dictionary }, { C: { total: -1 } }], 'C')).toEqual({ zero: 0, total: 1 });
   });
 });
 
@@ -56,6 +71,11 @@ describe('buildPathTree and countTreeItems', () => {
   test('empty input yields an empty root', () => {
     const tree = ui.buildPathTree([], []);
     expect(ui.countTreeItems(tree)).toBe(0);
+  });
+
+  test('preserves input order and duplicates within each directory', () => {
+    const tree = ui.buildPathTree(['/m/d/b.mkv', '/m/d/a.mkv', '/m/d/b.mkv'], ['/m']);
+    expect(tree.children.d.items.map((item: any) => item.name)).toEqual(['b.mkv', 'a.mkv', 'b.mkv']);
   });
 });
 
@@ -241,6 +261,34 @@ describe('describeApiError classifies without leaking bodies', () => {
 
   test('plain errors stringify', () => {
     expect(ui.describeApiError(new Error('boom')).snippet).toContain('boom');
+  });
+
+  test.each([
+    [{ status: 400, responseText: '  <html>blocked</html>' }, 'proxy', '  <html>blocked</html>'],
+    [{ status: 429, responseText: '{"error":"limit"}' }, 'server', '{"error":"limit"}'],
+    [{ status: 400 }, 'server', ''],
+    [{ status: 500, responseText: '<html>down</html>' }, 'server', '<html>down</html>'],
+    [{ status: 403, responseText: '<html>denied</html>' }, 'unauthorized', '<html>denied</html>'],
+    [{ responseText: 'first', response: 'second', message: 'third' }, 'network', 'first'],
+    [{ responseText: '', response: 'second', message: 'third' }, 'network', 'second'],
+    [{ responseText: {}, response: {}, message: 42 }, 'network', '42'],
+    [{ status: '500', statusText: 42, message: '' }, 'network', ''],
+    ['offline', 'network', 'offline'],
+    [false, 'network', ''],
+    [0, 'network', ''],
+  ])('keeps diagnostic precedence for %j', (error, kind, snippet) => {
+    const status = (error as any)?.status;
+    expect(ui.describeApiError(error)).toEqual({
+      status: typeof status === 'number' ? status : 0, statusText: '', snippet, kind,
+    });
+  });
+
+  test('retains status text and caps the body at exactly 200 characters plus an ellipsis', () => {
+    const exact = 'x'.repeat(200);
+    expect(ui.describeApiError({ status: 404, statusText: 'Not Found', responseText: exact })).toEqual({
+      status: 404, statusText: 'Not Found', snippet: exact, kind: 'notfound',
+    });
+    expect(ui.describeApiError({ responseText: exact + 'y' }).snippet).toBe(exact + '\u2026');
   });
 });
 

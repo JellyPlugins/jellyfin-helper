@@ -79,6 +79,28 @@ describe('renderDonutSvg', () => {
   test('labels are escaped', () => {
     expect(ui.renderDonutSvg({ '<x>': 3 }, [], 'P', 'c1')).toContain('&lt;x>');
   });
+
+  test('tooltip libraries keep positive counts sorted and escape names', () => {
+    const libraries = [
+      { LibraryName: '<small>', P: { h264: 1 } },
+      { LibraryName: 'large', P: { h264: 4 } },
+      { LibraryName: 'zero', P: { h264: 0 } },
+      { LibraryName: 'negative', P: { h264: -1 } },
+      { LibraryName: 'missing' },
+    ];
+    document.body.innerHTML = ui.renderDonutSvg({ h264: 5 }, libraries, 'P', 'libs');
+    const container = document.querySelector('.donut-container')!;
+    ui.showDonutTooltip(container, { clientX: 10, clientY: 10 }, container.querySelector('.donut-segment')!);
+    const rows = [...container.querySelectorAll('.donut-tooltip-table tr')];
+    expect(rows.map((r) => r.querySelector('.donut-tooltip-lib')!.textContent)).toEqual(['large', '<small>']);
+    expect(rows.map((r) => r.querySelector('.donut-tooltip-count')!.textContent)).toEqual(['4 files', '1 file']);
+    expect(container.querySelector('small')).toBeNull();
+  });
+
+  test.each([null, undefined, false, 0, '', true, 1, {}])('absent or non-list libraries %j still render a segment', (libraries) => {
+    const html = ui.renderDonutSvg({ h264: 1 }, libraries, 'P', 'absent');
+    expect(html).toContain('data-codec="h264"');
+  });
 });
 
 describe('renderCodecBreakdown', () => {

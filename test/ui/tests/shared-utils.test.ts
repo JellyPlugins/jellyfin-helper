@@ -5,6 +5,24 @@ const ui = loadConfigPage();
 
 afterAll(saveCoverage);
 
+describe('getCssVar preserves empty-value fallbacks', () => {
+  test.each([
+    ['', 'fallback', 'fallback'],
+    ['   ', 'fallback', 'fallback'],
+    ['  #00a4dc  ', 'fallback', '#00a4dc'],
+    ['0', 'fallback', '0'],
+    ['', '', ''],
+    ['', undefined, ''],
+  ])('reads %s with fallback %s', (value, fallback, expected) => {
+    document.documentElement.style.setProperty('--audit-value', value);
+    try {
+      expect(ui.getCssVar('--audit-value', fallback)).toBe(expected);
+    } finally {
+      document.documentElement.style.removeProperty('--audit-value');
+    }
+  });
+});
+
 
 describe('formatBytes', () => {
   test.each([

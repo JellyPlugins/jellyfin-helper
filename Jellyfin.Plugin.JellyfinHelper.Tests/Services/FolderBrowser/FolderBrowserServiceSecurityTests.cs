@@ -27,12 +27,9 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
             if (Directory.Exists(_tempRoot))
             {
                 // Unlink junctions without recursive mount-point cleanup or following their targets.
-                foreach (var entry in new DirectoryInfo(_tempRoot).EnumerateDirectories())
+                foreach (var entry in new DirectoryInfo(_tempRoot).EnumerateDirectories().Where(entry => entry.LinkTarget is not null))
                 {
-                    if (entry.LinkTarget is not null)
-                    {
-                        Directory.Delete(entry.FullName);
-                    }
+                    Directory.Delete(entry.FullName);
                 }
 
                 Directory.Delete(_tempRoot, recursive: true);

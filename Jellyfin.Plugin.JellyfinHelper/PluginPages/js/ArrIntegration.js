@@ -87,8 +87,8 @@ function collectArrInstances(type) {
     var rows = document.querySelectorAll(
         '.arr-instance-row[data-type="' + type + '"]');
     var result = [];
-    for (var i = 0; i < rows.length; i++) {
-        var idx = rows[i].dataset.index;
+    for (const row of rows) {
+        var idx = row.dataset.index;
         var prefix = type + '_' + idx;
         var nameEl = document.getElementById(prefix + '_name');
         var urlEl = document.getElementById(prefix + '_url');
@@ -98,8 +98,8 @@ function collectArrInstances(type) {
             // value is stashed on the row so it survives the collapse and reappears if a second
             // instance is added. Prefer the live picker; fall back to the stash.
             var libsValue = getLibraryMultiSelectValue(prefix + '_libs');
-            if (!libsValue && rows[i].dataset.libsStash) {
-                libsValue = rows[i].dataset.libsStash;
+            if (!libsValue && row.dataset.libsStash) {
+                libsValue = row.dataset.libsStash;
             }
             // The checkbox is read defensively (not part of the gate above): rows rendered before
             // this option existed have no such element, and they must still save normally.
@@ -248,8 +248,7 @@ function seedArrLibraryPickerElements(pending) {
     });
 }
 
-// Note: This function performs multiple sequential DOM queries and updates. With MAX_ARR_INSTANCES = 3, layout thrashing is not a practical concern.
-function removeArrInstance(type, index) {
+function resetArrTestButtonsForRemoval(type, index) {
     // Clear all pending test timers for this type to prevent stale callbacks after reindexing
     for (var key in _testTimers) {
         if (key.startsWith(type + '_') && _testTimers[key]) {
@@ -261,14 +260,78 @@ function removeArrInstance(type, index) {
     // that will be reindexed. Rows below the removed index keep their state.
     var testBtns = document.querySelectorAll(
         '.btnTestArr[data-type="' + type + '"]');
-    for (var b = 0; b < testBtns.length; b++) {
-        if (Number.parseInt(testBtns[b].dataset.index, 10) >= index) {
-            testBtns[b].classList.remove('success', 'error');
-            testBtns[b].disabled = false;
-            testBtns[b].innerHTML = mi('extension') + T('testConnection', 'Test Connection');
+    for (const testBtn of testBtns) {
+        if (Number.parseInt(testBtn.dataset.index, 10) >= index) {
+            testBtn.classList.remove('success', 'error');
+            testBtn.disabled = false;
+            testBtn.innerHTML = mi('extension') + T('testConnection', 'Test Connection');
         }
     }
+}
 
+function reindexArrLibraryPicker(row, prefix) {
+    var libsWrap = row.querySelector('.arr-library-wrapper');
+    if (!libsWrap) {
+        return;
+    }
+    var newLibsId = prefix + '_libs';
+    var libsLabel = row.querySelector('label[for="' + libsWrap.id + '"]');
+    libsWrap.id = newLibsId;
+    if (libsLabel) {
+        libsLabel.htmlFor = newLibsId;
+    }
+    // Rekey nested checkbox ids so a later re-add cannot collide with the old row's ids.
+    var libInputs = libsWrap.querySelectorAll('input[type="checkbox"]');
+    for (var li = 0; li < libInputs.length; li++) {
+        var oldCheckId = libInputs[li].id;
+        var newCheckId = newLibsId + '_lib_' + li;
+        libInputs[li].id = newCheckId;
+        var checkLabel = libsWrap.querySelector('label[for="' + oldCheckId + '"]');
+        if (checkLabel) {
+            checkLabel.htmlFor = newCheckId;
+        }
+    }
+}
+
+function reindexArrInstanceRow(type, row, index) {
+    row.dataset.index = index;
+    var prefix = type + '_' + index;
+    var inputs = row.querySelectorAll('input');
+    var labels = row.querySelectorAll('label');
+    var suffixes = ['_name', '_url', '_key', '_skipCert'];
+    for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
+        var oldId = inputs[j].id;
+        var newId = prefix + suffixes[j];
+        inputs[j].id = newId;
+
+        // Update corresponding label if it exists
+        var label = row.querySelector('label[for="' + oldId + '"]');
+        if (label) {
+            label.htmlFor = newId;
+        } else if (labels[j]) {
+            // Fallback to index-based if label[for] not found
+            labels[j].htmlFor = newId;
+        }
+    }
+    var strong = row.querySelector('strong');
+    if (strong) {
+        strong.textContent = type + ' #' + (index + 1);
+    }
+    var removeBtn = row.querySelector('.btnRemoveArr');
+    if (removeBtn) {
+        removeBtn.dataset.index = index;
+    }
+    var testBtn = row.querySelector('.btnTestArr');
+    if (testBtn) {
+        testBtn.dataset.index = index;
+        testBtn.id = prefix + '_btnTest';
+    }
+    reindexArrLibraryPicker(row, prefix);
+}
+
+// With MAX_ARR_INSTANCES = 3, sequential DOM updates do not cause practical layout thrashing.
+function removeArrInstance(type, index) {
+    resetArrTestButtonsForRemoval(type, index);
     var row = document.querySelector(
         '.arr-instance-row[data-type="' + type + '"][data-index="' + index
         + '"]');
@@ -278,58 +341,7 @@ function removeArrInstance(type, index) {
     var remaining = document.querySelectorAll(
         '.arr-instance-row[data-type="' + type + '"]');
     for (var i = 0; i < remaining.length; i++) {
-        remaining[i].dataset.index = i;
-        var prefix = type + '_' + i;
-        var inputs = remaining[i].querySelectorAll('input');
-        var labels = remaining[i].querySelectorAll('label');
-        var suffixes = ['_name', '_url', '_key', '_skipCert'];
-        for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
-            var oldId = inputs[j].id;
-            var newId = prefix + suffixes[j];
-            inputs[j].id = newId;
-
-            // Update corresponding label if it exists
-            var label = remaining[i].querySelector('label[for="' + oldId + '"]');
-            if (label) {
-                label.htmlFor = newId;
-            } else if (labels[j]) {
-                // Fallback to index-based if label[for] not found
-                labels[j].htmlFor = newId;
-            }
-        }
-        var strong = remaining[i].querySelector('strong');
-        if (strong) {
-            strong.textContent = type + ' #' + (i + 1);
-        }
-        var removeBtn = remaining[i].querySelector('.btnRemoveArr');
-        if (removeBtn) {
-            removeBtn.dataset.index = i;
-        }
-        var testBtn = remaining[i].querySelector('.btnTestArr');
-        if (testBtn) {
-            testBtn.dataset.index = i;
-            testBtn.id = prefix + '_btnTest';
-        }
-        var libsWrap = remaining[i].querySelector('.arr-library-wrapper');
-        if (libsWrap) {
-            var newLibsId = prefix + '_libs';
-            var libsLabel = remaining[i].querySelector('label[for="' + libsWrap.id + '"]');
-            libsWrap.id = newLibsId;
-            if (libsLabel) {
-                libsLabel.htmlFor = newLibsId;
-            }
-            // Rekey nested checkbox ids so a later re-add cannot collide with the old row's ids.
-            var libInputs = libsWrap.querySelectorAll('input[type="checkbox"]');
-            for (var li = 0; li < libInputs.length; li++) {
-                var oldCheckId = libInputs[li].id;
-                var newCheckId = newLibsId + '_lib_' + li;
-                libInputs[li].id = newCheckId;
-                var checkLabel = libsWrap.querySelector('label[for="' + oldCheckId + '"]');
-                if (checkLabel) {
-                    checkLabel.htmlFor = newCheckId;
-                }
-            }
-        }
+        reindexArrInstanceRow(type, remaining[i], i);
     }
     var btn = document.getElementById('btnAdd' + type);
     if (btn && remaining.length < MAX_ARR_INSTANCES) {
@@ -407,9 +419,9 @@ function testArrConnection(type, index) {
 
 function attachTestHandlers() {
     var btns = document.querySelectorAll('.btnTestArr');
-    for (var i = 0; i < btns.length; i++) {
+    for (const btn of btns) {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
-        btns[i].onclick = function () {
+        btn.onclick = function () {
             testArrConnection(this.dataset.type,
                 Number.parseInt(this.dataset.index, 10));
         };
@@ -420,9 +432,9 @@ function attachRemoveHandlers(type) {
     var selector = type ? '.btnRemoveArr[data-type="' + type + '"]'
         : '.btnRemoveArr';
     var btns = document.querySelectorAll(selector);
-    for (var i = 0; i < btns.length; i++) {
+    for (const btn of btns) {
         // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
-        btns[i].onclick = function () {
+        btn.onclick = function () {
             removeArrInstance(this.dataset.type,
                 Number.parseInt(this.dataset.index, 10));
         };
@@ -498,7 +510,7 @@ function refreshArrInstanceStatus(type, index) {
         return;
     }
     var inst = instances[index];
-    if (!inst || !inst.Url || !inst.ApiKey) {
+    if (!inst?.Url || !inst.ApiKey) {
         _renderArrStatusBadge(type, 'unknown');
         return;
     }
@@ -522,7 +534,7 @@ function refreshArrInstanceStatus(type, index) {
             if (reqId !== _arrStatusReqSeq[type]) {
                 return;
             }
-            var ok = !!(data && data.Success);
+            var ok = !!data?.Success;
             _arrStatusCache[cacheKey] = {state: ok ? 'ok' : 'error', ts: Date.now()};
             // Also only paint if the dropdown is still on this index.
             var sel = document.getElementById('arrSelect' + type);
@@ -583,12 +595,12 @@ function initArrButtons(cfg) {
 
     var radarrInstances = resolveArrInstances(cfg, 'Radarr').filter(
         function (inst) {
-            return inst && inst.Url && inst.ApiKey;
+            return inst?.Url && inst.ApiKey;
         });
 
     var sonarrInstances = resolveArrInstances(cfg, 'Sonarr').filter(
         function (inst) {
-            return inst && inst.Url && inst.ApiKey;
+            return inst?.Url && inst.ApiKey;
         });
 
     _arrInstancesCache.Radarr = radarrInstances;

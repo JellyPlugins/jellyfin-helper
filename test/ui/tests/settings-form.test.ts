@@ -35,6 +35,12 @@ function fullForm() {
 }
 
 describe('buildSettingsPayload', () => {
+  test('a missing discovery checkbox still forces false', () => {
+    fullForm();
+    document.getElementById('cfgDiscoveryUserAccess')!.remove();
+    expect(ui.buildSettingsPayload().DiscoveryUserAccessEnabled).toBe(false);
+  });
+
   test('modes pass through verbatim and trash stays off by default', () => {
     fullForm();
     (document.getElementById('cfgTrickplayMode') as HTMLSelectElement).value = 'Activate';
@@ -107,6 +113,17 @@ describe('snapshot and dirty tracking', () => {
 });
 
 describe('doSaveSettings', () => {
+  test.each([undefined, null, false, 0, '', {}, { quiet: false }, { quiet: true, onError: 0 }])(
+    'validation tolerates absent options and falsy error callbacks: %s', (options) => {
+      const calls = ajaxRouter({});
+      fullForm();
+      const payload = { ...ui.buildSettingsPayload(), UseTrash: true, TrashFolderPath: 'bad*path' };
+      expect(() => ui.doSaveSettings(payload, options)).not.toThrow();
+      expect(calls).toHaveLength(0);
+      expect(document.getElementById('trashPathErrorMsg')).not.toBeNull();
+    },
+  );
+
   test('quiet save puts the payload and calls back', async () => {
     const calls = ajaxRouter({});
     fullForm();
@@ -147,6 +164,25 @@ describe('doSaveSettings', () => {
     ui.doSaveSettings(ui.buildSettingsPayload(), { quiet: true, element: null, onError: err });
     await flush();
     expect(err).toHaveBeenCalledWith('bad mode');
+  });
+
+  test.each([
+    [{ responseJSON: { message: '<img src=x onerror=alert(1)>' } }, '<img src=x onerror=alert(1)>'],
+    [{ responseText: '{"message":42}' }, '42'],
+    [{ responseJSON: { message: 0 } }, 'Failed to save settings. (HTTP 400)'],
+    [{ responseText: '<html>proxy failure</html>' }, 'Save blocked (HTTP 400). Check reverse proxy / WAF logs.'],
+  ])('loud save diagnostic safely renders response %s', async (response, expected) => {
+    fullForm();
+    document.getElementById('settingsSaveBand')!.innerHTML = '<span class="settings-save-band-text"></span>';
+    ajaxRouter({});
+    (globalThis as any).ApiClient.ajax = () => Promise.reject({ status: 400, ...response });
+    ui.doSaveSettings(ui.buildSettingsPayload(), {});
+    await flush();
+    const text = document.querySelector('.settings-save-band-text')!;
+    expect(text.textContent).toBe(expected);
+    expect(text.querySelector('img')).toBeNull();
+    expect((document.getElementById('btnSaveSettings') as HTMLButtonElement).disabled).toBe(false);
+    expect(document.getElementById('settingsSaveBand')!.classList.contains('is-error')).toBe(true);
   });
 
   test('loud save drives the band from saving to hidden without prior edits', async () => {
@@ -244,6 +280,12 @@ describe('library multiselect', () => {
   test('comma parser lowercases keys and drops empties', () => {
     expect(ui.parseCommaSeparatedSet('A, b ,A,, ')).toEqual({ a: 'A', b: 'b' });
     expect(ui.parseCommaSeparatedSet('')).toEqual({});
+  });
+
+  test('comma parser preserves the last duplicate spelling and input order', () => {
+    const selected = ui.parseCommaSeparatedSet('  Movies, ,SHOWS, movies,  ');
+    expect(Object.keys(selected)).toEqual(['movies', 'shows']);
+    expect(selected).toEqual({ movies: 'movies', shows: 'SHOWS' });
   });
 });
 

@@ -277,34 +277,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             // window (which rewrites that time) is never seen as stale here.
             foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
             {
-                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
-                if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
-                {
-                    continue;
-                }
-
-                var lastTrained = ResolveLastTrainedUtc(id, file);
-                if (lastTrained is null)
-                {
-                    // When the last-trained time cannot be read at all, treat the model as of unknown age rather
-                    // than infinitely old. Ageing it out here would delete a possibly healthy model whenever the
-                    // clock or the file metadata is momentarily unreadable, so keep it and let a later run decide.
-                    _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: last-trained time could not be resolved.", logger: _logger);
-                    continue;
-                }
-
-                if (lastTrained >= cutoffUtc)
-                {
-                    continue;
-                }
-
-                // Count the model only when its weights file is confirmed gone. If the delete failed the read
-                // path can rebuild the same stale model, so reporting it as retired would be a lie.
-                if (EvictUser(id))
-                {
-                    evicted++;
-                    _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
-                }
+                evicted += EvictStaleWeightsFile(file, cutoffUtc) ? 1 : 0;
             }
 
             // A state file with no companion weights file is not a model the read path can ever rebuild, so it
@@ -313,27 +286,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             // clean it up here regardless of age.
             foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json"))
             {
-                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
-                if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
-                {
-                    continue;
-                }
-
-                var weightsPath = GetLearnedWeightsPath(id);
-                if (weightsPath is not null && _fileSystem.File.Exists(weightsPath))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    _fileSystem.File.Delete(file);
-                    _pluginLog.LogInfo(LogSource, $"Removed orphaned ensemble state for user {id:N} with no weights file.", _logger);
-                }
-                catch (Exception ex) when (!ex.IsFatal())
-                {
-                    _pluginLog.LogWarning(LogSource, $"Could not remove orphaned ensemble state '{file}': {ex.Message}", ex, _logger);
-                }
+                RemoveOrphanedEnsembleState(file);
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
@@ -342,6 +295,62 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         }
 
         return evicted;
+    }
+
+    /// <summary>Evicts one stale weights file, counting it only when deletion is confirmed.</summary>
+    /// <param name="file">The per-user weights file.</param>
+    /// <param name="cutoffUtc">The oldest acceptable last-trained time.</param>
+    /// <returns>True when the stale model was removed.</returns>
+    private bool EvictStaleWeightsFile(string file, DateTime cutoffUtc)
+    {
+        var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+        if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
+        {
+            return false;
+        }
+
+        var lastTrained = ResolveLastTrainedUtc(id, file);
+        if (lastTrained is null)
+        {
+            // Unknown age must not delete a possibly healthy model after a transient metadata failure.
+            _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: last-trained time could not be resolved.", logger: _logger);
+            return false;
+        }
+
+        if (lastTrained >= cutoffUtc || !EvictUser(id))
+        {
+            return false;
+        }
+
+        _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+        return true;
+    }
+
+    /// <summary>Removes state-only metadata that cannot rebuild a per-user model.</summary>
+    /// <param name="file">The per-user ensemble state file.</param>
+    private void RemoveOrphanedEnsembleState(string file)
+    {
+        var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+        if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
+        {
+            return;
+        }
+
+        var weightsPath = GetLearnedWeightsPath(id);
+        if (weightsPath is not null && _fileSystem.File.Exists(weightsPath))
+        {
+            return;
+        }
+
+        try
+        {
+            _fileSystem.File.Delete(file);
+            _pluginLog.LogInfo(LogSource, $"Removed orphaned ensemble state for user {id:N} with no weights file.", _logger);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, $"Could not remove orphaned ensemble state '{file}': {ex.Message}", ex, _logger);
+        }
     }
 
     /// <inheritdoc />

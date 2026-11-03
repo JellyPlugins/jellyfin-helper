@@ -380,6 +380,24 @@ public class UserActivityInsightsServiceTests
     }
 
     [Fact]
+    public void BuildActivityReport_NullBatch_StillFallsBackToPerItemGetUserData()
+    {
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("NullBatch");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns((Dictionary<Guid, UserItemData>)null!);
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Played(count: 2));
+
+        var item = Assert.Single(svc.BuildActivityReport().Items);
+
+        Assert.Equal(2, item.TotalPlayCount);
+        ud.Verify(m => m.GetUserData(alice, movie), Times.Once);
+    }
+
+    [Fact]
     public void BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback()
     {
         // OperationCanceledException from GetUserDataBatch must propagate to the caller without triggering per-item fallback.

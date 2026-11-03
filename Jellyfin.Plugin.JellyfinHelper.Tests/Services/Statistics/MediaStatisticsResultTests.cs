@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Xunit;
 
@@ -405,6 +406,39 @@ public class MediaStatisticsResultTests
         lib.OrphanedMetadataDirectoriesPaths.Add("/orphaned");
         result.Libraries.Add(lib);
         Assert.Single(result.TotalOrphanedMetadataDirectoriesPaths);
+    }
+
+    [Fact]
+    public void HealthPathProperties_ReturnIndependentSnapshotsAndSerializeCurrentSources()
+    {
+        var result = new MediaStatisticsResult();
+        var lib = new LibraryStatistics();
+        result.Libraries.Add(lib);
+        lib.VideosWithoutSubtitlesPaths.Add("/first");
+        lib.VideosWithoutImagesPaths.Add("/first");
+        lib.VideosWithoutNfoPaths.Add("/first");
+        lib.OrphanedMetadataDirectoriesPaths.Add("/first");
+        var fields = new[]
+        {
+            (Name: nameof(result.TotalVideosWithoutSubtitlesPaths), Source: lib.VideosWithoutSubtitlesPaths, Snapshot: result.TotalVideosWithoutSubtitlesPaths),
+            (Name: nameof(result.TotalVideosWithoutImagesPaths), Source: lib.VideosWithoutImagesPaths, Snapshot: result.TotalVideosWithoutImagesPaths),
+            (Name: nameof(result.TotalVideosWithoutNfoPaths), Source: lib.VideosWithoutNfoPaths, Snapshot: result.TotalVideosWithoutNfoPaths),
+            (Name: nameof(result.TotalOrphanedMetadataDirectoriesPaths), Source: lib.OrphanedMetadataDirectoriesPaths, Snapshot: result.TotalOrphanedMetadataDirectoriesPaths),
+        };
+        foreach (var field in fields)
+        {
+            Assert.Equal("/first", Assert.Single(field.Snapshot));
+            field.Snapshot.Clear();
+            Assert.Equal("/first", Assert.Single(field.Source));
+            field.Source.Add("/second");
+        }
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(result));
+        foreach (var field in fields)
+        {
+            var values = json.RootElement.GetProperty(field.Name).EnumerateArray().Select(p => p.GetString());
+            Assert.Equal(new[] { "/first", "/second" }, values);
+        }
     }
 
     [Fact]

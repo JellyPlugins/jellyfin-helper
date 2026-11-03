@@ -1231,6 +1231,38 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPersonal_CancelledWaiter_DoesNotCancelOrStrandSharedFlight()
+    {
+        var userId = Guid.NewGuid();
+        var scoringGate = new TaskCompletionSource<DiscoveryResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _discovery.Setup(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Returns(scoringGate.Task);
+        _responses.Enqueue((HttpStatusCode.OK, MoviesJson));
+        _responses.Enqueue((HttpStatusCode.OK, ShowsJson));
+        var sut = CreateService();
+        using var callerCts = new CancellationTokenSource();
+        var cancelledWaiter = sut.GetPersonalAsync(userId, callerCts.Token);
+        var survivingWaiter = sut.GetPersonalAsync(userId, CancellationToken.None);
+        var expected = Scored(userId, (11, "movie", "Alpha"));
+        try
+        {
+            callerCts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledWaiter);
+            Assert.False(survivingWaiter.IsCompleted);
+        }
+        finally
+        {
+            scoringGate.TrySetResult(expected);
+        }
+
+        Assert.Same(expected, await survivingWaiter);
+        _discovery.Verify(d => d.ScoreExternalCandidatesAsync(userId, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()), Times.Once);
+        sut.InvalidatePersonal(userId);
+        sut.InvalidatePersonal(userId);
+        Assert.Null(_cache.GetPersonal(userId, TimeSpan.FromHours(12)));
+    }
+
+    [Fact]
     public async Task IsLinkedFor_OfficialHasToken_ReturnsTrue()
     {
         // An official-plugin user must report linked so the controller fetches their recommendations

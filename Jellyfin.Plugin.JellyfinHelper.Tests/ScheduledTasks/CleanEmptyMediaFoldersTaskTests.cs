@@ -46,6 +46,24 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     }
 
     [Fact]
+    public void VerifyLogContains_NullLogger_ThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            VerifyLogContains<CleanEmptyMediaFoldersTask>(null!, "message", LogLevel.Information));
+
+        Assert.Equal("loggerMock", exception.ParamName);
+    }
+
+    [Fact]
+    public void VerifyLogNeverContains_NullLogger_ThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            VerifyLogNeverContains<CleanEmptyMediaFoldersTask>(null!, "message", LogLevel.Information));
+
+        Assert.Equal("loggerMock", exception.ParamName);
+    }
+
+    [Fact]
     public async Task ExecuteInternalAsync_TopLevelFolderWithSubtitlesOnly_DeletesFolder()
     {
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;

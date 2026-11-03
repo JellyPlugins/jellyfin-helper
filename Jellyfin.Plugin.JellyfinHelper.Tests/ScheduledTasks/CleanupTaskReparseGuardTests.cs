@@ -319,7 +319,7 @@ public sealed class CleanupTaskReparseGuardTests
 
     // CleanTrickplayTask
 
-    public sealed class Trickplay : CleanupTaskTestBase
+    public sealed class TrickplayReparseGuards : CleanupTaskTestBase
     {
         private readonly Mock<ILibraryManager> _libraryManagerMock = TestMockFactory.CreateLibraryManager();
         private readonly Mock<IFileSystem> _fileSystemMock = TestMockFactory.CreateFileSystem();

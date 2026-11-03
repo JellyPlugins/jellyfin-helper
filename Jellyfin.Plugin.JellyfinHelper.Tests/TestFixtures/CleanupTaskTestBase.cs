@@ -100,6 +100,7 @@ public abstract class CleanupTaskTestBase : IDisposable
     /// <param name="level">The log level to check.</param>
     protected static void VerifyLogContains<T>(Mock<ILogger<T>> loggerMock, string messagePart, LogLevel level)
     {
+        ArgumentNullException.ThrowIfNull(loggerMock);
         loggerMock.Verify(
             x => x.Log(
                 level,
@@ -119,6 +120,7 @@ public abstract class CleanupTaskTestBase : IDisposable
     /// <param name="level">The log level to check.</param>
     protected static void VerifyLogNeverContains<T>(Mock<ILogger<T>> loggerMock, string messagePart, LogLevel level)
     {
+        ArgumentNullException.ThrowIfNull(loggerMock);
         loggerMock.Verify(
             x => x.Log(
                 level,

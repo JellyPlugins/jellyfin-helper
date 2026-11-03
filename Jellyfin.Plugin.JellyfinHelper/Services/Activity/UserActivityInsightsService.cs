@@ -308,18 +308,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             // single user. A failure for one user must not block others, hence the per-user marker.
             var perUser = user;
             var lookup = BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
-                batchCall: () =>
-                {
-                    var batch = _userDataManager.GetUserDataBatch(allItems, perUser);
-                    if (batch is null)
-                    {
-                        return null;
-                    }
-
-                    // Accept any dictionary shape Jellyfin returns; IReadOnlyDictionary keeps the batch immutable to the caller and avoids locking to a concrete return type across Jellyfin patch versions.
-                    return batch as IReadOnlyDictionary<Guid, UserItemData>
-                           ?? new Dictionary<Guid, UserItemData>(batch);
-                },
+                batchCall: () => _userDataManager.GetUserDataBatch(allItems, perUser),
                 fallbackValue: null,
                 onFailure: ex => _pluginLog.LogWarning(
                     LogSource,

@@ -23,6 +23,34 @@ function ajaxRouter(routes: Record<string, unknown> = {}, failures: string[] = [
 }
 
 describe('health extras', () => {
+  test('trash rendering aggregates all libraries, escapes names, and preserves purge-date and name fallbacks', async () => {
+    const purgeDate = '2026-11-10T00:00:00Z';
+    ajaxRouter({ Configuration: { UseTrash: true }, 'Trash/Contents': {
+      RetentionDays: 7,
+      Libraries: [
+        { LibraryName: '<img src=x>', Items: [
+          { OriginalName: '<script>title</script>', Name: 'unused', Size: 1024, PurgeDate: purgeDate },
+          { OriginalName: '', Name: '<b>fallback</b>', Size: 0 },
+        ] },
+        { LibraryName: 'Other', Items: [{ Name: 'third', Size: 2048 }, { Name: 'fourth' }] },
+      ],
+    } });
+    document.body.innerHTML = '<div id="healthContent"><div id="trashHealthSection">old</div></div>';
+    ui.loadTrashHealthSection();
+    await flush();
+    const section = document.getElementById('trashHealthSection')!;
+    expect(document.querySelectorAll('#trashHealthSection')).toHaveLength(1);
+    expect([...section.querySelectorAll('.health-value')].map((element) => element.textContent)).toEqual(['4', '3.00 KB', '7d']);
+    expect(section.querySelector('.health-value')!.classList.contains('health-warn')).toBe(true);
+    expect(section.querySelectorAll('.trash-library-block')).toHaveLength(2);
+    expect([...section.querySelectorAll('li')].map((element) => element.textContent)).toEqual([
+      '<script>title</script> (1.00 KB - purges ' + new Date(purgeDate).toLocaleDateString() + ')',
+      '<b>fallback</b> (0 B)', 'third (2.00 KB)', 'fourth (0 B)',
+    ]);
+    expect(section.querySelector('img, script, b')).toBeNull();
+    expect(section.textContent).toContain('<img src=x>');
+  });
+
   test('fillHealthData attaches handlers and orphaned path normalization', async () => {
     ajaxRouter({});
     document.body.innerHTML = '<div id="healthContent"></div>';

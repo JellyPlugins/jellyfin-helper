@@ -703,7 +703,7 @@
 
 .discovery-request-btn:hover:not(:disabled) {
     background: var(--color-primary, #00a4dc);
-    color: #fff;
+    color: #111;
 }
 
 .discovery-request-btn:focus-visible {
@@ -848,7 +848,8 @@
 @media (prefers-color-scheme: light) {
     .recs-tag-rating {
         background: rgba(138, 90, 0, 0.12);
-        color: #8a5a00;
+        color: #805300;
+        opacity: 1;
     }
 
     .discovery-card { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.08); }
