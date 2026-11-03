@@ -26,7 +26,7 @@ public sealed class TrashServiceAccessTests : IDisposable
         var requestedRoot = Path.Join(Path.GetTempPath(), $"trash-access-{Guid.NewGuid():N}");
         Directory.CreateDirectory(requestedRoot);
         // Canonicalize the trusted OS temp location first: macOS /var aliases /private/var.
-        _testRoot = PathValidator.ResolveDirectoryPath(CanonicalizeTrustedDirectory(requestedRoot));
+        _testRoot = PathValidator.ResolveDirectoryPath(CanonicalizeDirectoryPath(requestedRoot));
     }
 
     public void Dispose()
@@ -360,7 +360,7 @@ public sealed class TrashServiceAccessTests : IDisposable
     }
 
     [Fact]
-    public void CanonicalizeTrustedDirectory_ResolvesAncestorAliasesBeforeProbeExpectations()
+    public void CanonicalizeDirectoryPath_ResolvesAncestorAliasesBeforeProbeExpectations()
     {
         var target = Path.Join(_testRoot, "target");
         var child = Path.Join(target, "child");
@@ -368,7 +368,7 @@ public sealed class TrashServiceAccessTests : IDisposable
         Directory.CreateDirectory(child);
         DirectoryLinkTestHelper.Create(alias, target);
 
-        var canonical = PathValidator.ResolveDirectoryPath(CanonicalizeTrustedDirectory(Path.Join(alias, "child")));
+        var canonical = PathValidator.ResolveDirectoryPath(CanonicalizeDirectoryPath(Path.Join(alias, "child")));
         var service = new GuardedAccessTrashService(_mockPluginLog.Object);
         var result = service.CheckPathAccess(canonical, _mockLogger.Object);
 
@@ -378,15 +378,16 @@ public sealed class TrashServiceAccessTests : IDisposable
         Assert.All(service.AccessProbePaths, path => Assert.Equal(child, path));
     }
 
-    private static string CanonicalizeTrustedDirectory(string path)
+    private static string CanonicalizeDirectoryPath(string path)
     {
         var normalized = Path.GetFullPath(path);
         var root = Path.GetPathRoot(normalized)!;
         var resolved = root;
-        foreach (var segment in normalized[root.Length..].Split(
-                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        var segments = normalized[root.Length..].Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        for (var index = 0; index < segments.Length; index++)
         {
-            var directory = new DirectoryInfo(Path.Join(resolved, segment));
+            var directory = new DirectoryInfo(Path.Join(resolved, segments[index]));
             resolved = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? directory.FullName;
         }
 
