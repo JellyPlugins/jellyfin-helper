@@ -504,6 +504,39 @@ public sealed class WatchHistoryServiceTests
 
     // Locks in the same contract that SimilarityComputerTests enforces for GetPeopleNamesByItems: non-cancellation failures degrade gracefully to per-item GetUserData, but OperationCanceledException must propagate.
 
+    /// <summary>
+    ///     Verifies that a complete batch avoids per-item calls and a null batch preserves the fallback.
+    /// </summary>
+    /// <param name="returnNullBatch">Whether the batch API returns null.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetUserWatchProfile_BatchDictionaryOrNull_PreservesLookupBehavior(bool returnNullBatch)
+    {
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "BatchMovie", Genres = ["Drama"] };
+        var userData = new UserItemData { Key = "batch-movie-key", Played = true, PlayCount = 1 };
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie })
+            .Returns(new List<BaseItem>());
+        Dictionary<Guid, UserItemData>? batch = returnNullBatch ? null : new() { [movie.Id] = userData };
+        _mockUserDataManager
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Returns(batch!); // Exercise the runtime null case despite Jellyfin's non-null annotation.
+        _mockUserDataManager.Setup(m => m.GetUserData(user, movie)).Returns(userData);
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal(1, profile.WatchedMovieCount);
+        Assert.Equal(movie.Id, Assert.Single(profile.WatchedItems).ItemId);
+        _mockUserDataManager.Verify(
+            m => m.GetUserData(user, movie),
+            returnNullBatch ? Times.AtLeastOnce() : Times.Never());
+    }
+
     [Fact]
     public void GetUserWatchProfile_BatchApiThrows_FallsBackToPerItemGetUserData()
     {

@@ -33,6 +33,11 @@ describe('findUserDiscovery matches case-insensitively', () => {
   test('entries without any id fall through to a later match', () => {
     expect(ui.findUserDiscovery([{}, { userId: 'abc' }], 'ABC')).toMatchObject({ userId: 'abc' });
   });
+
+  test('duplicate ids return the first matching object without copying', () => {
+    const first = { UserId: '', userId: 'abc', Recommendations: [] };
+    expect(ui.findUserDiscovery([first, { UserId: 'ABC' }], 'ABC')).toBe(first);
+  });
 });
 
 describe('renderRecommendationCard clamps and escapes', () => {
@@ -112,6 +117,14 @@ describe('request response handling', () => {
     const btn = buttonInGrid();
     ui.handleDiscoveryRequestResponse({ Success: false }, btn, 5, 'movie');
     expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toMatch(/fail/i);
+  });
+
+  test.each([null, undefined, false, 0, '', { Success: 0 }])('falsy response %s stays on the error path', (response) => {
+    const btn = buttonInGrid();
+    ui.handleDiscoveryRequestResponse(response, btn, 5, 'movie');
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains('discovery-request-done')).toBe(false);
     expect(btn.textContent).toMatch(/fail/i);
   });
 
@@ -329,6 +342,15 @@ describe('renderDiscoveryCards list variants', () => {
     const g = document.getElementById('g')!;
     ui.renderDiscoveryCards(g, null, null);
     expect(g.textContent).toMatch(/no suggestions/i);
+  });
+
+  test.each([undefined, false, 0, '', {}, { Recommendations: null }, { Recommendations: false }, { Recommendations: [] }])('missing or falsy recommendations %s retain the empty state', (discovery) => {
+    document.body.innerHTML = '<div id="g"></div><span id="count">9</span>';
+    const grid = document.getElementById('g')!;
+    const count = document.getElementById('count')!;
+    ui.renderDiscoveryCards(grid, count, discovery);
+    expect(grid.textContent).toMatch(/no suggestions/i);
+    expect(count.textContent).toBe('0');
   });
 
   test('generated-at footer renders for valid dates and is skipped for garbage', () => {
