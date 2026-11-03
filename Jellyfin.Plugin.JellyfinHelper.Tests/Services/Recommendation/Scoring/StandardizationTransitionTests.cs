@@ -171,6 +171,43 @@ public sealed class StandardizationTransitionTests
     }
 
     [Fact]
+    public void Train_NullOrUndersizedHeldOut_UsesTrainingExamplesForMetrics()
+    {
+        var examples = GenerateExamples(25);
+        var withoutHeldOut = new LearnedScoringStrategy();
+        var oneHeldOut = new LearnedScoringStrategy();
+        Assert.True(withoutHeldOut.Train(examples, heldOutForMetrics: null));
+        Assert.True(oneHeldOut.Train(examples, [examples[0]]));
+
+        var expected = RankingMetrics.ComputeAll(examples, withoutHeldOut);
+        Assert.Equal(expected.PrecisionAtK, withoutHeldOut.LastPrecisionAtK);
+        Assert.Equal(expected.RecallAtK, withoutHeldOut.LastRecallAtK);
+        Assert.Equal(expected.NdcgAtK, withoutHeldOut.LastNdcgAtK);
+        Assert.Equal(withoutHeldOut.LastPrecisionAtK, oneHeldOut.LastPrecisionAtK);
+        Assert.Equal(withoutHeldOut.LastRecallAtK, oneHeldOut.LastRecallAtK);
+        Assert.Equal(withoutHeldOut.LastNdcgAtK, oneHeldOut.LastNdcgAtK);
+    }
+
+    [Theory]
+    [InlineData(12)]
+    [InlineData(25)]
+    public void Train_LossAggregationAndGenerationShuffling_RemainDeterministic(int count)
+    {
+        var examples = GenerateExamples(count);
+        var a = new LearnedScoringStrategy();
+        var b = new LearnedScoringStrategy();
+        for (var generation = 0; generation < 2; generation++)
+        {
+            Assert.True(a.Train(examples));
+            Assert.True(b.Train(examples));
+            Assert.Equal(a.GetCurrentWeights(), b.GetCurrentWeights());
+            Assert.Equal(a.LastValidationLoss, b.LastValidationLoss);
+            Assert.True(double.IsFinite(a.LastValidationLoss));
+            Assert.Equal(a.Score(StrongCandidate()), b.Score(StrongCandidate()));
+        }
+    }
+
+    [Fact]
     public void StandardizedToRawTransition_ReverseRescale_ProducesFiniteWeights()
     {
         // Train above the threshold (standardized space, means persisted), then retrain below it so the

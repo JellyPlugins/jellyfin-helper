@@ -653,17 +653,17 @@ public class MediaStatisticsService : IMediaStatisticsService
             .Select(f => Path.GetFileNameWithoutExtension(f.FullName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var vf2 in videoFiles)
+        foreach (var videoPath in videoFiles.Select(video => video.FullName))
         {
-            var videoStem = Path.GetFileNameWithoutExtension(vf2.FullName);
+            var videoStem = Path.GetFileNameWithoutExtension(videoPath);
             var hasSidecar = subsStems.Any(s =>
                 string.Equals(s, videoStem, StringComparison.OrdinalIgnoreCase) ||
                 s.StartsWith(videoStem + ".", StringComparison.OrdinalIgnoreCase));
             if (!hasSidecar &&
-                !HasEmbeddedSubtitles(vf2.FullName, videoStreamsCache.GetValueOrDefault(vf2.FullName)))
+                !HasEmbeddedSubtitles(videoPath, videoStreamsCache.GetValueOrDefault(videoPath)))
             {
                 stats.VideosWithoutSubtitles++;
-                stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
+                stats.VideosWithoutSubtitlesPaths.Add(videoPath);
             }
         }
 

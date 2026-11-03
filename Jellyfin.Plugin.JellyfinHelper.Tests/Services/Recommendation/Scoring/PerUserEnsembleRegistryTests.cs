@@ -416,6 +416,37 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
+    public void EvictStaleModels_MixedAgesAndOrphanState_OnlyCountsRetiredWeights()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var stale = Guid.NewGuid();
+        var boundary = Guid.NewGuid();
+        var orphan = Guid.NewGuid();
+        var cutoff = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        foreach (var id in new[] { stale, boundary })
+        {
+            Assert.True(registry.GetOrCreateTrainableEnsembleForUser(id).Train(GenerateExamples(30)));
+        }
+
+        PinLastTrained(stale, cutoff.AddDays(-1));
+        PinLastTrained(boundary, cutoff);
+        var orphanState = Path.Join(_dataPath, $"ensemble_state_{orphan:N}.json");
+        File.WriteAllText(orphanState, "{}");
+        var globalWeights = Path.Join(_dataPath, "ml_weights.json");
+        File.WriteAllText(globalWeights, "global-sentinel");
+
+        Assert.Equal(1, registry.EvictStaleModels(cutoff));
+
+        Assert.False(registry.HasPerUserModel(stale));
+        Assert.True(registry.HasPerUserModel(boundary));
+        Assert.True(File.Exists(Path.Join(_dataPath, $"ensemble_state_{boundary:N}.json")));
+        Assert.False(File.Exists(orphanState));
+        Assert.Equal("global-sentinel", File.ReadAllText(globalWeights));
+    }
+
+    [Fact]
     public void EvictStaleModels_ModelNewerThanCutoff_IsKept()
     {
         using var neural = new NeuralScoringStrategy();

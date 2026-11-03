@@ -118,6 +118,7 @@ const CONFIG_EXPECTED = [
         'refreshTraktRowState', 'loadTraktOfficialStatus', 'updateRecsTabVisibility',
         'updateSeerrUIState', 'validateTrashPath', 'isSensitiveSystemPath',
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',
+        'appendFolderBrowserName', 'renderFolderBrowserListing',
         'escHtml', 'escAttr', 'allowSafeHtml', 'mi', 'getCssVar', 'loadTranslations', 'applyStaticTranslations', 'showButtonFeedback', 'apiGetOptional',
         'formatBytes', 'getScoreThresholdClass', 'trimTrailingSlashes', 'getPathSegments',
         'collectFlatPaths', 'collectDictPaths', 'buildPathTree', 'countTreeItems',

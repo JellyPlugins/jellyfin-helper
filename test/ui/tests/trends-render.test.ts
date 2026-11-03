@@ -1,10 +1,48 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { flush } from '../src/apiStub.js';
-import { loadConfigPage, saveCoverage } from '../src/loader.js';
+import { loadConfigPage, REPO_ROOT, saveCoverage } from '../src/loader.js';
 
 const ui = loadConfigPage();
 
 afterAll(saveCoverage);
+
+describe('neutral trend badge contrast', () => {
+  test.each(['dark', 'light'])('%s scheme uses an opaque neutral pair with AA small-text contrast', (scheme) => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Trends.css'), 'utf8');
+    document.head.appendChild(style);
+    try {
+      const rules = Array.from(style.sheet!.cssRules);
+      const defaultRule = rules.find((r) => (r as CSSStyleRule).selectorText === '.trend-diff-stat.diff-neutral') as CSSStyleRule;
+      const lightRules = rules.find((r) => (r as CSSMediaRule).conditionText === '(prefers-color-scheme: light)') as CSSMediaRule;
+      expect(defaultRule).toBeDefined();
+      expect(lightRules).toBeDefined();
+      const lightRule = Array.from(lightRules.cssRules).find((r) => (r as CSSStyleRule).selectorText === '.trend-diff-stat.diff-neutral') as CSSStyleRule;
+      const badge = scheme === 'light' ? lightRule : defaultRule;
+      function luminance(property: string) {
+        const color = badge.style.getPropertyValue(property).trim();
+        // Opaque colors make the ratio independent of the host surface, including white and black.
+        const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(color);
+        expect(rgb).not.toBeNull();
+        const channels = rgb!.slice(1).map(Number);
+        expect(new Set(channels).size).toBe(1);
+        const linear = channels.map((v) => {
+          const c = v / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+      }
+      const foreground = luminance('color');
+      const background = luminance('background');
+      const ratio = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      style.remove();
+    }
+  });
+});
 
 function ajaxRouter(routes: Record<string, unknown>, failures: string[] = []) {
   (globalThis as any).ApiClient = {
