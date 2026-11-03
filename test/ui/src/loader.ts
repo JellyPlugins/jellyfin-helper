@@ -172,7 +172,7 @@ const CONFIG_EXPECTED = [
         'attachRemoveHandlers', 'attachAddHandlers', 'syncArrLibraryPickers',
         'filterLibrariesForArrType', 'initArrButtons', 'compareArr', 'refreshArrInstanceStatus',
         'parseCommaSeparatedSet', 'formatPathList', 'buildSettingsPayload',
-        'takeSettingsSnapshot', 'hasUnsavedSettings', 'renderLibraryMultiSelect',
+        'takeSettingsSnapshot', 'hasUnsavedSettings', 'renderSaveBand', 'renderLibraryMultiSelect',
         'toggleLibraryDropdown', 'updateLibraryMultiSelectSummary',
         'getLibraryMultiSelectValue', 'libraryMultiSelectEmptyLabel',
         'libraryEntryName', 'libraryEntryType', 'showTrashPathError',
@@ -190,7 +190,7 @@ const CONFIG_EXPECTED = [
         'handleDiscoveryRequestResponse', 'handleDiscoveryRequestError',
         'submitDiscoveryRequest', 'submitDiscoveryRequestWithProfile',
         'markDiscoveryItemRequested', 'showSeerrUserPopup',
-        'showLibraryMultiSelectIndicator',
+        'showInlineCheckboxIndicator', 'showLibraryMultiSelectIndicator',
         'getCodecsExplorerState', 'getDimPathIndex', 'intersectPathMaps', 'intersectExplorerFilters', 'findExplorerFocusBox',
         'commitBitrateOnEnter',
 ];

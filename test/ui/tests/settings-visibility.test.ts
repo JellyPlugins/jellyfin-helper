@@ -152,6 +152,14 @@ describe('updateRecsTabVisibility', () => {
     ui.updateRecsTabVisibility(mode);
     expect((document.querySelector('.tab-btn[data-tab="recommendations"]') as HTMLElement).style.display).toBe('');
   });
+
+  test('deactivation without a recommendations button remains safe', () => {
+    document.querySelector('.tab-btn[data-tab="recommendations"]')!.remove();
+    const overview = document.querySelector('.tab-btn[data-tab="overview"]') as HTMLElement;
+    const spy = vi.spyOn(overview, 'click');
+    expect(() => ui.updateRecsTabVisibility('Deactivate')).not.toThrow();
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 describe('updateSeerrUIState is inert when greyed out', () => {
@@ -173,5 +181,53 @@ describe('updateSeerrUIState is inert when greyed out', () => {
     ui.updateSeerrUIState(true);
     expect((document.getElementById('cfgSeerrMode') as HTMLSelectElement).disabled).toBe(false);
     expect((document.querySelector('.seerr-not-configured-hint') as HTMLElement).style.display).toBe('none');
+  });
+
+  test('both dependent wrappers restore pointer, opacity and aria states on a round-trip', () => {
+    for (const enabled of [false, true]) {
+      ui.updateSeerrUIState(enabled);
+      for (const selector of ['.seerr-task-mode-wrapper', '.seerr-age-wrapper']) {
+        const wrapper = document.querySelector(selector) as HTMLElement;
+        expect(wrapper.style.opacity).toBe(enabled ? '' : '0.5');
+        expect(wrapper.style.pointerEvents).toBe(enabled ? '' : 'none');
+        expect(wrapper.getAttribute('aria-disabled')).toBe(enabled ? 'false' : 'true');
+      }
+    }
+  });
+});
+
+describe('inline save indicator sibling guards', () => {
+  test.each(['checkbox', 'library'])('%s tolerates an absent or non-label sibling', (kind) => {
+    const show = () => kind === 'checkbox'
+      ? ui.showInlineCheckboxIndicator(document.getElementById('target'), false)
+      : ui.showLibraryMultiSelectIndicator('target', false);
+    document.body.innerHTML = '<div id="target"></div>';
+    expect(show).not.toThrow();
+    document.body.innerHTML = kind === 'checkbox'
+      ? '<input id="target"><span>Not a label</span>'
+      : '<span>Not a label</span><div id="target"></div>';
+    expect(show).not.toThrow();
+    expect(document.querySelector('.inline-save-indicator')).toBeNull();
+    document.body.innerHTML = '';
+    expect(show).not.toThrow();
+  });
+
+  test.each(['checkbox', 'library'])('%s replaces the label indicator and fades it out', async (kind) => {
+    document.body.innerHTML = kind === 'checkbox'
+      ? '<input id="target"><label>Choice</label>'
+      : '<label>Libraries</label><div id="target"></div>';
+    const show = (success: boolean) => kind === 'checkbox'
+      ? ui.showInlineCheckboxIndicator(document.getElementById('target'), success)
+      : ui.showLibraryMultiSelectIndicator('target', success);
+    show(true);
+    show(false);
+    const indicators = document.querySelectorAll('.inline-save-indicator');
+    expect(indicators).toHaveLength(1);
+    expect(indicators[0].parentElement!.tagName).toBe('LABEL');
+    expect((indicators[0] as HTMLElement).style.color).toBe('rgb(231, 76, 60)');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect((indicators[0] as HTMLElement).style.opacity).toBe('0');
+    await vi.advanceTimersByTimeAsync(600);
+    expect(document.querySelector('.inline-save-indicator')).toBeNull();
   });
 });
