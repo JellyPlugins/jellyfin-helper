@@ -820,6 +820,8 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             options.onSuccess();
         }
     }, function (err) {
+        // A failed save must not bypass the path-change confirmation on the next attempt.
+        _trashPathChangeHandled = false;
         // Structured diagnostic: try to give the user (and support) a concrete hint instead of a generic "Failed to save settings." toast.
         var diag = describeApiError(err);
 
@@ -1916,8 +1918,7 @@ function validateTrashPath(path, useTrash) {
 
     // 6. Split into segments and validate each one
     var segments = segmentPart.split(/[/\\]/);
-    for (var i = 0; i < segments.length; i++) {
-        var seg = segments[i];
+    for (const seg of segments) {
 
         // Empty segment (defensive - should not happen after double-slash check)
         if (!seg) {
@@ -1966,8 +1967,8 @@ function showTrashPathError(errorMsg) {
         errDiv.style.fontSize = '0.85em';
         errDiv.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
         // Insert after the position:relative wrapper div, not inside it
-        var inputWrapper = input.parentNode;
-        if (inputWrapper && inputWrapper.parentNode) {
+        var inputWrapper = input?.parentNode;
+        if (inputWrapper?.parentNode) {
             inputWrapper.parentNode.insertBefore(errDiv, inputWrapper.nextSibling);
         }
     }
@@ -1990,22 +1991,60 @@ function showTrashPathChangeDialog(payload, options) {
     var oldPath = _previousTrashPath;
     var newPath = (payload.TrashFolderPath || '').trim();
 
+    // Keep the save/relocate pipeline outside the dialog's click and lookup callbacks.
+    // Both access-check outcomes use it with the same captured paths and save options.
+    function doRelocateTrash() {
+        if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathMoving', 'Moving trash content…')) + '</div>';
+        _trashPathChangeHandled = true;
+        doSaveSettings(payload, {
+            quiet: !!options?.quiet,
+            element: options?.element || null,
+            onSuccess: function () {
+                _trashPathChangeHandled = false;
+                _previousTrashPath = newPath;
+                apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
+                    var moved = result?.Moved || 0;
+                    var failed = result?.Failed || 0;
+                    if (failed === 0 && moved > 0) {
+                        if (msg) {
+                            msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
+                            setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                        }
+                    } else if (failed > 0) {
+                        var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
+                        if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
+                    } else if (msg) {
+                        // 0 moved, 0 failed: likely a permission issue on the source or empty source
+                        msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
+                    }
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
+                }, function () {
+                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashPathMoveError', 'Failed to move trash content.')) + '</div>';
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
+                });
+            },
+            onError: function (errMsg) {
+                if (typeof options?.onError === 'function') options.onError(errMsg);
+            }
+        });
+    }
+
     // Query the server for existing folders at the OLD path
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
-        var paths = (data && data.Paths) || [];
+        var paths = data?.Paths || [];
         if (paths.length === 0) {
             // No old content exists - save directly, update tracking on success.
             // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
             _trashPathChangeHandled = true;
             doSaveSettings(payload, {
-                quiet: !!(options && options.quiet),
-                element: (options && options.element) || null,
+                quiet: !!options?.quiet,
+                element: options?.element || null,
                 onSuccess: function () {
                     _trashPathChangeHandled = false;
                     _previousTrashPath = newPath;
-                    if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    if (typeof options?.onSuccess === 'function') options.onSuccess();
                 },
-                onError: (options && options.onError) || undefined
+                onError: options?.onError || undefined
             });
             return;
         }
@@ -2029,49 +2068,11 @@ function showTrashPathChangeDialog(payload, options) {
         d.btnRow.appendChild(createDialogBtn(T('trashPathMoveContent', 'Move Content'), 'success', function () {
             removeTrashDialog();
 
-            // Extracted helper: saves settings then relocates trash content.
-            // Used by both the access-check success path and the graceful-degradation fallback.
-            function doRelocateTrash() {
-                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathMoving', 'Moving trash content…')) + '</div>';
-                _trashPathChangeHandled = true;
-                doSaveSettings(payload, {
-                    quiet: !!(options && options.quiet),
-                    element: (options && options.element) || null,
-                    onSuccess: function () {
-                        _trashPathChangeHandled = false;
-                        _previousTrashPath = newPath;
-                        apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
-                            var moved = result?.Moved || 0;
-                            var failed = result?.Failed || 0;
-                            if (failed === 0 && moved > 0) {
-                                if (msg) {
-                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathMoveSuccess', 'Trash content moved successfully.')) + '</div>';
-                                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
-                                }
-                            } else if (failed > 0) {
-                                var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
-                                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
-                            } else if (msg) {
-                                // 0 moved, 0 failed: likely a permission issue on the source or empty source
-                                msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + escHtml(T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.')) + '</div>';
-                            }
-                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                        }, function () {
-                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashPathMoveError', 'Failed to move trash content.')) + '</div>';
-                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                        });
-                    },
-                    onError: function (errMsg) {
-                        if (options && typeof options.onError === 'function') options.onError(errMsg);
-                    }
-                });
-            }
-
             if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + escHtml(T('trashPathCheckingAccess', 'Checking permissions…')) + '</div>';
 
             // Proactive access check on the NEW path before attempting relocation
             apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
-                if (accessData && accessData.AllAccessible === false) {
+                if (accessData?.AllAccessible === false) {
                     // Access check failed - show the specific error from the server
                     var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
                     var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
@@ -2102,14 +2103,14 @@ function showTrashPathChangeDialog(payload, options) {
                 // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
                 _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
-                    quiet: !!(options && options.quiet),
-                    element: (options && options.element) || null,
+                    quiet: !!options?.quiet,
+                    element: options?.element || null,
                     onSuccess: function () {
                         _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
-                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        if (typeof options?.onSuccess === 'function') options.onSuccess();
                     },
-                    onError: (options && options.onError) || undefined
+                    onError: options?.onError || undefined
                 });
             }, function () {
                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
@@ -2123,14 +2124,14 @@ function showTrashPathChangeDialog(payload, options) {
         // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
         _trashPathChangeHandled = true;
         doSaveSettings(payload, {
-            quiet: !!(options && options.quiet),
-            element: (options && options.element) || null,
+            quiet: !!options?.quiet,
+            element: options?.element || null,
             onSuccess: function () {
                 _trashPathChangeHandled = false;
                 _previousTrashPath = newPath;
-                if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                if (typeof options?.onSuccess === 'function') options.onSuccess();
             },
-            onError: (options && options.onError) || undefined
+            onError: options?.onError || undefined
         });
     });
 }

@@ -13,6 +13,11 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
 {
     private const double AlphaMin = EnsembleScoringStrategy.DefaultAlphaMin;
 
+    private static readonly JsonSerializerOptions StateSerializerOptions = new()
+    {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
+
     private readonly string _tempDir;
 
     public EnsembleScoringStrategyStateTests()
@@ -64,14 +69,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         return new EnsembleScoringStrategy(learned, heuristic, neural, statePath: StatePath, ownsNeural: false);
     }
 
-    private static string SerializeState(object state)
-    {
-        var options = new JsonSerializerOptions
-        {
-            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
-        };
-        return JsonSerializer.Serialize(state, options);
-    }
+    private static string SerializeState(object state) => JsonSerializer.Serialize(state, StateSerializerOptions);
 
     private static void VerifyWarningLogged(Mock<ILogger> logger)
     {

@@ -148,6 +148,118 @@ describe('trash path change dialog', () => {
     expect(puts()).toBeGreaterThan(before);
     expect(document.getElementById('trashDialogOverlay')).toBeNull();
   });
+
+  test.each([undefined, null, false, 0, { quiet: false, element: false, onError: false }])(
+    'no-content save tolerates optional/falsy options %s', async (options) => {
+      const calls = ajaxRouter(trashRoutes({ 'FoldersForPath': null }));
+      trashForm();
+      await enableTrash(calls);
+      const before = calls.length;
+      ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
+      await flush();
+      expect(calls.slice(before).some((c) => c.method === 'PUT' && (c.body as any).TrashFolderPath === '/t/new')).toBe(true);
+      expect(document.getElementById('trashDialogOverlay')).toBeNull();
+    },
+  );
+
+  test.each([
+    [{ Moved: 2, Failed: 0 }, /moved successfully/i],
+    [{ Moved: 1, Failed: 2 }, /1 moved, 2 failed/i],
+    [{ Moved: 0, Failed: 0 }, /no items were moved/i],
+    [null, /no items were moved/i],
+  ])('relocation result %j settles once after the save and preserves callback binding', async (result, message) => {
+    const calls = ajaxRouter(trashRoutes({
+      'FoldersForPath': { Paths: ['/t/old/x'] },
+      'Trash/CheckAccess': { AllAccessible: true },
+      'Trash/Relocate': result,
+    }));
+    trashForm();
+    await enableTrash(calls);
+    const before = calls.length;
+    const options = { quiet: true, element: null, onSuccess: vi.fn(function (this: unknown) {
+      expect(this).toBe(options);
+      expect(calls.at(-1)!.url).toContain('Trash/Relocate');
+    }) };
+    ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
+    await flush();
+    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    expect(options.onSuccess).not.toHaveBeenCalled();
+    await flush();
+    const changedCalls = calls.slice(before);
+    const saved = changedCalls.findIndex((c) => c.method === 'PUT');
+    const relocated = changedCalls.findIndex((c) => c.url.includes('Trash/Relocate'));
+    expect(saved).toBeGreaterThanOrEqual(0);
+    expect(relocated).toBeGreaterThan(saved);
+    expect(changedCalls[relocated].body).toEqual({ OldTrashPath: '/t/old', NewTrashPath: '/t/new' });
+    expect(options.onSuccess).toHaveBeenCalledExactlyOnceWith();
+    expect(document.getElementById('settingsMsg')!.textContent).toMatch(message as RegExp);
+    // Saving the same path again must not re-open the dialog (tracking and guard settled).
+    ui.doSaveSettings({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, { quiet: true });
+    await flush();
+    expect(document.getElementById('trashDialogOverlay')).toBeNull();
+  });
+
+  test.each(['Trash/CheckAccess', 'Trash/Relocate'])('%s failure keeps the relocation pipeline and callback contract', async (failure) => {
+    const calls = ajaxRouter(trashRoutes({
+      'FoldersForPath': { Paths: ['/t/old/x'] },
+      'Trash/CheckAccess': { AllAccessible: true },
+      'Trash/Relocate': { Moved: 1, Failed: 0 },
+    }), [failure]);
+    trashForm();
+    await enableTrash(calls);
+    const options = { quiet: true, element: null, onSuccess: vi.fn(function (this: unknown) { expect(this).toBe(options); }) };
+    ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
+    await flush();
+    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    await flush();
+    expect(calls.some((c) => c.url.includes('Trash/Relocate'))).toBe(true);
+    expect(options.onSuccess).toHaveBeenCalledExactlyOnceWith();
+    expect(document.getElementById('settingsMsg')!.textContent).toMatch(failure === 'Trash/Relocate' ? /failed to move/i : /moved successfully/i);
+  });
+
+  test('failed settings save forwards the error and never relocates', async () => {
+    const calls = ajaxRouter(trashRoutes());
+    trashForm();
+    await enableTrash(calls);
+    const failedCalls = ajaxRouter(trashRoutes({
+      'FoldersForPath': { Paths: ['/t/old/x'] },
+      'Trash/CheckAccess': { AllAccessible: true },
+    }), ['JellyfinHelper/Configuration']);
+    const options = {
+      quiet: true, element: null, onSuccess: vi.fn(),
+      onError: vi.fn(function (this: unknown, error: unknown) {
+        expect(this).toBe(options);
+        expect(typeof error).toBe('string');
+      }),
+    };
+    ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
+    await flush();
+    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    await flush();
+    expect(failedCalls.some((c) => c.method === 'PUT')).toBe(true);
+    expect(failedCalls.some((c) => c.url.includes('Trash/Relocate'))).toBe(false);
+    expect(options.onError).toHaveBeenCalledTimes(1);
+    expect(options.onSuccess).not.toHaveBeenCalled();
+    ui.doSaveSettings({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, { quiet: true });
+    await flush();
+    expect(document.getElementById('trashDialogOverlay')).not.toBeNull();
+  });
+
+  test.each(['no-content', 'lookup-error', 'delete-fresh'])('%s forwards the bound success callback', async (mode) => {
+    const calls = ajaxRouter(trashRoutes({ 'FoldersForPath': { Paths: mode === 'delete-fresh' ? ['/t/old/x'] : [] } }),
+      mode === 'lookup-error' ? ['FoldersForPath'] : []);
+    trashForm();
+    await enableTrash(calls);
+    const options = { quiet: true, element: null, onSuccess: vi.fn(function (this: unknown) { expect(this).toBe(options); }) };
+    ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
+    await flush();
+    if (mode === 'delete-fresh') {
+      expect(options.onSuccess).not.toHaveBeenCalled();
+      [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Delete & Start Fresh')!.click();
+      await flush();
+    }
+    expect(options.onSuccess).toHaveBeenCalledExactlyOnceWith();
+  });
 });
 
 describe('misc settings entries', () => {

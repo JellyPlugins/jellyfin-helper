@@ -42,6 +42,10 @@ describe('validateTrashPath matrix', () => {
     expect(ui.validateTrashPath('   ', true)).toMatch(/required/i);
   });
 
+  test.each([undefined, null, false, 0, NaN])('falsy path %s is rejected without calling trim', (path) => {
+    expect(ui.validateTrashPath(path, true)).toMatch(/required/i);
+  });
+
   test('invalid characters are rejected', () => {
     expect(ui.validateTrashPath('a?b', true)).toMatch(/invalid characters/i);
     expect(ui.validateTrashPath('a|b', true)).toMatch(/invalid characters/i);
@@ -59,6 +63,8 @@ describe('validateTrashPath matrix', () => {
   test('dot and dot-dot segments rejected', () => {
     expect(ui.validateTrashPath('/media/../trash', true)).toMatch(/directory references/i);
     expect(ui.validateTrashPath('/media/./trash', true)).toMatch(/directory references/i);
+    expect(ui.validateTrashPath('/media/trash/..', true)).toMatch(/directory references/i);
+    expect(ui.validateTrashPath('/media/ /trash', true)).toMatch(/invalid/i);
   });
 
   test('sensitive system path rejected', () => {
@@ -85,6 +91,25 @@ describe('validateTrashPath matrix', () => {
     expect(ui.validateTrashPath('.jellyfin-trash', true)).toBeNull();
     expect(ui.validateTrashPath('/media/trash', true)).toBeNull();
     expect(ui.validateTrashPath('\\\\server\\share\\trash', true)).toBeNull();
+  });
+});
+
+describe('showTrashPathError optional DOM parents', () => {
+  test('missing input is a no-op rather than a null dereference', () => {
+    document.body.innerHTML = '';
+    expect(() => ui.showTrashPathError('bad path')).not.toThrow();
+    expect(document.getElementById('trashPathErrorMsg')).toBeNull();
+  });
+
+  test('inserts an escaped error after the input wrapper', () => {
+    document.body.innerHTML = '<div id="wrapper"><input id="cfgTrashPath"></div>';
+    ui.showTrashPathError('<script>bad path</script>');
+    const error = document.getElementById('trashPathErrorMsg')!;
+    expect(document.getElementById('wrapper')!.nextElementSibling).toBe(error);
+    expect(error.querySelector('script')).toBeNull();
+    expect(error.textContent).toContain('<script>bad path</script>');
+    ui.showTrashPathError(null);
+    expect(document.getElementById('trashPathErrorMsg')).toBeNull();
   });
 });
 
