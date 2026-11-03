@@ -203,6 +203,9 @@ See [`test/ui/README.md`](test/ui/README.md) for the suite map and
 
 Tests mirror the source structure:
 
+`TestFixtures/TestMockFactoryTests.cs` checks null-argument diagnostics and immediate
+read/mutate callback behavior in the shared configuration mock factory.
+
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every registered service must resolve

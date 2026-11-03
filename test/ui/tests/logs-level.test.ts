@@ -34,6 +34,20 @@ describe('logs extras', () => {
     expect((document.getElementById('logsLevelFilter') as HTMLSelectElement).value).toBe('WARN');
   });
 
+  test('Logs loading updates Settings shared state and avoids redundant configuration fetches', async () => {
+    const calls = ajaxRouter({ Configuration: { PluginLogLevel: 'DEBUG' } });
+    document.body.innerHTML = ui.renderLogsTab() +
+      '<input id="cfgOrphanAge" value="30"><input id="cfgTrashDays" value="30">' +
+      ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode']
+        .map((id) => '<input id="' + id + '" value="DryRun">').join('');
+    ui.loadLogLevelFromConfig(() => undefined);
+    await flush();
+    expect(ui.buildSettingsPayload().PluginLogLevel).toBe('DEBUG');
+    ui.loadLogLevelFromConfig(() => undefined);
+    await flush();
+    expect(calls.filter((call) => call.url.includes('Configuration'))).toHaveLength(1);
+  });
+
   test('saveLogLevelToConfig success and failure', async () => {
     const okCalls = ajaxRouter({ 'LogLevel': {} });
     document.body.innerHTML = ui.renderLogsTab();

@@ -152,7 +152,7 @@ public class TrashControllerAccessTests : IDisposable
 
     [Fact]
     [Trait("Category", "Security")]
-    public void CheckAccess_AbsolutePathOutsideLibraries_ReturnsBadRequest()
+    public void CheckAccess_AbsoluteLibraryRoot_ReturnsBadRequest()
     {
         // An absolute path equal to the library root is unsafe (IsPathSafeForDeletion false):
         // the containment gate must refuse it so no probe file is created outside a trash dir.
@@ -162,5 +162,35 @@ public class TrashControllerAccessTests : IDisposable
         var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = _testRoot });
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckAccess_DedicatedExternalTrashDirectory_RemainsSupported(bool exists)
+    {
+        var library = Path.Join(_testRoot, "library");
+        Directory.CreateDirectory(library);
+        var external = Path.Join(_testRoot, "external-trash");
+        if (exists)
+        {
+            Directory.CreateDirectory(external);
+        }
+
+        var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = external };
+        var controller = CreateController(config, [library]);
+
+        var result = controller.CheckAccess(new TrashPathQueryRequest { TrashFolderPath = external });
+
+        var response = Assert.IsType<TrashAccessResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.True(response.AllAccessible);
+        var entry = Assert.Single(response.Results);
+        Assert.Equal(external, entry.Path);
+        Assert.Null(entry.LibraryRoot);
+        Assert.Equal(exists, entry.Exists);
+        Assert.True(entry.HasFullAccess);
+        Assert.Null(entry.ErrorMessage);
+        Assert.Empty(Directory.GetFiles(_testRoot, ".jfh-access-probe-*", SearchOption.AllDirectories));
+        Assert.Equal(exists, Directory.Exists(external));
     }
 }

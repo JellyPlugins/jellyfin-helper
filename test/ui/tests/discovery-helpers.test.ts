@@ -115,6 +115,18 @@ describe('discovery pure helpers', () => {
     expect(ui.t('onlyKey')).toBe('onlyKey');
   });
 
+  test('translations preserve truthy lookup and falsy fallback behavior', async () => {
+    const fresh = freshDiscoveryHelpers();
+    ajaxRouter({ Translations: { filled: 'Translated', empty: '', zero: 0, off: false } });
+    await fresh.loadStrings(() => {});
+    expect(fresh.t('filled', 'fallback')).toBe('Translated');
+    for (const key of ['empty', 'zero', 'off', 'missing']) {
+      expect(fresh.t(key, 'fallback')).toBe('fallback');
+    }
+    expect(fresh.formatReason('filled', 'raw')).toBe('Translated');
+    expect(fresh.formatReason('empty', 'raw')).toBe('raw');
+  });
+
   test('discoveryGeneratedAt parses timestamps, 0 on missing or bad', () => {
     const ms = ui.discoveryGeneratedAt({ GeneratedAt: '2024-01-01T00:00:00Z' });
     expect(ms).toBe(Date.parse('2024-01-01T00:00:00Z'));
@@ -170,6 +182,12 @@ describe('discovery error mapping', () => {
     expect(ui.extractErrorMessage(null)).toBe('');
   });
 
+  test.each(['null', 'false', '0', '""', '{"Message":""}', '{"Message":false}'])(
+    'extractErrorMessage ignores a falsy parsed error payload: %s', (responseText) => {
+      expect(ui.extractErrorMessage({ responseJSON: null, responseText })).toBe('');
+    },
+  );
+
   test('getUserFriendlyErrorMessage classifies by status/keyword', () => {
     expect(ui.getUserFriendlyErrorMessage('HTTP 403 denied')).toContain('No permission');
     expect(ui.getUserFriendlyErrorMessage('not linked')).toContain('No permission');
@@ -205,6 +223,10 @@ describe('formatReason / formatRawReasonFallback', () => {
     expect(ui.formatRawReasonFallback('reasonUnknownToken')).toBe('');
     // A plain non-reason string passes through verbatim.
     expect(ui.formatRawReasonFallback('just text')).toBe('just text');
+  });
+
+  test.each([null, undefined, '', false, 0])('raw reason fallback ignores falsy values: %j', (reason) => {
+    expect(ui.formatRawReasonFallback(reason)).toBe('');
   });
 });
 
@@ -380,6 +402,53 @@ describe('renderCards', () => {
     // after the slash, so match the escaped head rather than the exact tail).
     expect(reason!.innerHTML).toContain('&lt;b&gt;xss');
     expect(reason!.textContent).toContain('<b>xss');
+  });
+
+  test.each([null, undefined, false, {}, { Recommendations: null }, { Recommendations: false }])(
+    'missing or falsy recommendations retain the no-results state: %j', (payload) => {
+      const el = document.createElement('div');
+      ui.renderCards(el, payload);
+      expect(el.textContent).toContain('No suggestions available');
+      expect(el.querySelector('.jfh-discovery-card')).toBeNull();
+    },
+  );
+
+  test.each([-1, 0, 0.499, 0.5, 0.8, 2, 'invalid'])(
+    'card score remains clamped and classified after extraction: %s', (score) => {
+      const el = document.createElement('div');
+      ui.renderCards(el, { Recommendations: [rec({ Score: score, Genres: ['<Action>', 'Drama', 'Third'] })] });
+      const percent = Math.max(0, Math.min(100, Math.round((Number(score) || 0) * 100)));
+      expect((el.querySelector('.jfh-discovery-score-bar') as HTMLElement).style.width).toBe(percent + '%');
+      expect(el.querySelector('.' + ui.getDiscoveryScoreClass(percent))).not.toBeNull();
+      const genres = el.querySelectorAll('.jfh-discovery-card-genres .jfh-discovery-tag');
+      expect(Array.from(genres, (genre) => genre.textContent)).toEqual(['<Action>', 'Drama']);
+      expect(el.querySelector('action')).toBeNull();
+    },
+  );
+
+  test('each card retains its request/dismiss target and poster/link callback binding', async () => {
+    const calls = ajaxRouter({ RequestPermissions: { CanRequest: true, Profiles: [] }, '/Request': { Success: true } });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    ui.renderCards(el, { Recommendations: [rec(), rec({ TmdbId: 42, Title: 'Second', MediaType: 'tv' })] });
+    const cards = el.querySelectorAll('.jfh-discovery-card');
+    const second = cards[1];
+    (second.querySelector('.jfh-discovery-btn-dismiss') as HTMLElement).click();
+    expect(document.getElementById('jfhDiscoveryPopup')!.textContent).toContain('Second');
+    ui.closeDiscoveryPopup();
+    const poster = second.querySelector('.jfh-discovery-card-poster')!;
+    (poster as HTMLElement).click();
+    expect(poster.classList.contains('flipped')).toBe(true);
+    expect(cards[0].querySelector('.jfh-discovery-card-poster')!.classList.contains('flipped')).toBe(false);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    (second.querySelector('.jfh-discovery-flip-link') as HTMLElement).click();
+    expect(open).toHaveBeenCalledWith('https://www.themoviedb.org/tv/42', '_blank', 'noopener,noreferrer');
+    expect(poster.classList.contains('flipped')).toBe(true);
+    open.mockRestore();
+    (second.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)') as HTMLElement).click();
+    await flush();
+    const post = calls.find((call) => call.type === 'POST');
+    expect(post!.body).toMatchObject({ TmdbId: 42, MediaType: 'tv' });
   });
 });
 
@@ -1243,6 +1312,14 @@ describe('waitForApi retry budget', () => {
     ui.waitForApi(cb, onTimeout);
     expect(cb).toHaveBeenCalledTimes(1);
     expect(onTimeout).not.toHaveBeenCalled();
+  });
+
+  test.each([null, undefined, false, 0, ''])('waitForApi tolerates a falsy uninitialized method: %j', (method) => {
+    const ui = freshDiscoveryHelpers();
+    (globalThis as any).ApiClient = { getCurrentUserId: method };
+    const callback = vi.fn();
+    expect(() => ui.waitForApi(callback)).not.toThrow();
+    expect(callback).not.toHaveBeenCalled();
   });
 
   test('retries while ApiClient is unavailable and recovers once it appears', async () => {

@@ -25,6 +25,7 @@ validators are pinned without a browser.
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |
+| E2E mock Seerr log control-character escaping (no network listener) | `tests/mock-seerr-log.test.ts` |
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
