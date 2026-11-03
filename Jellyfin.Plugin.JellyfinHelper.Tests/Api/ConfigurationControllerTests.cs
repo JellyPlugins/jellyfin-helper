@@ -977,6 +977,10 @@ public class ConfigurationControllerTests : IDisposable
     [InlineData("DE", "en")]
     [InlineData("de", "de")]
     [InlineData("fr", "fr")]
+    [InlineData(" de ", "de")]
+    [InlineData("\tfr\n", "fr")]
+    [InlineData(" zz ", "en")]
+    [InlineData("   ", "en")]
     public async Task UpdateConfiguration_LanguageSelection_StoresSupportedValueOrFallsBack(string? language, string expected)
     {
         _config.Language = "es";

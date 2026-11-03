@@ -270,6 +270,30 @@ describe('discovery request through the profile popup', () => {
     expect(document.activeElement).toBe(btn);
   });
 
+  test.each([
+    { Id: 0, Profiles: [{ Id: 0, Name: 'Zero' }, { Id: 1, Name: 'Other' }], ActiveProfileId: 0, ActiveDirectory: '/zero' },
+    { Id: 0, id: 9, Profiles: [{ Id: 0, id: 8, Name: 'Zero' }, { Id: 1, Name: 'Other' }], ActiveProfileId: 0, activeProfileId: 7, ActiveDirectory: '/zero' },
+  ])('PascalCase zero identifiers remain selected and are submitted, case %#', async (service) => {
+    const calls = ajaxRouter(popupRoutes([
+      service,
+      { Id: 2, Name: 'Second', Profiles: [{ Id: 3, Name: 'Second profile' }], ActiveProfileId: 3 },
+    ], { 'Discovery/Request': { Success: true } }));
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    (document.querySelector('#discoveryGrid .discovery-request-btn') as HTMLButtonElement).click();
+    await flush();
+    const profiles = document.querySelectorAll<HTMLButtonElement>('.discovery-popup-user');
+    expect(profiles).toHaveLength(3);
+    expect(profiles[0].textContent).toContain('Server #0');
+    expect(profiles[0].classList.contains('discovery-popup-user-default')).toBe(true);
+    expect(profiles[1].classList.contains('discovery-popup-user-default')).toBe(false);
+    profiles[0].click();
+    await flush();
+    expect(calls.find((call) => call.url.includes('Discovery/Request'))!.body)
+      .toMatchObject({ TmdbId: 5, ServerId: 0, ProfileId: 0, RootFolder: '/zero' });
+  });
+
   test('closing an already removed popup is idempotent', async () => {
     ajaxRouter(popupRoutes([{ id: 1, profiles: [{ id: 4, name: 'HD' }] }]));
     document.body.innerHTML = '<div id="recsContent"></div>';
