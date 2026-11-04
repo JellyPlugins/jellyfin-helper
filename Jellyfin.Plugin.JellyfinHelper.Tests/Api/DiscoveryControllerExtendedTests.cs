@@ -36,7 +36,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
         ControllerTestFactory.ResetPluginConfiguration();
 
-        _cacheFilePath = Path.Combine(Plugin.Instance!.DataFolderPath, CacheFileName);
+        _cacheFilePath = Path.Join(Plugin.Instance!.DataFolderPath, CacheFileName);
         _originalCacheContents = File.Exists(_cacheFilePath)
             ? File.ReadAllBytes(_cacheFilePath)
             : null;

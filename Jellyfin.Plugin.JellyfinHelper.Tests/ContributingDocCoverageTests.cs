@@ -24,7 +24,7 @@ public sealed class ContributingDocCoverageTests
     // configPage.html is composed at build time (see .gitignore); it is not source.
     private static readonly string[] ExcludedRelativePaths =
     [
-        Path.Combine("Jellyfin.Plugin.JellyfinHelper", "PluginPages", "configPage.html"),
+        Path.Join("Jellyfin.Plugin.JellyfinHelper", "PluginPages", "configPage.html"),
     ];
 
     // Filenames that legitimately appear in the tree but have no tracked source file: they are
@@ -40,7 +40,7 @@ public sealed class ContributingDocCoverageTests
         var repoRoot = FindRepoRoot();
         Assert.NotNull(repoRoot);
 
-        var contributingPath = Path.Combine(repoRoot!, "CONTRIBUTING.md");
+        var contributingPath = Path.Join(repoRoot!, "CONTRIBUTING.md");
         Assert.True(File.Exists(contributingPath), $"CONTRIBUTING.md not found at {contributingPath}");
         var contributing = File.ReadAllText(contributingPath);
 
@@ -105,7 +105,7 @@ public sealed class ContributingDocCoverageTests
             }
         }
 
-        var contributingLines = File.ReadAllLines(Path.Combine(repoRoot!, "CONTRIBUTING.md"));
+        var contributingLines = File.ReadAllLines(Path.Join(repoRoot!, "CONTRIBUTING.md"));
         var phantom = new List<string>();
 
         foreach (var line in contributingLines)
@@ -170,7 +170,7 @@ public sealed class ContributingDocCoverageTests
         var dir = AppContext.BaseDirectory;
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir, "CONTRIBUTING.md")))
+            if (File.Exists(Path.Join(dir, "CONTRIBUTING.md")))
             {
                 return dir;
             }

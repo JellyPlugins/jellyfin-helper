@@ -25,11 +25,11 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
 
     // Real playlists root the SUT treats as the safe base directory.
     private readonly string _playlistsRoot =
-        Path.Combine(Path.GetTempPath(), "rec-playlist-fallback-" + Guid.NewGuid().ToString("N"));
+        Path.Join(Path.GetTempPath(), "rec-playlist-fallback-" + Guid.NewGuid().ToString("N"));
 
     // A separate root used to model an out-of-root drifted path.
     private readonly string _outsideRoot =
-        Path.Combine(Path.GetTempPath(), "rec-playlist-outside-" + Guid.NewGuid().ToString("N"));
+        Path.Join(Path.GetTempPath(), "rec-playlist-outside-" + Guid.NewGuid().ToString("N"));
 
     public RecommendationPlaylistServiceDeletionFallbackTests()
     {
@@ -81,7 +81,7 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
         SetupUserManagerSingleUser(userId, "Alice");
 
         // Real folder strictly inside the playlists root - the recursive delete must run.
-        var folder = Path.Combine(_playlistsRoot, "Recommended for Alice");
+        var folder = Path.Join(_playlistsRoot, "Recommended for Alice");
         Directory.CreateDirectory(folder);
         var managed = BuildManagedPlaylist("Alice", folder);
         SetupPlaylistLookup(new BaseItem[] { managed });
@@ -115,7 +115,7 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
         SetupUserManagerSingleUser(userId, "Alice");
 
         // A real folder OUTSIDE the playlists root: fallback must not touch it.
-        var folder = Path.Combine(_outsideRoot, "Recommended for Alice");
+        var folder = Path.Join(_outsideRoot, "Recommended for Alice");
         Directory.CreateDirectory(folder);
         var managed = BuildManagedPlaylist("Alice", folder);
         SetupPlaylistLookup(new BaseItem[] { managed });
@@ -150,7 +150,7 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 
-        var folder = Path.Combine(_playlistsRoot, "Recommended for Alice");
+        var folder = Path.Join(_playlistsRoot, "Recommended for Alice");
         Directory.CreateDirectory(folder);
         var managed = BuildManagedPlaylist("Alice", folder);
         SetupPlaylistLookup(new BaseItem[] { managed });
@@ -258,7 +258,7 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 
-        var folder = Path.Combine(_playlistsRoot, "Recommended for Alice");
+        var folder = Path.Join(_playlistsRoot, "Recommended for Alice");
         Directory.CreateDirectory(folder);
         var managed = BuildManagedPlaylist("Alice", folder);
         SetupPlaylistLookup(new BaseItem[] { managed });

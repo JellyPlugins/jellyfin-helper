@@ -16,7 +16,7 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
 
     public LearnedScoringStrategyRobustnessTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), $"learned_robust_{Guid.NewGuid():N}");
+        _tempDir = Path.Join(Path.GetTempPath(), $"learned_robust_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
     }
 

@@ -88,7 +88,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     {
         // A bare filename has no directory component, so DeriveStatePath falls back to "."
         // and the state file lands in the current working directory.
-        var stateInCwd = Path.Combine(".", "ensemble_state.json");
+        var stateInCwd = Path.Join(".", "ensemble_state.json");
         var backup = File.Exists(stateInCwd) ? File.ReadAllText(stateInCwd) : null;
         var preexisting = backup is not null;
         try

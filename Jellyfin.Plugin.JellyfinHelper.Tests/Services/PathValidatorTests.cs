@@ -116,15 +116,15 @@ public class PathValidatorTests
     public void IsSafePath_PathInsideBase_ReturnsTrue()
     {
         var dir = Path.GetTempPath();
-        var child = Path.Combine(dir, "subdir");
+        var child = Path.Join(dir, "subdir");
         Assert.True(PathValidator.IsSafePath(child, dir));
     }
 
     [Fact]
     public void IsSafePath_PathOutsideBase_ReturnsFalse()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "allowed");
-        var outside = Path.Combine(Path.GetTempPath(), "other");
+        var dir = Path.Join(Path.GetTempPath(), "allowed");
+        var outside = Path.Join(Path.GetTempPath(), "other");
         Assert.False(PathValidator.IsSafePath(outside, dir));
     }
 
@@ -132,7 +132,7 @@ public class PathValidatorTests
     public void IsSafePath_TraversalInPath_ReturnsFalse()
     {
         var dir = Path.GetTempPath();
-        Assert.False(PathValidator.IsSafePath(Path.Combine(dir, "..", "escape"), dir));
+        Assert.False(PathValidator.IsSafePath(Path.Join(dir, "..", "escape"), dir));
     }
 
     /// <summary>
@@ -143,7 +143,7 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_PathWithDotDotInName_NotFalsePositive()
     {
         // "/media/my..folder/file" contains ".." as a substring but not as a path segment.
-        var path = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "my..folder", "file");
+        var path = Path.Join(Path.DirectorySeparatorChar.ToString(), "media", "my..folder", "file");
         Assert.True(PathValidator.IsPathSafeForDeletion(path, []));
     }
 
@@ -154,8 +154,8 @@ public class PathValidatorTests
     [Fact]
     public void IsPathSafeForDeletion_PathInsideLibraryRoot_Rejected()
     {
-        var libraryRoot = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "movies");
-        var candidate = Path.Combine(libraryRoot, "Inception");
+        var libraryRoot = Path.Join(Path.DirectorySeparatorChar.ToString(), "media", "movies");
+        var candidate = Path.Join(libraryRoot, "Inception");
         Assert.False(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
     }
 
@@ -167,9 +167,9 @@ public class PathValidatorTests
     public void IsSafePath_DotDotAsSegment_Rejected()
     {
         // "/media/../etc" contains ".." as an explicit path segment.
-        var path = Path.Combine(
+        var path = Path.Join(
             Path.DirectorySeparatorChar.ToString(), "media", "..", "etc");
-        Assert.False(PathValidator.IsSafePath(path, Path.Combine(Path.DirectorySeparatorChar.ToString(), "media")));
+        Assert.False(PathValidator.IsSafePath(path, Path.Join(Path.DirectorySeparatorChar.ToString(), "media")));
     }
 
     [Theory]
@@ -275,7 +275,7 @@ public class PathValidatorTests
     [Fact]
     public void IsPathSafeForDeletion_RelativePath_Rejected()
     {
-        Assert.False(PathValidator.IsPathSafeForDeletion(Path.Combine("relative", "dir"), []));
+        Assert.False(PathValidator.IsPathSafeForDeletion(Path.Join("relative", "dir"), []));
     }
 
     // Deleting a whole drive or filesystem root must be refused regardless of library folders.
@@ -291,7 +291,7 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_PathEqualsLibraryRoot_Rejected()
     {
         var sep = Path.DirectorySeparatorChar.ToString();
-        var libraryRoot = Path.Combine(sep, "media", "movies");
+        var libraryRoot = Path.Join(sep, "media", "movies");
         Assert.False(PathValidator.IsPathSafeForDeletion(libraryRoot, [libraryRoot]));
     }
 
@@ -302,8 +302,8 @@ public class PathValidatorTests
     {
         var sep = Path.DirectorySeparatorChar.ToString();
         Assert.False(PathValidator.IsPathSafeForDeletion(
-            Path.Combine(sep, "media"),
-            [Path.Combine(sep, "media", "movies")]));
+            Path.Join(sep, "media"),
+            [Path.Join(sep, "media", "movies")]));
     }
 
     // A name that reduces to a dot-segment survives char sanitization and GetFileName,
@@ -398,9 +398,9 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_CandidateUnrelatedToLibraryRoots_Allowed()
     {
         var sep = Path.DirectorySeparatorChar.ToString();
-        var libraryRoot = Path.Combine(sep, "media", "movies");
+        var libraryRoot = Path.Join(sep, "media", "movies");
         // Sibling tree, shares no ancestor/descendant relationship with the library root.
-        var candidate = Path.Combine(sep, "trash", "expired-item");
+        var candidate = Path.Join(sep, "trash", "expired-item");
 
         Assert.True(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
     }
@@ -412,12 +412,12 @@ public class PathValidatorTests
     public void IsPathSafeForDeletion_SkipsBlankLibraryFolderEntries(string blank)
     {
         var sep = Path.DirectorySeparatorChar.ToString();
-        var candidate = Path.Combine(sep, "trash", "expired-item");
+        var candidate = Path.Join(sep, "trash", "expired-item");
 
         // The blank entry must be ignored; the real root is unrelated to the candidate.
         Assert.True(PathValidator.IsPathSafeForDeletion(
             candidate,
-            [blank, Path.Combine(sep, "media", "movies")]));
+            [blank, Path.Join(sep, "media", "movies")]));
     }
 
     // A null or empty path has no segments to screen, so the guard reports no traversal.

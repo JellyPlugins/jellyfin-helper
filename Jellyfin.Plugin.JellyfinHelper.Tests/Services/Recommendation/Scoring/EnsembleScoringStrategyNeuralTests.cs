@@ -280,7 +280,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
                 "Learned training must succeed with >= 12 examples");
 
             var beta = ensemble.CurrentNeuralBeta;
-            Assert.True(beta == 0.0 || beta >= EnsembleScoringStrategy.NeuralBetaMinFloor,
+            Assert.True(beta.Equals(0.0) || beta >= EnsembleScoringStrategy.NeuralBetaMinFloor,
                 $"Beta must never linger between zero and the floor, was {beta:F6}");
         }
 

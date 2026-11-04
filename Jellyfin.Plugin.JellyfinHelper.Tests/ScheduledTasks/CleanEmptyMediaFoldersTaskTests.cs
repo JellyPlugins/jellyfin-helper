@@ -1035,10 +1035,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
         Config.UseTrash = false;
 
-        var libraryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-        var realDir = Path.Combine(libraryPath, "Orphan");
+        var libraryPath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var realDir = Path.Join(libraryPath, "Orphan");
         Directory.CreateDirectory(realDir);
-        File.WriteAllText(Path.Combine(realDir, "movie.srt"), "sub");
+        File.WriteAllText(Path.Join(realDir, "movie.srt"), "sub");
 
         try
         {

@@ -213,9 +213,9 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_DeletesJellyfinHelperJsonFiles()
     {
-        var dataFile1 = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");
-        var dataFile2 = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
-        var tmpLeftover = Path.Combine(_dataPath, "jellyfin-helper-growth-timeline.tmp");
+        var dataFile1 = Path.Join(_dataPath, "jellyfin-helper-statistics-latest.json");
+        var dataFile2 = Path.Join(_dataPath, "jellyfin-helper-recommendations-latest.json");
+        var tmpLeftover = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.tmp");
         File.WriteAllText(dataFile1, "{}");
         File.WriteAllText(dataFile2, "{}");
         File.WriteAllText(tmpLeftover, string.Empty);
@@ -232,11 +232,11 @@ public sealed class PluginTests : IDisposable
     public void OnUninstalling_DeletesUnprefixedMlAndStateArtifacts()
     {
         // Regression: CleanupDataFiles' "jellyfin-helper-*" + .json/.tmp glob does NOT match the recommendation ML/state artifacts, which are written to DataPath either without the prefix (ml_weights.json, neural_weights.json, ensemble_state.json - see PluginServiceRegistrator) or with.
-        var mlWeights = Path.Combine(_dataPath, "ml_weights.json");
-        var neuralWeights = Path.Combine(_dataPath, "neural_weights.json");
-        var ensembleState = Path.Combine(_dataPath, "ensemble_state.json");
-        var batchGeneration = Path.Combine(_dataPath, "jellyfin-helper-batch-generation.txt");
-        var prefixedCache = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
+        var mlWeights = Path.Join(_dataPath, "ml_weights.json");
+        var neuralWeights = Path.Join(_dataPath, "neural_weights.json");
+        var ensembleState = Path.Join(_dataPath, "ensemble_state.json");
+        var batchGeneration = Path.Join(_dataPath, "jellyfin-helper-batch-generation.txt");
+        var prefixedCache = Path.Join(_dataPath, "jellyfin-helper-recommendations-latest.json");
         File.WriteAllText(mlWeights, "{}");
         File.WriteAllText(neuralWeights, "{}");
         File.WriteAllText(ensembleState, "{}");
@@ -278,10 +278,10 @@ public sealed class PluginTests : IDisposable
         // them, matched on the exact 32-hex id shape this plugin writes.
         var userA = Guid.NewGuid().ToString("N");
         var userB = Guid.NewGuid().ToString("N");
-        var weightsA = Path.Combine(_dataPath, $"ml_weights_{userA}.json");
-        var stateA = Path.Combine(_dataPath, $"ensemble_state_{userA}.json");
-        var weightsB = Path.Combine(_dataPath, $"ml_weights_{userB}.json");
-        var stateB = Path.Combine(_dataPath, $"ensemble_state_{userB}.json");
+        var weightsA = Path.Join(_dataPath, $"ml_weights_{userA}.json");
+        var stateA = Path.Join(_dataPath, $"ensemble_state_{userA}.json");
+        var weightsB = Path.Join(_dataPath, $"ml_weights_{userB}.json");
+        var stateB = Path.Join(_dataPath, $"ensemble_state_{userB}.json");
         foreach (var f in new[] { weightsA, stateA, weightsB, stateB })
         {
             File.WriteAllText(f, "{}");
@@ -301,10 +301,10 @@ public sealed class PluginTests : IDisposable
     {
         // A user-made file that happens to share the ml_weights_ / ensemble_state_ stem but does not carry the
         // 32-hex id suffix is not something this plugin wrote, so uninstall must leave it in place.
-        var backup = Path.Combine(_dataPath, "ml_weights_backup.json");
-        var notes = Path.Combine(_dataPath, "ensemble_state_notes.json");
+        var backup = Path.Join(_dataPath, "ml_weights_backup.json");
+        var notes = Path.Join(_dataPath, "ensemble_state_notes.json");
         // A genuine per-user file alongside them, to prove the sweep still runs.
-        var realPerUser = Path.Combine(_dataPath, $"ml_weights_{Guid.NewGuid():N}.json");
+        var realPerUser = Path.Join(_dataPath, $"ml_weights_{Guid.NewGuid():N}.json");
         File.WriteAllText(backup, "{}");
         File.WriteAllText(notes, "{}");
         File.WriteAllText(realPerUser, "{}");
@@ -321,10 +321,10 @@ public sealed class PluginTests : IDisposable
     public void OnUninstalling_PreservesUnrelatedFilesInDataPath()
     {
         // A wildcard change to "jellyfin-*" or "*.json" would nuke unrelated files.
-        var pluginFile = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");
-        var unrelated1 = Path.Combine(_dataPath, "jellyfin.db");
-        var unrelated2 = Path.Combine(_dataPath, "some-other-plugin-data.json");
-        var unrelated3 = Path.Combine(_dataPath, "jellyfin-helper-something.log"); // wrong extension
+        var pluginFile = Path.Join(_dataPath, "jellyfin-helper-statistics-latest.json");
+        var unrelated1 = Path.Join(_dataPath, "jellyfin.db");
+        var unrelated2 = Path.Join(_dataPath, "some-other-plugin-data.json");
+        var unrelated3 = Path.Join(_dataPath, "jellyfin-helper-something.log"); // wrong extension
         File.WriteAllText(pluginFile, "{}");
         File.WriteAllText(unrelated1, "db");
         File.WriteAllText(unrelated2, "{}");
@@ -353,14 +353,14 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_DeletesRecommendationPlaylistFolders()
     {
-        var playlistsRoot = Path.Combine(_dataPath, "playlists");
+        var playlistsRoot = Path.Join(_dataPath, "playlists");
         Directory.CreateDirectory(playlistsRoot);
-        var managed = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Alice");
-        var userOwned = Path.Combine(playlistsRoot, "My Awesome Playlist");
+        var managed = Path.Join(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Alice");
+        var userOwned = Path.Join(playlistsRoot, "My Awesome Playlist");
         Directory.CreateDirectory(managed);
         Directory.CreateDirectory(userOwned);
-        File.WriteAllText(Path.Combine(managed, "playlist.xml"), "<x/>");
-        File.WriteAllText(Path.Combine(userOwned, "playlist.xml"), "<x/>");
+        File.WriteAllText(Path.Join(managed, "playlist.xml"), "<x/>");
+        File.WriteAllText(Path.Join(userOwned, "playlist.xml"), "<x/>");
 
         var plugin = CreatePlugin();
         plugin.OnUninstalling();
@@ -373,9 +373,9 @@ public sealed class PluginTests : IDisposable
     public void OnUninstalling_PlaylistNamePrefixMismatch_DoesNotDelete()
     {
         // Only exact "🎬 Recommended for " prefix must delete.
-        var playlistsRoot = Path.Combine(_dataPath, "playlists");
+        var playlistsRoot = Path.Join(_dataPath, "playlists");
         Directory.CreateDirectory(playlistsRoot);
-        var closelyNamed = Path.Combine(playlistsRoot, "🎬 Recommended Movies of 2024");
+        var closelyNamed = Path.Join(playlistsRoot, "🎬 Recommended Movies of 2024");
         Directory.CreateDirectory(closelyNamed);
 
         var plugin = CreatePlugin();
@@ -434,14 +434,14 @@ public sealed class PluginTests : IDisposable
     public void OnUninstalling_LockedRecommendationPlaylistFolder_SkipsItWithoutThrowing()
     {
         // Uninstall purges every managed recommendation playlist folder.
-        var playlistsRoot = Path.Combine(_dataPath, "playlists");
+        var playlistsRoot = Path.Join(_dataPath, "playlists");
         Directory.CreateDirectory(playlistsRoot);
-        var lockedManaged = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Bob");
-        var freeManaged = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Carol");
+        var lockedManaged = Path.Join(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Bob");
+        var freeManaged = Path.Join(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Carol");
         Directory.CreateDirectory(lockedManaged);
         Directory.CreateDirectory(freeManaged);
-        File.WriteAllText(Path.Combine(freeManaged, "playlist.xml"), "<x/>");
-        var lockedFile = Path.Combine(lockedManaged, "playlist.xml");
+        File.WriteAllText(Path.Join(freeManaged, "playlist.xml"), "<x/>");
+        var lockedFile = Path.Join(lockedManaged, "playlist.xml");
         File.WriteAllText(lockedFile, "<x/>");
 
         var plugin = CreatePlugin();
@@ -472,8 +472,8 @@ public sealed class PluginTests : IDisposable
     public void OnUninstalling_LockedDataFile_SkipsItAndDeletesOthers()
     {
         // Uninstall sweeps every jellyfin-helper-*.json data file.
-        var lockedFile = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");
-        var freeFile = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
+        var lockedFile = Path.Join(_dataPath, "jellyfin-helper-statistics-latest.json");
+        var freeFile = Path.Join(_dataPath, "jellyfin-helper-recommendations-latest.json");
         File.WriteAllText(lockedFile, "{}");
         File.WriteAllText(freeFile, "{}");
 

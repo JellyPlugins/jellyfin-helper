@@ -1344,6 +1344,10 @@ public partial class SeerrIntegrationServiceTests : IDisposable
             }
         });
 
+        using var page1Response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new System.Net.Http.StringContent(page1, System.Text.Encoding.UTF8, "application/json")
+        };
         var callCount = 0;
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
@@ -1357,10 +1361,7 @@ public partial class SeerrIntegrationServiceTests : IDisposable
                 if (callCount == 1)
                 {
                     // First call: page 1 succeeds - two expired deletable requests
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new System.Net.Http.StringContent(page1, System.Text.Encoding.UTF8, "application/json")
-                    });
+                    return Task.FromResult(page1Response);
                 }
 
                 // Second call: page 2 fetch fails - pagination is incomplete

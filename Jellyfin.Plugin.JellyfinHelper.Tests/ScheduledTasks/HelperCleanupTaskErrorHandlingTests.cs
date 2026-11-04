@@ -179,9 +179,9 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         // Two library roots whose trash paths collide to one shared folder must be purged once.
         _config = DeactivatedTrashConfig();
 
-        var libA = Path.Combine(Path.GetTempPath(), "hct-lib-a");
-        var libB = Path.Combine(Path.GetTempPath(), "hct-lib-b");
-        var sharedTrash = Path.Combine(Path.GetTempPath(), "hct-shared-trash");
+        var libA = Path.Join(Path.GetTempPath(), "hct-lib-a");
+        var libB = Path.Join(Path.GetTempPath(), "hct-lib-b");
+        var sharedTrash = Path.Join(Path.GetTempPath(), "hct-shared-trash");
         var sharedTrashFull = Path.GetFullPath(sharedTrash);
 
         _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
@@ -207,7 +207,7 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         // A trash path resolving back to the library root must never be purged (defense in depth).
         _config = DeactivatedTrashConfig();
 
-        var libRoot = Path.Combine(Path.GetTempPath(), "hct-root-lib");
+        var libRoot = Path.Join(Path.GetTempPath(), "hct-root-lib");
 
         _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(new List<string> { libRoot });
@@ -226,11 +226,11 @@ public sealed class HelperCleanupTaskErrorHandlingTests
     {
         _config = DeactivatedTrashConfig();
 
-        var lib = Path.Combine(Path.GetTempPath(), "hct-cancel-lib");
+        var lib = Path.Join(Path.GetTempPath(), "hct-cancel-lib");
         _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(new List<string> { lib });
         _configHelperMock.Setup(c => c.GetTrashPath(lib))
-            .Returns(Path.Combine(Path.GetTempPath(), "hct-cancel-trash"));
+            .Returns(Path.Join(Path.GetTempPath(), "hct-cancel-trash"));
 
         _trashServiceMock
             .Setup(t => t.PurgeExpiredTrash(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))
@@ -247,11 +247,11 @@ public sealed class HelperCleanupTaskErrorHandlingTests
     {
         _config = DeactivatedTrashConfig();
 
-        var lib = Path.Combine(Path.GetTempPath(), "hct-nonfatal-lib");
+        var lib = Path.Join(Path.GetTempPath(), "hct-nonfatal-lib");
         _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns(new List<string> { lib });
         _configHelperMock.Setup(c => c.GetTrashPath(lib))
-            .Returns(Path.Combine(Path.GetTempPath(), "hct-nonfatal-trash"));
+            .Returns(Path.Join(Path.GetTempPath(), "hct-nonfatal-trash"));
 
         _trashServiceMock
             .Setup(t => t.PurgeExpiredTrash(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()))

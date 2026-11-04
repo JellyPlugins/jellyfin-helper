@@ -171,7 +171,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             modified = true;
         }
 
-        if (existing.TmdbRating == 0 && item.TmdbRating > 0)
+        // Zero is an exact missing-metadata sentinel; a small positive rating is still populated.
+        if (existing.TmdbRating.Equals(0.0) && item.TmdbRating > 0)
         {
             existing.TmdbRating = item.TmdbRating;
             modified = true;
@@ -192,13 +193,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     {
         var modified = false;
 
-        if (existing.Score == 0 && item.Score > 0)
+        // Only the exact zero sentinel may be backfilled, not valid near-zero scores or popularity.
+        if (existing.Score.Equals(0.0) && item.Score > 0)
         {
             existing.Score = item.Score;
             modified = true;
         }
 
-        if (existing.Popularity == 0 && item.Popularity > 0)
+        if (existing.Popularity.Equals(0.0) && item.Popularity > 0)
         {
             existing.Popularity = item.Popularity;
             modified = true;

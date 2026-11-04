@@ -184,7 +184,7 @@ public class BackupControllerExtendedTests
             // to exercise the HasJsonContentType() == false guard.
             var httpContext = new DefaultHttpContext();
             var bodyBytes = Encoding.UTF8.GetBytes("{\"backupVersion\":1}");
-            var bodyStream = new MemoryStream(bodyBytes);
+            using var bodyStream = new MemoryStream(bodyBytes);
             httpContext.Request.Body = bodyStream;
             httpContext.Response.RegisterForDispose(bodyStream);
             httpContext.Request.ContentType = "text/plain";

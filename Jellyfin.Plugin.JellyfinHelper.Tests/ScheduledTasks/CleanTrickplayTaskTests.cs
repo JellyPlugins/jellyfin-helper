@@ -787,8 +787,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         // temp directory to prove the folder is actually removed and counted.
         Config.UseTrash = false;
 
-        var libraryPath = Path.Combine(Path.GetTempPath(), "jf-trickplay-" + Guid.NewGuid().ToString("N"));
-        var trickplayDirPath = Path.Combine(libraryPath, "Movie.trickplay");
+        var libraryPath = Path.Join(Path.GetTempPath(), "jf-trickplay-" + Guid.NewGuid().ToString("N"));
+        var trickplayDirPath = Path.Join(libraryPath, "Movie.trickplay");
         Directory.CreateDirectory(trickplayDirPath);
 
         try

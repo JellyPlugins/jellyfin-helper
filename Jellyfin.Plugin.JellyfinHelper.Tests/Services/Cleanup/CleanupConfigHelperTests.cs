@@ -845,7 +845,7 @@ public class CleanupConfigHelperTests
             Assert.Empty(result);
 
             // Sanity: prove the target directory really is reachable via that relative path. If Path.GetRelativePath ever changes semantics, this Assert catches it before the containment test degenerates into a vacuous "path doesn't exist" pass.
-            var resolved = Path.GetFullPath(Path.Combine(lib, relativeEscape));
+            var resolved = Path.GetFullPath(Path.Join(lib, relativeEscape));
             Assert.Equal(Path.GetFullPath(escapedSibling), resolved);
             Assert.True(Directory.Exists(resolved), "escaped sibling must exist so the test isn't vacuous");
         }

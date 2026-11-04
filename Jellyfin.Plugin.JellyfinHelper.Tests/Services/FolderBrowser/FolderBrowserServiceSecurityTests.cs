@@ -15,7 +15,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
 
     public FolderBrowserServiceSecurityTests()
     {
-        _tempRoot = Path.Combine(Path.GetTempPath(), "jfh-fb-" + Path.GetRandomFileName());
+        _tempRoot = Path.Join(Path.GetTempPath(), "jfh-fb-" + Path.GetRandomFileName());
         Directory.CreateDirectory(_tempRoot);
         _service = new FolderBrowserService(TestMockFactory.CreateLogger<FolderBrowserService>().Object);
     }
@@ -49,7 +49,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         // A directory link whose own path is innocuous but that resolves to /etc must be refused: Path.GetFullPath does not dereference the link, so the guard has to resolve the final target and re-apply the sensitive-path check.
         if (OperatingSystem.IsWindows()) return;
 
-        var link = Path.Combine(_tempRoot, "peek");
+        var link = Path.Join(_tempRoot, "peek");
         try
         {
             Directory.CreateSymbolicLink(link, "/etc");
@@ -76,8 +76,8 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         // of the listing while normal siblings remain visible.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "ok"));
-        var sneak = Path.Combine(_tempRoot, "sneak");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "ok"));
+        var sneak = Path.Join(_tempRoot, "sneak");
         try
         {
             Directory.CreateSymbolicLink(sneak, "/etc");
@@ -107,9 +107,9 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         // treated as unlistable/critical. The broken link must not abort the whole listing.
         if (OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "ok"));
-        var linkA = Path.Combine(_tempRoot, "linkA");
-        var linkB = Path.Combine(_tempRoot, "linkB");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "ok"));
+        var linkA = Path.Join(_tempRoot, "linkA");
+        var linkB = Path.Join(_tempRoot, "linkB");
         try
         {
             Directory.CreateSymbolicLink(linkA, linkB);
@@ -137,7 +137,7 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         // Windows counterpart of the POSIX symlink-escape test: the link's own path is under the temp dir (lexically innocuous), but it resolves to C:\Windows.
         if (!OperatingSystem.IsWindows()) return;
 
-        var link = Path.Combine(_tempRoot, "peek");
+        var link = Path.Join(_tempRoot, "peek");
         try
         {
             Directory.CreateSymbolicLink(link, @"C:\Windows");
@@ -163,9 +163,9 @@ public sealed class FolderBrowserServiceSecurityTests : IDisposable
         // Two mutually-referencing directory links cannot be resolved; ResolveLinkTarget throws and the entry is treated as unlistable/critical.
         if (!OperatingSystem.IsWindows()) return;
 
-        Directory.CreateDirectory(Path.Combine(_tempRoot, "ok"));
-        var linkA = Path.Combine(_tempRoot, "linkA");
-        var linkB = Path.Combine(_tempRoot, "linkB");
+        Directory.CreateDirectory(Path.Join(_tempRoot, "ok"));
+        var linkA = Path.Join(_tempRoot, "linkA");
+        var linkB = Path.Join(_tempRoot, "linkB");
         try
         {
             Directory.CreateSymbolicLink(linkA, linkB);

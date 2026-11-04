@@ -503,6 +503,40 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.NotNull(entry.DismissedAtUtc);
     }
 
+    [Theory]
+    [InlineData(0.0, true, false)]
+    [InlineData(0.0, true, true)]
+    [InlineData(1e-12, false, false)]
+    [InlineData(double.Epsilon, false, false)]
+    public void RecordShown_OnlyExactZeroNumericSentinelsAreBackfilled(double existingValue, bool shouldBackfill, bool negate)
+    {
+        existingValue = negate ? -existingValue : existingValue;
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+        store.RecordShown(userId, "User", [new DiscoveryRecommendation
+        {
+            TmdbId = 300,
+            MediaType = "movie",
+            TmdbRating = existingValue,
+            Score = existingValue,
+            Popularity = existingValue
+        }]);
+
+        store.RecordShown(userId, "User", [new DiscoveryRecommendation
+        {
+            TmdbId = 300,
+            MediaType = "movie",
+            TmdbRating = 7.5,
+            Score = 0.8,
+            Popularity = 42.0
+        }]);
+
+        var entry = Assert.Single(store.LoadForUser(userId)!.Entries);
+        Assert.Equal(shouldBackfill ? 7.5 : existingValue, entry.TmdbRating);
+        Assert.Equal(shouldBackfill ? 0.8 : existingValue, entry.Score);
+        Assert.Equal(shouldBackfill ? 42.0 : existingValue, entry.Popularity);
+    }
+
     [Fact]
     public void RecordShown_DoesNotOverwriteAlreadyPopulatedFields()
     {
