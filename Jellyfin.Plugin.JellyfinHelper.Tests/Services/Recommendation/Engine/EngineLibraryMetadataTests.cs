@@ -28,7 +28,7 @@ public sealed class EngineLibraryMetadataTests : IDisposable
 
     public EngineLibraryMetadataTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), $"engine_libmeta_{Guid.NewGuid():N}");
+        _tempDir = Path.Join(Path.GetTempPath(), $"engine_libmeta_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
     }
 

@@ -159,6 +159,7 @@ public static class ControllerTestFactory
     /// <param name="contentLength">The content length of the JSON body. If null, it will be calculated based on the JSON body content.</param>
     /// <param name="requestAborted">Optional cancellation token to inject as HttpContext.RequestAborted.</param>
     /// <returns>The controller with the JSON body added to its request.</returns>
+    /// <remarks>Without an ASP.NET response pipeline, tests must dispose controller.Request.Body themselves.</remarks>
     /// <exception cref="ArgumentNullException">The controller is null.</exception>
     public static ControllerBase AddJsonBodyToController(
         ControllerBase controller,

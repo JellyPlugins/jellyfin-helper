@@ -472,7 +472,7 @@ public sealed class TrainingDataBuilderTests
 
         Assert.True(randomNegativeCount > 0);
 
-        var negatives = examples.Where(e => e.Label == 0.0 && Math.Abs(e.SampleWeight - 0.5) < 1e-9).ToList();
+        var negatives = examples.Where(e => e.Label.Equals(0.0) && Math.Abs(e.SampleWeight - 0.5) < 1e-9).ToList();
         Assert.NotEmpty(negatives);
         Assert.Contains(
             negatives,
@@ -537,7 +537,7 @@ public sealed class TrainingDataBuilderTests
             TrainingDataBuilder.BuildExamples(results, profiles, discovery, CancellationToken.None);
 
         Assert.True(discoveryCount > 0);
-        Assert.Contains(examples, e => e.Label == EngineConstants.DiscoveryRequestedAndWatchedLabel);
+        Assert.Contains(examples, e => e.Label.Equals(EngineConstants.DiscoveryRequestedAndWatchedLabel));
     }
 
     [Fact]

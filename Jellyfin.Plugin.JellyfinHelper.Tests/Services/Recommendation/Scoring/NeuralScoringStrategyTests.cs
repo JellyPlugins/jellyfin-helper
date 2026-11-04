@@ -764,7 +764,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void GracefulFallback_OnNullJsonFile_ReturnsSafeScore()
     {
-        var path = Path.Combine(_tempDir, "null-weights.json");
+        var path = Path.Join(_tempDir, "null-weights.json");
         File.WriteAllText(path, "null");
         var strategy = new NeuralScoringStrategy(path);
         var score = strategy.Score(new CandidateFeatures());
@@ -1482,6 +1482,27 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void ScoreAndScoreVector_AlternatingStrategiesOnOneThread_MatchFreshBufferScores()
+    {
+        using var trained = new NeuralScoringStrategy();
+        using var untrained = new NeuralScoringStrategy();
+        trained.Train(GenerateExamples(60));
+        var features = GenerateExamples(12).Select(example => example.Features).ToArray();
+        var trainedExpected = features.Select(feature => trained.ScoreWithExplanation(feature).FinalScore).ToArray();
+        var untrainedExpected = features.Select(feature => untrained.ScoreWithExplanation(feature).FinalScore).ToArray();
+
+        // Thread-local buffers outlive a strategy; alternating models must not reuse activations.
+        for (var iteration = 0; iteration < 24; iteration++)
+        {
+            var index = iteration % features.Length;
+            Assert.Equal(trainedExpected[index], trained.Score(features[index]));
+            Assert.Equal(untrainedExpected[index], untrained.ScoreVector(features[index].ToVector()));
+            Assert.Equal(trainedExpected[index], trained.ScoreVector(features[index].ToVector()));
+            Assert.Equal(untrainedExpected[index], untrained.Score(features[index]));
+        }
+    }
+
+    [Fact]
     public async Task Score_DuringTraining_DoesNotThrow()
     {
         var strategy = new NeuralScoringStrategy();
@@ -1780,7 +1801,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
 
     public NeuralScoringStrategyRobustnessTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), $"neural_robust_{Guid.NewGuid():N}");
+        _tempDir = Path.Join(Path.GetTempPath(), $"neural_robust_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
     }
 

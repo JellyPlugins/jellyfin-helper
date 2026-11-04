@@ -1363,11 +1363,11 @@ describe('waitForApi retry budget', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1);
   });
 
-  test('an absent onTimeout is tolerated at exhaustion', async () => {
+  test.each([undefined, null, false, 0, '', {}])('a missing or non-callable onTimeout is tolerated at exhaustion: %j', async (onTimeout) => {
     const ui = freshDiscoveryHelpers();
     delete (globalThis as any).ApiClient;
     const cb = vi.fn();
-    ui.waitForApi(cb);
+    ui.waitForApi(cb, onTimeout);
     await vi.advanceTimersByTimeAsync(60 * 500 + 40 * 3000 + 3000);
     expect(cb).not.toHaveBeenCalled();
     expect(document.body.textContent).toBe('');

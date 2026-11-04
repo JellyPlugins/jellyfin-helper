@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -388,29 +389,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         // Reuse a thread-local input buffer to avoid a heap allocation per candidate. WriteToVector
         // fully overwrites every element, so no stale data leaks between calls.
-        _tlsInput ??= new double[CandidateFeatures.FeatureCount];
-        var vector = _tlsInput;
+        var vector = GetThreadLocalInputBuffer();
         features.WriteToVector(vector);
 
-        _tlsH1Pre ??= new double[Hidden1Size];
-        _tlsH1Act ??= new double[Hidden1Size];
-        _tlsH2Pre ??= new double[Hidden2Size];
-        _tlsH2Act ??= new double[Hidden2Size];
-        _tlsH3Pre ??= new double[Hidden3Size];
-        _tlsH3Act ??= new double[Hidden3Size];
-        _tlsH4Pre ??= new double[Hidden4Size];
-        _tlsH4Act ??= new double[Hidden4Size];
-
-        // Clear scratch buffers so stale data from a previous invocation on this thread cannot bleed
-        // into the current forward pass.
-        Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
-        Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
-        Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
-        Array.Clear(_tlsH2Act, 0, _tlsH2Act.Length);
-        Array.Clear(_tlsH3Pre, 0, _tlsH3Pre.Length);
-        Array.Clear(_tlsH3Act, 0, _tlsH3Act.Length);
-        Array.Clear(_tlsH4Pre, 0, _tlsH4Pre.Length);
-        Array.Clear(_tlsH4Act, 0, _tlsH4Act.Length);
+        PrepareThreadLocalHiddenBuffers();
 
         try
         {
@@ -472,25 +454,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return 0.5;
         }
 
-        _tlsH1Pre ??= new double[Hidden1Size];
-        _tlsH1Act ??= new double[Hidden1Size];
-        _tlsH2Pre ??= new double[Hidden2Size];
-        _tlsH2Act ??= new double[Hidden2Size];
-        _tlsH3Pre ??= new double[Hidden3Size];
-        _tlsH3Act ??= new double[Hidden3Size];
-        _tlsH4Pre ??= new double[Hidden4Size];
-        _tlsH4Act ??= new double[Hidden4Size];
-
-        // Clear scratch buffers so stale data from a previous invocation on this thread cannot bleed
-        // into the current forward pass.
-        Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
-        Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
-        Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
-        Array.Clear(_tlsH2Act, 0, _tlsH2Act.Length);
-        Array.Clear(_tlsH3Pre, 0, _tlsH3Pre.Length);
-        Array.Clear(_tlsH3Act, 0, _tlsH3Act.Length);
-        Array.Clear(_tlsH4Pre, 0, _tlsH4Pre.Length);
-        Array.Clear(_tlsH4Act, 0, _tlsH4Act.Length);
+        PrepareThreadLocalHiddenBuffers();
 
         try
         {
@@ -535,6 +499,49 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             ReleaseReadLockSafely();
         }
+    }
+
+    /// <summary>
+    ///     Gets the input scratch buffer owned by the current thread, not by an individual strategy.
+    /// </summary>
+    /// <returns>The reusable input buffer; callers must overwrite it before reading.</returns>
+    private static double[] GetThreadLocalInputBuffer()
+    {
+        return _tlsInput ??= new double[CandidateFeatures.FeatureCount];
+    }
+
+    /// <summary>
+    ///     Prepares the thread-owned hidden-layer buffers shared by both inference entry points.
+    /// </summary>
+    [MemberNotNull(
+        nameof(_tlsH1Pre),
+        nameof(_tlsH1Act),
+        nameof(_tlsH2Pre),
+        nameof(_tlsH2Act),
+        nameof(_tlsH3Pre),
+        nameof(_tlsH3Act),
+        nameof(_tlsH4Pre),
+        nameof(_tlsH4Act))]
+    private static void PrepareThreadLocalHiddenBuffers()
+    {
+        _tlsH1Pre ??= new double[Hidden1Size];
+        _tlsH1Act ??= new double[Hidden1Size];
+        _tlsH2Pre ??= new double[Hidden2Size];
+        _tlsH2Act ??= new double[Hidden2Size];
+        _tlsH3Pre ??= new double[Hidden3Size];
+        _tlsH3Act ??= new double[Hidden3Size];
+        _tlsH4Pre ??= new double[Hidden4Size];
+        _tlsH4Act ??= new double[Hidden4Size];
+
+        // A different strategy may have scored on this thread; no activations may survive reuse.
+        Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
+        Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
+        Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
+        Array.Clear(_tlsH2Act, 0, _tlsH2Act.Length);
+        Array.Clear(_tlsH3Pre, 0, _tlsH3Pre.Length);
+        Array.Clear(_tlsH3Act, 0, _tlsH3Act.Length);
+        Array.Clear(_tlsH4Pre, 0, _tlsH4Pre.Length);
+        Array.Clear(_tlsH4Act, 0, _tlsH4Act.Length);
     }
 
     /// <inheritdoc />
@@ -1315,7 +1322,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Backpropagates the hidden4 error into hidden3's pre-activation error buffer. Extracted verbatim from ComputeErrorSignals; the h3Mask[k] == 0.0 gating, weight indexing, accumulation order, and inverted-dropout scaling are unchanged.
+    ///     Backpropagates the hidden4 error into hidden3's pre-activation error buffer. The binary dropout mask gates inactive neurons; weight indexing, accumulation order, and inverted-dropout scaling are unchanged.
     /// </summary>
     /// <param name="dropoutInvKeep">Inverted-dropout scale (1 / keep, or 1.0 when dropout is inactive).</param>
     /// <param name="buffers">Pre-allocated per-layer scratch buffers.</param>
@@ -1324,7 +1331,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // Hidden3 error (backprop through ReLU + inverted-dropout scale from hidden4). h4Err holds δ_pre for hidden4, so summing against the weights yields δ_a for hidden3; multiplying by invKeep converts that to δ_pre.
         for (var k = 0; k < Hidden3Size; k++)
         {
-            if (buffers.H3Pre[k] <= 0 || buffers.H3Mask[k] == 0.0)
+            if (buffers.H3Pre[k] <= 0 || buffers.H3Mask[k] <= 0.0)
             {
                 buffers.H3Err[k] = 0.0;
                 continue;

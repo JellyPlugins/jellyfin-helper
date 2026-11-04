@@ -92,9 +92,9 @@ public class TrashControllerRelocateTests : IDisposable
     public void GetTrashFoldersForPath_RelativePath_ReturnsExistingFolders()
     {
         // Arrange: create a library root with a trash subfolder
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
-        var trashDir = Path.Combine(libraryRoot, ".old-trash");
+        var trashDir = Path.Join(libraryRoot, ".old-trash");
         Directory.CreateDirectory(trashDir);
 
         var config = new PluginConfiguration();
@@ -117,7 +117,7 @@ public class TrashControllerRelocateTests : IDisposable
     public void GetTrashFoldersForPath_AbsolutePath_ReturnsExistingFolder()
     {
         // Arrange
-        var absoluteTrash = Path.Combine(_testRoot, "absolute-trash");
+        var absoluteTrash = Path.Join(_testRoot, "absolute-trash");
         Directory.CreateDirectory(absoluteTrash);
 
         var config = new PluginConfiguration();
@@ -142,7 +142,7 @@ public class TrashControllerRelocateTests : IDisposable
         var config = new PluginConfiguration();
         var controller = CreateController(config, []);
 
-        var result = controller.GetTrashFoldersForPath(new TrashPathQueryRequest { TrashFolderPath = Path.Combine(_testRoot, "nonexistent") });
+        var result = controller.GetTrashFoldersForPath(new TrashPathQueryRequest { TrashFolderPath = Path.Join(_testRoot, "nonexistent") });
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         var value = okResult.Value!;
@@ -166,10 +166,10 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_BothRelative_CallsRelocatePerLibrary()
     {
         // Arrange
-        var libraryRoot = Path.Combine(_testRoot, "movies");
-        var oldTrashPath = Path.Combine(libraryRoot, ".old-trash");
+        var libraryRoot = Path.Join(_testRoot, "movies");
+        var oldTrashPath = Path.Join(libraryRoot, ".old-trash");
         Directory.CreateDirectory(oldTrashPath);
-        File.WriteAllText(Path.Combine(oldTrashPath, "item.txt"), "data");
+        File.WriteAllText(Path.Join(oldTrashPath, "item.txt"), "data");
 
         var trashServiceMock = new Mock<ITrashService>();
         trashServiceMock.Setup(ts => ts.RelocateTrashContents(
@@ -185,8 +185,8 @@ public class TrashControllerRelocateTests : IDisposable
         // Assert
         Assert.IsType<OkObjectResult>(result);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
-            It.Is<string>(s => s == Path.Combine(libraryRoot, ".old-trash")),
-            It.Is<string>(s => s == Path.Combine(libraryRoot, ".new-trash")),
+            It.Is<string>(s => s == Path.Join(libraryRoot, ".old-trash")),
+            It.Is<string>(s => s == Path.Join(libraryRoot, ".new-trash")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
     }
 
@@ -194,8 +194,8 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_BothAbsolute_CallsRelocateOnce()
     {
         // Arrange
-        var oldPath = Path.Combine(_testRoot, "old-absolute");
-        var newPath = Path.Combine(_testRoot, "new-absolute");
+        var oldPath = Path.Join(_testRoot, "old-absolute");
+        var newPath = Path.Join(_testRoot, "new-absolute");
         Directory.CreateDirectory(oldPath);
 
         var trashServiceMock = new Mock<ITrashService>();
@@ -203,7 +203,7 @@ public class TrashControllerRelocateTests : IDisposable
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()))
             .Returns((5, 1));
 
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         var config = new PluginConfiguration();
         var controller = CreateController(config, [libraryRoot], trashServiceMock);
 
@@ -223,13 +223,13 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_UnsafeAbsoluteOldPath_ReturnsBadRequest()
     {
         // Arrange: old path IS the library root (unsafe)
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
 
         var config = new PluginConfiguration();
         var controller = CreateController(config, [libraryRoot]);
 
-        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = libraryRoot, NewTrashPath = Path.Combine(_testRoot, "new") });
+        var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = libraryRoot, NewTrashPath = Path.Join(_testRoot, "new") });
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
@@ -238,9 +238,9 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_AbsoluteOldRelativeNew_CallsRelocateToFirstLibrary()
     {
         // Arrange: old is absolute, new is relative -> move to first library's resolved path
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
-        var oldAbsolutePath = Path.Combine(_testRoot, "old-absolute-trash");
+        var oldAbsolutePath = Path.Join(_testRoot, "old-absolute-trash");
         Directory.CreateDirectory(oldAbsolutePath);
 
         var trashServiceMock = new Mock<ITrashService>();
@@ -262,7 +262,7 @@ public class TrashControllerRelocateTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
             It.Is<string>(s => s == Path.GetFullPath(oldAbsolutePath)),
-            It.Is<string>(s => s == Path.Combine(libraryRoot, ".new-trash")),
+            It.Is<string>(s => s == Path.Join(libraryRoot, ".new-trash")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
     }
 
@@ -270,11 +270,11 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_AbsoluteOldRelativeNew_ResolvesUnderTheLibraryContainingTheSource()
     {
         // Arrange: two libraries, and an absolute source INSIDE the second-registered one.
-        var moviesRoot = Path.Combine(_testRoot, "movies");
-        var showsRoot = Path.Combine(_testRoot, "shows");
+        var moviesRoot = Path.Join(_testRoot, "movies");
+        var showsRoot = Path.Join(_testRoot, "shows");
         Directory.CreateDirectory(moviesRoot);
         Directory.CreateDirectory(showsRoot);
-        var oldAbsolutePath = Path.Combine(showsRoot, ".abs-old");
+        var oldAbsolutePath = Path.Join(showsRoot, ".abs-old");
         Directory.CreateDirectory(oldAbsolutePath);
 
         var trashServiceMock = new Mock<ITrashService>();
@@ -297,11 +297,11 @@ public class TrashControllerRelocateTests : IDisposable
         Assert.IsType<OkObjectResult>(result);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
             It.Is<string>(s => s == Path.GetFullPath(oldAbsolutePath)),
-            It.Is<string>(s => s == Path.Combine(showsRoot, ".jellyfin-trash-2")),
+            It.Is<string>(s => s == Path.Join(showsRoot, ".jellyfin-trash-2")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
             It.IsAny<string>(),
-            It.Is<string>(s => s == Path.Combine(moviesRoot, ".jellyfin-trash-2")),
+            It.Is<string>(s => s == Path.Join(moviesRoot, ".jellyfin-trash-2")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Never);
     }
 
@@ -352,12 +352,12 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_RelativeOldAbsoluteNew_MergesIntoAbsoluteTarget()
     {
         // Arrange: old is relative, new is absolute -> merge all library trash into one absolute target
-        var libraryRoot = Path.Combine(_testRoot, "movies");
-        var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
+        var libraryRoot = Path.Join(_testRoot, "movies");
+        var oldRelativeTrash = Path.Join(libraryRoot, ".old-trash");
         Directory.CreateDirectory(oldRelativeTrash);
-        File.WriteAllText(Path.Combine(oldRelativeTrash, "item.txt"), "data");
+        File.WriteAllText(Path.Join(oldRelativeTrash, "item.txt"), "data");
 
-        var newAbsolutePath = Path.Combine(_testRoot, "new-absolute-trash");
+        var newAbsolutePath = Path.Join(_testRoot, "new-absolute-trash");
 
         var trashServiceMock = new Mock<ITrashService>();
         trashServiceMock.Setup(ts => ts.RelocateTrashContents(
@@ -387,7 +387,7 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_AbsoluteSourceIsSensitiveSystemDir_ReturnsBadRequest()
     {
         // Regression (FS-escape bug): a fully-qualified OLD path pointing at a sensitive system directory (e.g.
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-src" : "/config/jfh-src";
 
@@ -398,7 +398,7 @@ public class TrashControllerRelocateTests : IDisposable
         var result = controller.RelocateTrash(new TrashRelocateRequest
         {
             OldTrashPath = sensitive,
-            NewTrashPath = Path.Combine(libraryRoot, ".new-trash"),
+            NewTrashPath = Path.Join(libraryRoot, ".new-trash"),
         });
 
         Assert.IsType<BadRequestObjectResult>(result);
@@ -414,8 +414,8 @@ public class TrashControllerRelocateTests : IDisposable
     {
         // The NEW (destination) absolute path must likewise be refused when it is a
         // sensitive system directory - trash must never be relocated INTO /config etc.
-        var libraryRoot = Path.Combine(_testRoot, "movies");
-        var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
+        var libraryRoot = Path.Join(_testRoot, "movies");
+        var oldRelativeTrash = Path.Join(libraryRoot, ".old-trash");
         Directory.CreateDirectory(oldRelativeTrash);
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-dst" : "/config/jfh-dst";
 
@@ -472,7 +472,7 @@ public class TrashControllerRelocateTests : IDisposable
         // caught, yielding the "paths are invalid" 400 rather than propagating.
         var trashServiceMock = new Mock<ITrashService>();
         var controller = CreateController(new PluginConfiguration(), [_testRoot], trashServiceMock);
-        var malformed = Path.Combine(_testRoot, "bad\0name");
+        var malformed = Path.Join(_testRoot, "bad\0name");
 
         var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = malformed, NewTrashPath = ".new-trash" });
 
@@ -487,7 +487,7 @@ public class TrashControllerRelocateTests : IDisposable
     {
         // Old absolute equals the library root (unsafe): the abs-old/rel-new branch must
         // refuse before touching disk, so trash is never drained from the library root.
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
 
         var trashServiceMock = new Mock<ITrashService>();
@@ -506,7 +506,7 @@ public class TrashControllerRelocateTests : IDisposable
     {
         // Old relative, new absolute equal to the library root (unsafe): the rel-old/abs-new
         // branch must refuse so trash cannot merge into an unsafe absolute target.
-        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var libraryRoot = Path.Join(_testRoot, "movies");
         Directory.CreateDirectory(libraryRoot);
 
         var trashServiceMock = new Mock<ITrashService>();

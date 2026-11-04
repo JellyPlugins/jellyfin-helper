@@ -367,8 +367,8 @@ public sealed class AtomicFileTests : IDisposable
     public async Task WriteAllTextAsync_DirectoryDoesNotExist_CreatesDirectoryAndWrites()
     {
         // Write to a path inside a non-existent subdirectory that is a direct child of Path.GetTempPath() - deliberately outside _tempDir so the directory is guaranteed not to exist before the call.
-        var subdir = Path.Combine(Path.GetTempPath(), "AtomicFileTests_NewDir_" + Guid.NewGuid().ToString("N"));
-        var path = Path.Combine(subdir, "output.txt");
+        var subdir = Path.Join(Path.GetTempPath(), "AtomicFileTests_NewDir_" + Guid.NewGuid().ToString("N"));
+        var path = Path.Join(subdir, "output.txt");
         const string expectedContent = "directory created automatically";
 
         try

@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 /// </summary>
 public sealed class FileSystemHelperErrorHandlingTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+    private readonly string _root = Path.Join(Path.GetTempPath(), Path.GetRandomFileName());
 
     public FileSystemHelperErrorHandlingTests()
     {
@@ -38,11 +38,11 @@ public sealed class FileSystemHelperErrorHandlingTests : IDisposable
     [Fact]
     public void CalculateDirectorySize_FileEntryLengthThrowsIOException_SkipsFileButCountsRest()
     {
-        WriteBytes(Path.Combine(_root, "real.mkv"), 1000);
+        WriteBytes(Path.Join(_root, "real.mkv"), 1000);
 
         // A dangling symlink is returned by GetFiles, but reading its Length must throw an IOException so the SUT skips it.
-        var link = Path.Combine(_root, "broken.link");
-        var missingTarget = Path.Combine(_root, "does_not_exist.mkv");
+        var link = Path.Join(_root, "broken.link");
+        var missingTarget = Path.Join(_root, "does_not_exist.mkv");
         try
         {
             File.CreateSymbolicLink(link, missingTarget);
@@ -81,11 +81,11 @@ public sealed class FileSystemHelperErrorHandlingTests : IDisposable
             return;
         }
 
-        var accessible = Directory.CreateDirectory(Path.Combine(_root, "readable")).FullName;
-        WriteBytes(Path.Combine(accessible, "file.mkv"), 700);
+        var accessible = Directory.CreateDirectory(Path.Join(_root, "readable")).FullName;
+        WriteBytes(Path.Join(accessible, "file.mkv"), 700);
 
-        var denied = Directory.CreateDirectory(Path.Combine(_root, "denied")).FullName;
-        WriteBytes(Path.Combine(denied, "secret.mkv"), 500);
+        var denied = Directory.CreateDirectory(Path.Join(_root, "denied")).FullName;
+        WriteBytes(Path.Join(denied, "secret.mkv"), 500);
 
         try
         {

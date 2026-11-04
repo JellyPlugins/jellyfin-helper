@@ -23,7 +23,7 @@ public sealed class RecommendationPlaylistServiceSecurityTests : IDisposable
     private readonly Mock<ILogger<RecommendationPlaylistService>> _loggerMock = new();
 
     private readonly string _playlistsRoot =
-        Path.Combine(Path.GetTempPath(), "rec-playlist-sec-" + Guid.NewGuid().ToString("N"));
+        Path.Join(Path.GetTempPath(), "rec-playlist-sec-" + Guid.NewGuid().ToString("N"));
 
     public RecommendationPlaylistServiceSecurityTests()
     {
@@ -87,7 +87,7 @@ public sealed class RecommendationPlaylistServiceSecurityTests : IDisposable
         else
         {
             // A sibling temp dir outside the playlists root that genuinely exists on disk.
-            hostilePath = Path.Combine(Path.GetTempPath(), "rec-playlist-sec-escape-" + Guid.NewGuid().ToString("N"));
+            hostilePath = Path.Join(Path.GetTempPath(), "rec-playlist-sec-escape-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(hostilePath);
         }
 
