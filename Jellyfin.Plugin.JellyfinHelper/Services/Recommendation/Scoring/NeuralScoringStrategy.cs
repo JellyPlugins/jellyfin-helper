@@ -392,61 +392,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var vector = GetThreadLocalInputBuffer();
         features.WriteToVector(vector);
 
-        PrepareThreadLocalHiddenBuffers();
-
-        try
-        {
-            try
-            {
-                _rwLock.EnterReadLock();
-            }
-            catch (ObjectDisposedException)
-            {
-                return 0.5;
-            }
-
-            if (_featureMeans is not null && _featureStdDevs is not null)
-            {
-                LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
-            }
-
-            var result = ForwardPass(
-                vector,
-                _weightsIH,
-                _biasH1,
-                _weightsH1H2,
-                _biasH2,
-                _weightsH2H3,
-                _biasH3,
-                _weightsH3H4,
-                _biasH4,
-                _weightsH4O,
-                _biasOutput,
-                _tlsH1Pre,
-                _tlsH1Act,
-                _tlsH2Pre,
-                _tlsH2Act,
-                _tlsH3Pre,
-                _tlsH3Act,
-                _tlsH4Pre,
-                _tlsH4Act);
-
-            return ScoringHelper.GuardScore(result);
-        }
-        finally
-        {
-            if (_rwLock.IsReadLockHeld)
-            {
-                try
-                {
-                    _rwLock.ExitReadLock();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The underlying lock resources were disposed during shutdown.
-                }
-            }
-        }
+        return ScoreVector(vector);
     }
 
     /// <summary>
@@ -468,15 +414,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         try
         {
-            try
-            {
-                _rwLock.EnterReadLock();
-            }
-            catch (ObjectDisposedException)
-            {
-                return 0.5;
-            }
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return 0.5;
+        }
 
+        try
+        {
             if (_featureMeans is not null && _featureStdDevs is not null)
             {
                 LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
@@ -507,17 +453,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            if (_rwLock.IsReadLockHeld)
-            {
-                try
-                {
-                    _rwLock.ExitReadLock();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The underlying lock resources were disposed during shutdown.
-                }
-            }
+            _rwLock.ExitReadLock();
         }
     }
 
@@ -2126,17 +2062,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    try
-                    {
-                        _rwLock.ExitReadLock();
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // The underlying lock resources were disposed during shutdown.
-                    }
-                }
+                _rwLock.ExitReadLock();
             }
 
             var json = JsonSerializer.Serialize(data, SerializerOptions);

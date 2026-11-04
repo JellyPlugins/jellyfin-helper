@@ -433,6 +433,64 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void ScorePaths_RecursiveAcquisition_DoesNotReleaseCallersLock(bool useRawVector)
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+        var features = new CandidateFeatures();
+        Func<double> score = useRawVector
+            ? () => strategy.ScoreVector(features.ToVector())
+            : () => strategy.Score(features);
+
+        try
+        {
+            rwLock.EnterReadLock();
+            Assert.Throws<LockRecursionException>(() => score());
+            Assert.True(rwLock.IsReadLockHeld);
+        }
+        finally
+        {
+            if (rwLock.IsReadLockHeld)
+            {
+                rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    [Fact]
+    public void ReadLock_StrategyDisposedOnAnotherThread_CanStillBeReleasedByOwner()
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+        Exception? disposeError = null;
+        var disposeThread = new Thread(() => disposeError = Record.Exception(strategy.Dispose));
+
+        try
+        {
+            rwLock.EnterReadLock();
+            disposeThread.Start();
+            Assert.True(disposeThread.Join(TimeSpan.FromSeconds(10)));
+            Assert.Null(disposeError);
+        }
+        finally
+        {
+            // ExitReadLock validates ownership, not disposal; successful acquisition still needs release.
+            if (rwLock.IsReadLockHeld)
+            {
+                rwLock.ExitReadLock();
+            }
+        }
+
+        Assert.False(rwLock.IsReadLockHeld);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void ScoreWithExplanation_ReleasesReadLockOnSuccessAndFailure(bool throwDuringForwardPass)
     {
         using var strategy = new NeuralScoringStrategy();
