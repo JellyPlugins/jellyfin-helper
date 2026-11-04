@@ -369,6 +369,68 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ScorePaths_ReleaseReadLockOnSuccessAndFailure(bool useRawVector, bool throwDuringForwardPass)
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+        var features = new CandidateFeatures();
+        Func<double> score = useRawVector
+            ? () => strategy.ScoreVector(features.ToVector())
+            : () => strategy.Score(features);
+
+        if (throwDuringForwardPass)
+        {
+            // Force a failure after acquisition, so the exception path must also release the lock.
+            var weightsField = typeof(NeuralScoringStrategy).GetField("_weightsH4O", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(weightsField);
+            weightsField.SetValue(strategy, Array.Empty<double>());
+            Assert.Throws<IndexOutOfRangeException>(() => score());
+        }
+        else
+        {
+            Assert.InRange(score(), 0.0, 1.0);
+        }
+
+        Assert.False(rwLock.IsReadLockHeld);
+        try
+        {
+            Assert.True(rwLock.TryEnterWriteLock(0));
+        }
+        finally
+        {
+            if (rwLock.IsWriteLockHeld)
+            {
+                rwLock.ExitWriteLock();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ScorePaths_DisposedLockAtAcquisition_ReturnNeutralScore(bool useRawVector)
+    {
+        using var strategy = new NeuralScoringStrategy();
+        var lockField = typeof(NeuralScoringStrategy).GetField("_rwLock", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(lockField);
+        var rwLock = Assert.IsType<ReaderWriterLockSlim>(lockField.GetValue(strategy));
+
+        // Deterministically model disposal between the initial flag check and acquisition.
+        rwLock.Dispose();
+        var features = new CandidateFeatures();
+        var score = useRawVector ? strategy.ScoreVector(features.ToVector()) : strategy.Score(features);
+
+        Assert.Equal(0.5, score);
+        Assert.False(rwLock.IsReadLockHeld);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ScoreWithExplanation_ReleasesReadLockOnSuccessAndFailure(bool throwDuringForwardPass)

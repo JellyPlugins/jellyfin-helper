@@ -435,7 +435,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            ReleaseReadLockSafely();
+            if (_rwLock.IsReadLockHeld)
+            {
+                try
+                {
+                    _rwLock.ExitReadLock();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The underlying lock resources were disposed during shutdown.
+                }
+            }
         }
     }
 
@@ -497,7 +507,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            ReleaseReadLockSafely();
+            if (_rwLock.IsReadLockHeld)
+            {
+                try
+                {
+                    _rwLock.ExitReadLock();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The underlying lock resources were disposed during shutdown.
+                }
+            }
         }
     }
 
@@ -2106,7 +2126,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                ReleaseReadLockSafely();
+                if (_rwLock.IsReadLockHeld)
+                {
+                    try
+                    {
+                        _rwLock.ExitReadLock();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The underlying lock resources were disposed during shutdown.
+                    }
+                }
             }
 
             var json = JsonSerializer.Serialize(data, SerializerOptions);
@@ -2222,28 +2252,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _disposed = true;
         _rwLock.Dispose();
     }
-
-    /// <summary>
-    ///     Releases the read lock, tolerating disposal mid-scoring.
-    /// </summary>
-#pragma warning disable MT1013 // Releasing lock should always be wrapped in finally block
-    private void ReleaseReadLockSafely()
-    {
-        if (!_rwLock.IsReadLockHeld)
-        {
-            return;
-        }
-
-        try
-        {
-            _rwLock.ExitReadLock();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Lock was disposed while we still held the read handle; nothing left to release.
-        }
-    }
-#pragma warning restore MT1013
 
     /// <summary>
     ///     Groups the pre-allocated per-layer scratch buffers threaded through the training backprop and Adam-update helpers.
