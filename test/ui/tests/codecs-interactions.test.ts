@@ -843,10 +843,14 @@ describe('flip settle and reduced motion', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCbs.push(cb); return rafCbs.length; });
     vi.stubGlobal('cancelAnimationFrame', () => undefined);
     ui.flipCodecReorder(row, a, mutate);
-    expect(b.style.transform).toBe('translate(-180px, 0px)');
+    // CSSOM serialization can omit zero coordinates and default easing.
+    const expectedStyle = document.createElement('div').style;
+    expectedStyle.transform = 'translate(-180px, 0px)';
+    expectedStyle.transition = 'transform 160ms ease';
+    expect(b.style.transform).toBe(expectedStyle.transform);
     expect(rafCbs).toHaveLength(1);
     rafCbs[0](0);
-    expect(b.style.transition).toBe('transform 160ms ease');
+    expect(b.style.transition).toBe(expectedStyle.transition);
     expect(b.style.transform).toBe('');
     expect((b as any)._codecFlipTimer).not.toBe(0);
     await vi.advanceTimersByTimeAsync(170);

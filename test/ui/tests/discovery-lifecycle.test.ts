@@ -733,7 +733,7 @@ test('modern sidebar uses a short localized label without inherited legacy spaci
   expect(drawer.querySelector('.jfh-discovery-sidebar-heading')?.textContent).toBe('Jellyfin Helper');
   const style = client.w.getComputedStyle(navigation);
   expect(style.display).toBe('grid');
-  expect(style.gridTemplateColumns.replaceAll(' ', '')).toContain('minmax(0,1fr)');
+  expect(style.gridTemplateColumns).toMatch(/minmax\(0(?:px)?,\s*1fr\)/);
 });
 
 test('request ownership includes the token and API client as well as the user', () => {
