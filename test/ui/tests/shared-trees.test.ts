@@ -312,12 +312,12 @@ describe('dialog helpers', () => {
   test('cancel buttons stay transparent', () => {
     const cancel = ui.createDialogBtn('C', 'cancel', () => undefined);
     const danger = ui.createDialogBtn('D', 'danger', () => undefined);
-    // jsdom silently drops `background: transparent` (an unsupported shorthand
-    // value) from cssText, so a cancel button ends up with no background at all,
-    // while a colored button keeps its concrete rgb value. The 1px border is the
-    // other cancel-only marker that survives.
-    expect(cancel.style.cssText).toContain('border: 1px solid');
-    expect(cancel.style.cssText).not.toContain('background:');
-    expect(danger.style.cssText).toContain('background: rgb(');
+    document.body.append(cancel, danger);
+    const cancelStyle = getComputedStyle(cancel);
+    expect(cancelStyle.borderTopWidth).toBe('1px');
+    expect(cancelStyle.borderTopStyle).toBe('solid');
+    expect(cancelStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(cancelStyle.backgroundImage).toBe('none');
+    expect(getComputedStyle(danger).backgroundColor).toMatch(/^rgb\(/);
   });
 });
