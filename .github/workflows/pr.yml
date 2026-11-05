@@ -280,7 +280,7 @@ jobs:
     - name: Install SonarScanner tool
       env:
         # renovate: datasource=nuget depName=dotnet-sonarscanner
-        SONARSCANNER_VERSION: 12.0.0
+        SONARSCANNER_VERSION: 12.1.0
       # Pinned: an unpinned `dotnet tool install` pulls whatever is newest at run
       # time, so a scanner release could turn a PR red without a single commit.
       run: dotnet tool install --global dotnet-sonarscanner --version "$SONARSCANNER_VERSION"
