@@ -535,7 +535,9 @@ else {
         ""
     ) -join "`n") + "`n"
 
-    $firstHeadingPattern = '(?m)^##\s+\['
+    # Anchor only on versioned headings, not on '## [Unreleased]' or other
+    # bracketed sections a future Keep-a-Changelog layout might introduce.
+    $firstHeadingPattern = '(?m)^##\s+\[\d+\.\d+\.\d+\.\d+\]'
     $m = [regex]::Match($newChangelog, $firstHeadingPattern)
     if (-not $m.Success) {
         throw "CHANGELOG.md has no existing '## [x.y.z.w]' heading to anchor on."

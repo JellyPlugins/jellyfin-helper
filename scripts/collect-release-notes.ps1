@@ -106,15 +106,21 @@ function Get-RefDate([string] $ref) {
 }
 
 # PR numbers typically appear as:
-#   - "Some fix (#123)"                              (squash merge)
-#   - "Merge pull request #123 from user/branch"     (merge commit)
-# We take the first match per commit subject so a reference to another PR in
-# the body doesn't double-count it.
-$script:PrNumberRegex = '(?:(?:Merge pull request|pull/)\s*#?|\(#)(\d+)\)?'
+#   - "Some fix (#123)"                              (squash merge, trailing)
+#   - "Merge pull request #123 from user/branch"     (merge commit, leading)
+# Anchoring (?:\(#N\)\s*$) and (?:^Merge pull request #N) keeps the match on
+# the real PR number even when the title mentions another PR, e.g.
+# 'Revert "Add x (#45)" (#46)' - a plain first-match would pick #45.
+$script:PrNumberRegex = '(?:\(#(\d+)\)\s*$|^Merge pull request\s+#(\d+))'
 
 function Get-CommitsInRange([string] $from, [string] $to) {
-    $raw = Invoke-Git @('log', "$from..$to", '--pretty=format:%H%x1f%cI%x1f%an%x1f%s')
-    if (-not $raw) { return @() }
+    # --first-parent keeps one entry per merge in a merge-commit workflow
+    # (otherwise every branch commit shows up as an orphan). Safe on a
+    # squash-merge workflow: linear history already has only first-parents.
+    $raw = Invoke-Git @('log', '--first-parent', "$from..$to", '--pretty=format:%H%x1f%cI%x1f%an%x1f%s')
+    # `return ,@()` wraps the empty array so the pipeline does not unroll
+    # it to $null (strict mode then rejects $commits.Count in the caller).
+    if (-not $raw) { return ,@() }
     $commits = @()
     foreach ($line in ($raw -split "`r?`n")) {
         if (-not $line) { continue }
@@ -125,7 +131,13 @@ function Get-CommitsInRange([string] $from, [string] $to) {
         $author   = $parts[2]
         $subject  = $parts[3]
         $prMatch  = [regex]::Match($subject, $script:PrNumberRegex)
-        $prNumber = if ($prMatch.Success) { [int]$prMatch.Groups[1].Value } else { $null }
+        $prNumber = $null
+        if ($prMatch.Success) {
+            # Two alternation branches, one capturing group each; read
+            # whichever actually matched.
+            $g = if ($prMatch.Groups[1].Success) { $prMatch.Groups[1] } else { $prMatch.Groups[2] }
+            $prNumber = [int]$g.Value
+        }
         $commits += [pscustomobject]@{
             Sha      = $sha
             ShortSha = $sha.Substring(0, 7)
@@ -136,6 +148,36 @@ function Get-CommitsInRange([string] $from, [string] $to) {
         }
     }
     return ,$commits
+}
+
+function Get-HeaderValue($headers, [string] $name) {
+    # PS 5.1 wraps headers as a case-insensitive Dictionary[string,string[]]
+    # where indexing returns the value directly. PS 7+ sometimes surfaces
+    # HttpResponseHeaders where [] can throw. Try both shapes, return null
+    # when the header is absent rather than letting strict mode throw.
+    if ($null -eq $headers) { return $null }
+    try {
+        if ($headers -is [System.Collections.IDictionary]) {
+            if ($headers.Contains($name)) {
+                $v = $headers[$name]
+                if ($v -is [array]) { return ($v | Select-Object -First 1) }
+                return $v
+            }
+            return $null
+        }
+        # Fallback: .NET HttpHeaders style.
+        $vals = $null
+        $tryGet = $headers.GetType().GetMethod('TryGetValues')
+        if ($tryGet) {
+            $args = @($name, [ref]$vals)
+            $ok = $tryGet.Invoke($headers, $args)
+            if ($ok -and $args[1]) { return (@($args[1]) | Select-Object -First 1) }
+            return $null
+        }
+        return $headers[$name]
+    } catch {
+        return $null
+    }
 }
 
 function Invoke-GitHubApi([string] $path, [string] $tok) {
@@ -150,13 +192,17 @@ function Invoke-GitHubApi([string] $path, [string] $tok) {
     try {
         $resp = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -TimeoutSec 20
     } catch {
-        $r = $_.Exception.Response
+        # Strict mode: never dot into .Response without checking - timeouts and
+        # DNS failures raise exceptions with no Response property at all, and
+        # the real error message would be lost to a PropertyNotFoundException.
+        $exn = $_.Exception
+        $r = if ($exn.PSObject.Properties['Response']) { $exn.Response } else { $null }
         if ($r) {
             $status = [int]$r.StatusCode
             if ($status -eq 403) {
-                $remaining = $r.Headers['X-RateLimit-Remaining']
+                $remaining = Get-HeaderValue $r.Headers 'X-RateLimit-Remaining'
                 if ($remaining -eq '0') {
-                    $reset = $r.Headers['X-RateLimit-Reset']
+                    $reset = Get-HeaderValue $r.Headers 'X-RateLimit-Reset'
                     throw "GitHub API rate limit exceeded. Resets at Unix time $reset. Set `$env:GITHUB_TOKEN to lift the limit to 5000/h."
                 }
             }
@@ -168,8 +214,8 @@ function Invoke-GitHubApi([string] $path, [string] $tok) {
         throw
     }
 
-    $remaining = $resp.Headers['X-RateLimit-Remaining']
-    $limit     = $resp.Headers['X-RateLimit-Limit']
+    $remaining = Get-HeaderValue $resp.Headers 'X-RateLimit-Remaining'
+    $limit     = Get-HeaderValue $resp.Headers 'X-RateLimit-Limit'
     $script:LastRateInfo = @{ Remaining = $remaining; Limit = $limit }
     return ($resp.Content | ConvertFrom-Json)
 }
@@ -198,6 +244,17 @@ function Format-Date([string] $iso) {
 # ========================================================================
 
 $repoRoot = Get-RepoRoot
+
+# Resolve -Output against the caller's cwd BEFORE Push-Location runs: the push
+# changes $PWD but not [System.IO.Directory]::GetCurrentDirectory(), which is
+# what [System.IO.File]::WriteAllText uses for relative paths. A user running
+# `scripts\collect-release-notes.ps1 -Output out\draft.md` from somewhere
+# outside the repo would otherwise see Test-Path/New-Item resolve against
+# the repo root while the actual file write resolves somewhere else.
+if ($Output) {
+    $Output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Output)
+}
+
 Push-Location $repoRoot
 try {
     $SinceTag = Resolve-SinceTag $SinceTag
@@ -257,6 +314,13 @@ try {
             }
             if ($null -eq $pr) {
                 Write-Host " - not a PR (skipped)" -ForegroundColor DarkGray
+                continue
+            }
+            # Revert commits can reference open or closed-unmerged PRs. Those
+            # return merged_at = null, and [DateTime]::Parse($null) later would
+            # throw after every API call has already run, losing the whole run.
+            if (-not $pr.merged_at) {
+                Write-Host " - not merged (skipped)" -ForegroundColor DarkGray
                 continue
             }
             Write-Host " - $($pr.title)"
