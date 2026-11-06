@@ -278,7 +278,7 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       env:
         # renovate: datasource=github-releases depName=mikefarah/yq
-        YQ_VERSION: v4.54.1
+        YQ_VERSION: v4.54.2
         # NOTE: Renovate cannot compute this hash. Bumping YQ_VERSION ALWAYS means
         # updating YQ_SHA256 by hand - the checksum gate below fails loudly otherwise.
         YQ_SHA256: "8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f"
