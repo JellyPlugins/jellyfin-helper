@@ -71,6 +71,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# InvariantCulture pins format separators (`:` stays `:` on da-DK, not `.`) and
+# the Gregorian calendar (so a Buddhist culture like th-TH does not emit a
+# year 2569 for "yyyy"). Every DateTime.ToString / .Parse in this script must
+# use it, otherwise the script would write locale-mangled timestamps into
+# manifest.json or a wrong year into CHANGELOG.md.
+$script:Invariant = [System.Globalization.CultureInfo]::InvariantCulture
+
 # ========================================================================
 # Helpers (defined first so StrictMode never sees a forward reference)
 # ========================================================================
@@ -206,7 +213,7 @@ if ($TargetAbi -and -not (Test-VersionFormat $TargetAbi)) {
     throw "TargetAbi '$TargetAbi' is not a 4-part version (x.x.x.x)."
 }
 if (-not $ReleaseDate) {
-    $ReleaseDate = [DateTime]::UtcNow.ToString('yyyy-MM-dd')
+    $ReleaseDate = [DateTime]::UtcNow.ToString('yyyy-MM-dd', $script:Invariant)
 }
 if (-not (Test-StrictIsoDate $ReleaseDate)) {
     throw "ReleaseDate '$ReleaseDate' is not a valid YYYY-MM-DD calendar date."
@@ -456,7 +463,7 @@ if ($manifestTopVersion -eq $NewVersion) {
 }
 else {
     $sourceUrl = "https://github.com/JellyPlugins/jellyfin-helper/releases/download/$NewVersion/JellyfinHelper_$NewVersion.zip"
-    $timestamp = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', $script:Invariant)
 
     # Build the changelog as a JSON string literal (single-line with \n escapes
     # to match the shape of every existing entry in the file).

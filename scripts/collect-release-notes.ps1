@@ -54,6 +54,12 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# InvariantCulture pins format separators and the Gregorian calendar, so
+# DateTime.ToString('HH:mm') emits "10:30" on every host (not "10.30" on
+# da-DK) and "yyyy" emits the Gregorian year (not the Buddhist year on
+# th-TH). Every DateTime.ToString / .Parse below must use it.
+$script:Invariant = [System.Globalization.CultureInfo]::InvariantCulture
+
 # ========================================================================
 # Helpers
 # ========================================================================
@@ -165,13 +171,20 @@ function Get-HeaderValue($headers, [string] $name) {
             }
             return $null
         }
-        # Fallback: .NET HttpHeaders style.
-        $vals = $null
+        # Fallback: .NET HttpHeaders style (PS 7+ Invoke-WebRequest).
         $tryGet = $headers.GetType().GetMethod('TryGetValues')
         if ($tryGet) {
-            $args = @($name, [ref]$vals)
-            $ok = $tryGet.Invoke($headers, $args)
-            if ($ok -and $args[1]) { return (@($args[1]) | Select-Object -First 1) }
+            # Reflection cannot bind a PowerShell [ref] to a .NET `out`
+            # parameter: the second slot has to be a plain object the method
+            # writes back into. $invokeArgs is also *not* named $args - that
+            # name collides with PowerShell's automatic $Args parameter and
+            # the splat would silently misbehave (same bug class as $GitArgs
+            # higher up in this file).
+            $invokeArgs = @($name, $null)
+            $ok = $tryGet.Invoke($headers, $invokeArgs)
+            if ($ok -and $invokeArgs[1]) {
+                return (@($invokeArgs[1]) | Select-Object -First 1)
+            }
             return $null
         }
         return $headers[$name]
@@ -236,7 +249,9 @@ function Trim-Body([string] $body, [int] $maxLines = 15) {
 
 function Format-Date([string] $iso) {
     if (-not $iso) { return '' }
-    try { return ([DateTime]::Parse($iso)).ToString('yyyy-MM-dd') } catch { return $iso }
+    try {
+        return ([DateTime]::Parse($iso, $script:Invariant)).ToString('yyyy-MM-dd', $script:Invariant)
+    } catch { return $iso }
 }
 
 # ========================================================================
@@ -343,7 +358,7 @@ try {
     [void]$out.AppendLine("**Range**: ``$SinceTag`` ($sinceDate) -> ``$UntilRef`` ($untilDate)  ")
     [void]$out.AppendLine("**Commits**: $($commits.Count) - **PRs**: $($prNumbers.Count) - **Orphans**: $($orphanCommits.Count)")
     [void]$out.AppendLine()
-    [void]$out.AppendLine("> Generated $([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm')) UTC by ``scripts/collect-release-notes.ps1``.")
+    [void]$out.AppendLine("> Generated $([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm', $script:Invariant)) UTC by ``scripts/collect-release-notes.ps1``.")
     [void]$out.AppendLine("> Draft only. This file is in ``.gitignore`` and must not be committed.")
     [void]$out.AppendLine()
     [void]$out.AppendLine("---")
@@ -366,7 +381,7 @@ try {
         }
     } else {
         # Sort PRs by merged_at ascending so the changelog reads chronologically.
-        $sortedPrs = $prs | Sort-Object { [DateTime]::Parse($_.merged_at) }
+        $sortedPrs = $prs | Sort-Object { [DateTime]::Parse($_.merged_at, $script:Invariant) }
         foreach ($pr in $sortedPrs) {
             $labels = @()
             if ($pr.labels) { $labels = @($pr.labels | ForEach-Object { $_.name }) }
