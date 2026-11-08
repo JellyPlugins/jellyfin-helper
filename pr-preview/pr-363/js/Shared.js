@@ -1192,12 +1192,11 @@ function attachTogglePanelHandlers(opts) {
             var wasVisible = panel.classList.contains('file-tree-panel-visible');
 
             this.classList.add(opts.activeClass);
-            var selected = this;
             window.JellyfinHelperUi.setExpanded(panel, true, this, {
                 duration: 180,
                 animate: !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput(),
-                update: function () {
-                    panel.innerHTML = opts.renderContent(selected);
+                update: () => {
+                    panel.innerHTML = opts.renderContent(this);
                     if (typeof bindFileTreeHandlers === 'function') bindFileTreeHandlers(panel);
                     panel.classList.add('file-tree-panel-visible');
                 }

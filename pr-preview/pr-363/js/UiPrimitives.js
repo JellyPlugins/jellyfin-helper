@@ -24,10 +24,13 @@
             '.jfh-keyboard-input .jfh-ui-surface .action-btn:active,.jfh-keyboard-input .jfh-ui-surface .health-clickable:active,.jfh-keyboard-input .jfh-ui-surface .codec-row:active,.jfh-keyboard-input .jfh-ui-surface .jfh-discovery-btn:active{transform:none;transition:none}' +
             '.jfh-ui-surface button:focus-visible,.jfh-ui-surface a:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}' +
             '.jfh-toast-stack{position:fixed;bottom:calc(1rem + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);z-index:100001;display:flex;flex-direction:column;gap:.5rem;width:min(480px,calc(100vw - 2rem));max-height:50vh;max-height:50dvh;overflow:auto;pointer-events:none}' +
+            '.jfh-toast{position:relative;box-sizing:border-box;width:100%;padding:.9em 2.8rem .9em 1.4em;background:var(--color-surface-card);color:var(--color-text);font-size:.88em;line-height:1.4;border-radius:8px;border-left:4px solid var(--color-danger);box-shadow:0 4px 24px rgba(0,0,0,.4);overflow-wrap:anywhere;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity var(--motion-feedback) var(--ease-out),transform var(--motion-feedback) var(--ease-out)}' +
+            '.jfh-toast-visible{opacity:1;pointer-events:auto;transform:none}' +
+            '.jfh-toast-hidden{opacity:0;pointer-events:none;transform:translateY(8px)}' +
             '.jfh-toast-close{position:absolute;right:.4rem;top:.4rem;background:transparent;border:none;color:inherit;cursor:pointer;width:32px;height:32px}.jfh-toast-close::before{content:"×";font-size:1.3rem}' +
             '@media(pointer:coarse){.jfh-ui-surface input,.jfh-ui-surface select,.jfh-ui-surface textarea{font-size:max(16px,1em)!important}.jfh-ui-surface .action-btn,.jfh-ui-surface .jfh-discovery-btn,.jfh-ui-surface .jfh-discovery-tab,.jfh-ui-surface .jfh-discovery-popup-item,.jfh-ui-surface .jfh-discovery-popup-cancel{min-height:44px;touch-action:manipulation}}' +
             '@media(prefers-color-scheme:light){.jfh-ui-surface{--color-primary:#00749c;--color-surface-card:#ffffff;--color-text:#17171b;--color-text-muted:#565660;--color-border:rgba(0,0,0,.15);--color-primary-scrollbar:rgba(0,136,184,.55);--color-primary-scrollbar-hover:rgba(0,136,184,.75)}}' +
-            '@media(prefers-reduced-motion:reduce){.jfh-ui-surface .jfh-card-exiting{transform:none;transition:none}}';
+            '@media(prefers-reduced-motion:reduce){.jfh-ui-surface .jfh-card-exiting,.jfh-toast{transform:none;transition:none}}';
         document.head.appendChild(style);
     }
 
@@ -335,6 +338,9 @@
 
     function showToast(message, options) {
         if (!message) return null;
+        var className = options?.className ?? 'jfh-toast';
+        var closeLabel = options?.closeLabel ?? 'Close';
+        var remaining = options?.duration ?? 5000;
         var stack = document.getElementById('jfh-toast-stack');
         if (!stack) {
             stack = document.createElement('div');
@@ -343,18 +349,17 @@
             document.body.appendChild(stack);
         }
         var toast = document.createElement('div');
-        toast.className = options.className;
+        toast.className = className;
         toast.setAttribute('role', 'alert');
         toast.textContent = message;
         var close = document.createElement('button');
         close.type = 'button';
         close.className = 'jfh-toast-close';
-        close.setAttribute('aria-label', options.closeLabel);
+        close.setAttribute('aria-label', closeLabel);
         toast.appendChild(close);
         stack.appendChild(toast);
         toast.getBoundingClientRect();
-        toast.classList.add(options.className + '-visible');
-        var remaining = options.duration;
+        toast.classList.add(className + '-visible');
         var started = 0;
         var timer = null;
         var hovered = false;
@@ -378,8 +383,8 @@
             closed = true;
             pause();
             document.removeEventListener('visibilitychange', visibility);
-            toast.classList.remove(options.className + '-visible');
-            toast.classList.add(options.className + '-hidden');
+            toast.classList.remove(className + '-visible');
+            toast.classList.add(className + '-hidden');
             function remove() {
                 toast.remove();
                 if (!stack.children.length) stack.remove();

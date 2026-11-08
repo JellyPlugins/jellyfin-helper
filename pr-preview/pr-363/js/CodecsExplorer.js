@@ -1476,7 +1476,7 @@ function refreshCodecsExplorerControls() {
 }
 
 function explorerMenuKey(panel) {
-    if (panel.hasAttribute('data-filter-pop')) return 'filter';
+    if (panel.dataset.filterPop !== undefined) return 'filter';
     const dim = panel.closest('[data-multi-dim]')?.dataset.multiDim;
     return dim ? 'multi-' + dim : 'libraries';
 }
