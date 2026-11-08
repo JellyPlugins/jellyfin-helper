@@ -233,7 +233,12 @@
             '.jfh-discovery-card-poster.flipped .jfh-discovery-flip-inner { transform: rotateY(180deg); }' +
             '.jfh-discovery-flip-front, .jfh-discovery-flip-back { position: absolute; top: 0; left: 0; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-sizing: border-box; }' +
             '.jfh-discovery-flip-front img { width: 100%; height: 100%; object-fit: cover; display: block; }' +
-            '.jfh-discovery-flip-back { transform: rotateY(180deg); background: rgba(20,20,30,0.95); padding: 1.2em; overflow-y: auto; box-sizing: border-box; }' +
+            '.jfh-discovery-flip-back { transform: rotateY(180deg); background: rgba(20,20,30,0.95); padding: 1.2em; overflow-y: auto; box-sizing: border-box; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--color-primary-scrollbar) transparent; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar { width:6px;height:6px; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-track,.jfh-discovery-flip-back::-webkit-scrollbar-corner { background:transparent; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-thumb { background:var(--color-primary-scrollbar);border-radius:3px; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-button { display:none;width:0;height:0; }' +
+            '@media(hover:hover) and (pointer:fine){.jfh-discovery-flip-back::-webkit-scrollbar-thumb:hover{background:var(--color-primary-scrollbar-hover)}}' +
             '.jfh-discovery-flip-back-text { font-size: 0.92em; line-height: 1.5; opacity: 0.9; color: #eee; word-break: break-word; overflow-wrap: break-word; }' +
             '.jfh-discovery-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); }' +
             // Card body
@@ -292,7 +297,8 @@
             // 403/timeout removes it without a trace.
             '.jfh-trakt-pending { display: flex; justify-content: center; align-items: center; min-height: 40px; margin: 0 0 1em 0; }' +
             '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }' +
-            '.jfh-discovery-card { color:var(--color-text);background:var(--color-surface-card);box-shadow:inset 0 0 0 1px var(--color-border); }' +
+            '.jfh-discovery-card { position:relative;color:var(--color-text);background:var(--color-surface-card); }' +
+            '.jfh-discovery-card::after { content:"";position:absolute;inset:0;border:1px solid var(--color-border);border-radius:inherit;pointer-events:none;z-index:1; }' +
             '.jfh-discovery-flip-back { background:var(--color-surface-card); }' +
             '.jfh-discovery-flip-back-text { color:var(--color-text);max-width:65ch; }' +
             '.jfh-discovery-details { align-self:flex-start;padding:.4em .2em;background:transparent;border:0;color:var(--color-primary);cursor:pointer;font:inherit;font-size:.85em; }' +
@@ -673,24 +679,13 @@
             '</div><div class="jfh-discovery-tab-host"></div></div>';
         var list = container.querySelector('.jfh-discovery-tabs');
         var shape = _traktLinked ? 'linked' : 'unlinked';
-        if (!list || list.dataset.shape !== shape) {
+        if (list?.dataset.shape !== shape) {
             container.innerHTML = tabs;
             list = container.querySelector('.jfh-discovery-tabs');
             list.dataset.shape = shape;
         }
 
-        var buttons = container.querySelectorAll('.jfh-discovery-tab');
-        for (const button of buttons) {
-            button.classList.toggle('jfh-discovery-tab-active', button.dataset.tab === _activeTab);
-            if (button.dataset.jfhClickBound) continue;
-            button.dataset.jfhClickBound = '1';
-            button.addEventListener('click', function () {
-                var tab = this.dataset.tab;
-                if (tab === _activeTab) { return; }
-                _activeTab = tab;
-                renderShell(container, false);
-            });
-        }
+        bindDiscoveryTabHandlers(container);
 
         var host = container.querySelector('.jfh-discovery-tab-host');
         host.id = 'jfh-discovery-subtab-panel';
@@ -706,6 +701,21 @@
             renderTraktTrending(host, forceRefresh);
         } else {
             renderOwnTab(host, forceRefresh);
+        }
+    }
+
+    function bindDiscoveryTabHandlers(container) {
+        var buttons = container.querySelectorAll('.jfh-discovery-tab');
+        for (const button of buttons) {
+            button.classList.toggle('jfh-discovery-tab-active', button.dataset.tab === _activeTab);
+            if (button.dataset.jfhClickBound) continue;
+            button.dataset.jfhClickBound = '1';
+            button.addEventListener('click', function () {
+                var tab = this.dataset.tab;
+                if (tab === _activeTab) { return; }
+                _activeTab = tab;
+                renderShell(container, false);
+            });
         }
     }
 
@@ -1072,7 +1082,10 @@
     function placeSidebarCard(grid, card, reference, preserveOrder) {
         if (preserveOrder) {
             if (card.parentElement !== grid) grid.appendChild(card);
-        } else if (card !== reference) grid.insertBefore(card, reference);
+        } else if (card !== reference) {
+            if (reference) reference.before(card);
+            else grid.appendChild(card);
+        }
     }
 
     function discoveryCardKey(tmdbId, mediaType) {
@@ -1083,21 +1096,23 @@
         var key = discoveryCardKey(tmdbId, mediaType);
         _consumedDiscoveryItems.add(key);
         function filtered(data) {
-            return data ? Object.assign({}, data, { Recommendations: (data.Recommendations || []).filter(function (item) {
+            return data ? { ...data, Recommendations: (data.Recommendations || []).filter(function (item) {
                 return discoveryCardKey(item.TmdbId, item.MediaType) !== key;
-            }) }) : data;
+            }) } : data;
         }
         var own = _discoveryResultCache;
         var personal = _traktPersonalCache;
         var trending = _traktTrendingCache;
         var probe = _traktProbeResult;
         invalidateDiscoveryResult();
-        if (own) _discoveryResultCache = Object.assign({}, own, { data: filtered(own.data) });
-        if (personal) _traktPersonalCache = Object.assign({}, personal, { data: filtered(personal.data) });
-        if (trending) _traktTrendingCache = Object.assign({}, trending, { data: filtered(trending.data) });
-        if (probe) _traktProbeResult = Object.assign({}, probe, {
-            generation: _discoveryGeneration, resp: Object.assign({}, probe.resp, { Result: filtered(probe.resp.Result) })
-        });
+        if (own) _discoveryResultCache = { ...own, data: filtered(own.data) };
+        if (personal) _traktPersonalCache = { ...personal, data: filtered(personal.data) };
+        if (trending) _traktTrendingCache = { ...trending, data: filtered(trending.data) };
+        if (probe) _traktProbeResult = {
+            ...probe,
+            generation: _discoveryGeneration,
+            resp: { ...probe.resp, Result: filtered(probe.resp.Result) }
+        };
     }
 
     function renderSidebarExternalLinksHtml(r, mediaType) {
@@ -1193,15 +1208,7 @@
                 toggleSidebarDetails(this.closest('.jfh-discovery-card').querySelector('.jfh-discovery-card-poster'), this.getAttribute('aria-expanded') !== 'true');
             });
         }
-        // Attach poster flip handlers
-        var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
-        for (const poster of posters) {
-            if (poster.dataset.jfhFlipBound) continue;
-            poster.dataset.jfhFlipBound = '1';
-            poster.parentElement.addEventListener('click', function () {
-                toggleSidebarDetails(this, !this.classList.contains('flipped'));
-            });
-        }
+        bindSidebarPosterHandlers(container);
         // Attach external link handlers on the flip back side.
         // Opens URLs in a new tab. stopPropagation prevents the poster flip from triggering.
         var flipLinks = container.querySelectorAll('.jfh-discovery-flip-link[data-href]');
@@ -1218,6 +1225,21 @@
                 if (safeUrl) window.open(safeUrl, '_blank', 'noopener,noreferrer');
             });
         }
+        bindSidebarImageHandlers(container);
+    }
+
+    function bindSidebarPosterHandlers(container) {
+        var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
+        for (const poster of posters) {
+            if (poster.dataset.jfhFlipBound) continue;
+            poster.dataset.jfhFlipBound = '1';
+            poster.parentElement.addEventListener('click', function () {
+                toggleSidebarDetails(this, !this.classList.contains('flipped'));
+            });
+        }
+    }
+
+    function bindSidebarImageHandlers(container) {
         for (var image of container.querySelectorAll('.jfh-discovery-flip-front img')) {
             if (image.dataset.jfhImageBound) continue;
             image.dataset.jfhImageBound = '1';
