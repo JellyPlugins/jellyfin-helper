@@ -222,8 +222,10 @@ public class UserDiscoveryControllerTests
         var script = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
         var registry = script.IndexOf("window.JellyfinHelperTabs =", StringComparison.Ordinal);
         var lifecycle = script.IndexOf("window.JellyfinHelperLifecycle =", StringComparison.Ordinal);
+        var primitives = script.IndexOf("window.JellyfinHelperUi =", StringComparison.Ordinal);
         var discovery = script.IndexOf("window.__jfhDiscoverySidebarInitialized", StringComparison.Ordinal);
-        Assert.True(lifecycle >= 0);
+        Assert.True(primitives >= 0);
+        Assert.True(lifecycle > primitives);
         Assert.True(registry > lifecycle);
         Assert.True(discovery > registry);
         Assert.Contains("initDiscoveryLifecycle();", script, StringComparison.Ordinal);

@@ -77,7 +77,7 @@
 /* noinspection CssUnusedSymbol */
 .settings-form .help-text {
     font-size: 0.8em;
-    opacity: 0.5;
+    opacity: 0.75;
     margin-top: 0.2em;
 }
 
@@ -131,9 +131,12 @@
    header lights up the whole collapsible edge blue - matching the dropdown
    hover treatment defined centrally in Shared.css. */
 /* noinspection CssUnusedSymbol */
-.arr-collapsible:hover,
 .arr-collapsible:focus-within {
     border-color: var(--color-primary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .arr-collapsible:hover { border-color: var(--color-primary); }
 }
 
 /* noinspection CssUnusedSymbol */
@@ -157,8 +160,8 @@
 }
 
 /* noinspection CssUnusedSymbol */
-.arr-collapsible-header:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .arr-collapsible-header:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 /* noinspection CssUnusedSymbol */
@@ -207,7 +210,6 @@
 .arr-collapsible-body {
     max-height: 0;
     overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0 1em;
 }
 
@@ -246,8 +248,8 @@
     text-align: center;
 }
 
-.export-import-button:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .export-import-button:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 .export-import-button:focus-visible {
@@ -284,8 +286,8 @@
     transition: border-color 0.2s;
 }
 
-.library-multiselect-toggle:hover {
-    border-color: var(--color-primary, #00a4dc);
+@media (hover: hover) and (pointer: fine) {
+    .library-multiselect-toggle:hover { border-color: var(--color-primary, #00a4dc); }
 }
 
 .library-multiselect-summary {
@@ -346,8 +348,8 @@
     transition: background 0.15s;
 }
 
-.library-multiselect-item:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .library-multiselect-item:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 .library-multiselect-item input[type="checkbox"] {
@@ -383,7 +385,7 @@
 .settings-save-band {
     position: fixed;
     left: 50%;
-    bottom: 1.2em;
+    bottom: calc(1.2em + env(safe-area-inset-bottom, 0px));
     z-index: 60;
     display: flex;
     align-items: center;
@@ -402,7 +404,7 @@
     visibility: hidden;
     pointer-events: none;
     transform: translateX(-50%) translateY(0.8em);
-    transition: opacity 0.28s ease, transform 0.28s ease, visibility 0s linear 0.28s;
+    transition: opacity var(--motion-feedback) var(--ease-out), transform var(--motion-feedback) var(--ease-out), visibility 0s linear var(--motion-feedback);
 }
 
 /* noinspection CssUnusedSymbol */
@@ -411,7 +413,7 @@
     visibility: visible;
     pointer-events: auto;
     transform: translateX(-50%) translateY(0);
-    transition: opacity 0.28s ease, transform 0.28s ease, visibility 0s linear 0s;
+    transition: opacity var(--motion-feedback) var(--ease-out), transform var(--motion-feedback) var(--ease-out), visibility 0s linear 0s;
 }
 
 /* noinspection CssUnusedSymbol */
@@ -480,7 +482,12 @@
 
 @media (prefers-reduced-motion: reduce) {
     /* noinspection CssUnusedSymbol */
-    .settings-save-band { transition: opacity 0.28s ease; }
+    .settings-save-band,
+    .settings-save-band.is-visible {
+        transform: translateX(-50%);
+        transition: opacity var(--motion-feedback) ease, visibility 0s;
+    }
+    .arr-chevron { transition: none; }
     /* noinspection CssUnusedSymbol */
     .settings-save-band-dot { animation: none; }
 }

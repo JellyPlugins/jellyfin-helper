@@ -60,13 +60,13 @@ const DISCOVERY_DROPS: Array<[RegExp, string]> = [
   // Early-returns the whole IIFE once the guard flag is set, so a second fresh
   // scope would return before reaching the test-only return. Driven separately
   // through the guard bundle (loadDiscovery).
-  [/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*\}/, 'double-init guard'],
+  [/if \(window\.__jfhDiscoverySidebarInitialized\) \{\s*return;\s*}/, 'double-init guard'],
   [/^[ \t]*initDiscoveryLifecycle\(\);[ \t]*\r?$/m, 'lifecycle initialization'],
 ];
 
 const NATIVE_TABS_DROPS: Array<[RegExp, string]> = [
-  [/if \(window\.JellyfinHelperTabs\) \{\s*return;\s*\}/, 'double-load guard'],
-  [/^[ \t]*window\.JellyfinHelperTabs = \{[\s\S]*?\};[ \t]*\r?$/m, 'registry export'],
+  [/if \(window\.JellyfinHelperTabs\) \{\s*return;\s*}/, 'double-load guard'],
+  [/^[ \t]*window\.JellyfinHelperTabs = \{[\s\S]*?};[ \t]*\r?$/m, 'registry export'],
   [/^[ \t]*init\(\);[ \t]*\r?$/m, 'init call'],
 ];
 
@@ -99,6 +99,10 @@ function buildConfigPage(): UiBridge {
   );
 }
 
+function uiPrimitivesSource(): string {
+  return prepared(join(CONFIG_JS_DIR, 'UiPrimitives.js'));
+}
+
 export function loadConfigPage(): UiBridge {
   if (!configPage) configPage = buildConfigPage();
   return configPage;
@@ -120,7 +124,7 @@ const CONFIG_EXPECTED = [
         'openFolderBrowserDialog', 'initFolderBrowser', 'browseTo', 'loadLibraryPathsForBrowser',
         'appendFolderBrowserName', 'renderFolderBrowserListing',
         'escHtml', 'escAttr', 'allowSafeHtml', 'mi', 'getCssVar', 'loadTranslations', 'applyStaticTranslations', 'showButtonFeedback', 'apiGetOptional',
-        'formatBytes', 'getScoreThresholdClass', 'trimTrailingSlashes', 'getPathSegments',
+        'formatBytes', 'formatCount', 'getScoreThresholdClass', 'trimTrailingSlashes', 'getPathSegments',
         'collectFlatPaths', 'collectDictPaths', 'buildPathTree', 'countTreeItems',
         'encodeTreeKey', 'resolveTreeNode', 'renderTreeLevel', 'renderTreeFolder',
         'renderTreeLeaf', 'renderFileTree', 'toggleTreeNode', 'ensureTreeChildren',
@@ -208,7 +212,7 @@ const DISCOVERY_GUARD_LABEL = 'js/discovery-sidebar.guard.js';
 export function loadDiscovery(): UiBridge {
   if (!discovery) {
     discovery = evaluate(
-      [prepared(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_GUARD_LABEL)],
+      [uiPrimitivesSource(), prepared(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_GUARD_LABEL)],
       [],
     );
   }
@@ -217,12 +221,12 @@ export function loadDiscovery(): UiBridge {
 
 // Re-evaluates the bundle to prove the double-init guard. Test-only helper.
 export function reloadDiscoveryBundle(): void {
-  evaluate([prepared(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_GUARD_LABEL)], []);
+  evaluate([uiPrimitivesSource(), prepared(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_GUARD_LABEL)], []);
 }
 
 const DISCOVERY_EXPECTED = [
   'currentDiscoveryUserId', 'safeHttpUrl', 't', 'getDiscoveryScoreClass',
-  'loadExternalLinksConfig', 'showToast', 'dismissToast', 'extractErrorMessage',
+  'loadExternalLinksConfig', 'showToast', 'extractErrorMessage',
   'getUserFriendlyErrorMessage', 'getCachedDiscoveryResult', 'setCachedDiscoveryResult',
   'invalidateDiscoveryResult', 'discoveryGeneratedAt', 'discoveryVisibleKey',
   'isOnHomePage', 'registerDiscoveryTab', 'focusDiscoveryTab', 'notifyTabUnavailable',
@@ -254,7 +258,7 @@ let discoveryBridge: UiBridge | null = null;
 export function loadDiscoveryHelpers(): UiBridge {
   if (!discoveryBridge) {
     discoveryBridge = evaluate(
-      [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
+      [uiPrimitivesSource(), preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
       DISCOVERY_EXPECTED,
     );
   }
@@ -263,7 +267,7 @@ export function loadDiscoveryHelpers(): UiBridge {
 
 export function freshDiscoveryHelpers(): UiBridge {
   return evaluate(
-    [preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
+    [uiPrimitivesSource(), preparedUnwrapped(join(DISCOVERY_DIR, DISCOVERY_MODULE), DISCOVERY_DROPS)],
     DISCOVERY_EXPECTED,
   );
 }

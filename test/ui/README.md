@@ -10,6 +10,7 @@ validators are pinned without a browser.
 | Area | File |
 |---|---|
 | Shared helpers (bytes, escaping, thresholds, paths) | `tests/shared-utils.test.ts` |
+| Modal focus, keyboard tabs, hidden panels, stable Discovery cards, reduced motion and toast lifetimes | `tests/ui-primitives.test.ts` |
 | Shared trees, dialogs, api errors, indicators | `tests/shared-trees.test.ts`, `tests/shared-indicators.test.ts`, `tests/shared-indicators-behavior.test.ts` |
 | Reviewed edge cases pinned (tree key decode, dir icon, zero coercion, union dedup, capped note, ensemble share) | `tests/shared-safety.test.ts` |
 | Settings visibility (Discovery access, Trakt row, Recs tab, Seerr state) | `tests/settings-visibility.test.ts` |

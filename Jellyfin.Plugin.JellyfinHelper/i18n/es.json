@@ -115,6 +115,7 @@
   "trashFolder": "Ruta de la carpeta de papelera",
   "trashRetention": "Retención de papelera (días)",
   "close": "Cerrar",
+  "discoveryDetails": "Detalles",
   "cancel": "Cancelar",
   "trashDisableTitle": "Carpetas de papelera detectadas",
   "trashDisablePrompt": "La papelera se está desactivando. Las siguientes carpetas de papelera existen en el disco:",

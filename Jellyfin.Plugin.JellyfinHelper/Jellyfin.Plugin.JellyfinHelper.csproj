@@ -56,6 +56,7 @@
 
     <ItemGroup>
         <JsModule Include="PluginPages\js\Shared.js"/>
+        <JsModule Include="PluginPages\js\UiPrimitives.js"/>
         <JsModule Include="PluginPages\js\Overview.js"/>
         <JsModule Include="PluginPages\js\Codecs.js"/>
         <JsModule Include="PluginPages\js\CodecsExplorer.js"/>
@@ -150,6 +151,9 @@
         </EmbeddedResource>
         <EmbeddedResource Include="js\client-lifecycle.js">
             <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.client-lifecycle.js</LogicalName>
+        </EmbeddedResource>
+        <EmbeddedResource Include="PluginPages\js\UiPrimitives.js">
+            <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.ui-primitives.js</LogicalName>
         </EmbeddedResource>
         <!-- Source module files are NOT embedded but kept for development -->
         <None Include="PluginPages\configPage.template.html"/>
