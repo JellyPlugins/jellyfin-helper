@@ -104,6 +104,29 @@ describe('modal interaction', () => {
 });
 
 describe('tabs and collapsed content', () => {
+  test.each(['ltr', 'rtl'])('keyboard navigation wraps and respects %s direction without activating tabs', direction => {
+    const list = document.createElement('div');
+    list.style.direction = direction;
+    list.innerHTML = '<button>One</button><button hidden>Hidden</button><button disabled>Disabled</button><button>Two</button><button>Three</button>';
+    document.querySelector('main')!.appendChild(list);
+    const buttons = list.querySelectorAll('button');
+    ui.syncTabs(list, 'button', buttons[0], () => null);
+    buttons[0].focus();
+    const press = (key: string) => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    press('ArrowRight');
+    expect(document.activeElement).toBe(direction === 'ltr' ? buttons[3] : buttons[4]);
+    press('End');
+    expect(document.activeElement).toBe(buttons[4]);
+    press('ArrowRight');
+    expect(document.activeElement).toBe(direction === 'ltr' ? buttons[0] : buttons[3]);
+    press('Home');
+    expect(document.activeElement).toBe(buttons[0]);
+    press('ArrowLeft');
+    expect(document.activeElement).toBe(direction === 'ltr' ? buttons[4] : buttons[3]);
+    expect(buttons[0].getAttribute('aria-selected')).toBe('true');
+    expect(buttons[3].getAttribute('aria-selected')).toBe('false');
+    expect(buttons[4].getAttribute('aria-selected')).toBe('false');
+  });
   test('formats large counts and old timestamps using the document language', () => {
     document.documentElement.lang = 'de';
     expect(page.formatCount(1234567)).toBe('1.234.567');

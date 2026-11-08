@@ -8,7 +8,8 @@ export default defineConfig({
   reporter: 'list',
   use: { screenshot: 'only-on-failure', trace: 'retain-on-failure' },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', use: { browserName: 'webkit' } },
+    { name: 'documentation', testMatch: /coverage-doc\.api\.spec\.ts/ },
+    { name: 'chromium', use: { browserName: 'chromium' }, dependencies: ['documentation'] },
+    { name: 'webkit', use: { browserName: 'webkit' }, dependencies: ['documentation'] },
   ],
 });

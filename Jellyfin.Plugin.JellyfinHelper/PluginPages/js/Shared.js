@@ -1067,7 +1067,7 @@ function createDialogBtn(text, style, onclick) {
     var bg;
     if (style === 'cancel') {
         bg = 'transparent';
-        btn.setAttribute('data-dialog-cancel', '');
+        btn.dataset.dialogCancel = '';
     } else if (style === 'danger') {
         bg = getCssVar('--color-button-danger', '#b92c1d');
     } else if (style === 'success') {

@@ -132,8 +132,9 @@ from `test/e2e/` with Chromium and WebKit installed. It checks the shipped UI
 sources with a stubbed API, including modal focus, card identity, narrow layouts,
 themes and reduced motion, without starting Docker. Live Jellyfin integration
 remains covered by the main E2E suite.
-The Chromium fixture cases also run in the standard UI project; the dedicated
-configuration adds WebKit and can run independently of the Docker stack.
+The dedicated configuration runs the documentation guard before Chromium and
+WebKit. Fixture specs stay separate from the Jellyfin-backed UI project and do
+not wait for its API or server setup.
 
 #### Discovery tab coverage (official Trakt plugin only)
 

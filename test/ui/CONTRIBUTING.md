@@ -25,6 +25,10 @@ It checks modal cancellation and focus restoration, keyboard tabs, hidden panels
 stable card updates, poster fallbacks, localized counts, reduced-motion removal and paused toast
 lifetimes. The loader and the isolated lifecycle documents load this module
 before its consumers, matching the composed page and embedded script response.
+Keyboard cases include Home, End, wrapping, unavailable controls and RTL. Real
+browser fixtures compare Discovery description scrollbars with the shipped
+Codec-tree styles and verify that opening details preserves card dimensions,
+the continuous frame and the description's scroll position.
 
 ## Running and gating
 

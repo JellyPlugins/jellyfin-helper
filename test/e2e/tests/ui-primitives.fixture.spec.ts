@@ -10,6 +10,28 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
   .map(match => match[1])
   .map(name => source('PluginPages/css/' + name)).join('\n');
 
+const discoveryRecommendations = [
+  {
+    TmdbId: 1,
+    MediaType: 'movie',
+    Title: 'Die außergewöhnliche Reise der Familie Wiśniewska-Kowalczyk',
+    Overview: 'A family sets out on a winter journey through unfamiliar towns, hoping to reunite with an old friend. '
+      + 'Missed trains and changing weather force them to reconsider their carefully arranged plans. '
+      + 'Along the way, conversations with strangers reveal how differently each family member remembers the past. '
+      + 'An unexpected invitation gives them a place to rest and a chance to address the disagreements they have avoided. '
+      + 'By the time they reach their destination, the journey has become more important than the meeting itself.',
+    Score: 0.8,
+  },
+  { TmdbId: 2, MediaType: 'movie', Title: 'Another title', Overview: 'Another description.', Score: 0.5 },
+];
+
+function discoveryFixtureScript(script: string): string {
+  const anchor = /^[ \t]*initDiscoveryLifecycle\s*\(\s*\)\s*;[ \t]*\r?$/gm;
+  const matches = script.match(anchor);
+  if (matches?.length !== 1) throw new Error('Expected exactly one Discovery lifecycle initialization anchor');
+  return script.replace(anchor, () => '    window.fixtureDiscovery = { renderCards, injectStyles, consumeDiscoveryItem };');
+}
+
 let pageErrors: string[];
 test.beforeEach(({ page }) => {
   pageErrors = [];
@@ -55,19 +77,23 @@ async function dashboard(page: Page) {
 
 async function discovery(page: Page) {
   await page.setContent('<html lang="en"><head></head><body><main id="cards"></main></body></html>');
+  await page.addStyleTag({ content: 'body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}' });
+  await page.addStyleTag({ content: source('PluginPages/css/Shared.css') });
   await stubApi(page);
-  let js = source('js/discovery-sidebar.js');
-  js = js.replace('    initDiscoveryLifecycle();', '    window.fixtureDiscovery = { renderCards, injectStyles, consumeDiscoveryItem };');
+  const js = discoveryFixtureScript(source('js/discovery-sidebar.js'));
   await page.addScriptTag({ content: primitives + '\n' + js });
-  await page.evaluate(() => {
+  await page.evaluate(recommendations => {
     const fixture = (window as any).fixtureDiscovery;
     fixture.injectStyles();
-    fixture.renderCards(document.getElementById('cards'), { Recommendations: [
-      { TmdbId: 1, MediaType: 'movie', Title: 'Die außergewöhnliche Reise der Familie Wiśniewska-Kowalczyk', Overview: 'A complete description.', Score: 0.8 },
-      { TmdbId: 2, MediaType: 'movie', Title: 'Another title', Overview: 'Another description.', Score: 0.5 },
-    ] });
-  });
+    fixture.renderCards(document.getElementById('cards'), { Recommendations: recommendations });
+  }, discoveryRecommendations);
 }
+
+test('fixture bootstrap accepts formatting and rejects missing or duplicated initialization', () => {
+  expect(discoveryFixtureScript('\t initDiscoveryLifecycle ( );\r\n')).toContain('window.fixtureDiscovery');
+  expect(() => discoveryFixtureScript('function unrelated() {}')).toThrow('initialization anchor');
+  expect(() => discoveryFixtureScript('initDiscoveryLifecycle();\ninitDiscoveryLifecycle();')).toThrow('initialization anchor');
+});
 
 for (const width of [320, 1280]) {
   for (const colorScheme of ['dark', 'light'] as const) {
@@ -103,6 +129,8 @@ for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await discovery(page);
+      const card = page.locator('.jfh-discovery-card').first();
+      const before = await card.boundingBox();
       const button = page.locator('.jfh-discovery-details').first();
       await button.focus();
       await page.keyboard.press('Enter');
@@ -110,18 +138,58 @@ for (const width of [320, 1280]) {
       await expect(page.locator('.jfh-discovery-flip-back').first()).not.toHaveAttribute('inert');
       const transform = await page.locator('.jfh-discovery-flip-inner').first().evaluate(element => getComputedStyle(element).transform);
       expect(transform).toBe('none');
-      const card = page.locator('.jfh-discovery-card').first();
       const rect = await card.boundingBox();
+      expect(rect!.width).toBeCloseTo(before!.width, 5);
+      expect(rect!.height).toBeCloseTo(before!.height, 5);
       expect(rect!.x + rect!.width).toBeLessThanOrEqual(width);
-      const original = await card.elementHandle();
-      await page.evaluate(() => {
-        (window as any).fixtureDiscovery.renderCards(document.getElementById('cards'), { Recommendations: [
-          { TmdbId: 1, MediaType: 'movie', Title: 'Die außergewöhnliche Reise der Familie Wiśniewska-Kowalczyk', Overview: 'A complete description.', Score: 0.8 },
-          { TmdbId: 2, MediaType: 'movie', Title: 'Another title', Overview: 'Another description.', Score: 0.5 },
-        ] });
+      const scrolling = await card.evaluate(element => {
+        const back = element.querySelector('.jfh-discovery-flip-back') as HTMLElement;
+        const reference = document.createElement('div');
+        reference.className = 'tree-view';
+        reference.hidden = true;
+        element.appendChild(reference);
+        const style = getComputedStyle(back);
+        const treeStyle = getComputedStyle(reference);
+        const result = {
+          width: style.scrollbarWidth,
+          color: style.scrollbarColor,
+          treeWidth: treeStyle.scrollbarWidth,
+          treeColor: treeStyle.scrollbarColor,
+          overflows: back.scrollHeight > back.clientHeight,
+        };
+        back.scrollTop = back.scrollHeight;
+        reference.remove();
+        return { ...result, scrollTop: back.scrollTop };
       });
+      expect(scrolling.width).toBe('thin');
+      expect(scrolling.width).toBe(scrolling.treeWidth);
+      expect(scrolling.color).toBe(scrolling.treeColor);
+      expect(scrolling.overflows).toBe(true);
+      expect(scrolling.scrollTop).toBeGreaterThan(0);
+      const frame = await card.evaluate(element => {
+        const style = getComputedStyle(element, '::after');
+        return {
+          borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+          colors: [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor],
+          pointerEvents: style.pointerEvents,
+          zIndex: style.zIndex,
+          radius: style.borderRadius,
+          cardRadius: getComputedStyle(element).borderRadius,
+        };
+      });
+      expect(frame.borders).toEqual(['1px', '1px', '1px', '1px']);
+      expect(new Set(frame.colors).size).toBe(1);
+      expect(frame.colors[0]).not.toBe('rgba(0, 0, 0, 0)');
+      expect(frame.pointerEvents).toBe('none');
+      expect(Number(frame.zIndex)).toBeGreaterThan(0);
+      expect(frame.radius).toBe(frame.cardRadius);
+      const original = await card.elementHandle();
+      await page.evaluate(recommendations => {
+        (window as any).fixtureDiscovery.renderCards(document.getElementById('cards'), { Recommendations: recommendations });
+      }, discoveryRecommendations);
       expect(await card.evaluate((element, previous) => element === previous, original)).toBe(true);
       await expect(button).toBeFocused();
+      expect(await card.locator('.jfh-discovery-flip-back').evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     });
   }
 }

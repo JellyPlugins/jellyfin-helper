@@ -30,6 +30,20 @@ Beyond "does it route / does the UI render", the suite now proves features
   (not bundled into an artifact). PR → Checks → E2E → Artifacts.
 - **List without running:** `cd test/e2e && npx playwright test --list`.
 
+## Offline UI fixtures → `ui-primitives.fixture.spec.ts`
+
+Run `npm run test:fixtures` from `test/e2e/`. The separate
+`playwright.ui-fixtures.config.ts` runs the documentation guard and then Chromium
+and WebKit without Docker or a Jellyfin server. These fixtures load the shipped
+UI sources with a stubbed API; live server integration remains in the main suite.
+
+- Dialog focus containment, Escape cancellation, and focus restoration.
+- Narrow and desktop layouts in light and dark themes.
+- Stable Discovery cards and accessible details controls.
+- Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
+- Reduced motion, larger text on touch devices, and log-filter alignment.
+- Explicit failure when the Discovery bootstrap source anchor is missing or duplicated.
+
 ---
 
 ## 1. Plugin load & routing → `smoke.api.spec.ts`
