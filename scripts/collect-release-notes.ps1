@@ -9,6 +9,9 @@
     subjects, then queries the public GitHub REST API for each PR to pull its
     title, author, labels, merge date, size, and body.
 
+    The first commit after SinceTag is always excluded, since it is usually
+    a bot-generated checksum or release-metadata update.
+
     GitHub API rate limit without a token is 60 req/h/IP. Set $env:GITHUB_TOKEN
     (or pass -Token) to lift it to 5000 req/h. The script prints the remaining
     quota after its last request so you can tell whether a rerun is safe.
@@ -295,6 +298,13 @@ try {
     # ====================================================================
 
     $commits = Get-CommitsInRange $SinceTag $UntilRef
+    $skippedCommit = $null
+    if ($commits.Count -gt 0) {
+        # git log returns newest first, so the last entry is the first commit
+        # after the release. Exclude it before collecting PRs or orphans.
+        $skippedCommit = $commits[-1]
+        $commits = @($commits | Select-Object -SkipLast 1)
+    }
     $prNumbers = @(
         $commits |
             Where-Object { $_.PrNumber } |
@@ -307,6 +317,9 @@ try {
     Write-Host "  Commits   : $($commits.Count)"
     Write-Host "  PRs found : $($prNumbers.Count)"
     Write-Host "  Orphans   : $($orphanCommits.Count) (commits without a #NNN reference)"
+    if ($skippedCommit) {
+        Write-Host "  Skipped   : $($skippedCommit.ShortSha) $($skippedCommit.Subject) (first commit after $SinceTag)" -ForegroundColor DarkGray
+    }
 
     # ====================================================================
     # Fetch PR details from GitHub
@@ -360,6 +373,9 @@ try {
     [void]$out.AppendLine()
     [void]$out.AppendLine("> Generated $([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm', $script:Invariant)) UTC by ``scripts/collect-release-notes.ps1``.")
     [void]$out.AppendLine("> Draft only. This file is in ``.gitignore`` and must not be committed.")
+    if ($skippedCommit) {
+        [void]$out.AppendLine("> The first commit after ``$SinceTag`` was excluded (usually bot-generated release metadata).")
+    }
     [void]$out.AppendLine()
     [void]$out.AppendLine("---")
     [void]$out.AppendLine()
