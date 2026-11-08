@@ -422,12 +422,12 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
     }
 
-    private static List<TrainingExample> NeuralTrainingExamples(int count)
+    private static List<TrainingExample> NeuralTrainingExamples(int count, int seed = 42)
     {
         // Cleanly separable, low-noise data so both learned and neural generalize well
         // (validation loss <= threshold), which is what lets the neural beta ramp fire.
         var examples = new List<TrainingExample>(count);
-        var rng = new Random(42);
+        var rng = new Random(seed);
         for (var i = 0; i < count; i++)
         {
             var positive = i % 2 == 0;
@@ -455,9 +455,9 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         var neural = new NeuralScoringStrategy();
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
-        // Train well past NeuralActivationThreshold (75) so the neural ramp activates beta > 0.
-        ensemble.Train(NeuralTrainingExamples(120));
-        ensemble.Train(NeuralTrainingExamples(120));
+        // Independent held-out examples keep repeated training from validating against previously fitted data.
+        ensemble.Train(NeuralTrainingExamples(120), NeuralTrainingExamples(40, seed: 99));
+        ensemble.Train(NeuralTrainingExamples(120), NeuralTrainingExamples(40, seed: 99));
         return ensemble;
     }
 

@@ -50,6 +50,7 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - Reduced motion bypasses panel movement without changing native select behavior.
 - Default toasts are styled and dismissible without Discovery CSS at mobile/desktop widths in light/dark mode.
 - Losing a Discovery prerequisite immediately closes an animating setup hint and lets the first click after reenabling open it again.
+- Closing a language editor preserves lazy tree expansion and file details opened before its transition completes.
 
 ---
 

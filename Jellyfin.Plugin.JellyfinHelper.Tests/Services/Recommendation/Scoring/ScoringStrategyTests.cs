@@ -1129,10 +1129,10 @@ public sealed class ScoringStrategyTests : IDisposable
     /// <summary>
     ///     Generates a list of training examples with mixed positive and negative labels.
     /// </summary>
-    private static List<TrainingExample> GenerateTrainingExamples(int count)
+    private static List<TrainingExample> GenerateTrainingExamples(int count, int seed = 42)
     {
         var examples = new List<TrainingExample>(count);
-        var rng = new Random(42); // deterministic seed for reproducibility
+        var rng = new Random(seed);
 
         for (int i = 0; i < count; i++)
         {
@@ -2366,11 +2366,11 @@ public sealed class ScoringStrategyTests : IDisposable
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Train at threshold
-        ensemble.Train(GenerateTrainingExamples(55));
+        ensemble.Train(GenerateTrainingExamples(55), GenerateTrainingExamples(30, seed: 7));
         var betaAt55 = ensemble.CurrentNeuralBeta;
 
         // Train more - beta should increase (or stay same if quality gate blocks it)
-        ensemble.Train(GenerateTrainingExamples(100));
+        ensemble.Train(GenerateTrainingExamples(100), GenerateTrainingExamples(30, seed: 7));
         var betaAt155 = ensemble.CurrentNeuralBeta;
 
         // Verify activation actually happened before checking monotonicity

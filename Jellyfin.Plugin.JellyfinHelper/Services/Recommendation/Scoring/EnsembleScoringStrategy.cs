@@ -631,6 +631,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     {
         ArgumentNullException.ThrowIfNull(examples);
 
+        examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight);
         var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
         // Train the neural strategy only when this ensemble owns that responsibility (the global ensemble).
@@ -647,7 +648,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         {
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
-            var qualityGatePassed = !double.IsNaN(validationLoss) && validationLoss <= ValidationLossThreshold;
+            var qualityGatePassed = double.IsFinite(validationLoss) && validationLoss <= ValidationLossThreshold;
             MetricsTrend trend;
             lock (_syncRoot)
             {
@@ -768,7 +769,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
         {
             var neuralValidationLoss = _neural.LastValidationLoss;
-            var neuralQualityOk = !double.IsNaN(neuralValidationLoss)
+            var neuralQualityOk = double.IsFinite(neuralValidationLoss)
                                   && neuralValidationLoss <= ValidationLossThreshold;
 
             if (neuralQualityOk)
@@ -840,7 +841,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var neuralValidationLoss = _neural.LastValidationLoss;
-        var globalNeuralQualityOk = !double.IsNaN(neuralValidationLoss)
+        var globalNeuralQualityOk = double.IsFinite(neuralValidationLoss)
                                     && neuralValidationLoss <= ValidationLossThreshold;
 
         if (!globalNeuralQualityOk)

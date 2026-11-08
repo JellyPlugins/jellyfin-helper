@@ -482,6 +482,26 @@ describe('result tree binding and grouping', () => {
 });
 
 describe('search host guards and focus restore', () => {
+  test.each(['Escape', 'outside click', 'add button'])('%s closes the popover without replacing result nodes', async method => {
+    const ui = freshConfigPage();
+    await openExplorer(ui);
+    pickSingle('videoCodecs', 'h264');
+    openFilterPopover();
+    const host = document.getElementById('codecExplorerResults')!;
+    const tree = host.querySelector('.tree-view');
+    expect(tree).not.toBeNull();
+    if (method === 'Escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    else if (method === 'outside click') click(document.body);
+    else openFilterPopover();
+    expect(document.querySelector('[data-filter-pop]')).toBeNull();
+    expect(host.querySelector('.tree-view')).toBe(tree);
+    click(host.querySelector('[data-tree-action="expand"]')!);
+    const leaf = host.querySelector('.tree-leaf[title]')!;
+    click(leaf);
+    expect(host.querySelector('.codec-file-detail')).not.toBeNull();
+    expect(leaf.getAttribute('aria-expanded')).toBe('true');
+  });
+
   test('runCodecsExplorerSearch returns early when the results host is gone', async () => {
     const ui = freshConfigPage();
     await openExplorer(ui);

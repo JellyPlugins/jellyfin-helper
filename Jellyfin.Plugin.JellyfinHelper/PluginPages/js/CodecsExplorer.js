@@ -1618,7 +1618,7 @@ function closeFilterPop() {
         window.JellyfinHelperUi.setExpanded(panel, false, document.getElementById('codecFilterAddBtn'), {
             duration: 160,
             onClosed: function () {
-                if (panel.isConnected && _codecFilterOpen === null) refreshCodecsExplorerControls();
+                panel.remove();
             }
         });
     }

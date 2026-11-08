@@ -367,13 +367,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     {
         ArgumentNullException.ThrowIfNull(examples);
 
+        var referenceTime = DateTime.UtcNow;
+        examples = TrainingMath.FilterEffectiveExamples(examples, referenceTime, MinSampleWeight);
         if (examples.Count < MinTrainingExamples)
         {
             return false;
         }
-
-        // Capture a consistent reference time for temporal decay within this batch
-        var referenceTime = DateTime.UtcNow;
 
         // Pre-compute all feature vectors ONCE before training. These are the RAW (unstandardized) vectors used as the source of truth.
         var rawVectors = new double[examples.Count][];
@@ -390,8 +389,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         lock (_syncRoot)
         {
-            WarmStartWeightsForModeChange(useStandardization, rawVectors);
-
             // Use a varying seed based on training generation to avoid always placing
             // the same examples in validation. Still deterministic per generation.
             var rng = new Random(42 + _trainingGeneration);
@@ -441,8 +438,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally, which acquires _syncRoot.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
+        var validationLoss = TrainingMath.ValidationLoss(
+            heldOutForMetrics, this, referenceTime, MinSampleWeight, LastValidationLoss);
         lock (_syncRoot)
         {
+            _lastValidationLoss = validationLoss;
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
@@ -573,6 +573,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
         }
 
+        WarmStartWeightsForNormalizationChange(featureMeans, featureStdDevs);
+
         // Warm-start final pass: begin from the previously-learned weights (restored above from savedWeights) rather than resetting to defaults.
         var finalLoss = TrainSingleSplit(
             examples,
@@ -651,90 +653,26 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Warm-starts the weights across a standardization mode change. Weights learned in raw feature space
-    ///     compute a different function when applied to standardized features (and vice-versa), so a naive
-    ///     keep would corrupt the model. Instead of discarding the learned weights (the old behaviour, which
-    ///     threw away up to MinExamplesForStandardization-1 examples of learning at the 19->21 boundary),
-    ///     transform them exactly into the new space so the decision function is preserved, then let the final
-    ///     pass fine-tune. No-op when the mode is unchanged. Must be called under <see cref="_syncRoot" />.
+    ///     Preserves the scoring function when either normalization mode or statistics change.
     /// </summary>
-    /// <param name="useStandardization">Whether the current training pass will standardize features.</param>
-    /// <param name="rawVectors">The raw (unstandardized) feature vectors for this pass.</param>
-    private void WarmStartWeightsForModeChange(bool useStandardization, double[][] rawVectors)
+    /// <param name="means">New feature means, or null for raw inputs.</param>
+    /// <param name="stdDevs">New standard deviations, or null for raw inputs.</param>
+    private void WarmStartWeightsForNormalizationChange(double[]? means, double[]? stdDevs)
     {
-        if (useStandardization)
+        var bias = new[] { _bias };
+        if (!TrainingMath.RebaseInputLayer(_weights, bias, _featureMeans, _featureStdDevs, means, stdDevs))
         {
-            if (_featureMeans is not null)
-            {
-                return;
-            }
-
-            // raw -> standardized: rescale using the stats the final pass will train under.
-            var (means, stdDevs) = ComputeFeatureStatistics(rawVectors);
-            RescaleWeightsForStandardizationChange(toStandardized: true, means, stdDevs);
-        }
-        else
-        {
-            if (_featureMeans is null || _featureStdDevs is null)
-            {
-                return;
-            }
-
-            // standardized -> raw: reverse using the stats the current weights were trained under.
-            RescaleWeightsForStandardizationChange(toStandardized: false, _featureMeans, _featureStdDevs);
+            return;
         }
 
+        _bias = bias[0];
         if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
         {
             _logger.LogInformation(
-                "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after standardization mode change (generation {Gen})",
-                useStandardization ? "standardized" : "raw",
+                "LearnedScoringStrategy: Rescaled weights into {Space} feature space (warm start) after normalization change (generation {Gen})",
+                means is not null ? "standardized" : "raw",
                 _trainingGeneration);
         }
-    }
-
-    /// <summary>
-    ///     Transforms the current weights/bias between raw and standardized feature space so the model's
-    ///     decision function is preserved across a standardization mode change, giving the final training
-    ///     pass a warm start instead of resetting to defaults.
-    /// </summary>
-    /// <remarks>
-    ///     The raw score is s = Σ wᵢ·xᵢ + b. With standardized features x'ᵢ = (xᵢ − μᵢ)/σᵢ (so
-    ///     xᵢ = σᵢ·x'ᵢ + μᵢ), substituting gives s = Σ (wᵢ·σᵢ)·x'ᵢ + (b + Σ wᵢ·μᵢ). Hence raw → standardized
-    ///     is w'ᵢ = wᵢ·σᵢ and b' = b + Σ wᵢ·μᵢ; the reverse is wᵢ = w'ᵢ/σᵢ and b = b' − Σ wᵢ·μᵢ. Features whose
-    ///     σᵢ ≤ 1e-8 are passed through unchanged by <see cref="StandardizeSingleVector" /> (identity, no
-    ///     divide-by-zero), so their weights are left untouched here to match exactly.
-    /// </remarks>
-    /// <param name="toStandardized">True for raw → standardized; false for the reverse.</param>
-    /// <param name="means">Per-feature means defining the standardized space.</param>
-    /// <param name="stdDevs">Per-feature standard deviations defining the standardized space.</param>
-    private void RescaleWeightsForStandardizationChange(bool toStandardized, double[] means, double[] stdDevs)
-    {
-        var featureCount = Math.Min(_weights.Length, Math.Min(means.Length, stdDevs.Length));
-        var biasDelta = 0.0;
-
-        for (var f = 0; f < featureCount; f++)
-        {
-            // Mirror StandardizeSingleVector's guard: a near-constant feature is never standardized, so its
-            // weight lives in the same (raw) space in both modes and must not be rescaled.
-            if (stdDevs[f] <= 1e-8)
-            {
-                continue;
-            }
-
-            if (toStandardized)
-            {
-                biasDelta += _weights[f] * means[f];
-                _weights[f] *= stdDevs[f];
-            }
-            else
-            {
-                _weights[f] /= stdDevs[f];
-                biasDelta -= _weights[f] * means[f];
-            }
-        }
-
-        _bias += biasDelta;
     }
 
     /// <summary>
@@ -810,7 +748,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             totalWeight += w;
         }
 
-        return totalWeight > 0 ? totalLoss / totalWeight : 0.0;
+        return totalWeight > 0 ? totalLoss / totalWeight : double.NaN;
     }
 
     /// <summary>
@@ -988,7 +926,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             totalWeight += w;
         }
 
-        return totalWeight > 0 ? totalLoss / totalWeight : 0.0;
+        return totalWeight > 0 ? totalLoss / totalWeight : double.NaN;
     }
 
     /// <summary>

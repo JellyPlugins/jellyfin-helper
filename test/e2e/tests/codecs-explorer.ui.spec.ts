@@ -157,9 +157,7 @@ test('language multi-dropdown selects several values and lists all in the summar
   const resultSummary = page.locator('.codec-explorer-summary');
   await expect(resultSummary).toContainText(first);
   await expect(resultSummary).toContainText(second);
-  // Result rows expose their expansion state for assistive technology.
-  // Dismiss the still open editor first: any outside click would rebuild
-  // the results and collapse the tree right after expanding it.
+  // Closing the editor must preserve result interaction even while its transition finishes.
   await page.keyboard.press('Escape');
   await page.locator('#codecExplorerResults .file-tree-section').first().locator('[data-tree-action="expand"]').click();
   const leaf = page.locator('#codecExplorerResults .tree-leaf[title]').first();

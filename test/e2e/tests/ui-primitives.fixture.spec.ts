@@ -509,3 +509,47 @@ test('Explorer menus, Codec trees and Insights share the panel motion behavior',
   expect(ids).toContain('codecDetail_videoCodecs');
   expect(ids).toContain('insightLargestPanel');
 });
+
+test('closing a language editor preserves a tree and file detail opened during its transition', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await page.evaluate(() => {
+    const paths = ['/media/Movies/One/Movie.mkv', '/media/Movies/Two/Movie.mkv'];
+    const library = { LibraryName: 'Movies', CollectionType: 'movies', RootPaths: ['/media/Movies'],
+      VideoFileCount: 2, AudioLanguages: { eng: 2, deu: 2 }, AudioLanguagePaths: { eng: paths, deu: paths } };
+    (window as any).fixtureAdmin.fillCodecsData({ Libraries: [library], Movies: [library],
+      TvShows: [], Music: [], Books: [], Other: [], MovieRootPaths: ['/media/Movies'] });
+  });
+  await page.locator('.tab-btn[data-tab="codecs"]').click();
+  await page.locator('#codecExplorerToggle').click();
+  await page.locator('#codecFilterAddBtn').click();
+  await page.locator('[data-filter-dim="audioLanguages"]').click();
+  const boxes = page.locator('.codec-filter-editor [data-multi-panel="audioLanguages"] input');
+  await boxes.nth(0).check();
+  await boxes.nth(1).check();
+  const values = await boxes.evaluateAll(elements => elements.map(element => (element as HTMLInputElement).value));
+  for (const value of values) await expect(page.locator('.codec-explorer-summary')).toContainText(value);
+  await page.evaluate(() => {
+    const menu = document.querySelector('[data-filter-pop]')!;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const closing = menu.getAnimations()[0];
+    closing.pause();
+    closing.currentTime = 40;
+    const results = document.getElementById('codecExplorerResults')!;
+    results.querySelector<HTMLButtonElement>('[data-tree-action="expand"]')!.click();
+    const leaf = results.querySelector<HTMLElement>('.tree-leaf[title]')!;
+    leaf.click();
+    (window as any).fixtureOpenedLeaf = leaf;
+    (window as any).fixtureOpenedDetail = leaf.nextElementSibling;
+    closing.finish();
+  });
+  await expect(page.locator('[data-filter-pop]')).toHaveCount(0);
+  const detail = page.locator('#codecExplorerResults .codec-file-detail');
+  await expect(detail).toBeVisible();
+  await expect(page.locator('#codecExplorerResults .tree-leaf[aria-expanded="true"]')).toHaveCount(1);
+  const preserved = await page.evaluate(() => ({
+    leaf: document.getElementById('codecExplorerResults')!.contains((window as any).fixtureOpenedLeaf),
+    detail: document.querySelector('#codecExplorerResults .codec-file-detail') === (window as any).fixtureOpenedDetail,
+  }));
+  expect(preserved).toEqual({ leaf: true, detail: true });
+});

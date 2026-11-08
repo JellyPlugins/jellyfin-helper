@@ -43,6 +43,10 @@ transition and reopening without stale cleanup.
 Native tab selection mocks use the callable `(index?: number) => number`
 signature. Compound button selectors specify `HTMLButtonElement` through the
 DOM query's type parameter so `.click()` needs no cast or suppression.
+Explorer browser regressions select multiple audio languages and open a lazy
+tree/file detail while the editor's native closing transition is still active.
+They assert DOM identity after cleanup so waiting for closure cannot mask a
+results rebuild race.
 
 ## Running and gating
 

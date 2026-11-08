@@ -455,6 +455,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
+│       │   ├── TrainingInvariantsTests.cs    # Effective data, independent validation and coordinate-preserving warm starts
 │       │   ├── RankingMetricsTests.cs
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
@@ -646,6 +647,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
 │   │   │   ├── TrainingExample.cs           # Training data container
+│   │   │   ├── TrainingMath.cs              # Shared eligibility, held-out MSE and input-layer rebasing
 │   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
 │   │   ├── WatchHistory/            # User watch profile building
 │   │   │   ├── IWatchHistoryService.cs
@@ -1004,6 +1006,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ScoringStrategyTests.cs`
 - `StrategySelectorTests.cs`
 - `TrainingExampleTests.cs`
+- `TrainingInvariantsTests.cs` - Regression cases for ignored/expired batches, effective ensemble counts, authoritative held-out validation, loaded-model quality, Adam continuity and coordinate-preserving dense-layer rebasing
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/WatchHistory/`
 
@@ -1196,6 +1199,10 @@ are preserved. Custom classes supply their own `-visible` and `-hidden` styles.
 Default toasts are pointer-accessible, support light/dark and reduced motion,
 and do not require Discovery styles.
 
+Closing an Explorer filter removes only its popover after motion completes.
+It must not rebuild results: tree expansion and file details remain usable
+while the editor closes, including after Escape.
+
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 
 - `BaseLibraryCleanupTask.cs` - Abstract Template Method base for library cleanup tasks: iterate locations, delete, log, record
@@ -1359,6 +1366,25 @@ and do not require Discovery styles.
 - `ScoringHelper.cs`
 - `StrategySelector.cs`
 - `TrainingExample.cs`
+- `TrainingMath.cs` - Shared eligibility filtering, independent weighted validation loss and affine input-layer rebasing
+
+Both learning strategies filter effective sample weights before minimum-data
+checks, normalization or optimizer updates. A batch below the optimizer's weight
+floor does not change the model or advance the ensemble's example count.
+Missing validation weight is unknown (`NaN`), never a perfect zero loss.
+
+An explicitly supplied holdout determines validation MSE for the fitted model,
+even when that holdout is insufficient. Neural internal validation is usable as
+quality evidence only on a fresh model's first fit; warm or loaded models require
+an independent holdout. Repeated-input split membership and statistic ordering
+are stable while optimizer and dropout shuffles may vary between generations.
+The training service continues to reserve its most recent examples for validation.
+
+When normalization changes, the linear weights/bias or the MLP's first dense
+layer are rebased to preserve the existing scoring function before fine-tuning.
+MLP Adam moments and their timestep reset together only when input coordinates
+actually change. Persisted model dimensions and weight versions remain compatible;
+the heuristic rules and ensemble blend limits are unchanged.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/WatchHistory/`
 
