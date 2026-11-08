@@ -766,7 +766,12 @@
     }
 
     function init() {
-        var observer = new MutationObserver(scheduleInject);
+        var observer = new MutationObserver(function (records) {
+            var contentOnly = records.every(function (record) {
+                return record.target.closest?.('.jfh-discovery-grid, .jfh-discovery-popup-overlay, .jfh-toast-stack, #JellyfinHelperConfigPage');
+            });
+            if (!contentOnly) scheduleInject();
+        });
         observer.observe(document.documentElement, {
             childList: true,
             subtree: true,

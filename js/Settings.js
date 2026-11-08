@@ -153,8 +153,8 @@ function cancelSaveBandReveal() {
 // State classes (is-saved etc.) must survive the fade-out because they carry the CSS rule that hides the Save button.
 var _saveBandHiddenCleanupTimer = null;
 
-// Slightly longer than the 0.28s CSS transition to survive timing jitter.
-var _saveBandHideDurationMs = 320;
+// Delay cleanup until the visual exit has finished.
+var _saveBandHideDurationMs = 200;
 
 function cancelSaveBandHiddenCleanup() {
     if (_saveBandHiddenCleanupTimer) {
@@ -257,7 +257,7 @@ function refreshSaveBand() {
     if (dirty) {
         _settingsInteracted = true;
         // Already showing the prompt, or a reveal is already pending -> nothing to do.
-        if (band.classList.contains('is-unsaved') || _saveBandRevealTimer) return;
+        if ((band.classList.contains('is-visible') && band.classList.contains('is-unsaved')) || _saveBandRevealTimer) return;
         _saveBandRevealTimer = setTimeout(function () {
             _saveBandRevealTimer = null;
             if (_saveBandSaving) return;
@@ -368,7 +368,7 @@ function checkUnsavedAndProceed(onProceed) {
         var payload = buildSettingsPayload();
         doSaveSettings(payload, {onSuccess: onProceed});
     }));
-    document.body.appendChild(d.overlay);
+    window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
 }
 
 // Browser navigation guard
@@ -383,7 +383,8 @@ if (!window._jfhBeforeunloadBound) {
 }
 
 function renderArrCollapseButton(expanded, icon, text, countText, type) {
-    var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
+    var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header"'
+        + (expanded ? ' aria-expanded="true">' : ' aria-expanded="false">');
     arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
     arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
     arrCollapseButton += '</button>';
@@ -518,7 +519,9 @@ function loadSettings(onDone) {
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
         var recsActive = (cfg.RecommendationsTaskMode || 'DryRun') === 'Activate';
-        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" aria-disabled="' + (!recsActive ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper"'
+            + (recsActive ? ' aria-disabled="false"' : ' aria-disabled="true"')
+            + ' style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + escHtml(T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.')) + '</div>';
         h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + escHtml(T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.')) + '</div>';
@@ -528,7 +531,9 @@ function loadSettings(onDone) {
         var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         var recsNotDeactivated = (cfg.RecommendationsTaskMode || 'DryRun') !== 'Deactivate';
         var discoveryEnabled = recsNotDeactivated && seerrConfigured;
-        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" aria-disabled="' + (!discoveryEnabled ? 'true' : 'false') + '" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper"'
+            + (discoveryEnabled ? ' aria-disabled="false"' : ' aria-disabled="true"')
+            + ' style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:0.8em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;opacity:0.5;display:' + (discoveryEnabled ? '' : 'none') + ';" title="' + escAttr(T('discoverySetupHint', 'Appears on the home page automatically. Reload once after enabling. No external plugins required.')) + '" aria-label="' + escAttr(T('discoveryHintInfo', 'Show Discovery hint')) + '" aria-expanded="false" aria-controls="discoveryHintPanel">' + mi('info') + '</button></div>';
         h += '<div class="help-text discovery-setup-hint" id="discoveryHintPanel" style="display:none;">' + escHtml(T('discoverySetupHint', 'Appears on the home page automatically. Reload once after enabling. No external plugins required.')) + '</div>';
@@ -540,7 +545,9 @@ function loadSettings(onDone) {
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
-        h += '<div class="seerr-task-mode-wrapper" aria-disabled="' + (!seerrConfigured ? 'true' : 'false') + '" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="seerr-task-mode-wrapper"'
+            + (seerrConfigured ? ' aria-disabled="false"' : ' aria-disabled="true"')
+            + ' style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate', !seerrConfigured);
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
@@ -571,14 +578,16 @@ function loadSettings(onDone) {
         var seerrHasCfg = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
         h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, escHtml(T('seerrInstance', 'Seerr Instance')), seerrHasCfg ? mi('check_circle') : '', 'Seerr');
-        h += '<div class="arr-collapsible-body" aria-hidden="' + (seerrHasCfg ? 'true' : 'false') + '">';
+        h += '<div class="arr-collapsible-body"' + (seerrHasCfg ? ' aria-hidden="true">' : ' aria-hidden="false">');
         h += '<label for="cfgSeerrUrl">' + escHtml(T('seerrUrl', 'Seerr URL')) + '</label>';
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
         h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="checkbox-row" style="margin-top:0.5em;"><input type="checkbox" id="cfgSeerrSkipCert"' + ((cfg.SeerrSkipCertificateValidation ?? cfg.seerrSkipCertificateValidation) ? ' checked' : '') + '><label for="cfgSeerrSkipCert">' + escHtml(T('seerrSkipCertValidation', 'Skip certificate validation')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('seerrSkipCertValidationHelp', 'Disables TLS certificate checks for Seerr (private CA, self-signed or IP certificates). Only use on networks you trust: without validation anyone intercepting the connection can read the API key.')) + '</div>';
-        h += '<div class="seerr-age-wrapper" aria-disabled="' + (!seerrHasCfg ? 'true' : 'false') + '" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="seerr-age-wrapper"'
+            + (seerrHasCfg ? ' aria-disabled="false"' : ' aria-disabled="true"')
+            + ' style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays ?? 365) + '"' + (!seerrHasCfg ? ' disabled' : '') + '>';
         h += '<div class="help-text">' + escHtml(T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.')) + '</div>';
@@ -593,7 +602,7 @@ function loadSettings(onDone) {
         var radarrCount = radarrInstances.length;
         h += '<div class="arr-collapsible' + (radarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleRadarr">';
         h += renderArrCollapseButton(radarrCount === 0, mi('movie'), escHtml(T('radarrInstances', 'Radarr Instances')), createArrCountText(radarrCount), 'Radarr');
-        h += '<div class="arr-collapsible-body" aria-hidden="' + (radarrCount === 0 ? 'false' : 'true') + '">';
+        h += '<div class="arr-collapsible-body"' + (radarrCount === 0 ? ' aria-hidden="false">' : ' aria-hidden="true">');
         h += renderArrInstances('Radarr', radarrInstances);
         h += '</div></div>';
 
@@ -601,7 +610,7 @@ function loadSettings(onDone) {
         var sonarrCount = sonarrInstances.length;
         h += '<div class="arr-collapsible' + (sonarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleSonarr">';
         h += renderArrCollapseButton(sonarrCount === 0, mi('tv'), escHtml(T('sonarrInstances', 'Sonarr Instances')), createArrCountText(sonarrCount), 'Sonarr');
-        h += '<div class="arr-collapsible-body" aria-hidden="' + (sonarrCount === 0 ? 'false' : 'true') + '">';
+        h += '<div class="arr-collapsible-body"' + (sonarrCount === 0 ? ' aria-hidden="false">' : ' aria-hidden="true">');
         h += renderArrInstances('Sonarr', sonarrInstances);
         h += '</div></div>';
         h += '</div>'; // /Card 3 (Integrations)
@@ -629,13 +638,19 @@ function loadSettings(onDone) {
         ['Seerr', 'Radarr', 'Sonarr'].forEach(function (type) {
             var hdrBtn = document.getElementById('arrCollapsibleHeader' + type);
             if (hdrBtn) {
+                var body = hdrBtn.parentElement.querySelector('.arr-collapsible-body');
+                if (body) {
+                    body.id = 'arrCollapsibleBody' + type;
+                    hdrBtn.setAttribute('aria-controls', body.id);
+                    window.JellyfinHelperUi.setExpanded(body, hdrBtn.parentElement.classList.contains('arr-expanded'), hdrBtn);
+                }
                 hdrBtn.addEventListener('click', function () {
                     var p = hdrBtn.parentElement;
                     p.classList.toggle('arr-expanded');
                     var ex = p.classList.contains('arr-expanded');
                     hdrBtn.setAttribute('aria-expanded', ex ? 'true' : 'false');
                     var b = p.querySelector('.arr-collapsible-body');
-                    if (b) b.setAttribute('aria-hidden', ex ? 'false' : 'true');
+                    window.JellyfinHelperUi.setExpanded(b, ex, hdrBtn);
                 });
             }
         });
@@ -967,7 +982,7 @@ function showTrashDisableDialog(payload) {
             showTrashDeleteConfirmation(payload, paths);
         }));
 
-        document.body.appendChild(d.overlay);
+        window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
     }, function () {
         doSaveSettings(payload);
     });
@@ -1019,7 +1034,7 @@ function showTrashDeleteConfirmation(payload, paths) {
         }, true);
     }));
 
-    document.body.appendChild(d.overlay);
+    window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
 }
 
 function attachBackupHandlers() {
@@ -1126,7 +1141,7 @@ function showBackupImportConfirmation(file) {
         doBackupImport(file);
     }));
 
-    document.body.appendChild(d.overlay);
+    window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
 }
 
 function removeBackupDialog() {
@@ -2116,7 +2131,7 @@ function showTrashPathChangeDialog(payload, options) {
             });
         }));
 
-        document.body.appendChild(d.overlay);
+        window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
     }, function () {
         // API error checking old path - proceed with save anyway, update tracking on success.
         // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.

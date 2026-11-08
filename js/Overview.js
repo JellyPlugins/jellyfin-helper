@@ -17,7 +17,7 @@ function librarySizeCell(bytes, count, singularKey, singularFallback, pluralKey,
         ? escHtml(T(singularKey, singularFallback))
         : escHtml(T(pluralKey, pluralFallback));
     return '<td><span class="library-table-bytes">' + formatBytes(bytes) + '</span>'
-        + '<br><span class="library-table-sub">' + count + ' ' + label + '</span></td>';
+        + '<br><span class="library-table-sub">' + formatCount(count) + ' ' + label + '</span></td>';
 }
 
 function buildBarSegments(data) {
@@ -175,8 +175,8 @@ function fillOverviewData(data) {
     var totalFilesFull = (data.TotalBookFileCount > 0) ? ' stat-card-full' : '';
     overviewHtml += '<div class="stat-card' + totalFilesFull + '"><h3>' + mi('bar_chart') + escHtml(T('totalFiles', 'Total Files')) + '</h3>';
     var totalMediaFiles = totalVideoFileCount + totalAudioFileCount;
-    overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? escHtml(T('mediaFile', 'media file')) : escHtml(T('mediaFiles', 'media files'))) + '</p>';
-    overviewHtml += '<p class="stat-detail">' + totalVideoFileCount + ' ' + escHtml(T('video', 'video')) + ', ' + totalAudioFileCount + ' ' + escHtml(T('audio', 'audio')) + '</p>';
+    overviewHtml += '<p class="stat-value">' + formatCount(totalMediaFiles) + ' ' + (totalMediaFiles === 1 ? escHtml(T('mediaFile', 'media file')) : escHtml(T('mediaFiles', 'media files'))) + '</p>';
+    overviewHtml += '<p class="stat-detail">' + formatCount(totalVideoFileCount) + ' ' + escHtml(T('video', 'video')) + ', ' + formatCount(totalAudioFileCount) + ' ' + escHtml(T('audio', 'audio')) + '</p>';
     overviewHtml += '</div>';
     overviewHtml += '</div>';
 

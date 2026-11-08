@@ -115,6 +115,7 @@
   "trashFolder": "Papperskorgens mappsökväg",
   "trashRetention": "Papperskorgens kvarhållning (dagar)",
   "close": "Stäng",
+  "discoveryDetails": "Detaljer",
   "cancel": "Avbryt",
   "trashDisableTitle": "Papperskorgsmappar hittade",
   "trashDisablePrompt": "Papperskorgen avaktiveras. Följande papperskorgsmappar finns på disken:",

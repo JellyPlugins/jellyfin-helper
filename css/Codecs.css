@@ -51,9 +51,12 @@
     cursor: pointer;
 }
 
-.donut-svg .donut-segment:has(path:hover),
 .donut-svg .donut-segment.donut-segment-hover {
     transform: scale(1.05);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .donut-svg .donut-segment:has(path:hover) { transform: scale(1.05); }
 }
 
 /* Focus never draws a box. Browsers paint a rect around SVG groups, so feedback
@@ -65,7 +68,6 @@
 
 .donut-svg .donut-segment:focus-visible {
     outline: none;
-    transform: scale(1.05);
 }
 
 .donut-svg .donut-segment:focus-visible path {
@@ -184,9 +186,8 @@
     transition: opacity 0.2s, background 0.2s;
 }
 
-.codec-show-more:hover {
-    opacity: 1;
-    background: rgba(0, 164, 220, 0.08);
+@media (hover: hover) and (pointer: fine) {
+    .codec-show-more:hover { opacity: 1; background: rgba(0, 164, 220, 0.08); }
 }
 
 .codec-show-more::after {
@@ -210,9 +211,8 @@
     position: relative;
 }
 
-.codec-row:hover {
-    background: rgba(0, 164, 220, 0.08);
-    border-color: rgba(0, 164, 220, 0.25);
+@media (hover: hover) and (pointer: fine) {
+    .codec-row:hover { background: rgba(0, 164, 220, 0.08); border-color: rgba(0, 164, 220, 0.25); }
 }
 
 .codec-row:active {
@@ -267,7 +267,6 @@
 .codec-row-bar-fill {
     height: 100%;
     border-radius: 2px;
-    transition: width 0.5s ease;
 }
 
 .codec-row-arrow {
@@ -279,8 +278,8 @@
     text-align: center;
 }
 
-.codec-row:hover .codec-row-arrow {
-    opacity: 0.7;
+@media (hover: hover) and (pointer: fine) {
+    .codec-row:hover .codec-row-arrow { opacity: 0.7; }
 }
 
 /* noinspection CssUnusedSymbol */
@@ -312,9 +311,8 @@
     text-align: left;
 }
 
-.codec-explorer-toggle:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: var(--color-primary);
+@media (hover: hover) and (pointer: fine) {
+    .codec-explorer-toggle:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--color-primary); }
 }
 
 .codec-explorer-toggle:focus-visible {
@@ -400,8 +398,8 @@
     text-align: left;
 }
 
-.codec-single-option:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .codec-single-option:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 .codec-single-option[aria-checked="true"] {
@@ -448,8 +446,8 @@
     text-align: left;
 }
 
-.codec-multi-toggle:hover {
-    border-color: var(--color-primary);
+@media (hover: hover) and (pointer: fine) {
+    .codec-multi-toggle:hover { border-color: var(--color-primary); }
 }
 
 .codec-multi-toggle:focus-visible {
@@ -516,8 +514,8 @@
     cursor: pointer;
 }
 
-.codec-multi-item:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .codec-multi-item:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 .codec-multi-item input[type="checkbox"] {
@@ -577,8 +575,8 @@
     white-space: nowrap;
 }
 
-.codec-filter-add-btn:hover {
-    border-color: var(--color-primary);
+@media (hover: hover) and (pointer: fine) {
+    .codec-filter-add-btn:hover { border-color: var(--color-primary); }
 }
 
 .codec-filter-add-btn:focus-visible,
@@ -619,6 +617,12 @@
     scrollbar-color: var(--color-primary-scrollbar) transparent;
 }
 
+@supports (height: 100dvh) {
+    .codec-filter-pop {
+        max-height: min(420px, calc(100dvh - 4em));
+    }
+}
+
 .codec-filter-dim {
     display: flex;
     align-items: center;
@@ -634,8 +638,8 @@
     text-align: left;
 }
 
-.codec-filter-dim:hover {
-    background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+    .codec-filter-dim:hover { background: rgba(255, 255, 255, 0.06); }
 }
 
 .codec-filter-dim-name {
@@ -678,8 +682,8 @@
     cursor: pointer;
 }
 
-.codec-filter-back:hover {
-    border-color: var(--color-primary);
+@media (hover: hover) and (pointer: fine) {
+    .codec-filter-back:hover { border-color: var(--color-primary); }
 }
 
 .codec-filter-editor-title {
@@ -778,9 +782,8 @@
     flex-shrink: 0;
 }
 
-.codec-pill-remove:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.12);
+@media (hover: hover) and (pointer: fine) {
+    .codec-pill-remove:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
 }
 
 .codec-bitrate-hist {
@@ -970,9 +973,8 @@
     opacity: 0.85;
 }
 
-.codec-explorer-reset:hover {
-    opacity: 1;
-    background: rgba(0, 164, 220, 0.08);
+@media (hover: hover) and (pointer: fine) {
+    .codec-explorer-reset:hover { opacity: 1; background: rgba(0, 164, 220, 0.08); }
 }
 
 .codec-explorer-summary {
@@ -1016,8 +1018,8 @@
     cursor: default;
 }
 
-.codec-explore-link:hover {
-    text-decoration: underline;
+@media (hover: hover) and (pointer: fine) {
+    .codec-explore-link:hover { text-decoration: underline; }
 }
 
 @media (max-width: 700px) {
@@ -1271,8 +1273,8 @@
     line-height: 1;
 }
 
-.codec-card-handle:hover {
-    opacity: 0.8;
+@media (hover: hover) and (pointer: fine) {
+    .codec-card-handle:hover { opacity: 0.8; }
 }
 
 .codec-card-handle:active {
