@@ -64,8 +64,8 @@
     transition: border-color 0.2s;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .recs-item:hover { border-color: var(--color-primary, #00a4dc); }
+.recs-item:hover {
+    border-color: var(--color-primary, #00a4dc);
 }
 
 .recs-item-rank {
@@ -149,6 +149,7 @@
 .recs-score-bar {
     height: 100%;
     border-radius: 3px;
+    transition: width 0.5s ease;
 }
 
 /* noinspection CssUnusedSymbol */
@@ -204,11 +205,9 @@
     text-align: left;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .recs-collapsible-toggle:hover {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: var(--color-primary);
-    }
+.recs-collapsible-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--color-primary);
 }
 
 .recs-collapsible-toggle:focus-visible {
@@ -228,6 +227,9 @@
     max-height: 0;
     overflow: hidden;
     opacity: 0;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        opacity 0.3s ease,
+        padding 0.3s ease;
     padding: 0 0.5em;
 }
 
@@ -376,8 +378,8 @@
     vertical-align: middle;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .activity-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+.activity-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .activity-cell-title {
@@ -408,6 +410,7 @@
 .activity-completion-fill {
     height: 100%;
     border-radius: 3px;
+    transition: width 0.4s ease;
 }
 
 /* noinspection CssUnusedSymbol */
@@ -607,8 +610,8 @@
     transition: border-color 0.2s;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .discovery-card:hover { border-color: var(--color-primary, #00a4dc); }
+.discovery-card:hover {
+    border-color: var(--color-primary, #00a4dc);
 }
 
 .discovery-card-poster {
@@ -698,11 +701,9 @@
     transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .discovery-request-btn:hover:not(:disabled) {
-        background: var(--color-button-primary, #00749c);
-        color: #fff;
-    }
+.discovery-request-btn:hover:not(:disabled) {
+    background: var(--color-primary, #00a4dc);
+    color: #111;
 }
 
 .discovery-request-btn:focus-visible {
@@ -732,8 +733,14 @@
 /* noinspection CssUnusedSymbol */
 .discovery-card-removing {
     opacity: 0;
+    transform: translateX(20px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
     overflow: hidden;
-    transition: opacity var(--motion-feedback) var(--ease-out);
+    transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 /* Seerr user selection popup */
@@ -811,11 +818,9 @@
     width: 100%;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .discovery-popup-user:hover {
-        background: rgba(0, 164, 220, 0.12);
-        border-color: var(--color-primary, #00a4dc);
-    }
+.discovery-popup-user:hover {
+    background: rgba(0, 164, 220, 0.12);
+    border-color: var(--color-primary, #00a4dc);
 }
 
 .discovery-popup-user:focus-visible {
@@ -836,8 +841,8 @@
     transition: opacity 0.15s;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .discovery-popup-cancel:hover { opacity: 1; }
+.discovery-popup-cancel:hover {
+    opacity: 1;
 }
 
 @media (prefers-color-scheme: light) {

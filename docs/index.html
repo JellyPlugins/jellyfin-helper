@@ -66,7 +66,7 @@
         <button id="demoViewBtnDiscovery" role="tab" aria-selected="false">Per User Discovery Tab Demo</button>
     </div>
     <div class="demo-wrapper" id="demoViewAdmin">
-        <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage jfh-ui-surface" data-require="emby-input,emby-checkbox,emby-select">
+        <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-checkbox,emby-select">
             <style id="pluginStyles"></style>
             <div data-role="content">
                 <div class="content-primary stats-container">
@@ -103,7 +103,6 @@
     </div>
 
     <script src="js/mock-data.js"></script>
-    <script src="js/UiPrimitives.js"></script>
     <script>window.location.hash = '#/home';</script>
     <script>
     // Minimal shim so the shipped discovery-sidebar.js can register and render
@@ -162,7 +161,7 @@
         Promise.all(cssPromises).then(function(results) {
             styleEl.textContent = results.join('\n');
             var jsFiles = [
-                'js/Shared.js', 'js/UiPrimitives.js', 'js/Overview.js', 'js/Codecs.js', 'js/CodecsExplorer.js', 'js/Health.js',
+                'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/CodecsExplorer.js', 'js/Health.js',
                 'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js',
                 'js/Recommendations.js', 'js/Logs.js', 'js/FolderBrowser.js', 'js/Main.js'
             ];

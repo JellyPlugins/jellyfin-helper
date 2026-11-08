@@ -55,13 +55,13 @@ function renderRecommendations(container, results) {
 
     // Collapsible Recommendations section
     html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsGridToggle" aria-expanded="false" aria-controls="recsGridBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('track_changes') + ' ' + escHtml(T('recsSubtabRecommendations', 'Recommendations')) + ' <span>(<span id="recsGridCount">0</span> ' + escHtml(T('recsItems', 'items')) + ')</span></button>';
-    html += '<div class="recs-collapsible-body" id="recsGridBody" hidden inert aria-hidden="true">';
+    html += '<div class="recs-collapsible-body" id="recsGridBody">';
     html += '<div id="recsUserGrid"></div>';
     html += '</div></div>';
 
     // Collapsible Watch Activity section
     html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsActivityToggle" aria-expanded="false" aria-controls="recsActivityBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('bar_chart') + ' ' + escHtml(T('recsActivityToggle', 'Watch Activity')) + '</button>';
-    html += '<div class="recs-collapsible-body" id="recsActivityBody" hidden inert aria-hidden="true">';
+    html += '<div class="recs-collapsible-body" id="recsActivityBody">';
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
@@ -135,7 +135,6 @@ function toggleCollapsible(bodyId, toggleId) {
         if (arrow) arrow.textContent = '\u25BC';
         if (toggle) toggle.setAttribute('aria-expanded', 'true');
     }
-    window.JellyfinHelperUi.setExpanded(body, body.classList.contains('open'), toggle);
 }
 
 // Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
@@ -283,7 +282,7 @@ function renderRecommendationCard(rec, rank) {
     // Uses a single-pass regex to prevent cascading replacements when a part contains "{1}" etc.
     if (rec.RelatedItemName) {
         var parts = rec.RelatedItemName.split(' | ');
-        reasonText = reasonText.replace(/\{(\d+)}/g, function (m, idx) {
+        reasonText = reasonText.replace(/\{(\d+)\}/g, function (m, idx) {
             var i = Number.parseInt(idx, 10);
             return (i >= 0 && i < parts.length) ? parts[i] : m;
         });
@@ -670,7 +669,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         if (existing._onEscape) {
             document.removeEventListener('keydown', existing._onEscape);
         }
-        window.JellyfinHelperUi.closeDialog(existing, false);
+        existing.remove();
     }
 
     // If no services or no profiles available, submit directly with defaults
@@ -740,7 +739,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     popup.appendChild(cancelBtn);
 
     overlay.appendChild(popup);
-    window.JellyfinHelperUi.openDialog(overlay, popup, btn, closePopup);
+    document.body.appendChild(overlay);
 
     // Set initial focus to the first profile button for keyboard accessibility
     var firstItem = list.querySelector('.discovery-popup-user');
@@ -762,7 +761,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     function closePopup() {
         document.removeEventListener('keydown', onEscape);
         var el = document.getElementById('seerrUserPopup');
-        if (el) window.JellyfinHelperUi.closeDialog(el);
+        if (el) el.remove();
         // Restore focus to the trigger button if still in DOM
         if (btn?.isConnected) { btn.focus(); }
     }

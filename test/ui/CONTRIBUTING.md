@@ -17,21 +17,7 @@ the public surface (DOM + stubbed `ApiClient`) instead of adding exports to
 production files. Pure helpers that production code itself reuses are the
 only exception.
 
-## Shared UI primitives
-
-`tests/ui-primitives.test.ts` covers `PluginPages/js/UiPrimitives.js` through its
-public `window.JellyfinHelperUi` API and the real dashboard and Discovery callers.
-It checks modal cancellation and focus restoration, keyboard tabs, hidden panels,
-stable card updates, poster fallbacks, localized counts, reduced-motion removal and paused toast
-lifetimes. The loader and the isolated lifecycle documents load this module
-before its consumers, matching the composed page and embedded script response.
-
 ## Running and gating
-
-Keep intentionally hostile markup fixtures unchanged even when IDE HTML
-inspections flag them. Do not suppress inspections to hide these fixtures.
-Build simulated navigation links in their owning document and inspect demo
-script order through the parsed HTML.
 
 ```bash
 npm install --ignore-scripts --no-audit --no-fund

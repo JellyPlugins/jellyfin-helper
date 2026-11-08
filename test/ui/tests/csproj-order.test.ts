@@ -24,17 +24,6 @@ describe('loader module order matches the .csproj compose order', () => {
     }
   });
 
-  test('the demo loads the shared UI runtime before Discovery', () => {
-    const demo = readFileSync(join(REPO_ROOT, 'docs', 'index.html'), 'utf8');
-    const parsedDemo = new DOMParser().parseFromString(demo, 'text/html');
-    const scripts = Array.from(parsedDemo.querySelectorAll('script[src]'), script => script.getAttribute('src'));
-    const runtime = scripts.indexOf('js/UiPrimitives.js');
-    const discovery = scripts.indexOf('js/discovery-sidebar.js');
-    expect(runtime).toBeGreaterThanOrEqual(0);
-    expect(discovery).toBeGreaterThan(runtime);
-    expect(demo).toContain("'js/Shared.js', 'js/UiPrimitives.js'");
-  });
-
   // ComposeConfigPage.cs enforces these invariants at build time instead of a
   // literal list: Shared.js first (helpers exist before any tab uses them),
   // Main.js last (it closes the IIFE and wires routing), Codecs before

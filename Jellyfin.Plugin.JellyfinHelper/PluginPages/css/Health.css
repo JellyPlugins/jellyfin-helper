@@ -47,11 +47,9 @@
     transition: border-color 0.2s, background 0.2s, transform 0.1s;
 }
 
-@media (hover: hover) and (pointer: fine) {
-    .health-clickable:hover {
-        border-color: var(--color-primary);
-        background: var(--color-primary-light);
-    }
+.health-clickable:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
 }
 
 .health-clickable:active {

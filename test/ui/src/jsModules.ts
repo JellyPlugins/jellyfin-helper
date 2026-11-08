@@ -1,6 +1,5 @@
 export const CONFIG_PAGE_MODULES = [
   'Shared.js',
-  'UiPrimitives.js',
   'Overview.js',
   'Codecs.js',
   'CodecsExplorer.js',

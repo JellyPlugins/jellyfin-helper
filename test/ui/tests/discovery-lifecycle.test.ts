@@ -6,11 +6,8 @@ import { freshDiscoveryHelpers, REPO_ROOT, saveCoverage } from '../src/loader.js
 
 afterAll(saveCoverage);
 
-const scripts = [
-  readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/PluginPages/js/UiPrimitives.js'), 'utf8'),
-  ...['client-lifecycle.js', 'native-tabs.js', 'discovery-sidebar.js'].map(name =>
-    readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/js', name), 'utf8')),
-];
+const scripts = ['client-lifecycle.js', 'native-tabs.js', 'discovery-sidebar.js'].map(name =>
+  readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/js', name), 'utf8'));
 const documents: JSDOM[] = [];
 
 afterEach(() => {
@@ -20,15 +17,6 @@ afterEach(() => {
 
 function recommendations(title: string, posterPath?: string) {
   return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath }] };
-}
-
-function appendHomeLink(list: Element) {
-  const item = list.ownerDocument.createElement('li');
-  const link = list.ownerDocument.createElement('a');
-  link.setAttribute('href', '#/home');
-  link.textContent = 'Home';
-  item.appendChild(link);
-  list.appendChild(item);
 }
 
 function deferred<T>() {
@@ -693,8 +681,7 @@ test('navigation moves to the modern drawer and returns to the legacy drawer whe
   await settle();
   const paper = client.w.document.createElement('div');
   paper.className = 'MuiDrawer-paper';
-  paper.innerHTML = '<ul class="MuiList-root"></ul>';
-  appendHomeLink(paper.querySelector('ul')!);
+  paper.innerHTML = '<ul class="MuiList-root"><li><a href="#/home">Home</a></li></ul>';
   client.w.document.body.appendChild(paper);
   await settle();
   expect(paper.querySelector('.jfhelper-nav-discovery')).not.toBeNull();
@@ -711,8 +698,7 @@ test('modern navigation ignores unrelated lists and preserves other section acti
   const ui = freshDiscoveryHelpers();
   window.history.replaceState(null, '', '#/home');
   (globalThis as any).ApiClient = { getCurrentUserId: () => 'a' };
-  document.body.innerHTML = '<div class="MuiDrawer-paper"><ul class="MuiList-root"><li><a href="https://example.org">Other link</a></li></ul><ul class="MuiList-root"></ul></div><div class="mainDrawer-scrollContainer"><div class="jellyfinHelperSection"><button>Other action</button></div></div>';
-  appendHomeLink(document.querySelectorAll('.MuiDrawer-paper ul')[1]);
+  document.body.innerHTML = '<div class="MuiDrawer-paper"><ul class="MuiList-root"><li><a href="https://example.org">Other link</a></li></ul><ul class="MuiList-root"><li><a href="#/home">Home</a></li></ul></div><div class="mainDrawer-scrollContainer"><div class="jellyfinHelperSection"><button>Other action</button></div></div>';
   ui.injectNavigation();
   ui.injectNavigation();
   expect(document.querySelector('.MuiDrawer-paper .jfhelper-nav-discovery')).not.toBeNull();
@@ -735,8 +721,7 @@ test('modern sidebar uses a short localized label without inherited legacy spaci
   } });
   const drawer = client.w.document.createElement('div');
   drawer.className = 'MuiDrawer-paper';
-  drawer.innerHTML = '<ul class="MuiList-root"></ul>';
-  appendHomeLink(drawer.querySelector('ul')!);
+  drawer.innerHTML = '<ul class="MuiList-root"><li><a href="#/home">Home</a></li></ul>';
   client.w.document.body.appendChild(drawer);
   await settle();
   const navigation = drawer.querySelector('.jfhelper-nav-discovery')!;

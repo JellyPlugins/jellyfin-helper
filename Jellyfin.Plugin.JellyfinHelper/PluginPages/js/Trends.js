@@ -409,15 +409,8 @@ function renderTrendSvgString(frame, colors) {
     svg += '</g>';
 
     svg += '<g class="trend-xlabels">';
-    var textAnchors = new Map([
-        ['start', ' text-anchor="start"'],
-        ['middle', ' text-anchor="middle"'],
-        ['end', ' text-anchor="end"']
-    ]);
     for (const lbl of frame.labels) {
-        svg += '<text x="' + lbl.x.toFixed(1) + '" y="' + (baseY + 18) + '"'
-            + (textAnchors.get(lbl.anchor) || textAnchors.get('middle'))
-            + ' fill="rgba(255,255,255,0.55)" font-size="10" font-weight="500">' + escHtml(lbl.text) + '</text>';
+        svg += '<text x="' + lbl.x.toFixed(1) + '" y="' + (baseY + 18) + '" text-anchor="' + lbl.anchor + '" fill="rgba(255,255,255,0.55)" font-size="10" font-weight="500">' + escHtml(lbl.text) + '</text>';
     }
     svg += '</g>';
 
@@ -1231,12 +1224,10 @@ function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
     var show = document.getElementById(showId);
     var hide = document.getElementById(hideId);
     if (hide) hide.classList.remove('visible');
-    window.JellyfinHelperUi.setExpanded(hide, false, otherBtn);
     if (otherBtn) otherBtn.setAttribute('aria-expanded', 'false');
     if (show) {
         show.classList.toggle('visible');
         var expanded = show.classList.contains('visible');
-        window.JellyfinHelperUi.setExpanded(show, expanded, activeBtn);
         if (activeBtn) activeBtn.setAttribute('aria-expanded', String(expanded));
     }
 }

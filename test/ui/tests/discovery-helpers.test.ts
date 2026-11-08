@@ -87,8 +87,7 @@ describe('discovery pure helpers', () => {
   });
 
   test('esc escapes every HTML metacharacter and coerces non-strings', () => {
-    const hostileText = '<script>alert("x")&\'</script>';
-    expect(ui.esc(hostileText)).toBe(
+    expect(ui.esc('<script>alert("x")&\'</script>')).toBe(
       '&lt;script&gt;alert(&quot;x&quot;)&amp;&#39;&lt;/script&gt;',
     );
     expect(ui.esc(1999)).toBe('1999');
@@ -322,11 +321,10 @@ describe('toast lifecycle', () => {
     expect(document.querySelector('.jfh-discovery-toast')).toBeNull();
   });
 
-  test('toast dismissal tolerates a detached node', () => {
+  test('dismissToast tolerates a detached node', () => {
     const orphan = document.createElement('div');
-    const dismiss = (window as any).JellyfinHelperUi.closeToast;
-    expect(() => dismiss(orphan)).not.toThrow();
-    expect(() => dismiss(null)).not.toThrow();
+    expect(() => ui.dismissToast(orphan)).not.toThrow();
+    expect(() => ui.dismissToast(null)).not.toThrow();
   });
 });
 
@@ -362,8 +360,7 @@ describe('renderCards', () => {
 
   test('escapes a hostile title so no script element is created', () => {
     const el = document.createElement('div');
-    const hostileTitle = '<img src=x onerror=alert(1)>';
-    ui.renderCards(el, { Recommendations: [rec({ Title: hostileTitle })] });
+    ui.renderCards(el, { Recommendations: [rec({ Title: '<img src=x onerror=alert(1)>' })] });
     expect(el.querySelector('img[onerror]')).toBeNull();
     // The literal angle brackets survive as text, proving escaping.
     expect(el.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
@@ -425,7 +422,7 @@ describe('renderCards', () => {
       expect(el.querySelector('.' + ui.getDiscoveryScoreClass(percent))).not.toBeNull();
       const genres = el.querySelectorAll('.jfh-discovery-card-genres .jfh-discovery-tag');
       expect(Array.from(genres, (genre) => genre.textContent)).toEqual(['<Action>', 'Drama']);
-      expect(el.getElementsByTagName('action')).toHaveLength(0);
+      expect(el.querySelector('action')).toBeNull();
     },
   );
 
@@ -1094,16 +1091,16 @@ describe('submitRequest outcomes', () => {
     expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('Timed out');
   });
 
-  test('a successful request removes only its cached candidate and animates the card out', async () => {
+  test('a successful request invalidates the cache and animates the card out', async () => {
     const ui = freshDiscoveryHelpers();
     ajaxRouter({ '/Request': { Success: true } }, { userId: 'u1' });
-    const remaining = rec({ TmdbId: 604, Title: 'Remaining' });
-    ui.setCachedDiscoveryResult({ Recommendations: [rec(), remaining] });
+    ui.setCachedDiscoveryResult({ Recommendations: [rec()] });
     const { el, btn } = reqBtn(ui);
     ui.submitRequest(603, 'movie', null, null, null, btn);
     await flush();
-    expect(ui.getCachedDiscoveryResult().Recommendations).toEqual([remaining]);
+    expect(ui.getCachedDiscoveryResult()).toBeNull();
     expect(btn.classList.contains('jfh-discovery-btn-done')).toBe(true);
+    // 5s hold, then 400ms fade removes the card and re-renders the empty state.
     await vi.advanceTimersByTimeAsync(5000);
     await vi.advanceTimersByTimeAsync(400);
     await flush();

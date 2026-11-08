@@ -926,7 +926,7 @@ describe('save band visual states', () => {
     expect(band.classList.contains('is-saved')).toBe(true);
     expect(band.classList.contains('is-visible')).toBe(false);
     expect(band.getAttribute('aria-hidden')).toBe('true');
-    await vi.advanceTimersByTimeAsync(199);
+    await vi.advanceTimersByTimeAsync(319);
     expect(band.classList.contains('is-saved')).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     expect(band.classList.contains('is-saved')).toBe(false);

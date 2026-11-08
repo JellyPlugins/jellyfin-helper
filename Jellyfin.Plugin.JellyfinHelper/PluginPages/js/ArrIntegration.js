@@ -164,7 +164,9 @@ function addArrInstance(type) {
             header.setAttribute('aria-expanded', 'true');
         }
         var body = collapsible.querySelector('.arr-collapsible-body');
-        window.JellyfinHelperUi.setExpanded(body, true, header);
+        if (body) {
+            body.setAttribute('aria-hidden', 'false');
+        }
     }
     updateArrCollapsibleCount(type);
     syncArrLibraryPickers(type);
