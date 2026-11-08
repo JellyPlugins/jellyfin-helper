@@ -134,6 +134,20 @@ describe('renderRecommendationCard clamps and escapes', () => {
     expect(html).toContain('x A y {1}');
   });
 
+  test.each([
+    ['{0} / {1}', 'Movie {1} | Second', 'Movie {1} / Second'],
+    ['{0}, {0}, {1}', 'Movie {1} | Second', 'Movie {1}, Movie {1}, Second'],
+    ['{0} + {1} + {99}', "Movie $& {1} | Second $'", "Movie $& {1} + Second $' + {99}"],
+  ])('related titles remain literal in %s', (reason, related, expected) => {
+    const html = ui.renderRecommendationCard(
+      { Name: 'Movie', Score: 0.5, Reason: reason, RelatedItemName: related },
+      1,
+    );
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.querySelector('.recs-item-reason')!.textContent).toBe('Why: ' + expected);
+  });
+
   test('titles escape markup', () => {
     const title = '<img>';
     expect(ui.renderRecommendationCard({ Name: title, Score: 0 }, 1)).toContain('&lt;img&gt;');
