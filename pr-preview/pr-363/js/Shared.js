@@ -259,9 +259,9 @@ function renderTreeFolder(childNode, level, icon, lazy) {
 
     if (hasContent) {
         if (lazy) {
-            html += '<div class="tree-children"></div>';
+            html += '<div class="tree-children" hidden></div>';
         } else {
-            html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+            html += '<div class="tree-children" hidden>' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
         }
     }
     html += '</div>';
@@ -336,11 +336,19 @@ function toggleTreeNode(toggle) {
         return;
     }
     var expand = !node.classList.contains('tree-expanded');
-    node.classList.toggle('tree-expanded');
-    toggle.setAttribute('aria-expanded', expand ? 'true' : 'false');
-    if (expand) {
-        ensureTreeChildren(node);
+    var children = node.querySelector(':scope > .tree-children');
+    if (!children) {
+        node.classList.toggle('tree-expanded', expand);
+        toggle.setAttribute('aria-expanded', String(expand));
+        return;
     }
+    window.JellyfinHelperUi.setExpanded(children, expand, toggle, {
+        duration: 160,
+        update: function () {
+            node.classList.toggle('tree-expanded', expand);
+            if (expand) ensureTreeChildren(node);
+        }
+    });
 }
 
 // Expand All walks document order and stops at the node budget, so even a
@@ -350,13 +358,16 @@ function collapseAllTreeNodes(container) {
     for (const node of container.querySelectorAll('.tree-node')) {
         node.classList.remove('tree-expanded');
         node.firstElementChild?.setAttribute('aria-expanded', 'false');
+        window.JellyfinHelperUi.setExpanded(node.querySelector(':scope > .tree-children'), false, node.firstElementChild);
     }
 }
 
 function expandOneTreeNode(node) {
     node.classList.add('tree-expanded');
     node.firstElementChild?.setAttribute('aria-expanded', 'true');
-    return 1 + ensureTreeChildren(node);
+    var count = 1 + ensureTreeChildren(node);
+    window.JellyfinHelperUi.setExpanded(node.querySelector(':scope > .tree-children'), true, node.firstElementChild);
+    return count;
 }
 
 function runTreeAction(container, action, scope) {
@@ -1097,11 +1108,15 @@ function clearSameGroupToggleItems(items, opts, groupVal) {
     }
 }
 
-function closeOtherTogglePanels(scope, panelId) {
+function closeOtherTogglePanels(scope, panelId, trigger, animate) {
     for (const panel of scope.querySelectorAll('.file-tree-panel')) {
         if (panel.id !== panelId) {
-            panel.innerHTML = '';
-            panel.classList.remove('file-tree-panel-visible');
+            window.JellyfinHelperUi.setExpanded(panel, false, trigger, {
+                duration: 180,
+                animate: animate,
+                update: function () { panel.classList.remove('file-tree-panel-visible'); },
+                onClosed: function () { panel.replaceChildren(); }
+            });
         }
     }
 }
@@ -1146,8 +1161,12 @@ function attachTogglePanelHandlers(opts) {
 
             // Toggle: if same item is already active, close it
             if (this.classList.contains(opts.activeClass)) {
-                panel.innerHTML = '';
-                panel.classList.remove('file-tree-panel-visible');
+                window.JellyfinHelperUi.setExpanded(panel, false, this, {
+                    duration: 180,
+                    animate: !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput(),
+                    update: function () { panel.classList.remove('file-tree-panel-visible'); },
+                    onClosed: function () { panel.replaceChildren(); }
+                });
                 this.classList.remove(opts.activeClass);
                 return;
             }
@@ -1159,7 +1178,7 @@ function attachTogglePanelHandlers(opts) {
 
             // Close all other panels within the scope (never outside it, so e.g. the
             // Library Explorer results survive donut drill-downs).
-            closeOtherTogglePanels(scope, panelId);
+            closeOtherTogglePanels(scope, panelId, this, !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput());
             // Deactivate items in other groups
             if (opts.groupAttr) {
                 for (const otherItem of allItems) {
@@ -1173,9 +1192,16 @@ function attachTogglePanelHandlers(opts) {
             var wasVisible = panel.classList.contains('file-tree-panel-visible');
 
             this.classList.add(opts.activeClass);
-            panel.innerHTML = opts.renderContent(this);
-            if (typeof bindFileTreeHandlers === 'function') { bindFileTreeHandlers(panel); }
-            panel.classList.add('file-tree-panel-visible');
+            var selected = this;
+            window.JellyfinHelperUi.setExpanded(panel, true, this, {
+                duration: 180,
+                animate: !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput(),
+                update: function () {
+                    panel.innerHTML = opts.renderContent(selected);
+                    if (typeof bindFileTreeHandlers === 'function') bindFileTreeHandlers(panel);
+                    panel.classList.add('file-tree-panel-visible');
+                }
+            });
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel),
             // unless the touch path opted out to keep tooltip and segment in view.

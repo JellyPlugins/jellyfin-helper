@@ -646,11 +646,11 @@ function loadSettings(onDone) {
                 }
                 hdrBtn.addEventListener('click', function () {
                     var p = hdrBtn.parentElement;
-                    p.classList.toggle('arr-expanded');
-                    var ex = p.classList.contains('arr-expanded');
-                    hdrBtn.setAttribute('aria-expanded', ex ? 'true' : 'false');
+                    var ex = !p.classList.contains('arr-expanded');
                     var b = p.querySelector('.arr-collapsible-body');
-                    window.JellyfinHelperUi.setExpanded(b, ex, hdrBtn);
+                    window.JellyfinHelperUi.setExpanded(b, ex, hdrBtn, {
+                        update: function () { p.classList.toggle('arr-expanded', ex); }
+                    });
                 });
             }
         });
@@ -1319,9 +1319,12 @@ function attachTaskDescHandlers() {
         button.addEventListener('click', function () {
             var hint = document.getElementById(this.id.replace('taskDescBtn_', 'taskDescHint_'));
             if (!hint) return;
-            var isOpen = hint.style.display !== 'none';
-            hint.style.display = isOpen ? 'none' : 'block';
-            this.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+            var isOpen = window.JellyfinHelperUi.isExpanded(hint);
+            window.JellyfinHelperUi.setExpanded(hint, !isOpen, this, {
+                duration: 160,
+                update: function () { hint.style.display = 'block'; },
+                onClosed: function () { hint.style.display = 'none'; }
+            });
         });
     }
 }
@@ -1334,9 +1337,12 @@ function attachDiscoveryHintHandler() {
     var panel = document.getElementById('discoveryHintPanel');
     if (!toggleBtn || !panel) return;
     toggleBtn.addEventListener('click', function () {
-        var isOpen = panel.style.display !== 'none';
-        panel.style.display = isOpen ? 'none' : 'block';
-        toggleBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        var isOpen = window.JellyfinHelperUi.isExpanded(panel);
+        window.JellyfinHelperUi.setExpanded(panel, !isOpen, toggleBtn, {
+            duration: 160,
+            update: function () { panel.style.display = 'block'; },
+            onClosed: function () { panel.style.display = 'none'; }
+        });
     });
 }
 
@@ -1749,8 +1755,12 @@ function libraryMultiSelectSummary(names, type) {
 function toggleLibraryDropdown(btn) {
     var panel = btn.nextElementSibling;
     if (!panel) return;
-    var isOpen = panel.style.display !== 'none';
-    panel.style.display = isOpen ? 'none' : 'block';
+    var isOpen = window.JellyfinHelperUi.isExpanded(panel);
+    window.JellyfinHelperUi.setExpanded(panel, !isOpen, btn, {
+        duration: 160,
+        update: function () { panel.style.display = 'block'; },
+        onClosed: function () { panel.style.display = 'none'; }
+    });
     // Chevron stays as expand_more (pointing down) regardless of state - matches native <select> behavior
 }
 

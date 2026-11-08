@@ -126,16 +126,11 @@ function toggleCollapsible(bodyId, toggleId) {
     var toggle = document.getElementById(toggleId);
     var arrow = document.querySelector('#' + toggleId + ' .recs-collapsible-arrow');
     if (!body) return;
-    if (body.classList.contains('open')) {
-        body.classList.remove('open');
-        if (arrow) arrow.textContent = '\u25B6';
-        if (toggle) toggle.setAttribute('aria-expanded', 'false');
-    } else {
-        body.classList.add('open');
-        if (arrow) arrow.textContent = '\u25BC';
-        if (toggle) toggle.setAttribute('aria-expanded', 'true');
-    }
-    window.JellyfinHelperUi.setExpanded(body, body.classList.contains('open'), toggle);
+    var expanded = !body.classList.contains('open');
+    window.JellyfinHelperUi.setExpanded(body, expanded, toggle, {
+        update: function () { body.classList.toggle('open', expanded); }
+    });
+    if (arrow) arrow.textContent = expanded ? '\u25BC' : '\u25B6';
 }
 
 // Fetches the read-only ensemble diagnostics once and caches the payload. Re-rendering the tab replaces the
