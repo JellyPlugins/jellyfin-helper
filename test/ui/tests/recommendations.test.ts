@@ -26,12 +26,13 @@ describe('discovery text contrast', () => {
     for (const rule of cssRules) {
       if (rule.type === CSSRule.MEDIA_RULE) {
         const media = rule as CSSMediaRule;
-        if (light && media.conditionText === '(prefers-color-scheme: light)') {
+        if ((light && media.conditionText === '(prefers-color-scheme: light)')
+          || media.conditionText === '(hover: hover) and (pointer: fine)') {
           value = declaration(Array.from(media.cssRules), selector, property, light) || value;
         }
       } else if (rule.type === CSSRule.STYLE_RULE) {
         const style = rule as CSSStyleRule;
-        if (style.selectorText === selector) value = style.style.getPropertyValue(property) || value;
+        if (style.selectorText.split(',').map(part => part.trim()).includes(selector)) value = style.style.getPropertyValue(property) || value;
       }
     }
     return value.trim();
@@ -58,11 +59,13 @@ describe('discovery text contrast', () => {
     return (values[0] + 0.05) / (values[1] + 0.05);
   }
 
-  test('small hover labels meet 4.5:1 on the shipped cyan accent', () => {
+  test('small hover labels meet 4.5:1 on the shared button surface', () => {
     const css = rules('Recommendations.css');
-    const primary = color(declaration(rules('Shared.css'), ':root', '--color-primary', false));
+    const shared = rules('Shared.css');
+    const primary = color(declaration(shared, '#JellyfinHelperConfigPage', '--color-button-primary', false));
     const foreground = color(declaration(css, '.discovery-request-btn:hover:not(:disabled)', 'color', false));
     expect(contrast(foreground, primary)).toBeGreaterThanOrEqual(4.5);
+    expect(declaration(shared, ':root', '--color-primary', false)).toBe('');
   });
 
   test.each([
@@ -132,13 +135,15 @@ describe('renderRecommendationCard clamps and escapes', () => {
   });
 
   test('titles escape markup', () => {
-    expect(ui.renderRecommendationCard({ Name: '<img>', Score: 0 }, 1)).toContain('&lt;img&gt;');
+    const title = '<img>';
+    expect(ui.renderRecommendationCard({ Name: title, Score: 0 }, 1)).toContain('&lt;img&gt;');
   });
 });
 
 describe('renderDiscoveryCard hardens untrusted fields', () => {
   test('evil poster paths render no image', () => {
-    for (const poster of ['javascript:alert(1)', '/x.exe', '"><img src=x onerror=y>', '/a b.jpg']) {
+    const injectedMarkup = '"><img src=x onerror=y>';
+    for (const poster of ['javascript:alert(1)', '/x.exe', injectedMarkup, '/a b.jpg']) {
       const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, PosterPath: poster, MediaType: 'movie', TmdbId: 1 }, 0);
       expect(html).not.toContain('<img');
       expect(html).toContain('discovery-card-poster-empty');

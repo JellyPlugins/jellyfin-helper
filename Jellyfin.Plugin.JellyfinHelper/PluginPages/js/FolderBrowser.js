@@ -31,7 +31,7 @@ function openFolderBrowserDialog() {
     // Build the dialog shell
     var overlay = document.createElement('div');
     overlay.id = 'folderBrowserOverlay';
-    overlay.className = 'dialog-overlay';
+    overlay.className = 'dialog-overlay jfh-ui-surface';
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
 
     var dialog = document.createElement('div');
@@ -39,7 +39,7 @@ function openFolderBrowserDialog() {
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-labelledby', 'folderBrowserTitle');
-    dialog.style.cssText = 'background:var(--theme-card-bg, #1c1c1e);border-radius:10px;padding:1.5em;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+    dialog.style.cssText = 'background:var(--color-surface-card);color:var(--color-text);border-radius:10px;padding:1.5em;max-width:600px;width:90%;max-height:80vh;max-height:80dvh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
 
     // Header
     var header = document.createElement('div');
@@ -81,7 +81,7 @@ function openFolderBrowserDialog() {
     dialog.appendChild(btnRow);
 
     overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
+    window.JellyfinHelperUi.openDialog(overlay, dialog, document.getElementById('btnBrowseTrash'), closeDialog);
 
     // Store state
     var state = { currentPath: null };
@@ -103,7 +103,7 @@ function openFolderBrowserDialog() {
             closeDialog();
         }
     });
-    overlay.focus();
+    document.getElementById('folderBrowserClose').focus({ preventScroll: true });
 
     document.getElementById('folderBrowserSelect').addEventListener('click', function () {
         selectFolderBrowserPath(state);
@@ -151,7 +151,7 @@ function selectFolderBrowserPath(state) {
     if (pathError) {
         var listingEl = document.getElementById('folderBrowserListing');
         if (listingEl) {
-            listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
+            listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-danger,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
         }
         return;
     }

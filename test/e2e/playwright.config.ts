@@ -52,7 +52,7 @@ export default defineConfig({
     {
       name: 'ui',
       metadata: { discoveryLayout: 'modern' },
-      testMatch: /\.ui\.spec\.ts/,
+      testMatch: /(?:\.ui\.spec|ui-primitives\.fixture\.spec)\.ts/,
       use: { ...devices['Desktop Chrome'] },
       // Ordered after api via the ui-setup dependency chain (api -> ui-setup -> ui), so the
       // Discovery reset always lands after api's config writes regardless of worker count.

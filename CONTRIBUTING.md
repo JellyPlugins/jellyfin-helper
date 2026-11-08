@@ -126,6 +126,15 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/README.md`](test/e2e/README.md) for architecture and
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
+The fast browser fixture suite uses `test/e2e/playwright.ui-fixtures.config.ts`
+and `test/e2e/tests/ui-primitives.fixture.spec.ts`. Run `npm run test:fixtures`
+from `test/e2e/` with Chromium and WebKit installed. It checks the shipped UI
+sources with a stubbed API, including modal focus, card identity, narrow layouts,
+themes and reduced motion, without starting Docker. Live Jellyfin integration
+remains covered by the main E2E suite.
+The Chromium fixture cases also run in the standard UI project; the dedicated
+configuration adds WebKit and can run independently of the Docker stack.
+
 #### Discovery tab coverage (official Trakt plugin only)
 
 The Discovery home-page tab is built into the plugin, so the e2e suite needs no
@@ -1159,7 +1168,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `Recommendations.js`
 - `Settings.js`
 - `Shared.js`
+- `UiPrimitives.js` - Shared dialog focus, keyboard tabs, scoped UI tokens, card removal, and toast lifetimes. Embedded in both the dashboard and the Discovery script response.
 - `Trends.js`
+
+The authored `docs/index.html` loader also loads `UiPrimitives.js` before
+Discovery and includes it in the dashboard module list. Its guarded IIFE keeps
+both views on one UI runtime; generated assets are still copied by the pipeline.
 
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 
@@ -1588,12 +1602,12 @@ Trends.css, Settings.css, ArrIntegration.css,
 Recommendations.css, Logs.css
 
 # JS order (csproj JsModule items)
-Shared.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
+Shared.js, UiPrimitives.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
 Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` - the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. `ComposeConfigPage.cs` emits the outer IIFE for the tab modules; `UiPrimitives.js` owns a guarded inner IIFE because it is also served to Discovery independently.
 
 ### Adding a New Tab
 
