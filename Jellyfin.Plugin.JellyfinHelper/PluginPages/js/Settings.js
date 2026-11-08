@@ -53,7 +53,10 @@ function refreshDiscoveryAccessState() {
     if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
     if (!discEnabled) {
         var panel = document.getElementById('discoveryHintPanel');
-        if (panel) panel.style.display = 'none';
+        window.JellyfinHelperUi.setExpanded(panel, false, toggleBtn, {
+            animate: false,
+            onClosed: function () { panel.style.display = 'none'; }
+        });
         if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
     }
     refreshTraktRowState();

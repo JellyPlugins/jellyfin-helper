@@ -571,6 +571,40 @@ describe('refreshDiscoveryAccessState hint and button wiring', () => {
     expect((document.getElementById('btnToggleDiscoveryHint') as HTMLElement).style.display).toBe('');
     expect((document.getElementById('discoveryHintPanel') as HTMLElement).style.display).toBe('none');
   });
+
+  test.each([
+    ['cfgRecommendationsMode', 'Deactivate', 'Activate'],
+    ['cfgSeerrUrl', '', 'http://s:5055'],
+    ['cfgSeerrApiKey', '', 'k'],
+  ])('the hint reopens on the first click after restoring %s', (id, disabledValue, enabledValue) => {
+    discoveryDom('Activate', 'http://s:5055', 'k');
+    ui.attachDiscoveryHintHandler();
+    const button = document.getElementById('btnToggleDiscoveryHint')!;
+    const panel = document.getElementById('discoveryHintPanel') as HTMLElement;
+    const prerequisite = document.getElementById(id) as HTMLInputElement | HTMLSelectElement;
+    button.click();
+    expect(panel.style.display).toBe('block');
+    expect(panel.getAttribute('aria-hidden')).toBe('false');
+
+    prerequisite.value = disabledValue;
+    expect(ui.refreshDiscoveryAccessState()).toBe(false);
+    expect(panel.style.display).toBe('none');
+    expect(panel.hidden).toBe(true);
+    expect(panel.hasAttribute('inert')).toBe(true);
+    expect(panel.getAttribute('aria-hidden')).toBe('true');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+
+    prerequisite.value = enabledValue;
+    expect(ui.refreshDiscoveryAccessState()).toBe(true);
+    expect(panel.hidden).toBe(true);
+    expect(button.style.display).toBe('');
+    button.click();
+    expect(panel.style.display).toBe('block');
+    expect(panel.hidden).toBe(false);
+    expect(panel.hasAttribute('inert')).toBe(false);
+    expect(panel.getAttribute('aria-hidden')).toBe('false');
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+  });
 });
 
 describe('Discovery setup hint info button', () => {

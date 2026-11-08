@@ -182,7 +182,7 @@ describe('trash path change dialog', () => {
     }) };
     ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
     await flush();
-    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
     expect(options.onSuccess).not.toHaveBeenCalled();
     await flush();
     const changedCalls = calls.slice(before);
@@ -210,7 +210,7 @@ describe('trash path change dialog', () => {
     const options = { quiet: true, element: null, onSuccess: vi.fn(function (this: unknown) { expect(this).toBe(options); }) };
     ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
     await flush();
-    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
     await flush();
     expect(calls.some((c) => c.url.includes('Trash/Relocate'))).toBe(true);
     expect(options.onSuccess).toHaveBeenCalledExactlyOnceWith();
@@ -234,7 +234,7 @@ describe('trash path change dialog', () => {
     };
     ui.showTrashPathChangeDialog({ ...ui.buildSettingsPayload(), TrashFolderPath: '/t/new' }, options);
     await flush();
-    [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
+    [...document.querySelectorAll<HTMLButtonElement>('#trashDialogOverlay button')].find((b) => b.textContent === 'Move Content')!.click();
     await flush();
     expect(failedCalls.some((c) => c.method === 'PUT')).toBe(true);
     expect(failedCalls.some((c) => c.url.includes('Trash/Relocate'))).toBe(false);
@@ -255,7 +255,7 @@ describe('trash path change dialog', () => {
     await flush();
     if (mode === 'delete-fresh') {
       expect(options.onSuccess).not.toHaveBeenCalled();
-      [...document.querySelectorAll('#trashDialogOverlay button')].find((b) => b.textContent === 'Delete & Start Fresh')!.click();
+      [...document.querySelectorAll<HTMLButtonElement>('#trashDialogOverlay button')].find((b) => b.textContent === 'Delete & Start Fresh')!.click();
       await flush();
     }
     expect(options.onSuccess).toHaveBeenCalledExactlyOnceWith();

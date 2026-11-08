@@ -1184,7 +1184,17 @@ receives `hidden` after the transition. Reversals cancel the previous completion
 asynchronous content retargets within the original time budget, and reduced motion
 stays immediate.
 Initial rendering and bulk tree actions do not animate. Native select menus keep
-their browser behavior.
+their browser behavior. Losing a Discovery prerequisite closes its setup hint
+immediately, cancels pending motion and resets the accessibility state so the
+first click after reenabling Discovery opens it again.
+
+`JellyfinHelperUi.showToast(message, options)` accepts omitted, null or partial
+options without mutating the caller's object. Missing or null fields default to
+the shared `jfh-toast` styles, a 5000 ms lifetime and the close label `Close`.
+Explicit zero durations remain immediate; localized labels and custom classes
+are preserved. Custom classes supply their own `-visible` and `-hidden` styles.
+Default toasts are pointer-accessible, support light/dark and reduced motion,
+and do not require Discovery styles.
 
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 

@@ -33,6 +33,16 @@ Panel cases verify immediate fallback state without native animation. Browser
 fixtures observe actual Web Animations calls and check closing accessibility,
 reversal continuity, final cleanup and reduced motion rather than advancing
 production coverage counters or replacing the animation implementation.
+Toast regressions cover missing, null and partial options, immutable caller
+objects, default and zero lifetimes, localized labels, pointer accessibility and
+cleanup of the last toast's stack. Browser fixtures verify default toast styling
+and dismissal without loading Discovery.
+Discovery hint regressions cover recommendation-mode and Seerr credential
+round-trips; browser fixtures also check forced closure during an opening
+transition and reopening without stale cleanup.
+Native tab selection mocks use the callable `(index?: number) => number`
+signature. Compound button selectors specify `HTMLButtonElement` through the
+DOM query's type parameter so `.click()` needs no cast or suppression.
 
 ## Running and gating
 

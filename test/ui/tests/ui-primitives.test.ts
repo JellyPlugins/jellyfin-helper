@@ -301,6 +301,80 @@ describe('Discovery rendering', () => {
 });
 
 describe('toast interaction', () => {
+  test.each([
+    ['omitted', undefined],
+    ['null', null],
+    ['empty', {}],
+    ['undefined fields', { className: undefined, closeLabel: undefined, duration: undefined }],
+    ['null fields', { className: null, closeLabel: null, duration: null }],
+  ])('default toasts tolerate %s options and expire after five seconds', async (_name, options) => {
+    const toast = options === undefined ? ui.showToast('Connection failed') : ui.showToast('Connection failed', options);
+    expect(toast.textContent).toBe('Connection failed');
+    expect(toast.getAttribute('role')).toBe('alert');
+    expect(toast.className).toBe('jfh-toast jfh-toast-visible');
+    const close = toast.querySelector('button');
+    expect(close.getAttribute('aria-label')).toBe('Close');
+    expect(getComputedStyle(toast).position).toBe('relative');
+    expect(getComputedStyle(toast).pointerEvents).toBe('auto');
+    expect(getComputedStyle(close).pointerEvents).toBe('auto');
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(toast.classList.contains('jfh-toast-visible')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toast.classList.contains('jfh-toast-hidden')).toBe(true);
+    expect(getComputedStyle(toast).pointerEvents).toBe('none');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(toast.isConnected).toBe(false);
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
+  test('partial options preserve a custom lifetime without mutating the caller', async () => {
+    const options = Object.freeze({ duration: 1250 });
+    const toast = ui.showToast('Connection failed', options);
+    expect(toast.className).toBe('jfh-toast jfh-toast-visible');
+    expect(toast.querySelector('button').getAttribute('aria-label')).toBe('Close');
+    expect(options).toEqual({ duration: 1250 });
+    await vi.advanceTimersByTimeAsync(1249);
+    expect(toast.classList.contains('jfh-toast-visible')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toast.classList.contains('jfh-toast-hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
+  test('custom classes and localized labels retain the default lifetime', async () => {
+    const options = Object.freeze({ className: 'jfh-discovery-toast', closeLabel: 'Schließen' });
+    const toast = ui.showToast('Connection failed', options);
+    expect(toast.className).toBe('jfh-discovery-toast jfh-discovery-toast-visible');
+    expect(toast.querySelector('button').getAttribute('aria-label')).toBe('Schließen');
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(toast.classList.contains('jfh-discovery-toast-visible')).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toast.classList.contains('jfh-discovery-toast-hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
+  test('a zero duration dismisses immediately instead of using the default lifetime', async () => {
+    const toast = ui.showToast('Connection failed', { duration: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(toast.classList.contains('jfh-toast-hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
+  test('a default toast can be dismissed through its close button', async () => {
+    const toast = ui.showToast('Connection failed');
+    toast.querySelector('button').click();
+    expect(toast.classList.contains('jfh-toast-hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
+  test('an empty message does not create a toast stack when options are omitted', () => {
+    expect(ui.showToast('')).toBeNull();
+    expect(document.getElementById('jfh-toast-stack')).toBeNull();
+  });
+
   test('messages stack and remain readable while hovered or focused', async () => {
     const first = ui.showToast('First', { className: 'jfh-discovery-toast', duration: 1000, closeLabel: 'Close' });
     const second = ui.showToast('Second', { className: 'jfh-discovery-toast', duration: 1000, closeLabel: 'Close' });

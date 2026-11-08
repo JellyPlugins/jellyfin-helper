@@ -48,6 +48,8 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - Asynchronous content retargets the opening height without extending the transition budget.
 - Explorer dropdowns, Codec disclosures, manual tree folders and Insights use the shared panel motion.
 - Reduced motion bypasses panel movement without changing native select behavior.
+- Default toasts are styled and dismissible without Discovery CSS at mobile/desktop widths in light/dark mode.
+- Losing a Discovery prerequisite immediately closes an animating setup hint and lets the first click after reenabling open it again.
 
 ---
 

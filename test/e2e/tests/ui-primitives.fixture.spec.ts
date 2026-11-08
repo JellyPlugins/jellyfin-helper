@@ -72,7 +72,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers };\n})();');
+      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -125,6 +125,47 @@ for (const width of [320, 1280]) {
       const info = await page.locator('#taskDescBtn_cfgTrickplayMode').boundingBox();
       expect(Math.abs((info!.y + info!.height / 2) - (label!.y + label!.height / 2))).toBeLessThanOrEqual(5);
       expect(info!.height).toBeLessThanOrEqual(label!.height + 2);
+    });
+
+    test(`default toast ${width}px ${colorScheme}: standalone styling and pointer dismissal`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+      await page.setContent('<html lang="en"><head></head><body></body></html>');
+      await page.addScriptTag({ content: primitives });
+      await page.evaluate(() => (window as any).JellyfinHelperUi.showToast('Connection failed. Please check the server address and permissions.'));
+      const toast = page.getByRole('alert');
+      const close = toast.getByRole('button', { name: 'Close', exact: true });
+      await expect(toast).toBeVisible();
+      await expect(close).toBeVisible();
+      const styles = await toast.evaluate(element => {
+        const style = getComputedStyle(element);
+        const button = element.querySelector('button')!;
+        return {
+          position: style.position,
+          pointerEvents: style.pointerEvents,
+          closePointerEvents: getComputedStyle(button).pointerEvents,
+          background: style.backgroundColor,
+          color: style.color,
+          transform: style.transform,
+        };
+      });
+      expect(styles.position).toBe('relative');
+      expect(styles.pointerEvents).toBe('auto');
+      expect(styles.closePointerEvents).toBe('auto');
+      expect(styles.background).toBe(colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(28, 28, 30)');
+      expect(styles.color).toBe(colorScheme === 'light' ? 'rgb(23, 23, 27)' : 'rgb(238, 238, 238)');
+      expect(styles.transform).toBe('none');
+      const rect = await toast.boundingBox();
+      const closeRect = await close.boundingBox();
+      expect(rect!.x).toBeGreaterThanOrEqual(0);
+      expect(rect!.x + rect!.width).toBeLessThanOrEqual(width);
+      expect(closeRect!.x).toBeGreaterThanOrEqual(rect!.x);
+      expect(closeRect!.x + closeRect!.width).toBeLessThanOrEqual(rect!.x + rect!.width);
+      expect(closeRect!.y).toBeGreaterThanOrEqual(rect!.y);
+      expect(closeRect!.y + closeRect!.height).toBeLessThanOrEqual(rect!.y + rect!.height);
+      await close.click();
+      await expect(toast).toHaveCount(0);
+      await expect(page.locator('#jfh-toast-stack')).toHaveCount(0);
     });
 
     test(`Discovery ${width}px ${colorScheme}: details and stable cards`, async ({ page }) => {
@@ -329,6 +370,60 @@ test('reduced motion keeps panel and dropdown changes immediate', async ({ page 
   await page.locator('.library-multiselect-toggle').first().click();
   await expect(page.locator('.library-multiselect-panel').first()).toBeVisible();
   expect(await page.evaluate(() => (window as any).fixturePanelMotion.length)).toBe(0);
+});
+
+test('disabling Discovery cancels hint motion and the first click after reenabling opens it', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await page.locator('.tab-btn[data-tab="settings"]').click();
+  await page.clock.install();
+  const closing = await page.evaluate(() => {
+    const mode = document.getElementById('cfgRecommendationsMode') as HTMLSelectElement;
+    mode.value = 'Activate';
+    (document.getElementById('cfgSeerrUrl') as HTMLInputElement).value = 'http://seerr:5055';
+    (document.getElementById('cfgSeerrApiKey') as HTMLInputElement).value = 'key';
+    const refresh = (window as any).fixtureAdmin.refreshDiscoveryAccessState;
+    refresh();
+    const trigger = document.getElementById('btnToggleDiscoveryHint')!;
+    const panel = document.getElementById('discoveryHintPanel')!;
+    trigger.click();
+    const opening = panel.getAnimations()[0];
+    opening.pause();
+    opening.currentTime = 60;
+    const height = panel.getBoundingClientRect().height;
+    mode.value = 'Deactivate';
+    refresh();
+    const state = {
+      height,
+      hidden: panel.hidden,
+      display: panel.style.display,
+      inert: panel.hasAttribute('inert'),
+      ariaHidden: panel.getAttribute('aria-hidden'),
+      expanded: trigger.getAttribute('aria-expanded'),
+      animations: panel.getAnimations().length,
+      openingState: opening.playState,
+    };
+    mode.value = 'Activate';
+    refresh();
+    return state;
+  });
+  expect(closing.height).toBeGreaterThan(0);
+  expect(closing.hidden).toBe(true);
+  expect(closing.display).toBe('none');
+  expect(closing.inert).toBe(true);
+  expect(closing.ariaHidden).toBe('true');
+  expect(closing.expanded).toBe('false');
+  expect(closing.animations).toBe(0);
+  expect(closing.openingState).toBe('idle');
+  const trigger = page.locator('#btnToggleDiscoveryHint');
+  const panel = page.locator('#discoveryHintPanel');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await expect(panel).toHaveAttribute('aria-hidden', 'false');
+  await page.clock.runFor(300);
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toHaveAttribute('inert');
+  expect(await panel.evaluate(element => element.getAnimations().length)).toBe(0);
 });
 
 test('opening panels retarget when asynchronous content arrives', async ({ page }) => {
