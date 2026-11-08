@@ -38,7 +38,6 @@ const browserGlobals = {
     clearTimeout: 'readonly',
     setInterval: 'readonly',
     clearInterval: 'readonly',
-    queueMicrotask: 'readonly',
 };
 
 // Top-level symbols shared across the concatenated IIFE scope. Grouped by defining module
@@ -58,7 +57,6 @@ const sharedModuleGlobals = {
     loadTranslations: 'writable',
     applyStaticTranslations: 'writable',
     formatBytes: 'writable',
-    formatCount: 'readonly',
     escAttr: 'writable',
     escHtml: 'writable',
     allowSafeHtml: 'writable',

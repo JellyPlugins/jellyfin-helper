@@ -2,12 +2,7 @@
 
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
-    window.JellyfinHelperUi.syncTabs(document.querySelector('.tab-bar'), '.tab-btn', document.querySelector('.tab-btn.active'), function (button) {
-        return document.getElementById('tab-' + button.dataset.tab);
-    });
     for (const tabBtn of tabBtns) {
-        if (tabBtn.dataset.jfhClickBound) continue;
-        tabBtn.dataset.jfhClickBound = '1';
         tabBtn.addEventListener('click', function (e) {
             var clickedBtn = e.currentTarget;
             var tabId = clickedBtn.dataset.tab;
@@ -20,7 +15,6 @@ function initTabs() {
                 && typeof checkUnsavedAndProceed === 'function') {
                 checkUnsavedAndProceed(function () {
                     doTabSwitch(clickedBtn, tabId);
-                    clickedBtn.focus({ preventScroll: true });
                 });
                 return;
             }
@@ -56,9 +50,6 @@ function doTabSwitch(clickedBtn, tabId) {
     if (target) {
         target.classList.add('active');
     }
-    window.JellyfinHelperUi.syncTabs(clickedBtn.closest('.tab-bar'), '.tab-btn', clickedBtn, function (button) {
-        return document.getElementById('tab-' + button.dataset.tab);
-    });
 
     // Initialize tab-specific logic
     if (tabId === 'recommendations' && typeof initRecommendationsTab === 'function') {
@@ -125,7 +116,7 @@ function renderShell() {
     var html = '';
 
     // Tab bar
-    html += '<div class="tab-bar" role="tablist" aria-label="Jellyfin Helper">';
+    html += '<div class="tab-bar">';
     html += '<button class="tab-btn active" data-tab="overview">' + mi('dashboard') + escHtml(T(
         'tabOverview', 'Overview')) + '</button>';
     html += '<button class="tab-btn" data-tab="codecs">' + mi('movie_filter') + escHtml(T('tabCodecs',
@@ -351,8 +342,7 @@ function initPage() {
         }
     });
 
-    if (btnScanLibraries.dataset.jfhScanBound !== '1') {
-        btnScanLibraries.dataset.jfhScanBound = '1';
+    if (!window.JellyfinHelper._handlersBound) {
         btnScanLibraries.addEventListener('click', function (e) {
             e.preventDefault();
             loadStatistics();
