@@ -1176,6 +1176,16 @@ The authored `docs/index.html` loader also loads `UiPrimitives.js` before
 Discovery and includes it in the dashboard module list. Its guarded IIFE keeps
 both views on one UI runtime; generated assets are still copied by the pipeline.
 
+Panel transitions use measured presentation heights and the native Web Animations
+API: larger sections settle in 200 ms, smaller disclosures and custom dropdowns
+in 160 ms, and Codec/Health detail panels in 180 ms. The Discovery poster flip
+uses a calmer 280 ms ease-in-out. Closing content becomes inert immediately and
+receives `hidden` after the transition. Reversals cancel the previous completion,
+asynchronous content retargets within the original time budget, and reduced motion
+stays immediate.
+Initial rendering and bulk tree actions do not animate. Native select menus keep
+their browser behavior.
+
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 
 - `BaseLibraryCleanupTask.cs` - Abstract Template Method base for library cleanup tasks: iterate locations, delete, log, record

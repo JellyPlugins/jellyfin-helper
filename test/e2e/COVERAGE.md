@@ -43,6 +43,11 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
 - Reduced motion, larger text on touch devices, and log-filter alignment.
 - Explicit failure when the Discovery bootstrap source anchor is missing or duplicated.
+- Native panel and custom-dropdown transitions with immediate closing accessibility state.
+- Mid-transition reversal preserves presentation height and cancels stale closing cleanup.
+- Asynchronous content retargets the opening height without extending the transition budget.
+- Explorer dropdowns, Codec disclosures, manual tree folders and Insights use the shared panel motion.
+- Reduced motion bypasses panel movement without changing native select behavior.
 
 ---
 

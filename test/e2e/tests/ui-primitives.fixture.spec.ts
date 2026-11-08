@@ -54,6 +54,7 @@ async function stubApi(page: Page) {
       getCurrentUserId: () => 'u1',
       ajax: async (options: any) => {
         if (options.url.endsWith('/Recommendations')) return [{ UserId: 'u1', UserName: 'Ada', Recommendations: [] }];
+        if (options.url.endsWith('/Discovery') || options.url.includes('/UserActivity/User/')) return [];
         if (options.url.includes('RequestPermissions')) return { CanRequest: true, Profiles: [] };
         if (options.url.endsWith('/Request')) return { Success: true };
         if (options.url.includes('Statistics')) return stats;
@@ -70,7 +71,8 @@ async function dashboard(page: Page) {
   const js = CONFIG_PAGE_MODULES.map(name => source('PluginPages/js/' + name)).join('\n');
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
-    .replace('/* JS_CONTENT */', () => '(function(){' + js + '\n})();');
+    .replace('/* JS_CONTENT */', () => '(function(){' + js
+      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -224,4 +226,191 @@ test.describe('touch controls', () => {
     expect(Math.abs(level!.x - sourceControl!.x)).toBeLessThanOrEqual(2);
     expect(level!.width).toBeLessThan(sourceControl!.width);
   });
+});
+
+async function recordPanelMotion(page: Page) {
+  await page.evaluate(() => {
+    const nativeAnimate = Element.prototype.animate;
+    (window as any).fixturePanelMotion = [];
+    Element.prototype.animate = function (frames, options) {
+      const animation = nativeAnimate.call(this, frames, options);
+      (window as any).fixturePanelMotion.push({
+        id: this.id,
+        frames: animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [],
+        duration: animation.effect?.getTiming().duration,
+        hidden: (this as HTMLElement).hidden,
+        inert: this.hasAttribute('inert'),
+        ariaHidden: this.getAttribute('aria-hidden'),
+      });
+      return animation;
+    };
+  });
+}
+
+test('admin panels and dropdowns use short native transitions with immediate accessibility state', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await recordPanelMotion(page);
+  await page.locator('.tab-btn[data-tab="settings"]').click();
+  const header = page.locator('#arrCollapsibleHeaderSeerr');
+  const body = page.locator('#arrCollapsibleBodySeerr');
+  await header.click();
+  await expect(header).toHaveAttribute('aria-expanded', 'false');
+  await expect(body).toBeHidden();
+  const closing = await page.evaluate(() => (window as any).fixturePanelMotion.find((entry: any) => entry.id === 'arrCollapsibleBodySeerr'));
+  expect(closing.hidden).toBe(false);
+  expect(closing.inert).toBe(true);
+  expect(closing.ariaHidden).toBe('true');
+  expect(closing.duration).toBeGreaterThan(0);
+  expect(closing.duration).toBeLessThanOrEqual(200);
+  expect(Number.parseFloat(closing.frames[0].height)).toBeGreaterThan(0);
+  expect(closing.frames.at(-1).height).toBe('0px');
+  await header.click();
+  await expect(body).toBeVisible();
+  await expect(body).not.toHaveAttribute('inert');
+  await expect.poll(() => body.evaluate(element => element.getAnimations().length)).toBe(0);
+  await page.locator('.library-multiselect-toggle').first().click();
+  const dropdown = page.locator('.library-multiselect-panel').first();
+  await expect(dropdown).toBeVisible();
+  await expect.poll(() => dropdown.evaluate(element => element.getAnimations().length)).toBe(0);
+  await page.locator('.library-multiselect-toggle').first().click();
+  await expect(dropdown).toBeHidden();
+  await page.locator('.tab-btn[data-tab="recommendations"]').click();
+  await page.locator('#recsGridToggle').click();
+  await expect(page.locator('#recsGridToggle')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#recsGridBody')).toBeVisible();
+  const records = await page.evaluate(() => (window as any).fixturePanelMotion);
+  expect(records.some((entry: any) => entry.id === 'recsGridBody' && entry.ariaHidden === 'false')).toBe(true);
+  expect(records.some((entry: any) => entry.duration > 0 && entry.duration <= 160 && entry.id === '')).toBe(true);
+});
+
+test('panel reversal preserves presentation height and cancels stale closing cleanup', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await page.locator('.tab-btn[data-tab="settings"]').click();
+  await page.clock.install();
+  const result = await page.evaluate(() => {
+    const ui = (window as any).JellyfinHelperUi;
+    const body = document.getElementById('arrCollapsibleBodySeerr')!;
+    const parent = body.parentElement!;
+    const trigger = document.getElementById('arrCollapsibleHeaderSeerr')!;
+    const input = body.querySelector('input');
+    const options = (expanded: boolean) => ({ update: () => parent.classList.toggle('arr-expanded', expanded) });
+    ui.setExpanded(body, false, trigger, options(false));
+    const closing = body.getAnimations()[0];
+    closing.pause();
+    closing.currentTime = 80;
+    const before = body.getBoundingClientRect().height;
+    ui.setExpanded(body, true, trigger, options(true));
+    const opening = body.getAnimations()[0];
+    opening.pause();
+    opening.currentTime = 0;
+    const after = body.getBoundingClientRect().height;
+    opening.finish();
+    return { before, after, preservedInput: input === body.querySelector('input'), closedState: closing.playState };
+  });
+  expect(result.before).toBeGreaterThan(0);
+  expect(result.after).toBeCloseTo(result.before, 1);
+  expect(result.preservedInput).toBe(true);
+  expect(result.closedState).toBe('idle');
+  await page.clock.runFor(300);
+  await expect(page.locator('#arrCollapsibleBodySeerr')).toBeVisible();
+  await expect(page.locator('#arrCollapsibleBodySeerr')).not.toHaveAttribute('inert');
+  expect(await page.locator('#arrCollapsibleBodySeerr').evaluate(element => element.getAnimations().length)).toBe(0);
+});
+
+test('reduced motion keeps panel and dropdown changes immediate', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await dashboard(page);
+  await recordPanelMotion(page);
+  await page.locator('.tab-btn[data-tab="settings"]').click();
+  await page.locator('#arrCollapsibleHeaderSeerr').click();
+  await expect(page.locator('#arrCollapsibleBodySeerr')).toBeHidden();
+  await page.locator('.library-multiselect-toggle').first().click();
+  await expect(page.locator('.library-multiselect-panel').first()).toBeVisible();
+  expect(await page.evaluate(() => (window as any).fixturePanelMotion.length)).toBe(0);
+});
+
+test('opening panels retarget when asynchronous content arrives', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await page.locator('.tab-btn[data-tab="settings"]').click();
+  await page.clock.install();
+  const initialHeight = await page.evaluate(() => {
+    const ui = (window as any).JellyfinHelperUi;
+    const body = document.getElementById('arrCollapsibleBodySeerr')!;
+    const parent = body.parentElement!;
+    const trigger = document.getElementById('arrCollapsibleHeaderSeerr')!;
+    parent.classList.remove('arr-expanded');
+    ui.setExpanded(body, false, trigger);
+    ui.setExpanded(body, true, trigger, { update: () => parent.classList.add('arr-expanded') });
+    const animation = body.getAnimations()[0];
+    animation.pause();
+    animation.currentTime = 60;
+    const target = Number.parseFloat((animation.effect as KeyframeEffect).getKeyframes().at(-1)!.height as string);
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Additional connection information is now available. Verify the server address, permissions, certificate and quality profiles before submitting requests.';
+    body.appendChild(paragraph);
+    return target;
+  });
+  const result = await page.evaluate(() => {
+    const body = document.getElementById('arrCollapsibleBodySeerr')!;
+    const animation = body.getAnimations()[0];
+    const frame = (animation.effect as KeyframeEffect).getKeyframes().at(-1)!;
+    const height = Number.parseFloat(frame.height as string);
+    const duration = animation.effect!.getTiming().duration;
+    animation.finish();
+    return { height, duration };
+  });
+  expect(result.height).toBeGreaterThan(initialHeight);
+  expect(Number(result.duration)).toBeLessThanOrEqual(200);
+  await page.clock.runFor(300);
+  await expect(page.locator('#arrCollapsibleBodySeerr')).toBeVisible();
+  expect(await page.locator('#arrCollapsibleBodySeerr').evaluate(element => element.getAnimations().length)).toBe(0);
+});
+
+test('Explorer menus, Codec trees and Insights share the panel motion behavior', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await dashboard(page);
+  await recordPanelMotion(page);
+  await page.evaluate(() => {
+    const codecs = ['H264', 'HEVC', 'AV1', 'VP9', 'MPEG2', 'VC1'];
+    const library = {
+      LibraryName: 'Movies', CollectionType: 'movies', VideoFileCount: codecs.length,
+      VideoCodecs: Object.fromEntries(codecs.map(codec => [codec, 1])),
+      VideoCodecPaths: Object.fromEntries(codecs.map(codec => [codec, ['/media/Movies/' + codec + '/Movie.mkv']])),
+    };
+    (window as any).fixtureAdmin.fillCodecsData({ Libraries: [library], Movies: [library],
+      TvShows: [], Music: [], Books: [], Other: [], MovieRootPaths: ['/media/Movies'] });
+  });
+  await page.locator('.tab-btn[data-tab="codecs"]').click();
+  await page.locator('#codecExplorerToggle').click();
+  await expect(page.locator('#codecExplorerBody')).toBeVisible();
+  await page.locator('#codecFilterAddBtn').click();
+  const menu = page.locator('[data-filter-pop]');
+  await expect(menu).toBeVisible();
+  await expect.poll(() => menu.evaluate(element => element.getAnimations().length)).toBe(0);
+  await page.locator('#codecFilterAddBtn').click();
+  await expect(menu).toHaveCount(0);
+  const chart = page.locator('[data-chart-id="videoCodecs"]');
+  await chart.locator('[data-breakdown-toggle]').click();
+  await chart.locator('.codec-clickable').first().click();
+  const detail = page.locator('#codecDetail_videoCodecs');
+  await expect(detail).toBeVisible();
+  await expect.poll(() => detail.evaluate(element => element.getAnimations().length)).toBe(0);
+  await detail.locator('.tree-toggle').first().click();
+  await expect(detail.locator('.tree-children').first()).toBeVisible();
+  await detail.locator('.tree-toggle').first().click();
+  await expect(detail.locator('.tree-children').first()).toBeHidden();
+  await page.locator('.tab-btn[data-tab="trends"]').click();
+  await page.evaluate(() => (window as any).fixtureAdmin.renderInsightCards({
+    LargestTotalSize: 1024, RecentTotalCount: 0,
+    Largest: [{ LibraryName: 'Movies', CollectionType: 'movies', Name: 'Movie.mkv', Size: 1024 }], Recent: [],
+  }));
+  await page.locator('#insightLargestBtn').click();
+  await expect(page.locator('#insightLargestPanel')).toBeVisible();
+  const ids = await page.evaluate(() => (window as any).fixturePanelMotion.map((entry: any) => entry.id));
+  expect(ids).toContain('codecExplorerBody');
+  expect(ids).toContain('codecDetail_videoCodecs');
+  expect(ids).toContain('insightLargestPanel');
 });

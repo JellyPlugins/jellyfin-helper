@@ -362,13 +362,15 @@ function toggleCodecBreakdown(btn) {
     if (!breakdown) return;
     var expanded = btn.dataset.expanded === 'true';
     var hiddenRows = breakdown.querySelectorAll('[data-breakdown-hidden]');
-    for (const row of hiddenRows) {
-        // The open row stays visible while collapsed so its tree still closes with one click.
-        if (expanded && row.classList.contains('codec-row-active')) {
-            continue;
+    window.JellyfinHelperUi.setExpanded(breakdown, true, null, {
+        update: function () {
+            for (const row of hiddenRows) {
+                // The open row stays reachable while the rest of the list collapses.
+                if (expanded && row.classList.contains('codec-row-active')) continue;
+                row.style.display = expanded ? 'none' : '';
+            }
         }
-        row.style.display = expanded ? 'none' : '';
-    }
+    });
     btn.dataset.expanded = expanded ? 'false' : 'true';
     if (expanded) {
         var total = btn.dataset.total || '';

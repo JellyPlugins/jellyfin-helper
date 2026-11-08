@@ -752,11 +752,15 @@
 }
 
 .tree-children {
-    display: none;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
 }
 
 .tree-expanded > .tree-children {
-    display: block;
+    max-height: none;
+    overflow: visible;
+    opacity: 1;
 }
 
 .tree-leaf {

@@ -29,6 +29,10 @@ Keyboard cases include Home, End, wrapping, unavailable controls and RTL. Real
 browser fixtures compare Discovery description scrollbars with the shipped
 Codec-tree styles and verify that opening details preserves card dimensions,
 the continuous frame and the description's scroll position.
+Panel cases verify immediate fallback state without native animation. Browser
+fixtures observe actual Web Animations calls and check closing accessibility,
+reversal continuity, final cleanup and reduced motion rather than advancing
+production coverage counters or replacing the animation implementation.
 
 ## Running and gating
 

@@ -158,13 +158,11 @@ function addArrInstance(type) {
     // Expand the collapsible section and update count
     var collapsible = document.getElementById('arrCollapsible' + type);
     if (collapsible && !collapsible.classList.contains('arr-expanded')) {
-        collapsible.classList.add('arr-expanded');
         var header = document.getElementById('arrCollapsibleHeader' + type);
-        if (header) {
-            header.setAttribute('aria-expanded', 'true');
-        }
         var body = collapsible.querySelector('.arr-collapsible-body');
-        window.JellyfinHelperUi.setExpanded(body, true, header);
+        window.JellyfinHelperUi.setExpanded(body, true, header, {
+            update: function () { collapsible.classList.add('arr-expanded'); }
+        });
     }
     updateArrCollapsibleCount(type);
     syncArrLibraryPickers(type);

@@ -104,6 +104,22 @@ describe('modal interaction', () => {
 });
 
 describe('tabs and collapsed content', () => {
+  test('animated options preserve immediate state when native animation is unavailable', () => {
+    const trigger = document.getElementById('opener')!;
+    const body = document.createElement('div');
+    document.querySelector('main')!.appendChild(body);
+    const opened = vi.fn(() => body.classList.add('open'));
+    const closed = vi.fn();
+    ui.setExpanded(body, true, trigger, { update: opened });
+    expect(opened).toHaveBeenCalledOnce();
+    expect(body.hidden).toBe(false);
+    expect(ui.isExpanded(body)).toBe(true);
+    ui.setExpanded(body, false, trigger, { update: () => body.classList.remove('open'), onClosed: closed });
+    expect(body.hidden).toBe(true);
+    expect(body.hasAttribute('inert')).toBe(true);
+    expect(ui.isExpanded(body)).toBe(false);
+    expect(closed).toHaveBeenCalledOnce();
+  });
   test.each(['ltr', 'rtl'])('keyboard navigation wraps and respects %s direction without activating tabs', direction => {
     const list = document.createElement('div');
     list.style.direction = direction;

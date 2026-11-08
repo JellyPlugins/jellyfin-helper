@@ -369,7 +369,10 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     public void Html_ToggleCollapsible_UpdatesAriaExpanded()
     {
         Assert.Matches(
-            new Regex(@"function\s+toggleCollapsible[\s\S]*?setAttribute\(\s*['""]aria-expanded['""]"),
+            new Regex(@"function\s+toggleCollapsible[\s\S]*?JellyfinHelperUi\.setExpanded\(body,\s*expanded,\s*toggle"),
+            HtmlContent);
+        Assert.Matches(
+            new Regex(@"function\s+setExpanded[\s\S]*?trigger\.setAttribute\(\s*['""]aria-expanded['""],\s*String\(expanded\)"),
             HtmlContent);
     }
 

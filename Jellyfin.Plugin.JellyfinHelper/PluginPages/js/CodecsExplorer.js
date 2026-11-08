@@ -1207,9 +1207,12 @@ function buildExplorerFileDetail(path) {
 function toggleExplorerFileDetail(leaf) {
     const next = leaf.nextElementSibling;
     if (next?.classList.contains('codec-file-detail')) {
-        next.remove();
-        leaf.classList.remove('codec-file-open');
-        leaf.setAttribute('aria-expanded', 'false');
+        const expanded = !window.JellyfinHelperUi.isExpanded(next);
+        leaf.classList.toggle('codec-file-open', expanded);
+        window.JellyfinHelperUi.setExpanded(next, expanded, leaf, {
+            duration: 160,
+            onClosed: function () { next.remove(); }
+        });
         return;
     }
     const path = leaf.title || '';
@@ -1218,9 +1221,12 @@ function toggleExplorerFileDetail(leaf) {
     }
     const tmp = document.createElement('div');
     tmp.innerHTML = buildExplorerFileDetail(path);
-    leaf.parentNode.insertBefore(tmp.firstChild, next);
+    const detail = tmp.firstElementChild;
+    if (!detail) return;
+    detail.hidden = true;
+    leaf.after(detail);
     leaf.classList.add('codec-file-open');
-    leaf.setAttribute('aria-expanded', 'true');
+    window.JellyfinHelperUi.setExpanded(detail, true, leaf, { duration: 160 });
 }
 
 // Delegated from the results host, so leaves materialized later by on-demand
@@ -1461,10 +1467,38 @@ function refreshCodecsExplorerControls() {
     _explorerSubsetCache = {};
     _explorerDetailCache = {};
     const focus = describeActiveExplorerControl();
+    const menuFrames = measureExplorerMenus(controls);
     controls.innerHTML = buildCodecsExplorerControls();
     bindCodecsExplorerControlHandlers();
     restoreExplorerFocus(focus);
+    animateExplorerMenus(controls, menuFrames);
     runCodecsExplorerSearch();
+}
+
+function explorerMenuKey(panel) {
+    if (panel.hasAttribute('data-filter-pop')) return 'filter';
+    const dim = panel.closest('[data-multi-dim]')?.dataset.multiDim;
+    return dim ? 'multi-' + dim : 'libraries';
+}
+
+function measureExplorerMenus(controls) {
+    const frames = new Map();
+    for (const panel of controls.querySelectorAll('[data-filter-pop], [data-multi-panel], [data-library-panel]')) {
+        if (!panel.hidden) frames.set(explorerMenuKey(panel), window.JellyfinHelperUi.measurePanel(panel));
+    }
+    return frames;
+}
+
+function animateExplorerMenus(controls, frames) {
+    for (const panel of controls.querySelectorAll('[data-filter-pop], [data-multi-panel], [data-library-panel]')) {
+        if (panel.hidden || panel.parentElement.closest('[data-filter-pop]')) continue;
+        const before = frames.get(explorerMenuKey(panel));
+        const toggle = panel.closest('[data-multi-dim]')?.querySelector('[data-multi-toggle]')
+            || panel.closest('[data-library-widget]')?.querySelector('[data-library-toggle]')
+            || controls.querySelector('[data-filter-add-btn]');
+        if (!before) panel.hidden = true;
+        window.JellyfinHelperUi.setExpanded(panel, true, toggle, { before: before, duration: 160 });
+    }
 }
 
 // Debounced rebuild for rapid checkbox picks. Checking several boxes fires one
@@ -1552,14 +1586,13 @@ function setMultiPanelOpen(dimId, open) {
         const isOpen = open && id === dimId;
         const panel = widget.querySelector('[data-multi-panel]');
         const toggle = widget.querySelector('[data-multi-toggle]');
-        panel?.toggleAttribute('hidden', !isOpen);
-        toggle?.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        window.JellyfinHelperUi.setExpanded(panel, isOpen, toggle, { duration: 160 });
     }
     const libWidget = document.querySelector('[data-library-widget]');
     if (libWidget) {
         const isOpen = open && dimId === 'libraries';
-        libWidget.querySelector('[data-library-panel]')?.toggleAttribute('hidden', !isOpen);
-        libWidget.querySelector('[data-library-toggle]')?.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        window.JellyfinHelperUi.setExpanded(libWidget.querySelector('[data-library-panel]'), isOpen,
+            libWidget.querySelector('[data-library-toggle]'), { duration: 160 });
         if (isOpen) {
             _codecMultiOpen = 'libraries';
         } else if (_codecMultiOpen === 'libraries') {
@@ -1577,7 +1610,17 @@ function closeExplorerMultis() {
 function closeFilterPop() {
     if (_codecFilterOpen !== null) {
         _codecFilterOpen = null;
-        refreshCodecsExplorerControls();
+        const panel = document.querySelector('[data-filter-pop]');
+        if (!panel) {
+            refreshCodecsExplorerControls();
+            return;
+        }
+        window.JellyfinHelperUi.setExpanded(panel, false, document.getElementById('codecFilterAddBtn'), {
+            duration: 160,
+            onClosed: function () {
+                if (panel.isConnected && _codecFilterOpen === null) refreshCodecsExplorerControls();
+            }
+        });
     }
 }
 
@@ -1634,7 +1677,8 @@ function bindCodecsExplorerFilterHandlers() {
                 _codecMultiOpen = null;
                 _codecFilterOpen = 'add';
             } else {
-                _codecFilterOpen = null;
+                closeFilterPop();
+                return;
             }
             refreshCodecsExplorerControls();
         };
@@ -1825,8 +1869,9 @@ function attachCodecsExplorerHandlers() {
             const body = document.getElementById('codecExplorerBody');
             const arrow = toggle.querySelector('.codec-explorer-arrow');
             _codecsExplorerState.expanded = !_codecsExplorerState.expanded;
-            body?.classList.toggle('open', _codecsExplorerState.expanded);
-            toggle.setAttribute('aria-expanded', _codecsExplorerState.expanded ? 'true' : 'false');
+            window.JellyfinHelperUi.setExpanded(body, _codecsExplorerState.expanded, toggle, {
+                update: function () { body?.classList.toggle('open', _codecsExplorerState.expanded); }
+            });
             if (arrow) {
                 arrow.innerHTML = _codecsExplorerState.expanded ? '&#9660;' : '&#9654;';
             }
