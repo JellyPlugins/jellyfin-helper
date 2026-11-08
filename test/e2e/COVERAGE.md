@@ -30,6 +30,28 @@ Beyond "does it route / does the UI render", the suite now proves features
   (not bundled into an artifact). PR → Checks → E2E → Artifacts.
 - **List without running:** `cd test/e2e && npx playwright test --list`.
 
+## Offline UI fixtures → `ui-primitives.fixture.spec.ts`
+
+Run `npm run test:fixtures` from `test/e2e/`. The separate
+`playwright.ui-fixtures.config.ts` runs the documentation guard and then Chromium
+and WebKit without Docker or a Jellyfin server. These fixtures load the shipped
+UI sources with a stubbed API; live server integration remains in the main suite.
+
+- Dialog focus containment, Escape cancellation, and focus restoration.
+- Narrow and desktop layouts in light and dark themes.
+- Stable Discovery cards and accessible details controls.
+- Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
+- Reduced motion, larger text on touch devices, and log-filter alignment.
+- Explicit failure when the Discovery bootstrap source anchor is missing or duplicated.
+- Native panel and custom-dropdown transitions with immediate closing accessibility state.
+- Mid-transition reversal preserves presentation height and cancels stale closing cleanup.
+- Asynchronous content retargets the opening height without extending the transition budget.
+- Explorer dropdowns, Codec disclosures, manual tree folders and Insights use the shared panel motion.
+- Reduced motion bypasses panel movement without changing native select behavior.
+- Default toasts are styled and dismissible without Discovery CSS at mobile/desktop widths in light/dark mode.
+- Losing a Discovery prerequisite immediately closes an animating setup hint and lets the first click after reenabling open it again.
+- Closing a language editor preserves lazy tree expansion and file details opened before its transition completes.
+
 ---
 
 ## 1. Plugin load & routing → `smoke.api.spec.ts`

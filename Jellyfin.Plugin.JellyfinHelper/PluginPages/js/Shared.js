@@ -30,12 +30,10 @@ var SVG = {
         + '</svg>'
 };
 
-/**
- * Reads a CSS custom property from :root.
- * Falls back to the provided default if the property is not set.
- */
+// Reading the plugin surface keeps portal colors consistent without changing host variables.
 function getCssVar(name, fallback) {
-    var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    var surface = document.getElementById('JellyfinHelperConfigPage') || document.querySelector('.jfh-ui-surface') || document.documentElement;
+    var v = getComputedStyle(surface).getPropertyValue(name);
     return v?.trim() || fallback || '';
 }
 
@@ -96,6 +94,12 @@ function formatBytes(bytes) {
     if (i < 0) i = 0;
     if (i >= units.length) i = units.length - 1;
     return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
+}
+
+function formatCount(value) {
+    var count = Number(value);
+    return new Intl.NumberFormat(document.documentElement.lang || undefined, { maximumFractionDigits: 0 })
+        .format(Number.isFinite(count) ? count : 0);
 }
 
 function escAttr(s) {
@@ -255,9 +259,9 @@ function renderTreeFolder(childNode, level, icon, lazy) {
 
     if (hasContent) {
         if (lazy) {
-            html += '<div class="tree-children"></div>';
+            html += '<div class="tree-children" hidden></div>';
         } else {
-            html += '<div class="tree-children">' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
+            html += '<div class="tree-children" hidden>' + renderTreeLevel(childNode, level + 1, icon) + '</div>';
         }
     }
     html += '</div>';
@@ -332,11 +336,19 @@ function toggleTreeNode(toggle) {
         return;
     }
     var expand = !node.classList.contains('tree-expanded');
-    node.classList.toggle('tree-expanded');
-    toggle.setAttribute('aria-expanded', expand ? 'true' : 'false');
-    if (expand) {
-        ensureTreeChildren(node);
+    var children = node.querySelector(':scope > .tree-children');
+    if (!children) {
+        node.classList.toggle('tree-expanded', expand);
+        toggle.setAttribute('aria-expanded', String(expand));
+        return;
     }
+    window.JellyfinHelperUi.setExpanded(children, expand, toggle, {
+        duration: 160,
+        update: function () {
+            node.classList.toggle('tree-expanded', expand);
+            if (expand) ensureTreeChildren(node);
+        }
+    });
 }
 
 // Expand All walks document order and stops at the node budget, so even a
@@ -346,13 +358,16 @@ function collapseAllTreeNodes(container) {
     for (const node of container.querySelectorAll('.tree-node')) {
         node.classList.remove('tree-expanded');
         node.firstElementChild?.setAttribute('aria-expanded', 'false');
+        window.JellyfinHelperUi.setExpanded(node.querySelector(':scope > .tree-children'), false, node.firstElementChild);
     }
 }
 
 function expandOneTreeNode(node) {
     node.classList.add('tree-expanded');
     node.firstElementChild?.setAttribute('aria-expanded', 'true');
-    return 1 + ensureTreeChildren(node);
+    var count = 1 + ensureTreeChildren(node);
+    window.JellyfinHelperUi.setExpanded(node.querySelector(':scope > .tree-children'), true, node.firstElementChild);
+    return count;
 }
 
 function runTreeAction(container, action, scope) {
@@ -962,6 +977,7 @@ function pluralize(count, singularKey, pluralKey, singularFallback, pluralFallba
 function formatTimeAgo(utcTimestamp) {
     if (!utcTimestamp) return '';
     var then = new Date(utcTimestamp);
+    if (!Number.isFinite(then.getTime())) return '';
     var now = new Date();
     var diffMs = now - then;
     if (diffMs < 0) return '';
@@ -971,6 +987,7 @@ function formatTimeAgo(utcTimestamp) {
     var diffH = Math.floor(diffMin / 60);
     if (diffH < 24) return diffH + ' ' + pluralize(diffH, 'hourAgo', 'hoursAgo', 'hour ago', 'hours ago');
     var diffD = Math.floor(diffH / 24);
+    if (diffD >= 7) return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: 'medium' }).format(then);
     return diffD + ' ' + pluralize(diffD, 'dayAgo', 'daysAgo', 'day ago', 'days ago');
 }
 
@@ -1020,12 +1037,18 @@ function collectDictPaths(libraries, prop, key) {
 function createDialogOverlay(overlayId, titleText, titleColor, bodyContent) {
     var overlay = document.createElement('div');
     overlay.id = overlayId;
+    overlay.className = 'jfh-ui-surface';
+    overlay._jfhTrigger = window.JellyfinHelperUi.getDialogTrigger();
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
 
     var dialog = document.createElement('div');
-    dialog.style.cssText = 'background:#1c1c1e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:1.5em 2em;max-width:550px;width:90%;color:#fff;font-size:0.95em;';
+    dialog.style.cssText = 'background:var(--color-surface-card);border:1px solid var(--color-border);border-radius:10px;padding:1.5em 2em;max-width:550px;width:90%;color:var(--color-text);font-size:0.95em;';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', overlayId + '-title');
 
     var title = document.createElement('h3');
+    title.id = overlayId + '-title';
     title.style.cssText = 'margin:0 0 0.8em 0;color:' + titleColor + ';';
     title.textContent = titleText;
     dialog.appendChild(title);
@@ -1055,22 +1078,23 @@ function createDialogBtn(text, style, onclick) {
     var bg;
     if (style === 'cancel') {
         bg = 'transparent';
+        btn.dataset.dialogCancel = '';
     } else if (style === 'danger') {
-        bg = getCssVar('--color-danger', '#e74c3c');
+        bg = getCssVar('--color-button-danger', '#b92c1d');
     } else if (style === 'success') {
-        bg = getCssVar('--color-success', '#2ecc71');
+        bg = getCssVar('--color-button-success', '#167d44');
     } else {
-        bg = getCssVar('--color-primary', '#00a4dc');
+        bg = getCssVar('--color-button-primary', '#00749c');
     }
     var border = style === 'cancel' ? '1px solid rgba(255,255,255,0.2)' : 'none';
-    btn.style.cssText = 'padding:0.5em 1.2em;border:' + border + ';border-radius:4px;background:' + bg + ';color:#fff;cursor:pointer;font-size:0.9em;';
+    btn.style.cssText = 'padding:0.5em 1.2em;border:' + border + ';border-radius:4px;background:' + bg + ';color:' + (style === 'cancel' ? 'var(--color-text)' : '#fff') + ';cursor:pointer;font-size:0.9em;';
     btn.onclick = onclick;
     return btn;
 }
 
 function removeDialogById(id) {
     var existing = document.getElementById(id);
-    if (existing) existing.remove();
+    if (existing) window.JellyfinHelperUi.closeDialog(existing);
 }
 
 // Generic toggle-panel click handler
@@ -1084,11 +1108,15 @@ function clearSameGroupToggleItems(items, opts, groupVal) {
     }
 }
 
-function closeOtherTogglePanels(scope, panelId) {
+function closeOtherTogglePanels(scope, panelId, trigger, animate) {
     for (const panel of scope.querySelectorAll('.file-tree-panel')) {
         if (panel.id !== panelId) {
-            panel.innerHTML = '';
-            panel.classList.remove('file-tree-panel-visible');
+            window.JellyfinHelperUi.setExpanded(panel, false, trigger, {
+                duration: 180,
+                animate: animate,
+                update: function () { panel.classList.remove('file-tree-panel-visible'); },
+                onClosed: function () { panel.replaceChildren(); }
+            });
         }
     }
 }
@@ -1113,10 +1141,13 @@ function attachTogglePanelHandlers(opts) {
         item.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
+                this.dataset.jfhKeyboardActivation = '1';
                 this.click();
             }
         });
         item.addEventListener('click', function () {
+            var keyboardActivation = this.dataset.jfhKeyboardActivation === '1';
+            delete this.dataset.jfhKeyboardActivation;
             // One-shot scroll flags are consumed on every activation, including the
             // toggle-close path below: a tap that only closes a panel must not leak
             // a stale flag into the next unrelated panel open.
@@ -1130,8 +1161,12 @@ function attachTogglePanelHandlers(opts) {
 
             // Toggle: if same item is already active, close it
             if (this.classList.contains(opts.activeClass)) {
-                panel.innerHTML = '';
-                panel.classList.remove('file-tree-panel-visible');
+                window.JellyfinHelperUi.setExpanded(panel, false, this, {
+                    duration: 180,
+                    animate: !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput(),
+                    update: function () { panel.classList.remove('file-tree-panel-visible'); },
+                    onClosed: function () { panel.replaceChildren(); }
+                });
                 this.classList.remove(opts.activeClass);
                 return;
             }
@@ -1143,7 +1178,7 @@ function attachTogglePanelHandlers(opts) {
 
             // Close all other panels within the scope (never outside it, so e.g. the
             // Library Explorer results survive donut drill-downs).
-            closeOtherTogglePanels(scope, panelId);
+            closeOtherTogglePanels(scope, panelId, this, !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput());
             // Deactivate items in other groups
             if (opts.groupAttr) {
                 for (const otherItem of allItems) {
@@ -1157,9 +1192,15 @@ function attachTogglePanelHandlers(opts) {
             var wasVisible = panel.classList.contains('file-tree-panel-visible');
 
             this.classList.add(opts.activeClass);
-            panel.innerHTML = opts.renderContent(this);
-            if (typeof bindFileTreeHandlers === 'function') { bindFileTreeHandlers(panel); }
-            panel.classList.add('file-tree-panel-visible');
+            window.JellyfinHelperUi.setExpanded(panel, true, this, {
+                duration: 180,
+                animate: !keyboardActivation && !window.JellyfinHelperUi.isKeyboardInput(),
+                update: () => {
+                    panel.innerHTML = opts.renderContent(this);
+                    if (typeof bindFileTreeHandlers === 'function') bindFileTreeHandlers(panel);
+                    panel.classList.add('file-tree-panel-visible');
+                }
+            });
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel),
             // unless the touch path opted out to keep tooltip and segment in view.
@@ -1168,7 +1209,9 @@ function attachTogglePanelHandlers(opts) {
             if ((!wasVisible || forceScroll) && !suppressScroll) {
                 var scrollPanel = panel;
                 setTimeout(function () {
-                    scrollPanel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+                    if (scrollPanel.isConnected && scrollPanel.classList.contains('file-tree-panel-visible')) {
+                        scrollPanel.scrollIntoView({behavior: keyboardActivation || window.JellyfinHelperUi.isKeyboardInput() || window.JellyfinHelperUi.reducedMotion() ? 'instant' : 'smooth', block: 'nearest'});
+                    }
                 }, 50);
             }
         });

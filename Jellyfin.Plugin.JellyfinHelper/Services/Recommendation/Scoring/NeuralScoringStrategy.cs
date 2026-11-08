@@ -159,6 +159,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private double[]? _mWH4O;
     private double[]? _mWIH;
     private int _trainingGeneration;
+    private bool _hasTrainedWeights;
     private double[]? _vBH1;
     private double[]? _vBH2;
     private double[]? _vBH3;
@@ -801,12 +802,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         ArgumentNullException.ThrowIfNull(examples);
 
+        var referenceTime = DateTime.UtcNow;
+        examples = TrainingMath.FilterEffectiveExamples(examples, referenceTime, MinSampleWeight);
         if (examples.Count < MinTrainingExamples)
         {
             return false;
         }
 
-        var referenceTime = DateTime.UtcNow;
         var inputSize = CandidateFeatures.FeatureCount;
 
         // Pre-compute all feature vectors as RAW (unstandardized) source of truth. Standardization is
@@ -824,7 +826,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         // Hoisted so values are readable after the write-lock finally block when publishing
         // _lastValidationLoss outside the lock (avoids nested _syncRoot-inside-write-lock).
-        bool capturedUseEarlyStopping;
+        bool canUseInternalValidation;
         double capturedBestLoss;
 
         try
@@ -837,7 +839,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _trainingGeneration++;
             var rng = new Random(42 + gen);
 
-            var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, rng);
+            // The fixed seed stabilizes ML validation membership and does not generate security-sensitive values.
+            var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, new Random(42));
 
             // Clone raw vectors into working copies so standardization doesn't mutate originals.
             // Compute stats from TRAINING split only to prevent validation data leakage.
@@ -847,14 +850,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             if (useStandardization)
             {
-                var trainOnly = new double[trainIdx.Length][];
-                for (var j = 0; j < trainIdx.Length; j++)
-                {
-                    trainOnly[j] = vectors[trainIdx[j]];
-                }
-
+                // Canonical order avoids floating-point statistic drift from optimizer shuffling alone.
+                var trainOnly = trainIdx.Order().Select(index => vectors[index]).ToArray();
                 (featureMeans, featureStdDevs) = LearnedScoringStrategy.ComputeFeatureStatistics(trainOnly);
                 LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
+            }
+
+            if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(
+                    _weightsIH, _biasH1, _featureMeans, _featureStdDevs, featureMeans, featureStdDevs))
+            {
+                // Adam moments belong to the previous parameter coordinates and cannot be reused after rebasing.
+                _mWIH = null;
+                EnsureAdamState(inputSize);
             }
 
             var bestWIH = (double[])_weightsIH.Clone();
@@ -946,12 +953,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasOutput = bestBO;
             }
 
-            // Report the early-stopping validation loss (a genuine held-out out-of-sample number) as the generalization estimate for the ensemble quality gate.
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
-            capturedUseEarlyStopping = useEarlyStopping;
+            // A warm-started model may already have seen the internal validation members in an earlier round.
+            canUseInternalValidation = useEarlyStopping && !_hasTrainedWeights;
             capturedBestLoss = bestLoss;
+            _hasTrainedWeights = true;
         }
         finally
         {
@@ -968,7 +976,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // Compute ranking metrics outside the write lock (Score() needs read lock). Prefer the caller's held-out slice so P@K/R@K/NDCG are genuine out-of-sample numbers; fall back to the training set only when no held-out slice was passed or it is too small.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
-        PublishTrainingMetrics(capturedUseEarlyStopping, capturedBestLoss, pAtK, rAtK, nAtK);
+        var validationLoss = ResolveValidationLoss(
+            heldOutForMetrics, referenceTime, canUseInternalValidation, capturedBestLoss);
+        PublishTrainingMetrics(validationLoss, pAtK, rAtK, nAtK);
 
         // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
         if (_logger?.IsEnabled(LogLevel.Debug) == true)
@@ -983,36 +993,46 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         return true;
     }
 
+    /// <summary>Resolves independent quality evidence without promoting unavailable validation to a successful fit.</summary>
+    /// <param name="heldOut">Independent validation examples, or null when unavailable.</param>
+    /// <param name="referenceTime">The fixed time used for temporal weights.</param>
+    /// <param name="canUseInternalValidation">Whether a fresh model has usable internal validation.</param>
+    /// <param name="bestLoss">The best internal validation loss observed during training.</param>
+    /// <returns>The available independent validation loss, or NaN.</returns>
+    private double ResolveValidationLoss(
+        IReadOnlyList<TrainingExample>? heldOut,
+        DateTime referenceTime,
+        bool canUseInternalValidation,
+        double bestLoss)
+    {
+        var internalValidationLoss = double.NaN;
+        if (canUseInternalValidation)
+        {
+            internalValidationLoss = bestLoss < double.MaxValue
+                ? bestLoss
+                : EnsembleScoringStrategy.ValidationLossCeiling;
+        }
+
+        return TrainingMath.ValidationLoss(
+            heldOut, this, referenceTime, MinSampleWeight, internalValidationLoss);
+    }
+
     /// <summary>
-    ///     Publishes the validation loss and ranking metrics under _syncRoot. Extracted verbatim from the metrics tail of Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?); the three-case validation-loss mapping is unchanged.
+    ///     Publishes independent validation loss and ranking metrics under _syncRoot.
     /// </summary>
-    /// <param name="capturedUseEarlyStopping">Whether early stopping was active for the run.</param>
-    /// <param name="capturedBestLoss">The best validation loss observed.</param>
+    /// <param name="validationLoss">The independent validation loss, or NaN when unavailable.</param>
     /// <param name="pAtK">Precision@K.</param>
     /// <param name="rAtK">Recall@K.</param>
     /// <param name="nAtK">NDCG@K.</param>
     private void PublishTrainingMetrics(
-        bool capturedUseEarlyStopping,
-        double capturedBestLoss,
+        double validationLoss,
         double pAtK,
         double rAtK,
         double nAtK)
     {
         lock (_syncRoot)
         {
-            if (!capturedUseEarlyStopping)
-            {
-                _lastValidationLoss = double.NaN;
-            }
-            else if (capturedBestLoss < double.MaxValue)
-            {
-                _lastValidationLoss = capturedBestLoss;
-            }
-            else
-            {
-                _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
-            }
-
+            _lastValidationLoss = validationLoss;
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
@@ -1875,7 +1895,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             totalWeight += w;
         }
 
-        return totalWeight > 0 ? totalLoss / totalWeight : 0.0;
+        return totalWeight > 0 ? totalLoss / totalWeight : double.NaN;
     }
 
     /// <summary>Tries to load persisted weights from disk.</summary>
@@ -2000,6 +2020,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _featureStdDevs = data.FeatureStdDevs;
         _trainingGeneration = data.TrainingGeneration;
         _adamTimestep = 0;
+        _hasTrainedWeights = true;
     }
 
     /// <summary>

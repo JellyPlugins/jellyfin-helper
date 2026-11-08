@@ -38,8 +38,8 @@ public sealed class EnsembleScoringStrategyNeuralTests
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
-        ensemble.Train(CleanExamples(160));
-        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
         return ensemble;
     }
 
@@ -67,12 +67,12 @@ public sealed class EnsembleScoringStrategyNeuralTests
         using var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // First round crosses the activation threshold.
-        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
         var betaFirst = ensemble.CurrentNeuralBeta;
         Assert.True(betaFirst > 0, $"Beta should activate past the threshold, was {betaFirst:F4}");
 
         // More cumulative examples advance the linear ramp -> beta increases (never exceeds the cap).
-        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
         var betaSecond = ensemble.CurrentNeuralBeta;
 
         Assert.True(betaSecond >= betaFirst,

@@ -108,9 +108,8 @@
     gap: 0.4em;
 }
 
-.logs-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.25);
+@media (hover: hover) and (pointer: fine) {
+    .logs-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.25); }
 }
 
 @media (prefers-color-scheme: light) {
@@ -125,9 +124,8 @@
     color: var(--color-danger);
 }
 
-.logs-btn.danger:hover {
-    background: rgba(231, 76, 60, 0.15);
-    border-color: rgba(231, 76, 60, 0.5);
+@media (hover: hover) and (pointer: fine) {
+    .logs-btn.danger:hover { background: rgba(231, 76, 60, 0.15); border-color: rgba(231, 76, 60, 0.5); }
 }
 
 .logs-btn.primary {
@@ -135,9 +133,8 @@
     color: var(--color-success);
 }
 
-.logs-btn.primary:hover {
-    background: rgba(46, 204, 113, 0.15);
-    border-color: rgba(46, 204, 113, 0.5);
+@media (hover: hover) and (pointer: fine) {
+    .logs-btn.primary:hover { background: rgba(46, 204, 113, 0.15); border-color: rgba(46, 204, 113, 0.5); }
 }
 
 /* Transient feedback after clearing. Placed after .danger so the success/error tint wins over the
@@ -171,6 +168,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-surface-card);
+    color: var(--color-text);
 }
 
 .logs-table {
@@ -199,8 +197,8 @@
     line-height: 1.4;
 }
 
-.logs-table tr:hover {
-    background: var(--color-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+    .logs-table tr:hover { background: var(--color-bg-hover); }
 }
 
 .logs-table .col-time {
@@ -293,19 +291,19 @@
 }
 
 /* Level colors */
-.log-level-DEBUG {
+.log-level-debug {
     color: var(--color-debug);
 }
 
-.log-level-INFO {
+.log-level-info {
     color: var(--color-blue);
 }
 
-.log-level-WARN {
+.log-level-warn {
     color: var(--color-warn);
 }
 
-.log-level-ERROR {
+.log-level-error {
     color: var(--color-danger);
 }
 

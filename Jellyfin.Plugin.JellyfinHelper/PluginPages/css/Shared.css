@@ -1,8 +1,16 @@
 /* CSS custom properties */
-:root {
+#JellyfinHelperConfigPage,
+.jfh-ui-surface {
     /* Primary colors */
     --color-primary: #00a4dc;
     --color-primary-hover: #0088b8;
+    --color-button-primary: #00749c;
+    --color-button-success: #167d44;
+    --color-button-danger: #b92c1d;
+    --color-text: #eeeeee;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --motion-press: 120ms;
+    --motion-feedback: 180ms;
     --color-primary-light: rgba(0, 164, 220, 0.15);
     --color-primary-border: rgba(0, 164, 220, 0.2);
     --color-primary-scrollbar: rgba(0, 164, 220, 0.3);
@@ -68,12 +76,20 @@
     --max-width-dialog: 550px;
 }
 
-/* Light scheme keeps the blue thumb visible on white. Declared after :root:
-   equal specificity means the later rule wins, so this must not move up. */
+/* Scoped theme colors keep controls readable without changing Jellyfin's palette. */
 @media (prefers-color-scheme: light) {
-    :root {
+    #JellyfinHelperConfigPage,
+    .jfh-ui-surface {
+        --color-primary: #00749c;
         --color-primary-scrollbar: rgba(0, 136, 184, 0.55);
         --color-primary-scrollbar-hover: rgba(0, 136, 184, 0.75);
+        --color-surface-card: #ffffff;
+        --color-surface-sticky: rgba(255, 255, 255, 0.98);
+        --color-text: #17171b;
+        --color-text-muted: #565660;
+        --color-border: rgba(0, 0, 0, 0.15);
+        --color-border-light: rgba(0, 0, 0, 0.08);
+        --color-border-strong: rgba(0, 0, 0, 0.2);
     }
 }
 
@@ -164,13 +180,11 @@
     height: 18px;
 }
 
-.scan-libraries-btn:hover {
-    background: var(--color-primary-light);
-    color: var(--color-primary-hover);
-}
-
-.scan-libraries-btn:hover svg {
-    transform: rotate(45deg);
+@media (hover: hover) and (pointer: fine) {
+    .scan-libraries-btn:hover {
+        background: var(--color-primary-light);
+        color: var(--color-primary-hover);
+    }
 }
 
 .scan-libraries-btn:disabled {
@@ -215,7 +229,7 @@
     font-weight: 600;
     margin: var(--spacing-3xl) 0 var(--spacing-sm) 0;
     padding-bottom: var(--spacing-xs);
-    border-bottom: 2px solid var(--color-primary);
+    border-bottom: 2px solid var(--color-border);
 }
 
 .tab-content > .section-title:first-child,
@@ -344,8 +358,8 @@
     flex-shrink: 0;
 }
 
-.tab-btn:hover {
-    opacity: 0.9;
+@media (hover: hover) and (pointer: fine) {
+    .tab-btn:hover { opacity: 0.9; }
 }
 
 .tab-btn.active {
@@ -379,12 +393,12 @@
     color: #fff;
     cursor: pointer;
     font-size: var(--font-md);
-    transition: background 0.2s;
-    background: var(--color-primary);
+    transition: background var(--motion-feedback) ease, transform var(--motion-press) var(--ease-out);
+    background: var(--color-button-primary);
 }
 
-.action-btn:hover {
-    background: var(--color-primary-hover);
+@media (hover: hover) and (pointer: fine) {
+    .action-btn:hover { background: #006487; }
 }
 
 .action-btn:disabled {
@@ -400,12 +414,12 @@
 
 .action-btn.success,
 .action-btn.success:hover {
-    background: var(--color-success);
+    background: var(--color-button-success);
 }
 
 .action-btn.error,
 .action-btn.error:hover {
-    background: var(--color-danger);
+    background: var(--color-button-danger);
 }
 
 /* Ensure disabled always wins over success/error status variants */
@@ -422,16 +436,16 @@
     background: rgba(255, 255, 255, 0.15);
 }
 
-.btn-arr-test:hover {
-    background: rgba(255, 255, 255, 0.25);
+@media (hover: hover) and (pointer: fine) {
+    .btn-arr-test:hover { background: rgba(255, 255, 255, 0.25); }
 }
 
 .btn-arr-remove {
     background: var(--color-danger);
 }
 
-.btn-arr-remove:hover {
-    background: var(--color-danger-hover);
+@media (hover: hover) and (pointer: fine) {
+    .btn-arr-remove:hover { background: var(--color-danger-hover); }
 }
 
 /* No data placeholder */
@@ -473,11 +487,11 @@
 }
 
 /* noinspection CssUnusedSymbol */
-.settings-form select:hover,
-.arr-instance-select:hover,
-.logs-toolbar select:hover,
-.recs-select:hover {
-    border-color: var(--color-primary);
+@media (hover: hover) and (pointer: fine) {
+    .settings-form select:hover,
+    .arr-instance-select:hover,
+    .logs-toolbar select:hover,
+    .recs-select:hover { border-color: var(--color-primary); }
 }
 
 /* noinspection CssUnusedSymbol */
@@ -494,10 +508,32 @@
     max-height: 0;
     overflow: hidden;
     opacity: 0;
-    transition: max-height 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    opacity 0.3s ease,
-    margin 0.3s ease;
     margin: 0;
+}
+
+.jfh-ui-surface .action-btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.jfh-ui-surface .action-btn:focus-visible,
+.jfh-ui-surface .tab-btn:focus-visible,
+.jfh-ui-surface .scan-libraries-btn:focus-visible,
+.jfh-ui-surface .tree-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+.jfh-ui-surface .stat-value,
+.jfh-ui-surface .health-value,
+.jfh-ui-surface .insight-value,
+.jfh-ui-surface .library-table,
+.jfh-ui-surface .codec-row-stats,
+.jfh-ui-surface .recs-score-text {
+    font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jfh-ui-surface .action-btn:active:not(:disabled) { transform: none; }
 }
 
 /* noinspection CssUnusedSymbol */
@@ -681,8 +717,8 @@
     cursor: pointer;
 }
 
-.tree-folder:hover {
-    background: var(--color-bg-hover);
+@media (hover: hover) and (pointer: fine) {
+    .tree-folder:hover { background: var(--color-bg-hover); }
 }
 
 .tree-icon {
@@ -716,11 +752,15 @@
 }
 
 .tree-children {
-    display: none;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
 }
 
 .tree-expanded > .tree-children {
-    display: block;
+    max-height: none;
+    overflow: visible;
+    opacity: 1;
 }
 
 .tree-leaf {
@@ -738,9 +778,11 @@
     width: calc(100% - 1.2em);
 }
 
-.tree-leaf:hover {
-    background: var(--color-bg-hover);
-    border-radius: var(--radius-sm);
+@media (hover: hover) and (pointer: fine) {
+    .tree-leaf:hover {
+        background: var(--color-bg-hover);
+        border-radius: var(--radius-sm);
+    }
 }
 
 .tree-leaf-icon {
@@ -779,9 +821,11 @@
     transition: opacity 0.2s, background 0.2s;
 }
 
-.tree-action-btn:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.2);
+@media (hover: hover) and (pointer: fine) {
+    .tree-action-btn:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.2);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

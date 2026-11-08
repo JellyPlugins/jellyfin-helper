@@ -409,8 +409,15 @@ function renderTrendSvgString(frame, colors) {
     svg += '</g>';
 
     svg += '<g class="trend-xlabels">';
+    var textAnchors = new Map([
+        ['start', ' text-anchor="start"'],
+        ['middle', ' text-anchor="middle"'],
+        ['end', ' text-anchor="end"']
+    ]);
     for (const lbl of frame.labels) {
-        svg += '<text x="' + lbl.x.toFixed(1) + '" y="' + (baseY + 18) + '" text-anchor="' + lbl.anchor + '" fill="rgba(255,255,255,0.55)" font-size="10" font-weight="500">' + escHtml(lbl.text) + '</text>';
+        svg += '<text x="' + lbl.x.toFixed(1) + '" y="' + (baseY + 18) + '"'
+            + (textAnchors.get(lbl.anchor) || textAnchors.get('middle'))
+            + ' fill="rgba(255,255,255,0.55)" font-size="10" font-weight="500">' + escHtml(lbl.text) + '</text>';
     }
     svg += '</g>';
 
@@ -853,7 +860,12 @@ function createTooltipController(chart, container, g, currentPt, getState) {
         diffFiles.textContent = fSign + deltaFiles + ' ' + T('trendFiles', 'media files');
         diffFiles.className = 'trend-diff-stat trend-diff-files ' + trendDeltaClass(deltaFiles);
 
-        diffPanel.classList.add('visible');
+        if (!diffPanel.classList.contains('visible')) {
+            window.JellyfinHelperUi.setExpanded(diffPanel, true, null, {
+                duration: 160,
+                update: function () { diffPanel.classList.add('visible'); }
+            });
+        }
     }
 
     function hideTooltip() {
@@ -863,7 +875,12 @@ function createTooltipController(chart, container, g, currentPt, getState) {
         if (tooltip) tooltip.classList.remove('visible');
         if (crosshair) crosshair.classList.remove('visible');
         if (activeDot) activeDot.classList.remove('visible');
-        if (diffPanel) diffPanel.classList.remove('visible');
+        if (diffPanel?.classList.contains('visible')) {
+            window.JellyfinHelperUi.setExpanded(diffPanel, false, null, {
+                duration: 160,
+                update: function () { diffPanel.classList.remove('visible'); }
+            });
+        }
     }
 
     function onHover(clientX) {
@@ -1208,6 +1225,8 @@ function renderInsightCards(data) {
     // Toggle handlers
     var largestBtn = document.getElementById('insightLargestBtn');
     var recentBtn = document.getElementById('insightRecentBtn');
+    window.JellyfinHelperUi.setExpanded(document.getElementById('insightLargestPanel'), false, largestBtn);
+    window.JellyfinHelperUi.setExpanded(document.getElementById('insightRecentPanel'), false, recentBtn);
     if (largestBtn) {
         largestBtn.addEventListener('click', function () {
             toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
@@ -1223,12 +1242,14 @@ function renderInsightCards(data) {
 function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
     var show = document.getElementById(showId);
     var hide = document.getElementById(hideId);
-    if (hide) hide.classList.remove('visible');
-    if (otherBtn) otherBtn.setAttribute('aria-expanded', 'false');
+    window.JellyfinHelperUi.setExpanded(hide, false, otherBtn, {
+        update: function () { hide?.classList.remove('visible'); }
+    });
     if (show) {
-        show.classList.toggle('visible');
-        var expanded = show.classList.contains('visible');
-        if (activeBtn) activeBtn.setAttribute('aria-expanded', String(expanded));
+        var expanded = !show.classList.contains('visible');
+        window.JellyfinHelperUi.setExpanded(show, expanded, activeBtn, {
+            update: function () { show.classList.toggle('visible', expanded); }
+        });
     }
 }
 

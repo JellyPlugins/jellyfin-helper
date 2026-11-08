@@ -126,6 +126,16 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/README.md`](test/e2e/README.md) for architecture and
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
+The fast browser fixture suite uses `test/e2e/playwright.ui-fixtures.config.ts`
+and `test/e2e/tests/ui-primitives.fixture.spec.ts`. Run `npm run test:fixtures`
+from `test/e2e/` with Chromium and WebKit installed. It checks the shipped UI
+sources with a stubbed API, including modal focus, card identity, narrow layouts,
+themes and reduced motion, without starting Docker. Live Jellyfin integration
+remains covered by the main E2E suite.
+The dedicated configuration runs the documentation guard before Chromium and
+WebKit. Fixture specs stay separate from the Jellyfin-backed UI project and do
+not wait for its API or server setup.
+
 #### Discovery tab coverage (official Trakt plugin only)
 
 The Discovery home-page tab is built into the plugin, so the e2e suite needs no
@@ -445,6 +455,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
+│       │   ├── TrainingInvariantsTests.cs    # Effective data, independent validation and coordinate-preserving warm starts
 │       │   ├── RankingMetricsTests.cs
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
@@ -636,6 +647,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
 │   │   │   ├── TrainingExample.cs           # Training data container
+│   │   │   ├── TrainingMath.cs              # Shared eligibility, held-out MSE and input-layer rebasing
 │   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
 │   │   ├── WatchHistory/            # User watch profile building
 │   │   │   ├── IWatchHistoryService.cs
@@ -994,6 +1006,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ScoringStrategyTests.cs`
 - `StrategySelectorTests.cs`
 - `TrainingExampleTests.cs`
+- `TrainingInvariantsTests.cs` - Regression cases for ignored/expired batches, effective ensemble counts, authoritative held-out validation, loaded-model quality, Adam continuity and coordinate-preserving dense-layer rebasing
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/WatchHistory/`
 
@@ -1159,7 +1172,36 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `Recommendations.js`
 - `Settings.js`
 - `Shared.js`
+- `UiPrimitives.js` - Shared dialog focus, keyboard tabs, scoped UI tokens, card removal, and toast lifetimes. Embedded in both the dashboard and the Discovery script response.
 - `Trends.js`
+
+The authored `docs/index.html` loader also loads `UiPrimitives.js` before
+Discovery and includes it in the dashboard module list. Its guarded IIFE keeps
+both views on one UI runtime; generated assets are still copied by the pipeline.
+
+Panel transitions use measured presentation heights and the native Web Animations
+API: larger sections settle in 200 ms, smaller disclosures and custom dropdowns
+in 160 ms, and Codec/Health detail panels in 180 ms. The Discovery poster flip
+uses a calmer 280 ms ease-in-out. Closing content becomes inert immediately and
+receives `hidden` after the transition. Reversals cancel the previous completion,
+asynchronous content retargets within the original time budget, and reduced motion
+stays immediate.
+Initial rendering and bulk tree actions do not animate. Native select menus keep
+their browser behavior. Losing a Discovery prerequisite closes its setup hint
+immediately, cancels pending motion and resets the accessibility state so the
+first click after reenabling Discovery opens it again.
+
+`JellyfinHelperUi.showToast(message, options)` accepts omitted, null or partial
+options without mutating the caller's object. Missing or null fields default to
+the shared `jfh-toast` styles, a 5000 ms lifetime and the close label `Close`.
+Explicit zero durations remain immediate; localized labels and custom classes
+are preserved. Custom classes supply their own `-visible` and `-hidden` styles.
+Default toasts are pointer-accessible, support light/dark and reduced motion,
+and do not require Discovery styles.
+
+Closing an Explorer filter removes only its popover after motion completes.
+It must not rebuild results: tree expansion and file details remain usable
+while the editor closes, including after Escape.
 
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 
@@ -1324,6 +1366,27 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ScoringHelper.cs`
 - `StrategySelector.cs`
 - `TrainingExample.cs`
+- `TrainingMath.cs` - Shared eligibility filtering, independent weighted validation loss and affine input-layer rebasing
+
+Both learning strategies filter effective sample weights before minimum-data
+checks, normalization or optimizer updates. A batch below the optimizer's weight
+floor does not change the model or advance the ensemble's example count.
+Missing validation weight is unknown (`NaN`), never a perfect zero loss.
+
+An explicitly supplied holdout determines validation MSE for the fitted model,
+even when that holdout is insufficient. Neural internal validation is usable as
+quality evidence only on a fresh model's first fit; warm or loaded models require
+an independent holdout. Repeated-input split membership and statistic ordering
+are stable while optimizer and dropout shuffles may vary between generations.
+The training service continues to reserve its most recent examples for validation.
+
+When normalization changes, the linear weights/bias or the MLP's first dense
+layer are rebased to preserve the existing scoring function before fine-tuning.
+MLP Adam moments and their timestep reset together only when input coordinates
+actually change. Identity detection is exact, treats signed zero as zero, and
+does not discard small representable changes through an epsilon tolerance.
+Persisted model dimensions and weight versions remain compatible;
+the heuristic rules and ensemble blend limits are unchanged.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/WatchHistory/`
 
@@ -1588,12 +1651,12 @@ Trends.css, Settings.css, ArrIntegration.css,
 Recommendations.css, Logs.css
 
 # JS order (csproj JsModule items)
-Shared.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
+Shared.js, UiPrimitives.js, Overview.js, Codecs.js, CodecsExplorer.js, Health.js,
 Trends.js, Settings.js, ArrIntegration.js,
 Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 ```
 
-`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. The IIFE wrapper (`(function () { 'use strict'; … })();`) is emitted by `ComposeConfigPage.cs`, not by `Main.js` - the module files themselves are unwrapped.
+`Shared.css`/`Shared.js` must be first (shared utilities). `Main.js` must be last because its tab routing calls into functions defined by every earlier module. `ComposeConfigPage.cs` emits the outer IIFE for the tab modules; `UiPrimitives.js` owns a guarded inner IIFE because it is also served to Discovery independently.
 
 ### Adding a New Tab
 

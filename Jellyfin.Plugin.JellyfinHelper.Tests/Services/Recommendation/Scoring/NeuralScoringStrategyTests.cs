@@ -752,10 +752,11 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(50);
 
-        strategy.Train(examples);
+        var holdout = GenerateExamples(20, seed: 7);
+        strategy.Train(examples, holdout);
         var loss1 = strategy.LastValidationLoss;
 
-        strategy.Train(examples);
+        strategy.Train(examples, holdout);
         var loss2 = strategy.LastValidationLoss;
 
         Assert.False(double.IsNaN(loss1));
@@ -1877,9 +1878,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
     // Helpers
 
-    private static List<TrainingExample> GenerateExamples(int count)
+    private static List<TrainingExample> GenerateExamples(int count, int seed = 42)
     {
-        var rng = new Random(42);
+        var rng = new Random(seed);
         var examples = new List<TrainingExample>();
         for (var i = 0; i < count; i++)
         {

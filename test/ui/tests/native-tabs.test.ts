@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi, type Mock } from 'vitest';
 import { freshNativeTabsHelpers, loadNativeTabsBundle, saveCoverage, UiBridge } from '../src/loader.js';
 
 afterAll(saveCoverage);
@@ -21,16 +21,16 @@ interface TabSetup {
   slider: HTMLElement;
   root: HTMLElement;
   header: HTMLElement;
-  selectedIndex: ReturnType<typeof vi.fn>;
+  selectedIndex: Mock<(index?: number) => number>;
 }
 
 function makeSelectedIndex(tabs: HTMLElement, initial = 0) {
   let current = initial;
-  const fn: any = vi.fn((next?: number) => {
+  const fn = vi.fn((next?: number) => {
     if (typeof next === 'number') current = next;
     return current;
   });
-  (tabs as any).selectedIndex = fn;
+  Object.assign(tabs, { selectedIndex: fn });
   return fn;
 }
 

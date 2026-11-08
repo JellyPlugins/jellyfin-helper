@@ -70,6 +70,14 @@ test/e2e/scripts/run.sh --ui
 **Requirements:** Docker + Docker Compose, .NET SDK 10, Node 26+. **No host
 ffmpeg needed.** Media is generated inside the Jellyfin container.
 
+## Browser fixtures without Docker
+
+Run `npm run test:fixtures` from `test/e2e/` after installing its dependencies and
+Playwright's Chromium and WebKit browsers. These tests load the shipped UI sources
+with a stubbed API and check modal focus, narrow layouts, light and dark themes,
+stable Discovery cards, and reduced motion. They complement rather than replace
+the live Jellyfin tests.
+
 ## Why the image tag is pinned
 
 The plugin targets ABI `12.4.0.0` (built against `Jellyfin.Controller

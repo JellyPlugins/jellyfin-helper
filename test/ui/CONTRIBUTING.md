@@ -17,7 +17,43 @@ the public surface (DOM + stubbed `ApiClient`) instead of adding exports to
 production files. Pure helpers that production code itself reuses are the
 only exception.
 
+## Shared UI primitives
+
+`tests/ui-primitives.test.ts` covers `PluginPages/js/UiPrimitives.js` through its
+public `window.JellyfinHelperUi` API and the real dashboard and Discovery callers.
+It checks modal cancellation and focus restoration, keyboard tabs, hidden panels,
+stable card updates, poster fallbacks, localized counts, reduced-motion removal and paused toast
+lifetimes. The loader and the isolated lifecycle documents load this module
+before its consumers, matching the composed page and embedded script response.
+Keyboard cases include Home, End, wrapping, unavailable controls and RTL. Real
+browser fixtures compare Discovery description scrollbars with the shipped
+Codec-tree styles and verify that opening details preserves card dimensions,
+the continuous frame and the description's scroll position.
+Panel cases verify immediate fallback state without native animation. Browser
+fixtures observe actual Web Animations calls and check closing accessibility,
+reversal continuity, final cleanup and reduced motion rather than advancing
+production coverage counters or replacing the animation implementation.
+Toast regressions cover missing, null and partial options, immutable caller
+objects, default and zero lifetimes, localized labels, pointer accessibility and
+cleanup of the last toast's stack. Browser fixtures verify default toast styling
+and dismissal without loading Discovery.
+Discovery hint regressions cover recommendation-mode and Seerr credential
+round-trips; browser fixtures also check forced closure during an opening
+transition and reopening without stale cleanup.
+Native tab selection mocks use the callable `(index?: number) => number`
+signature. Compound button selectors specify `HTMLButtonElement` through the
+DOM query's type parameter so `.click()` needs no cast or suppression.
+Explorer browser regressions select multiple audio languages and open a lazy
+tree/file detail while the editor's native closing transition is still active.
+They assert DOM identity after cleanup so waiting for closure cannot mask a
+results rebuild race.
+
 ## Running and gating
+
+Keep intentionally hostile markup fixtures unchanged even when IDE HTML
+inspections flag them. Do not suppress inspections to hide these fixtures.
+Build simulated navigation links in their owning document and inspect demo
+script order through the parsed HTML.
 
 ```bash
 npm install --ignore-scripts --no-audit --no-fund

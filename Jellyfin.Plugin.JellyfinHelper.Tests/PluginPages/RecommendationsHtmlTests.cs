@@ -106,10 +106,9 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_ReasonPlaceholder_UsesSinglePassRegex()
     {
-        // Uses replace with function form to prevent cascading replacements
-        // (see comment in Recommendations.js).
+        // Function replacement keeps placeholders inside related titles literal.
         Assert.Matches(
-            new Regex(@"function\s+renderRecommendationCard[\s\S]*?reasonText\.replace\s*\(\s*/\\\{\(\\d\+\)\\\}/g\s*,\s*function"),
+            new Regex(@"function\s+renderRecommendationCard[\s\S]*?reasonText\.replace\s*\(\s*/\\\{\(\\d\+\)\\?\}/g\s*,\s*function"),
             HtmlContent);
     }
 
@@ -370,7 +369,10 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     public void Html_ToggleCollapsible_UpdatesAriaExpanded()
     {
         Assert.Matches(
-            new Regex(@"function\s+toggleCollapsible[\s\S]*?setAttribute\(\s*['""]aria-expanded['""]"),
+            new Regex(@"function\s+toggleCollapsible[\s\S]*?JellyfinHelperUi\.setExpanded\(body,\s*expanded,\s*toggle"),
+            HtmlContent);
+        Assert.Matches(
+            new Regex(@"function\s+setExpanded[\s\S]*?trigger\.setAttribute\(\s*['""]aria-expanded['""],\s*String\(expanded\)"),
             HtmlContent);
     }
 

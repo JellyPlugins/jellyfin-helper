@@ -19,18 +19,16 @@
     transition: border-color 0.2s;
 }
 
-.stat-card:hover {
-    border-color: var(--color-primary);
-}
-
 /* Overview cards that deep-link into the Codecs Library Explorer. */
 .stat-card-link {
     cursor: pointer;
 }
 
-.stat-card-link:hover {
-    border-color: var(--color-primary);
-    background: rgba(255, 255, 255, 0.07);
+@media (hover: hover) and (pointer: fine) {
+    .stat-card-link:hover {
+        border-color: var(--color-primary);
+        background: rgba(255, 255, 255, 0.07);
+    }
 }
 
 .stat-card-link:focus-visible {
@@ -156,8 +154,8 @@
     text-align: center;
 }
 
-.library-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+@media (hover: hover) and (pointer: fine) {
+    .library-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 }
 
 .total-bar {
@@ -172,7 +170,6 @@
 /* noinspection CssUnusedSymbol */
 .total-bar .bar-segment {
     height: 100%;
-    transition: width 0.5s ease;
 }
 
 /* noinspection CssUnusedSymbol */

@@ -118,7 +118,6 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-lg);
     text-align: center;
-    transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
 }
 
 .trend-diff-panel.visible {
@@ -243,12 +242,18 @@
     min-width: 140px;
 }
 
-.insight-card:hover,
 .insight-card:focus-visible {
     background: rgba(255, 255, 255, 0.08);
     border-color: var(--color-primary-scrollbar);
-    transform: translateY(-2px);
-    outline: none;
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .insight-card:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--color-primary-scrollbar);
+    }
 }
 
 .insight-icon {
@@ -274,7 +279,6 @@
     overflow: hidden;
     max-height: 0;
     opacity: 0;
-    transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.3s ease;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid transparent;
     border-radius: var(--radius-lg);

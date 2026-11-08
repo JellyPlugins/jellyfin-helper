@@ -115,6 +115,7 @@
   "trashFolder": "Chemin du dossier corbeille",
   "trashRetention": "Rétention de la corbeille (jours)",
   "close": "Fermer",
+  "discoveryDetails": "Détails",
   "cancel": "Annuler",
   "trashDisableTitle": "Dossiers corbeille détectés",
   "trashDisablePrompt": "La corbeille est en cours de désactivation. Les dossiers corbeille suivants existent sur le disque :",
