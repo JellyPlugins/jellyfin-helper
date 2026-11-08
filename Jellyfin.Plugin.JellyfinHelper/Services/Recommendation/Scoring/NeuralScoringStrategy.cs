@@ -839,6 +839,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _trainingGeneration++;
             var rng = new Random(42 + gen);
 
+            // The fixed seed stabilizes ML validation membership and does not generate security-sensitive values.
             var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, new Random(42));
 
             // Clone raw vectors into working copies so standardization doesn't mutate originals.
@@ -975,16 +976,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // Compute ranking metrics outside the write lock (Score() needs read lock). Prefer the caller's held-out slice so P@K/R@K/NDCG are genuine out-of-sample numbers; fall back to the training set only when no held-out slice was passed or it is too small.
         var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
-        var internalValidationLoss = double.NaN;
-        if (canUseInternalValidation)
-        {
-            internalValidationLoss = capturedBestLoss < double.MaxValue
-                ? capturedBestLoss
-                : EnsembleScoringStrategy.ValidationLossCeiling;
-        }
-
-        var validationLoss = TrainingMath.ValidationLoss(
-            heldOutForMetrics, this, referenceTime, MinSampleWeight, internalValidationLoss);
+        var validationLoss = ResolveValidationLoss(
+            heldOutForMetrics, referenceTime, canUseInternalValidation, capturedBestLoss);
         PublishTrainingMetrics(validationLoss, pAtK, rAtK, nAtK);
 
         // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
@@ -998,6 +991,30 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         return true;
+    }
+
+    /// <summary>Resolves independent quality evidence without promoting unavailable validation to a successful fit.</summary>
+    /// <param name="heldOut">Independent validation examples, or null when unavailable.</param>
+    /// <param name="referenceTime">The fixed time used for temporal weights.</param>
+    /// <param name="canUseInternalValidation">Whether a fresh model has usable internal validation.</param>
+    /// <param name="bestLoss">The best internal validation loss observed during training.</param>
+    /// <returns>The available independent validation loss, or NaN.</returns>
+    private double ResolveValidationLoss(
+        IReadOnlyList<TrainingExample>? heldOut,
+        DateTime referenceTime,
+        bool canUseInternalValidation,
+        double bestLoss)
+    {
+        var internalValidationLoss = double.NaN;
+        if (canUseInternalValidation)
+        {
+            internalValidationLoss = bestLoss < double.MaxValue
+                ? bestLoss
+                : EnsembleScoringStrategy.ValidationLossCeiling;
+        }
+
+        return TrainingMath.ValidationLoss(
+            heldOut, this, referenceTime, MinSampleWeight, internalValidationLoss);
     }
 
     /// <summary>

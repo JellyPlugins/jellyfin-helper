@@ -8,6 +8,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 public sealed class TrainingInvariantsTests
 {
+    private static readonly JsonSerializerOptions SnapshotSerializerOptions = new()
+    {
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
+
     [Theory]
     [InlineData(false, 0.0)]
     [InlineData(true, 0.0)]
@@ -16,21 +21,15 @@ public sealed class TrainingInvariantsTests
     public void IgnoredBatch_DoesNotChangeAnAlreadyTrainedModel(bool neural, double weight)
     {
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
-        try
-        {
-            var trainable = (ITrainableStrategy)strategy;
-            Assert.True(trainable.Train(Batch(30, 0.1, 0.9)));
-            var candidate = new CandidateFeatures { GenreSimilarity = 0.8 };
-            var score = strategy.Score(candidate);
-            var snapshot = Snapshot(strategy);
-            Assert.False(trainable.Train(Batch(250, 0.8, 0.9, weight)));
-            Assert.Equal(snapshot, Snapshot(strategy));
-            Assert.Equal(score, strategy.Score(candidate), 12);
-        }
-        finally
-        {
-            (strategy as IDisposable)?.Dispose();
-        }
+        using var lifetime = strategy as IDisposable;
+        var trainable = (ITrainableStrategy)strategy;
+        Assert.True(trainable.Train(Batch(30, 0.1, 0.9)));
+        var candidate = new CandidateFeatures { GenreSimilarity = 0.8 };
+        var score = strategy.Score(candidate);
+        var snapshot = Snapshot(strategy);
+        Assert.False(trainable.Train(Batch(250, 0.8, 0.9, weight)));
+        Assert.Equal(snapshot, Snapshot(strategy));
+        Assert.Equal(score, strategy.Score(candidate), 12);
     }
 
     [Theory]
@@ -41,16 +40,10 @@ public sealed class TrainingInvariantsTests
         var examples = Batch(250, 0.1, 0.9);
         foreach (var example in examples) example.GeneratedAtUtc = DateTime.UtcNow.AddYears(-3);
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
-        try
-        {
-            var snapshot = Snapshot(strategy);
-            Assert.False(((ITrainableStrategy)strategy).Train(examples));
-            Assert.Equal(snapshot, Snapshot(strategy));
-        }
-        finally
-        {
-            (strategy as IDisposable)?.Dispose();
-        }
+        using var lifetime = strategy as IDisposable;
+        var snapshot = Snapshot(strategy);
+        Assert.False(((ITrainableStrategy)strategy).Train(examples));
+        Assert.Equal(snapshot, Snapshot(strategy));
     }
 
     [Fact]
@@ -75,21 +68,15 @@ public sealed class TrainingInvariantsTests
     public void SuppliedHoldoutLoss_MatchesTheFittedModelRatherThanItsTrainingFit(bool neural)
     {
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
-        try
-        {
-            var holdout = Batch(30, 0.2, 0.8, label: 0);
-            Assert.True(((ITrainableStrategy)strategy).Train(Batch(160, 0.2, 0.8, label: 1), holdout));
-            var expected = holdout.Average(example => Math.Pow(strategy.Score(example.Features) - example.Label, 2));
-            var actual = neural
-                ? ((NeuralScoringStrategy)strategy).LastValidationLoss
-                : ((LearnedScoringStrategy)strategy).LastValidationLoss;
-            Assert.Equal(expected, actual, 12);
-            Assert.True(actual > EnsembleScoringStrategy.ValidationLossThreshold);
-        }
-        finally
-        {
-            (strategy as IDisposable)?.Dispose();
-        }
+        using var lifetime = strategy as IDisposable;
+        var holdout = Batch(30, 0.2, 0.8, label: 0);
+        Assert.True(((ITrainableStrategy)strategy).Train(Batch(160, 0.2, 0.8, label: 1), holdout));
+        var expected = holdout.Average(example => Math.Pow(strategy.Score(example.Features) - example.Label, 2));
+        var actual = neural
+            ? ((NeuralScoringStrategy)strategy).LastValidationLoss
+            : ((LearnedScoringStrategy)strategy).LastValidationLoss;
+        Assert.Equal(expected, actual, 12);
+        Assert.True(actual > EnsembleScoringStrategy.ValidationLossThreshold);
     }
 
     [Fact]
@@ -109,16 +96,10 @@ public sealed class TrainingInvariantsTests
     public void IneffectiveHoldout_IsUnknownAndDoesNotFallBackToTrainingLoss(bool neural)
     {
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
-        try
-        {
-            Assert.True(((ITrainableStrategy)strategy).Train(Batch(50, 0.1, 0.9), Batch(20, 0.1, 0.9, weight: 0)));
-            var loss = neural ? ((NeuralScoringStrategy)strategy).LastValidationLoss : ((LearnedScoringStrategy)strategy).LastValidationLoss;
-            Assert.True(double.IsNaN(loss));
-        }
-        finally
-        {
-            (strategy as IDisposable)?.Dispose();
-        }
+        using var lifetime = strategy as IDisposable;
+        Assert.True(((ITrainableStrategy)strategy).Train(Batch(50, 0.1, 0.9), Batch(20, 0.1, 0.9, weight: 0)));
+        var loss = neural ? ((NeuralScoringStrategy)strategy).LastValidationLoss : ((LearnedScoringStrategy)strategy).LastValidationLoss;
+        Assert.True(double.IsNaN(loss));
     }
 
     [Fact]
@@ -161,7 +142,7 @@ public sealed class TrainingInvariantsTests
     [Fact]
     public void Neural_LoadedWeights_RequireIndependentValidationEvenWhenTheFileGenerationIsZero()
     {
-        var path = Path.Combine(Path.GetTempPath(), "jfh-normalization-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Join(Path.GetTempPath(), "jfh-normalization-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             using (var source = new NeuralScoringStrategy(path)) Assert.True(source.Train(Batch(50, 0.1, 0.9)));
@@ -217,6 +198,45 @@ public sealed class TrainingInvariantsTests
         Assert.True(double.IsNaN(TrainingMath.ValidationLoss(examples.Take(1).ToArray(), strategy, DateTime.UtcNow, 0.01, 0.1)));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Rebase_SmallRepresentableChanges_AreNotTreatedAsIdentity(bool scaleChanges)
+    {
+        var oldMeans = new double[CandidateFeatures.FeatureCount];
+        var oldStdDevs = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray();
+        var newMeans = (double[])oldMeans.Clone();
+        var newStdDevs = (double[])oldStdDevs.Clone();
+        if (scaleChanges) newStdDevs[0] += 1e-13;
+        else newMeans[0] += 1e-13;
+        var weights = new double[CandidateFeatures.FeatureCount];
+        weights[0] = 1.0;
+        var biases = new double[1];
+        var originalParameter = scaleChanges ? weights[0] : biases[0];
+        Assert.True(TrainingMath.RebaseInputLayer(weights, biases, oldMeans, oldStdDevs, newMeans, newStdDevs));
+        var changedParameter = scaleChanges ? weights[0] : biases[0];
+        Assert.NotEqual(BitConverter.DoubleToInt64Bits(originalParameter), BitConverter.DoubleToInt64Bits(changedParameter));
+        var raw = new double[CandidateFeatures.FeatureCount];
+        raw[0] = 0.25;
+        Assert.Equal(raw[0], Preactivations(weights, biases, raw, newMeans, newStdDevs)[0], 15);
+    }
+
+    [Fact]
+    public void Rebase_SignedZeroOffset_IsAnExactIdentity()
+    {
+        var oldMeans = new double[CandidateFeatures.FeatureCount];
+        var newMeans = new double[CandidateFeatures.FeatureCount];
+        newMeans[0] = BitConverter.Int64BitsToDouble(long.MinValue);
+        var stdDevs = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray();
+        var weights = Enumerable.Repeat(0.25, CandidateFeatures.FeatureCount).ToArray();
+        var biases = new[] { 0.5 };
+        var originalWeights = (double[])weights.Clone();
+        var originalBiases = (double[])biases.Clone();
+        Assert.False(TrainingMath.RebaseInputLayer(weights, biases, oldMeans, stdDevs, newMeans, stdDevs));
+        Assert.Equal(originalWeights, weights);
+        Assert.Equal(originalBiases, biases);
+    }
+
     // Future fixture timestamps keep temporal weights exact while validation compares model outputs.
     private static List<TrainingExample> Batch(int count, double low, double high, double weight = 1, double? label = null) =>
         Enumerable.Range(0, count).Select(i =>
@@ -233,7 +253,7 @@ public sealed class TrainingInvariantsTests
                 || field.Name.StartsWith("_feature", StringComparison.Ordinal) || field.Name.StartsWith("_m", StringComparison.Ordinal)
                 || field.Name.StartsWith("_v", StringComparison.Ordinal) || field.Name is "_trainingGeneration" or "_adamTimestep" or "_hasTrainedWeights")
             .ToDictionary(field => field.Name, field => field.GetValue(strategy));
-        return JsonSerializer.Serialize(fields, new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals });
+        return JsonSerializer.Serialize(fields, SnapshotSerializerOptions);
     }
 
     private static (double[]? Means, double[]? StdDevs) Statistics(int mode)

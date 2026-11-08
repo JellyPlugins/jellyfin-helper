@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -13,18 +14,7 @@ internal static class TrainingMath
     /// <returns>The eligible examples in their original order.</returns>
     internal static IReadOnlyList<TrainingExample> FilterEffectiveExamples(
         IReadOnlyList<TrainingExample> examples, DateTime referenceTime, double minimumWeight)
-    {
-        var eligible = new List<TrainingExample>(examples.Count);
-        foreach (var example in examples)
-        {
-            if (example.ComputeEffectiveWeight(referenceTime) >= minimumWeight)
-            {
-                eligible.Add(example);
-            }
-        }
-
-        return eligible;
-    }
+        => examples.Where(example => example.ComputeEffectiveWeight(referenceTime) >= minimumWeight).ToArray();
 
     /// <summary>An explicitly supplied holdout is authoritative, including when its weight is insufficient.</summary>
     /// <param name="holdout">Independent validation examples, or null when unavailable.</param>
@@ -89,7 +79,9 @@ internal static class TrainingMath
             var coefficient = oldScale / newScale;
             var offset = InputOffset(oldMeans, oldStdDevs, f) -
                 (coefficient * InputOffset(newMeans, newStdDevs, f));
-            if (coefficient == 1.0 && offset == 0.0)
+            // Exact identity detection keeps small coordinate changes from bypassing rebasing and retaining stale Adam moments.
+            if (BitConverter.DoubleToInt64Bits(coefficient) == BitConverter.DoubleToInt64Bits(1.0) &&
+                BitConverter.DoubleToInt64Bits(Math.Abs(offset)) == 0L)
             {
                 continue;
             }

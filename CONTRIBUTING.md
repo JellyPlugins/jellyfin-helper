@@ -1383,7 +1383,9 @@ The training service continues to reserve its most recent examples for validatio
 When normalization changes, the linear weights/bias or the MLP's first dense
 layer are rebased to preserve the existing scoring function before fine-tuning.
 MLP Adam moments and their timestep reset together only when input coordinates
-actually change. Persisted model dimensions and weight versions remain compatible;
+actually change. Identity detection is exact, treats signed zero as zero, and
+does not discard small representable changes through an epsilon tolerance.
+Persisted model dimensions and weight versions remain compatible;
 the heuristic rules and ensemble blend limits are unchanged.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/WatchHistory/`
