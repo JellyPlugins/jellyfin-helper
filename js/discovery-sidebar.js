@@ -29,6 +29,7 @@
     // Bumped on every mutation and on user change; a fetch captures it at start
     // and its result is discarded if the generation moved on while it was away.
     var _discoveryGeneration = 0;
+    var _consumedDiscoveryItems = new Set();
 
     function currentDiscoveryUserId() {
         return (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId?.()) || '';
@@ -151,42 +152,11 @@
 
     /** * Shows a temporary toast notification at the bottom-center of the viewport. * Used to surface error details from non-200 API responses without blocking the UI. */
     function showToast(message, duration) {
-        if (!message) return;
-        duration = duration || TOAST_DURATION_MS;
-
-        var toast = document.createElement('div');
-        toast.className = 'jfh-discovery-toast';
-        toast.textContent = message;
-        toast.setAttribute('role', 'alert');
-        toast.setAttribute('aria-live', 'assertive');
-
-        document.body.appendChild(toast);
-
-        // Trigger reflow before adding the visible class to ensure CSS transition fires
-        toast.getBoundingClientRect();
-        toast.classList.add('jfh-discovery-toast-visible');
-
-        var dismissTimeout = setTimeout(function () { dismissToast(toast); }, duration);
-
-        // Allow manual dismissal via click
-        toast.addEventListener('click', function () {
-            clearTimeout(dismissTimeout);
-            dismissToast(toast);
+        window.JellyfinHelperUi.showToast(message, {
+            className: 'jfh-discovery-toast',
+            duration: duration || TOAST_DURATION_MS,
+            closeLabel: t('close', 'Close')
         });
-    }
-
-    /**
-     * Gracefully dismisses and removes a toast element with a fade-out transition.
-     * @param {HTMLElement} toast - The toast DOM element to remove.
-     */
-    function dismissToast(toast) {
-        if (!toast?.parentNode) return;
-        toast.classList.remove('jfh-discovery-toast-visible');
-        toast.classList.add('jfh-discovery-toast-hidden');
-        // Remove from DOM after the CSS transition completes
-        setTimeout(function () {
-            toast.remove();
-        }, 300);
     }
 
     /** * Extracts a human-readable error message from an API error response. * Handles both XHR-style objects (responseText/responseJSON) and plain error objects. */
@@ -233,7 +203,7 @@
             '.jellyfinHelperSection .jfh-discovery-modern-link { box-sizing:border-box;display:grid;grid-template-columns:1.25em minmax(0,1fr);align-items:center;column-gap:0.5em;width:100%;min-width:0;max-width:100%;min-height:2.75em;padding:0.5em 0.8em;color:inherit;text-decoration:none;border-radius:0.25em; }' +
             '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-icon { width:1em;font-size:1.25em;line-height:1;text-align:center; }' +
             '.jellyfinHelperSection .jfh-discovery-modern-link .jfh-discovery-navigation-text { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }' +
-            '.jellyfinHelperSection .jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); }' +
+            '@media (hover:hover) and (pointer:fine) { .jellyfinHelperSection .jfh-discovery-modern-link:hover { background:rgba(255,255,255,0.08); } }' +
             '.jfh-discovery-container { max-width: 1920px; margin: 0 auto; padding: 1em clamp(0.5em, 3vw, 2em); container-type: inline-size; }' +
             // Tab content renders its own container inside the shell container: the inner one must not
             // add padding again or the grid/headers indent against the tab bar.
@@ -259,11 +229,16 @@
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
             // Poster flip container
             '.jfh-discovery-card-poster { position: relative; perspective: 800px; cursor: pointer; overflow: hidden; }' +
-            '.jfh-discovery-flip-inner { position: relative; width: 100%; aspect-ratio: 2/3; transition: transform 0.5s ease; transform-style: preserve-3d; }' +
+            '.jfh-discovery-flip-inner { position: relative; width: 100%; aspect-ratio: 2/3; transition: transform 280ms cubic-bezier(0.45,0,0.55,1); transform-style: preserve-3d; }' +
             '.jfh-discovery-card-poster.flipped .jfh-discovery-flip-inner { transform: rotateY(180deg); }' +
             '.jfh-discovery-flip-front, .jfh-discovery-flip-back { position: absolute; top: 0; left: 0; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-sizing: border-box; }' +
             '.jfh-discovery-flip-front img { width: 100%; height: 100%; object-fit: cover; display: block; }' +
-            '.jfh-discovery-flip-back { transform: rotateY(180deg); background: rgba(20,20,30,0.95); padding: 1.2em; overflow-y: auto; box-sizing: border-box; }' +
+            '.jfh-discovery-flip-back { transform: rotateY(180deg); background: rgba(20,20,30,0.95); padding: 1.2em; overflow-y: auto; box-sizing: border-box; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--color-primary-scrollbar) transparent; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar { width:6px;height:6px; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-track,.jfh-discovery-flip-back::-webkit-scrollbar-corner { background:transparent; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-thumb { background:var(--color-primary-scrollbar);border-radius:3px; }' +
+            '.jfh-discovery-flip-back::-webkit-scrollbar-button { display:none;width:0;height:0; }' +
+            '@media(hover:hover) and (pointer:fine){.jfh-discovery-flip-back::-webkit-scrollbar-thumb:hover{background:var(--color-primary-scrollbar-hover)}}' +
             '.jfh-discovery-flip-back-text { font-size: 0.92em; line-height: 1.5; opacity: 0.9; color: #eee; word-break: break-word; overflow-wrap: break-word; }' +
             '.jfh-discovery-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); }' +
             // Card body
@@ -278,7 +253,7 @@
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
             '.jfh-discovery-flip-links { display: flex; gap: 0.6em; margin-bottom: 0.8em; padding-bottom: 0.6em; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }' +
             '.jfh-discovery-flip-link { display: inline-flex; align-items: center; gap: 0.3em; color: #00a4dc; text-decoration: none; font-size: 0.85em; font-weight: 500; padding: 0.3em 0.5em; border-radius: 4px; transition: background 0.2s, opacity 0.2s; opacity: 0.9; }' +
-            '.jfh-discovery-flip-link:hover { background: rgba(0,164,220,0.15); opacity: 1; text-decoration: none; }' +
+            '@media (hover:hover) and (pointer:fine) { .jfh-discovery-flip-link:hover { background: rgba(0,164,220,0.15); opacity: 1; text-decoration: none; } }' +
             '.jfh-discovery-score { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin: 0.3em 0; }' +
             '.jfh-discovery-score-bar { height: 100%; border-radius: 2px; }' +
             '.jfh-discovery-score-high .jfh-discovery-score-bar { background: #2ecc71; }' +
@@ -292,12 +267,12 @@
             // and the state transition doesn't flicker. The request button spans the full row (its dismiss
             // sibling is hidden for the duration), so these labels stay single-line.
             '.jfh-discovery-btn { flex: 1; box-sizing: border-box; min-height: 2.6em; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
-            '.jfh-discovery-btn:hover { background: #0090c4; }' +
+            '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn:hover:not(:disabled):not(.jfh-discovery-btn-dismiss) { background: #006487; } }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
             '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
-            '.jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: #e74c3c; }' +
+            '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: var(--color-danger); } }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
             // Toast notification
@@ -312,7 +287,7 @@
             '.jfh-discovery-tabs::-webkit-scrollbar-track { background: transparent; }' +
             '.jfh-discovery-tabs::-webkit-scrollbar-thumb { background: var(--color-primary-scrollbar, rgba(0,164,220,0.4)); border-radius: 3px; }' +
             '.jfh-discovery-tab { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: 0.5em 1.1em; border: none; border-radius: 7px; background: transparent; color: #bbb; cursor: pointer; font-size: 0.9em; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }' +
-            '.jfh-discovery-tab:hover { color: #fff; }' +
+            '@media (hover:hover) and (pointer:fine) { .jfh-discovery-tab:hover { color: var(--color-text); } }' +
             '.jfh-discovery-tab:focus-visible { outline: 2px solid #00a4dc; outline-offset: 1px; }' +
             '.jfh-discovery-tab-active { background: #00a4dc; color: #fff; box-shadow: 0 2px 8px rgba(0,164,220,0.35); }' +
             // Narrow panels: slightly smaller tab labels so all three fit without truncation.
@@ -321,7 +296,27 @@
             // height while the silent probe runs. The tab bar replaces it on success, a
             // 403/timeout removes it without a trace.
             '.jfh-trakt-pending { display: flex; justify-content: center; align-items: center; min-height: 40px; margin: 0 0 1em 0; }' +
-            '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }';
+            '.jfh-trakt-pending-dot { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #00a4dc; border-radius: 50%; animation: dspin 0.8s linear infinite; }' +
+            '.jfh-discovery-card { position:relative;color:var(--color-text);background:var(--color-surface-card); }' +
+            '.jfh-discovery-card::after { content:"";position:absolute;inset:0;border:1px solid var(--color-border);border-radius:inherit;pointer-events:none;z-index:1; }' +
+            '.jfh-discovery-flip-back { background:var(--color-surface-card); }' +
+            '.jfh-discovery-flip-back-text { color:var(--color-text);max-width:65ch; }' +
+            '.jfh-discovery-poster-toggle { position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer;z-index:1; }' +
+            '.jfh-discovery-card-poster.flipped .jfh-discovery-poster-toggle { pointer-events:none; }' +
+            '.jfh-ui-surface .jfh-discovery-poster-toggle:focus-visible { outline:2px solid var(--color-primary);outline-offset:-3px; }' +
+            '.jfh-discovery-btn { background:var(--color-button-primary);transition:background var(--motion-feedback) ease,transform var(--motion-press) var(--ease-out); }' +
+            '.jfh-discovery-btn:active:not(:disabled) { transform:scale(.97); }' +
+            '.jfh-discovery-btn-done { background:var(--color-button-success)!important; }' +
+            '.jfh-discovery-btn-failed { background:var(--color-button-danger)!important; }' +
+            '.jfh-discovery-btn-dismiss { background:transparent;box-shadow:inset 0 0 0 1px var(--color-border);color:var(--color-text-muted); }' +
+            '.jfh-discovery-tab { color:var(--color-text-muted); }' +
+            '.jfh-discovery-tabs { background:var(--color-surface-card);border-color:var(--color-border); }' +
+            '.jfh-discovery-tab-active { background:var(--color-button-primary);color:#fff; }' +
+            '.jfh-discovery-score-text { font-variant-numeric:tabular-nums;opacity:.85; }' +
+            '.jfh-discovery-toast { position:relative;bottom:auto;left:auto;box-sizing:border-box;width:100%;max-width:none;padding-right:2.8rem;background:var(--color-surface-card);color:var(--color-text);transform:translateY(8px);transition:opacity var(--motion-feedback) var(--ease-out),transform var(--motion-feedback) var(--ease-out); }' +
+            '.jfh-discovery-toast-visible { transform:none; }' +
+            '.jfh-discovery-toast-hidden { transform:translateY(8px); }' +
+            '@media(prefers-reduced-motion:reduce){.jfh-discovery-flip-inner,.jfh-discovery-toast,.jfh-discovery-btn{transition:none}.jfh-discovery-spinner::after,.jfh-trakt-pending-dot{animation:none}.jfh-discovery-card-poster.flipped .jfh-discovery-flip-inner,.jfh-discovery-flip-back{transform:none}.jfh-discovery-card-poster.flipped .jfh-discovery-flip-front,.jfh-discovery-card-poster:not(.flipped) .jfh-discovery-flip-back{display:none}.jfh-discovery-toast,.jfh-discovery-btn:active:not(:disabled){transform:none}}';
         document.head.appendChild(style);
     }
 
@@ -528,6 +523,7 @@
     }
 
     function renderDiscovery(container, forceRefresh) {
+        container.classList.add('jfh-ui-surface');
         // Probe Trakt once per account so one user's result never gates another user's tabs.
         // With Trakt off the panel stays the single ensemble grid, without layout shift.
         var probeUserId = currentDiscoveryUserId();
@@ -653,7 +649,17 @@
     // Builds the tab bar (when Trakt is on) plus a content host, then renders the active tab into the host.
     // With Trakt off there is no tab bar and the host fills with the own-grid directly.
     function renderShell(container, forceRefresh) {
+        container.classList.add('jfh-ui-surface');
         if (!_traktEnabled) {
+            _activeTab = TAB_OWN;
+            if (container.querySelector('.jfh-discovery-tabs')) {
+                var ownedFocus = container.contains(document.activeElement);
+                container.innerHTML = '';
+                if (ownedFocus) {
+                    container.tabIndex = -1;
+                    container.focus({ preventScroll: true });
+                }
+            }
             renderOwnTab(container, forceRefresh);
             return;
         }
@@ -673,19 +679,21 @@
             personalButton +
             tabButton(TAB_TRENDING, t('discoveryTabTraktTrending', 'Trakt trending')) +
             '</div><div class="jfh-discovery-tab-host"></div></div>';
-        container.innerHTML = tabs;
-
-        var buttons = container.querySelectorAll('.jfh-discovery-tab');
-        for (const button of buttons) {
-            button.addEventListener('click', function () {
-                var tab = this.dataset.tab;
-                if (tab === _activeTab) { return; }
-                _activeTab = tab;
-                renderShell(container, false);
-            });
+        var list = container.querySelector('.jfh-discovery-tabs');
+        var shape = _traktLinked ? 'linked' : 'unlinked';
+        if (list?.dataset.shape !== shape) {
+            container.innerHTML = tabs;
+            list = container.querySelector('.jfh-discovery-tabs');
+            list.dataset.shape = shape;
         }
 
+        bindDiscoveryTabHandlers(container);
+
         var host = container.querySelector('.jfh-discovery-tab-host');
+        host.id = 'jfh-discovery-subtab-panel';
+        window.JellyfinHelperUi.syncTabs(list, '.jfh-discovery-tab', list.querySelector('.jfh-discovery-tab-active'), function () { return host; });
+        host.hidden = false;
+        host.setAttribute('aria-labelledby', 'jfh-discovery-subtab-' + _activeTab);
         // Warm the trending pool in the background while the user reads the first
         // tab, so opening Trending usually hits the cache instead of cold-fetching.
         maybePreloadTrending();
@@ -695,6 +703,21 @@
             renderTraktTrending(host, forceRefresh);
         } else {
             renderOwnTab(host, forceRefresh);
+        }
+    }
+
+    function bindDiscoveryTabHandlers(container) {
+        var buttons = container.querySelectorAll('.jfh-discovery-tab');
+        for (const button of buttons) {
+            button.classList.toggle('jfh-discovery-tab-active', button.dataset.tab === _activeTab);
+            if (button.dataset.jfhClickBound) continue;
+            button.dataset.jfhClickBound = '1';
+            button.addEventListener('click', function () {
+                var tab = this.dataset.tab;
+                if (tab === _activeTab) { return; }
+                _activeTab = tab;
+                renderShell(container, false);
+            });
         }
     }
 
@@ -728,7 +751,9 @@
 
     function tabButton(tab, label) {
         var cls = 'jfh-discovery-tab' + (tab === _activeTab ? ' jfh-discovery-tab-active' : '');
-        return '<button class="' + cls + '" role="tab" data-tab="' + tab + '">' + esc(label) + '</button>';
+        return '<button type="button" id="jfh-discovery-subtab-' + tab + '" class="' + cls + '" role="tab"'
+            + (tab === _activeTab ? ' aria-selected="true"' : ' aria-selected="false"')
+            + ' data-tab="' + tab + '">' + esc(label) + '</button>';
     }
 
     function renderOwnTab(container, forceRefresh) {
@@ -988,51 +1013,141 @@
     }
 
     function renderCards(container, userDiscovery) {
-        if (!userDiscovery?.Recommendations || userDiscovery.Recommendations.length === 0) {
-            container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
+        container.classList.add('jfh-ui-surface');
+        var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
+            return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
+        });
+        if (recommendations.length === 0) {
+            renderEmptySidebarCards(container);
             return;
         }
-        var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-grid">';
-        for (const recommendation of userDiscovery.Recommendations) {
-            html += renderSidebarCardHtml(recommendation);
+        var grid = container.querySelector('.jfh-discovery-grid');
+        if (!grid) {
+            container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-grid"></div></div>';
+            grid = container.querySelector('.jfh-discovery-grid');
         }
-        html += '</div></div>';
-        container.innerHTML = html;
+        var existing = new Map(Array.from(grid.children).map(function (card) { return [card.dataset.cardKey, card]; }));
+        var preserveOrder = grid.contains(document.activeElement) || Array.from(existing.values()).some(function (card) {
+            return card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card) || card.querySelector('button:disabled:not(.jfh-discovery-btn-done)');
+        });
+        var wanted = new Set();
+        var reference = grid.firstElementChild;
+        for (const recommendation of recommendations) {
+            while (reference?._jfhConsuming) reference = reference.nextElementSibling;
+            var key = discoveryCardKey(recommendation.TmdbId, recommendation.MediaType);
+            wanted.add(key);
+            var markup = renderSidebarCardHtml(recommendation);
+            var card = existing.get(key) || createSidebarCard(markup, key);
+            updateSidebarCard(card, markup);
+            placeSidebarCard(grid, card, reference, preserveOrder);
+            reference = card.nextElementSibling;
+        }
+        for (var old of existing.values()) {
+            if (!wanted.has(old.dataset.cardKey) && !old._jfhConsuming && !window.JellyfinHelperUi.ownsDialogTrigger(old)) window.JellyfinHelperUi.removeCard(old);
+        }
         bindSidebarCardHandlers(container);
     }
 
+    function renderEmptySidebarCards(container) {
+        if (Array.from(container.querySelectorAll('.jfh-discovery-card')).some(function (card) {
+            return card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card);
+        })) return;
+        var ownedFocus = container.contains(document.activeElement);
+        container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
+        if (ownedFocus) {
+            var message = container.querySelector('.jfh-discovery-msg');
+            message.tabIndex = -1;
+            message.focus({ preventScroll: true });
+        }
+    }
+
+    function createSidebarCard(markup, key) {
+        var template = document.createElement('template');
+        template.innerHTML = markup;
+        var card = template.content.firstElementChild;
+        card.dataset.cardKey = key;
+        card._jfhMarkup = markup;
+        return card;
+    }
+
+    function updateSidebarCard(card, markup) {
+        if (card._jfhMarkup === markup || card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
+            || card.querySelector('button:disabled:not(.jfh-discovery-btn-done), .jfh-discovery-btn-failed')) return;
+        var focused = card.contains(document.activeElement) ? document.activeElement.dataset.jfhAction : null;
+        var flipped = card.querySelector('.flipped') != null;
+        card.innerHTML = createSidebarCard(markup, card.dataset.cardKey).innerHTML;
+        card._jfhMarkup = markup;
+        if (flipped) toggleSidebarDetails(card.querySelector('.jfh-discovery-card-poster'), true);
+        if (focused) card.querySelector('[data-jfh-action="' + focused + '"]')?.focus({ preventScroll: true });
+    }
+
+    function placeSidebarCard(grid, card, reference, preserveOrder) {
+        if (preserveOrder) {
+            if (card.parentElement !== grid) grid.appendChild(card);
+        } else if (card !== reference) {
+            if (reference) reference.before(card);
+            else grid.appendChild(card);
+        }
+    }
+
+    function discoveryCardKey(tmdbId, mediaType) {
+        return String(mediaType || '').trim().toLowerCase() + '-' + (Number.parseInt(tmdbId, 10) || 0);
+    }
+
+    function consumeDiscoveryItem(tmdbId, mediaType) {
+        var key = discoveryCardKey(tmdbId, mediaType);
+        _consumedDiscoveryItems.add(key);
+        function filtered(data) {
+            return data ? { ...data, Recommendations: (data.Recommendations || []).filter(function (item) {
+                return discoveryCardKey(item.TmdbId, item.MediaType) !== key;
+            }) } : data;
+        }
+        var own = _discoveryResultCache;
+        var personal = _traktPersonalCache;
+        var trending = _traktTrendingCache;
+        var probe = _traktProbeResult;
+        invalidateDiscoveryResult();
+        if (own) _discoveryResultCache = { ...own, data: filtered(own.data) };
+        if (personal) _traktPersonalCache = { ...personal, data: filtered(personal.data) };
+        if (trending) _traktTrendingCache = { ...trending, data: filtered(trending.data) };
+        if (probe) _traktProbeResult = {
+            ...probe,
+            generation: _discoveryGeneration,
+            resp: { ...probe.resp, Result: filtered(probe.resp.Result) }
+        };
+    }
+
     function renderSidebarExternalLinksHtml(r, mediaType) {
-        // Spans with data-href keep link clicks from triggering the poster flip.
         var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
         var tmdbId = Number.parseInt(r.TmdbId, 10) || 0;
         var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + tmdbId;
         var html = '<div class="jfh-discovery-flip-links">' +
-            '<span class="jfh-discovery-flip-link" data-href="' + esc(tmdbExtUrl) + '">' +
-            '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> TMDB</span>';
+            '<a class="jfh-discovery-flip-link" href="' + esc(tmdbExtUrl) + '" data-href="' + esc(tmdbExtUrl) + '" target="_blank" rel="noopener noreferrer">' +
+            '<span class="material-icons" aria-hidden="true" style="font-size:0.95em;">open_in_new</span> TMDB</a>';
         if (_seerrBaseUrl) {
             var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + tmdbId;
-            html += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
-                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
+            html += '<a class="jfh-discovery-flip-link" href="' + esc(seerrExtUrl) + '" data-href="' + esc(seerrExtUrl) + '" target="_blank" rel="noopener noreferrer">' +
+                '<span class="material-icons" aria-hidden="true" style="font-size:0.95em;">open_in_new</span> Seerr</a>';
         }
         // Use only canonical, validated API slugs; never guess one from a title.
         if (_traktEnabled && typeof r.TraktSlug === 'string' && /^[a-z0-9-]{1,100}$/.test(r.TraktSlug)) {
             var traktPath = mediaType === 'tv' ? 'shows' : 'movies';
             var traktExtUrl = 'https://trakt.tv/' + traktPath + '/' + r.TraktSlug;
-            html += '<span class="jfh-discovery-flip-link" data-href="' + esc(traktExtUrl) + '">' +
-                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Trakt</span>';
+            html += '<a class="jfh-discovery-flip-link" href="' + esc(traktExtUrl) + '" data-href="' + esc(traktExtUrl) + '" target="_blank" rel="noopener noreferrer">' +
+                '<span class="material-icons" aria-hidden="true" style="font-size:0.95em;">open_in_new</span> Trakt</a>';
         }
         return html + '</div>';
     }
 
     function renderSidebarPosterHtml(r, mediaType) {
-        if (!r.PosterPath) {
-            return '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
-        }
         var posterUrl = 'https://image.tmdb.org/t/p/w500' + r.PosterPath;
+        var front = r.PosterPath ? '<img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy">'
+            : '<div class="jfh-discovery-no-poster"><span aria-hidden="true" style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
         return '<div class="jfh-discovery-card-poster">' +
+            '<button type="button" class="jfh-discovery-poster-toggle" data-jfh-action="poster" aria-label="' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '" aria-expanded="false" aria-controls="jfh-details-' + esc(discoveryCardKey(r.TmdbId, mediaType)) + '"></button>' +
             '<div class="jfh-discovery-flip-inner">' +
-            '<div class="jfh-discovery-flip-front"><img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy"></div>' +
-            '<div class="jfh-discovery-flip-back">' + renderSidebarExternalLinksHtml(r, mediaType) + '<div class="jfh-discovery-flip-back-text">' + esc(r.Overview || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
+            '<div class="jfh-discovery-flip-front">' + front + '</div>' +
+            '<div class="jfh-discovery-flip-back" id="jfh-details-' + esc(discoveryCardKey(r.TmdbId, mediaType)) + '" aria-hidden="true" inert><h3 style="font-size:1em;overflow-wrap:anywhere;">' + esc(r.Title || '') + '</h3>' + renderSidebarExternalLinksHtml(r, mediaType) + '<div class="jfh-discovery-flip-back-text">' + esc(r.Overview || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
             '</div></div>';
     }
 
@@ -1064,33 +1179,37 @@
         var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
         var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
         var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
         return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
             '<div class="jfh-discovery-btn-row">' +
-            '<button class="' + btnClass + '" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+            '<button type="button" class="' + btnClass + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
             dismissBtnHtml + '</div></div></div>';
     }
 
     function bindSidebarCardHandlers(container) {
         var buttons = container.querySelectorAll('.jfh-discovery-btn:not([disabled]):not(.jfh-discovery-btn-dismiss)');
-        for (const button of buttons) { button.addEventListener('click', handleRequest); }
+        for (const button of buttons) {
+            if (button.dataset.jfhRequestBound) continue;
+            button.dataset.jfhRequestBound = '1';
+            button.addEventListener('click', handleRequest);
+        }
         // Attach dismiss button handlers
         var dismissBtns = container.querySelectorAll('.jfh-discovery-btn-dismiss');
-        for (const button of dismissBtns) { button.addEventListener('click', handleDismissClick); }
-        // Attach poster flip handlers
-        var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
-        for (const poster of posters) {
-            poster.parentElement.addEventListener('click', function () {
-                this.classList.toggle('flipped');
-            });
+        for (const button of dismissBtns) {
+            if (button.dataset.jfhDismissBound) continue;
+            button.dataset.jfhDismissBound = '1';
+            button.addEventListener('click', handleDismissClick);
         }
+        bindSidebarPosterHandlers(container);
         // Attach external link handlers on the flip back side.
         // Opens URLs in a new tab. stopPropagation prevents the poster flip from triggering.
         var flipLinks = container.querySelectorAll('.jfh-discovery-flip-link[data-href]');
         for (const link of flipLinks) {
+            if (link.dataset.jfhLinkBound) continue;
+            link.dataset.jfhLinkBound = '1';
             link.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1101,6 +1220,52 @@
                 if (safeUrl) window.open(safeUrl, '_blank', 'noopener,noreferrer');
             });
         }
+        bindSidebarImageHandlers(container);
+    }
+
+    function bindSidebarPosterHandlers(container) {
+        var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
+        for (const poster of posters) {
+            if (poster.dataset.jfhFlipBound) continue;
+            poster.dataset.jfhFlipBound = '1';
+            poster.parentElement.addEventListener('click', function () {
+                toggleSidebarDetails(this, !this.classList.contains('flipped'));
+            });
+            poster.parentElement.addEventListener('keydown', function (event) {
+                if (event.key !== 'Escape' || !this.classList.contains('flipped')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                toggleSidebarDetails(this, false);
+            });
+        }
+    }
+
+    function bindSidebarImageHandlers(container) {
+        for (var image of container.querySelectorAll('.jfh-discovery-flip-front img')) {
+            if (image.dataset.jfhImageBound) continue;
+            image.dataset.jfhImageBound = '1';
+            image.addEventListener('error', function () {
+                var placeholder = document.createElement('div');
+                placeholder.className = 'jfh-discovery-no-poster';
+                placeholder.setAttribute('aria-hidden', 'true');
+                placeholder.textContent = '\uD83C\uDFAC';
+                this.replaceWith(placeholder);
+            });
+        }
+    }
+
+    function toggleSidebarDetails(poster, expanded) {
+        if (!poster) return;
+        var button = poster.querySelector('.jfh-discovery-poster-toggle');
+        var back = poster.querySelector('.jfh-discovery-flip-back');
+        if (!expanded && back?.contains(document.activeElement)) button?.focus({ preventScroll: true });
+        poster.classList.toggle('flipped', expanded);
+        poster.querySelector('.jfh-discovery-flip-front')?.setAttribute('aria-hidden', String(expanded));
+        if (back) {
+            back.toggleAttribute('inert', !expanded);
+            back.setAttribute('aria-hidden', String(!expanded));
+        }
+        button?.setAttribute('aria-expanded', String(expanded));
     }
 
     var _permCache = {};
@@ -1204,7 +1369,7 @@
             if (existing._onEsc) {
                 document.removeEventListener('keydown', existing._onEsc);
             }
-            existing.remove();
+            window.JellyfinHelperUi.closeDialog(existing, false);
         }
         injectPopupStyles();
 
@@ -1272,15 +1437,15 @@
         s.id = 'jfhelper-popup-styles';
         s.textContent =
             '.jfh-discovery-popup-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center}' +
-            '.jfh-discovery-popup{background:#1c1c2e;border-radius:12px;padding:1.5em;max-width:400px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}' +
-            '.jfh-discovery-popup-title{font-size:1.1em;font-weight:600;margin-bottom:.3em;color:#fff}' +
-            '.jfh-discovery-popup-subtitle{font-size:.85em;opacity:.7;margin-bottom:1em;color:#ccc}' +
+            '.jfh-discovery-popup{background:var(--color-surface-card);color:var(--color-text);box-sizing:border-box;border-radius:12px;padding:1.5em;max-width:400px;width:calc(100% - 2rem);max-height:80vh;max-height:80dvh;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 8px 32px rgba(0,0,0,.5)}' +
+            '.jfh-discovery-popup-title{font-size:1.1em;font-weight:600;margin-bottom:.3em;color:inherit}' +
+            '.jfh-discovery-popup-subtitle{font-size:.85em;margin-bottom:1em;color:var(--color-text-muted)}' +
             '.jfh-discovery-popup-list{display:flex;flex-direction:column;gap:.5em}' +
-            '.jfh-discovery-popup-item{display:flex;align-items:center;gap:.6em;padding:.7em 1em;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.03);cursor:pointer;color:#fff;font-size:.9em;transition:background .2s,border-color .2s;text-align:left;width:100%}' +
-            '.jfh-discovery-popup-item:hover{background:rgba(0,164,220,.15);border-color:#00a4dc}' +
+            '.jfh-discovery-popup-item{display:flex;flex-wrap:wrap;align-items:center;gap:.6em;padding:.7em 1em;border:1px solid var(--color-border);border-radius:8px;background:transparent;cursor:pointer;color:inherit;font-size:.9em;transition:background .2s,border-color .2s;text-align:left;width:100%;overflow-wrap:anywhere}' +
+            '@media(hover:hover) and (pointer:fine){.jfh-discovery-popup-item:hover{background:rgba(0,164,220,.15);border-color:var(--color-primary)}}' +
             '.jfh-discovery-popup-item-default{border-color:rgba(0,164,220,.4);background:rgba(0,164,220,.08)}' +
-            '.jfh-discovery-popup-cancel{display:block;width:100%;margin-top:1em;padding:.6em;border:none;border-radius:6px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;font-size:.85em;text-align:center;transition:background .2s}' +
-            '.jfh-discovery-popup-cancel:hover{background:rgba(255,255,255,.2)}';
+            '.jfh-discovery-popup-cancel{display:block;width:100%;margin-top:1em;padding:.6em;border:1px solid var(--color-border);border-radius:6px;background:transparent;color:inherit;cursor:pointer;font-size:.85em;text-align:center;transition:background .2s}' +
+            '@media(hover:hover) and (pointer:fine){.jfh-discovery-popup-cancel:hover{background:rgba(0,164,220,.1)}}';
         document.head.appendChild(s);
     }
 
@@ -1293,7 +1458,7 @@
         if (el?._onEsc) {
             document.removeEventListener('keydown', el._onEsc);
         }
-        if (el) el.remove();
+        if (el) window.JellyfinHelperUi.closeDialog(el);
         if (cancelled !== false && triggerBtn) setDismissSiblingHidden(triggerBtn, false);
         if (triggerBtn?.focus) triggerBtn.focus();
     }
@@ -1315,7 +1480,7 @@
         cancelBtn.addEventListener('click', closeCurrentPopup);
         popup.appendChild(cancelBtn);
         overlay.appendChild(popup);
-        document.body.appendChild(overlay);
+        window.JellyfinHelperUi.openDialog(overlay, popup, btn, closeCurrentPopup);
         cancelBtn.focus();
         overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeCurrentPopup(); });
         function onEsc(ev) { if (ev.key === 'Escape') closeCurrentPopup(); }
@@ -1340,10 +1505,7 @@
         }).then(function (result) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             if (result?.Success) {
-                // Invalidate immediately on success so a stale pool is never
-                // served again, even if the user leaves the tab before the
-                // card-removal animation below runs.
-                invalidateDiscoveryResult();
+                consumeDiscoveryItem(tmdbId, mediaType);
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
                 // Hide dismiss button in the same row
@@ -1353,21 +1515,14 @@
                 // After 5 seconds: fade out and remove the card (consumed from pool)
                 var card = btn.closest('.jfh-discovery-card');
                 if (card) {
+                    card._jfhConsuming = true;
                     var scopeEl = card.closest('.jfh-discovery-container');
                     setTimeout(function () {
                         if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-                        card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
-                        card.style.opacity = '0';
-                        card.style.transform = 'scale(0.95)';
-                        setTimeout(function () {
+                        window.JellyfinHelperUi.removeCard(card, function () {
                             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-                            card.remove();
-                            if (_tabPanel) {
-                                renderDiscovery(_tabPanel, true);
-                            } else {
-                                checkEmptyDiscoveryState(scopeEl);
-                            }
-                        }, 400);
+                            checkEmptyDiscoveryState(scopeEl);
+                        });
                     }, 5000);
                 }
             } else {
@@ -1393,7 +1548,13 @@
         if (grid.querySelectorAll('.jfh-discovery-card').length === 0) {
             var host = grid.closest('.jfh-discovery-container');
             if (host) {
+                var ownedFocus = host.contains(document.activeElement);
                 host.innerHTML = '<div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div>';
+                if (ownedFocus) {
+                    var message = host.querySelector('.jfh-discovery-msg');
+                    message.tabIndex = -1;
+                    message.focus({ preventScroll: true });
+                }
             }
         }
     }
@@ -1421,7 +1582,7 @@
         var existing = document.getElementById('jfhDiscoveryPopup');
         if (existing) {
             if (existing._onEsc) document.removeEventListener('keydown', existing._onEsc);
-            existing.remove();
+            window.JellyfinHelperUi.closeDialog(existing, false);
         }
         injectPopupStyles();
 
@@ -1480,26 +1641,16 @@
             dataType: 'json'
         }).then(function () {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-            // Invalidate immediately on success so the dismissed item is never
-            // served from cache again, even if the user navigates away before
-            // the fade-out animation below completes.
-            invalidateDiscoveryResult();
+            consumeDiscoveryItem(tmdbId, mediaType);
             // Remove the card with a fade-out animation
             var card = btn.closest('.jfh-discovery-card');
             if (card) {
+                card._jfhConsuming = true;
                 var scopeEl = card.closest('.jfh-discovery-container');
-                card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-                card.style.opacity = '0';
-                card.style.transform = 'scale(0.95)';
-                setTimeout(function () {
+                window.JellyfinHelperUi.removeCard(card, function () {
                     if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-                    card.remove();
-                    if (_tabPanel) {
-                        renderDiscovery(_tabPanel, true);
-                    } else {
-                        checkEmptyDiscoveryState(scopeEl);
-                    }
-                }, 300);
+                    checkEmptyDiscoveryState(scopeEl);
+                });
             }
         }).catch(function () {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
@@ -1722,8 +1873,9 @@
         _seerrBaseUrl = '';
         _strings = null;
         _permCache = {};
+        _consumedDiscoveryItems.clear();
         closeDiscoveryPopup(null, false);
-        document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { toast.remove(); });
+        document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { window.JellyfinHelperUi.closeToast(toast, true); });
         if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
             try {
                 window.JellyfinHelperTabs.unregister(TAB_ID);
@@ -1830,8 +1982,18 @@
     }
 
     function initDiscoveryLifecycle() {
-        // Router navigation can change the page without a browser history event, so page mutations also check the session.
-        var observer = new MutationObserver(syncDiscoveryLifecycle);
+        var pending = false;
+        var disposed = false;
+        var observer = new MutationObserver(function (records) {
+            if (pending || records.every(function (record) {
+                return record.target.closest?.('.jfh-discovery-grid, .jfh-discovery-popup-overlay, .jfh-toast-stack');
+            })) return;
+            pending = true;
+            requestAnimationFrame(function () {
+                pending = false;
+                if (!disposed) syncDiscoveryLifecycle();
+            });
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'href'] });
         document.addEventListener('jfh:session-changing', beforeHostSessionChange);
         document.addEventListener('jfh:session-changed', afterHostSessionChange);
@@ -1843,6 +2005,7 @@
         document.addEventListener('visibilitychange', syncDiscoveryLifecycle);
         syncDiscoveryLifecycle();
         return function () {
+            disposed = true;
             observer.disconnect();
             document.removeEventListener('jfh:session-changing', beforeHostSessionChange);
             document.removeEventListener('jfh:session-changed', afterHostSessionChange);

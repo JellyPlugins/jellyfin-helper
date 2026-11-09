@@ -358,7 +358,7 @@ function clearLogs() {
                 }
             });
         }));
-    document.body.appendChild(d.overlay);
+    window.JellyfinHelperUi.openDialog(d.overlay, d.dialog);
 }
 
 function formatLogTimestamp(ts) {
