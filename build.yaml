@@ -7,7 +7,6 @@ framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
 description: >
   A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, link repair for .strm files and symlinks), media library statistics with codec/resolution/bitrate/language/dynamic-range/health analysis and Library Explorer search via MediaStream metadata, ML-powered smart recommendations with ensemble scoring strategy (heuristic + learned + neural MLP blend) and per-user watch profiles, user activity insights with play count and completion tracking, library insights (largest directories & recent changes), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), plugin-specific log viewer with download and filtering, backup/restore data, and a multi-language 8-tab dashboard.
-
 category: "General"
 owner: "JellyPlugins"
 artifacts:
