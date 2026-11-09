@@ -174,7 +174,8 @@ for (const width of [320, 1280]) {
       await discovery(page);
       const card = page.locator('.jfh-discovery-card').first();
       const before = await card.boundingBox();
-      const button = page.locator('.jfh-discovery-details').first();
+      await expect(card.locator('.jfh-discovery-card-body button')).toHaveCount(2);
+      const button = card.getByRole('button', { name: discoveryRecommendations[0].Title, exact: true });
       await button.focus();
       await page.keyboard.press('Enter');
       await expect(button).toHaveAttribute('aria-expanded', 'true');
@@ -233,12 +234,43 @@ for (const width of [320, 1280]) {
       expect(await card.evaluate((element, previous) => element === previous, original)).toBe(true);
       await expect(button).toBeFocused();
       expect(await card.locator('.jfh-discovery-flip-back').evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+      const link = card.getByRole('link', { name: 'TMDB' });
+      await link.focus();
+      await page.keyboard.press('Escape');
+      await expect(button).toHaveAttribute('aria-expanded', 'false');
+      await expect(button).toBeFocused();
+      await expect(card.locator('.jfh-discovery-flip-back')).toHaveAttribute('inert');
+      await page.keyboard.press('Space');
+      await expect(button).toHaveAttribute('aria-expanded', 'true');
+      await card.locator('.jfh-discovery-flip-back-text').click();
+      await expect(button).toHaveAttribute('aria-expanded', 'false');
+      await button.click();
+      await expect(button).toHaveAttribute('aria-expanded', 'true');
+      await page.context().route('https://www.themoviedb.org/**', route => route.fulfill({ body: 'Movie details' }));
+      const popup = page.waitForEvent('popup');
+      await link.click();
+      const external = await popup;
+      await external.close();
+      await expect(button).toHaveAttribute('aria-expanded', 'true');
     });
   }
 }
 
 test.describe('touch controls', () => {
   test.use({ hasTouch: true });
+  test('Discovery poster taps open and close details without a separate button', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await discovery(page);
+    const card = page.locator('.jfh-discovery-card').first();
+    const poster = card.locator('.jfh-discovery-poster-toggle');
+    await expect(card.locator('.jfh-discovery-card-body button')).toHaveCount(2);
+    await poster.tap();
+    await expect(poster).toHaveAttribute('aria-expanded', 'true');
+    await card.locator('.jfh-discovery-flip-back-text').tap();
+    await expect(poster).toHaveAttribute('aria-expanded', 'false');
+  });
+
   test('inputs and save band respect reduced motion at 200% text size', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
