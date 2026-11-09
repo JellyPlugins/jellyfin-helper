@@ -227,16 +227,18 @@ describe('Discovery rendering', () => {
     expect(host.querySelector('.jfh-discovery-card')).not.toBeNull();
   });
 
-  test('a broken poster keeps its details control and replaces only the image', () => {
+  test('a broken poster keeps its toggle and replaces only the image', () => {
     const discoveryUi = discovery();
     const host = document.createElement('div');
     document.body.appendChild(host);
     discoveryUi.renderCards(host, { Recommendations: [rec(1)] });
-    const details = host.querySelector('.jfh-discovery-details');
+    const poster = host.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
     host.querySelector('img')!.dispatchEvent(new Event('error'));
     expect(host.querySelector('img')).toBeNull();
     expect(host.querySelector('.jfh-discovery-no-poster')).not.toBeNull();
-    expect(host.querySelector('.jfh-discovery-details')).toBe(details);
+    expect(host.querySelector('.jfh-discovery-poster-toggle')).toBe(poster);
+    poster.click();
+    expect(poster.getAttribute('aria-expanded')).toBe('true');
   });
 
   test('unchanged cards retain their DOM, focus and details state', () => {
@@ -246,7 +248,7 @@ describe('Discovery rendering', () => {
     const payload = { Recommendations: [rec(1), rec(2)] };
     discoveryUi.renderCards(host, payload);
     const card = host.querySelector('.jfh-discovery-card')!;
-    const button = card.querySelector('.jfh-discovery-details') as HTMLButtonElement;
+    const button = card.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
     button.click();
     button.focus();
     discoveryUi.renderCards(host, structuredClone(payload));
@@ -255,6 +257,50 @@ describe('Discovery rendering', () => {
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(card.querySelector('.jfh-discovery-flip-back')!.hasAttribute('inert')).toBe(false);
     expect(card.querySelector('a')!.getAttribute('href')).toContain('themoviedb.org/movie/1');
+  });
+
+  test('only request and dismiss remain below the poster', () => {
+    const discoveryUi = discovery();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    discoveryUi.renderCards(host, { Recommendations: [rec(1)] });
+    const actions = host.querySelectorAll('.jfh-discovery-card-body button');
+    expect(Array.from(actions, button => (button as HTMLElement).dataset.jfhAction)).toEqual(['request', 'dismiss']);
+    const poster = host.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
+    expect(poster.getAttribute('aria-label')).toBe('Movie');
+    expect(poster.getAttribute('aria-controls')).toBe(host.querySelector('.jfh-discovery-flip-back')!.id);
+  });
+
+  test('Escape closes poster details and returns focus from an external link', () => {
+    const discoveryUi = discovery();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    discoveryUi.renderCards(host, { Recommendations: [rec(1)] });
+    const poster = host.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
+    poster.click();
+    const link = host.querySelector('a')!;
+    link.focus();
+    link.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(poster.getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector('.jfh-discovery-flip-back')!.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(poster);
+  });
+
+  test('refreshing a changed card preserves expanded poster details and focus', () => {
+    const discoveryUi = discovery();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    discoveryUi.renderCards(host, { Recommendations: [rec(1)] });
+    const poster = host.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
+    poster.click();
+    poster.focus();
+    discoveryUi.renderCards(host, { Recommendations: [rec(1, 'Updated title')] });
+    const updated = host.querySelector('.jfh-discovery-poster-toggle') as HTMLButtonElement;
+    expect(updated.getAttribute('aria-label')).toBe('Updated title');
+    expect(updated.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(updated);
+    updated.click();
+    expect(updated.getAttribute('aria-expanded')).toBe('false');
   });
 
   test('updates one changed card without rebuilding its neighbour', () => {

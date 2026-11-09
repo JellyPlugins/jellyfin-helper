@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.1.0.1] - 2026-11-09
+
+### Added
+
+- **Keyboard navigation across the dashboard and Discovery.** Move between tabs with the arrow keys or Home/End and activate them with Enter or Space. Dialogs keep focus inside, close with Escape, and return you to the control that opened them; collapsed sections stay out of the tab order.
+
+### Changed
+
+- **Cleaner Discovery cards without an extra Details button.** Open the description and external links directly from the poster by clicking, tapping, or using Enter or Space. Escape closes the details, and missing or broken posters still let you open them.
+- **More readable controls on phones and in light mode.** Larger touch targets, clearer contrast and visible keyboard focus make actions easier to use. Collapsible sections open and close smoothly, while reduced-motion preferences turn off movement without changing how the controls work.
+- **Notifications give you time to read.** Messages have a close button and pause their dismissal timer while hovered, focused, or in a background browser tab.
+- **Counts follow your language.** Large item counts and older activity dates now use your browser page's number and date formatting instead of one fixed format.
+
+### Fixed
+
+- **Discovery follows sign-in and sign-out immediately.** Its tab and sidebar entry appear after login and disappear on logout without a page refresh; changing accounts or servers clears the previous session's cards and dialogs.
+- **Fast user switching keeps the correct results.** Delayed Discovery, watch-profile and activity responses can no longer overwrite a newer selection, including when that selection was already cached.
+- **Discovery refreshes no longer interrupt a card you are using.** Open descriptions, keyboard focus and active request dialogs survive background updates. Requested or dismissed titles stay out of the current session's suggestion lists, including the other Discovery sources.
+- **Cleanup totals count successful empty-folder moves.** Empty media and trickplay folders moved to trash now count as cleaned even when they contain zero bytes; failed moves no longer look like successful cleanup.
+- **Trash and folder-browser checks reject unsafe linked paths.** Links in parent folders can no longer hide a protected system or Jellyfin directory from browsing and access checks, and a linked library root is not offered as trash content to move or delete.
+- **A failed settings save does not skip the next trash-path confirmation.** Retrying a trash-location change asks what to do with existing trash again, rather than silently bypassing your choice.
+- **Recommendation retraining keeps scores on the same scale.** When growing watch history changes how taste signals are normalized, existing learned weights are adjusted before training continues instead of being interpreted on the wrong scale.
+- **Recommendation models need genuine training and quality evidence.** Ignored or expired examples no longer inflate training progress, and checks use independent validation results rather than reusing data the model has already learned from.
+
+### Tests
+
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 404 end-to-end Docker tests.
+- Browser fixtures cover poster-based Discovery details, keyboard and touch controls, focus restoration, light/dark themes and reduced motion in Chromium and WebKit without needing Docker. Regression tests also cover stale user responses, trash-path safety, empty-folder totals and recommendation training consistency.
+
 ## [3.1.0.0] - 2026-10-31
 
 ### Breaking

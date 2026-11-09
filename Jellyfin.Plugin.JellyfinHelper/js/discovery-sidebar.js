@@ -301,7 +301,9 @@
             '.jfh-discovery-card::after { content:"";position:absolute;inset:0;border:1px solid var(--color-border);border-radius:inherit;pointer-events:none;z-index:1; }' +
             '.jfh-discovery-flip-back { background:var(--color-surface-card); }' +
             '.jfh-discovery-flip-back-text { color:var(--color-text);max-width:65ch; }' +
-            '.jfh-discovery-details { align-self:flex-start;padding:.4em .2em;background:transparent;border:0;color:var(--color-primary);cursor:pointer;font:inherit;font-size:.85em; }' +
+            '.jfh-discovery-poster-toggle { position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer;z-index:1; }' +
+            '.jfh-discovery-card-poster.flipped .jfh-discovery-poster-toggle { pointer-events:none; }' +
+            '.jfh-ui-surface .jfh-discovery-poster-toggle:focus-visible { outline:2px solid var(--color-primary);outline-offset:-3px; }' +
             '.jfh-discovery-btn { background:var(--color-button-primary);transition:background var(--motion-feedback) ease,transform var(--motion-press) var(--ease-out); }' +
             '.jfh-discovery-btn:active:not(:disabled) { transform:scale(.97); }' +
             '.jfh-discovery-btn-done { background:var(--color-button-success)!important; }' +
@@ -1142,6 +1144,7 @@
         var front = r.PosterPath ? '<img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy">'
             : '<div class="jfh-discovery-no-poster"><span aria-hidden="true" style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
         return '<div class="jfh-discovery-card-poster">' +
+            '<button type="button" class="jfh-discovery-poster-toggle" data-jfh-action="poster" aria-label="' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '" aria-expanded="false" aria-controls="jfh-details-' + esc(discoveryCardKey(r.TmdbId, mediaType)) + '"></button>' +
             '<div class="jfh-discovery-flip-inner">' +
             '<div class="jfh-discovery-flip-front">' + front + '</div>' +
             '<div class="jfh-discovery-flip-back" id="jfh-details-' + esc(discoveryCardKey(r.TmdbId, mediaType)) + '" aria-hidden="true" inert><h3 style="font-size:1em;overflow-wrap:anywhere;">' + esc(r.Title || '') + '</h3>' + renderSidebarExternalLinksHtml(r, mediaType) + '<div class="jfh-discovery-flip-back-text">' + esc(r.Overview || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
@@ -1181,7 +1184,6 @@
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
-            '<button type="button" class="jfh-discovery-details" data-jfh-action="details" aria-expanded="false" aria-controls="jfh-details-' + esc(discoveryCardKey(r.TmdbId, mediaType)) + '">' + esc(t('discoveryDetails', 'Details')) + '</button>' +
             '<div class="jfh-discovery-btn-row">' +
             '<button type="button" class="' + btnClass + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
             dismissBtnHtml + '</div></div></div>';
@@ -1200,13 +1202,6 @@
             if (button.dataset.jfhDismissBound) continue;
             button.dataset.jfhDismissBound = '1';
             button.addEventListener('click', handleDismissClick);
-        }
-        for (var details of container.querySelectorAll('.jfh-discovery-details')) {
-            if (details.dataset.jfhDetailsBound) continue;
-            details.dataset.jfhDetailsBound = '1';
-            details.addEventListener('click', function () {
-                toggleSidebarDetails(this.closest('.jfh-discovery-card').querySelector('.jfh-discovery-card-poster'), this.getAttribute('aria-expanded') !== 'true');
-            });
         }
         bindSidebarPosterHandlers(container);
         // Attach external link handlers on the flip back side.
@@ -1236,6 +1231,12 @@
             poster.parentElement.addEventListener('click', function () {
                 toggleSidebarDetails(this, !this.classList.contains('flipped'));
             });
+            poster.parentElement.addEventListener('keydown', function (event) {
+                if (event.key !== 'Escape' || !this.classList.contains('flipped')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                toggleSidebarDetails(this, false);
+            });
         }
     }
 
@@ -1255,7 +1256,7 @@
 
     function toggleSidebarDetails(poster, expanded) {
         if (!poster) return;
-        var button = poster.closest('.jfh-discovery-card')?.querySelector('.jfh-discovery-details');
+        var button = poster.querySelector('.jfh-discovery-poster-toggle');
         var back = poster.querySelector('.jfh-discovery-flip-back');
         if (!expanded && back?.contains(document.activeElement)) button?.focus({ preventScroll: true });
         poster.classList.toggle('flipped', expanded);

@@ -39,7 +39,7 @@ UI sources with a stubbed API; live server integration remains in the main suite
 
 - Dialog focus containment, Escape cancellation, and focus restoration.
 - Narrow and desktop layouts in light and dark themes.
-- Stable Discovery cards and accessible details controls.
+- Stable Discovery cards with poster-based details, keyboard activation, Escape focus restoration and touch toggling; no separate Details button.
 - Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
 - Reduced motion, larger text on touch devices, and log-filter alignment.
 - Explicit failure when the Discovery bootstrap source anchor is missing or duplicated.
