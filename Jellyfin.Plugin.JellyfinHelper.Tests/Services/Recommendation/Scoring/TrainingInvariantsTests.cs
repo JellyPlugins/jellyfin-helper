@@ -198,6 +198,55 @@ public sealed class TrainingInvariantsTests
         Assert.True(double.IsNaN(TrainingMath.ValidationLoss(examples.Take(1).ToArray(), strategy, DateTime.UtcNow, 0.01, 0.1)));
     }
 
+    [Fact]
+    public void BaselineValidationLoss_UsesTrainingMeanAndIgnoresUnobservedOrExpiredRows()
+    {
+        var reference = DateTime.UtcNow;
+        var fit = new[]
+        {
+            new TrainingExample { Features = new CandidateFeatures(), Label = 0.1, SampleWeight = 0.25, GeneratedAtUtc = reference },
+            new TrainingExample { Features = new CandidateFeatures(), Label = 0.9, GeneratedAtUtc = reference },
+            new TrainingExample { Features = new CandidateFeatures(), Label = 0.0, IsObserved = false, IsContrastSample = true, GeneratedAtUtc = reference }
+        };
+        var heldout = new[]
+        {
+            new TrainingExample { Features = new CandidateFeatures(), Label = 0.0, SampleWeight = 0.5, GeneratedAtUtc = reference },
+            new TrainingExample { Features = new CandidateFeatures(), Label = 0.5, GeneratedAtUtc = reference },
+            new TrainingExample { Features = new CandidateFeatures(), Label = 1.0, IsObserved = false, GeneratedAtUtc = reference },
+            new TrainingExample { Features = new CandidateFeatures(), Label = 1.0, GeneratedAtUtc = reference.AddDays(-1200) }
+        };
+        var mean = (0.1 * 0.25 + 0.9) / 1.25;
+        var expected = (0.5 * mean * mean + Math.Pow(mean - 0.5, 2)) / 1.5;
+        Assert.Equal(expected, TrainingMath.BaselineValidationLoss(fit, heldout, reference, 0.01), 12);
+        Assert.True(double.IsNaN(TrainingMath.BaselineValidationLoss([fit[2]], heldout, reference, 0.01)));
+        Assert.True(double.IsNaN(TrainingMath.BaselineValidationLoss(fit, null, reference, 0.01)));
+        Assert.True(double.IsNaN(TrainingMath.BaselineValidationLoss(fit, [heldout[0]], reference, 0.01)));
+        var strategy = new HeuristicScoringStrategy();
+        Assert.Equal(TrainingMath.ValidationLoss(heldout.Take(2).ToArray(), strategy, reference, 0.01, 0.1), TrainingMath.ValidationLoss(heldout, strategy, reference, 0.01, 0.1), 12);
+    }
+
+    [Theory]
+    [InlineData(-0.1, 0.25)]
+    [InlineData(double.PositiveInfinity, 0.25)]
+    [InlineData(0.1, double.NaN)]
+    [InlineData(0.1, 0.0)]
+    [InlineData(0.1, -1.0)]
+    public void QualityFactor_InvalidEvidenceNeverEarnsTrust(double loss, double baseline)
+        => Assert.Equal(0.0, TrainingMath.QualityFactor(loss, baseline));
+
+    [Theory]
+    [InlineData(false, 10, false)]
+    [InlineData(true, 10, true)]
+    [InlineData(true, 11, false)]
+    public void PermanentPartition_RequiresStableIdentityAndPreservesCanonicalLibraryKeys(bool stable, int firstPart, bool expected)
+    {
+        var observation = new TrainingExample { Features = new CandidateFeatures(), HasStableObservationId = stable, ObservationId = new Guid(firstPart, 0, 0, new byte[8]) };
+        Assert.Equal(expected, observation.IsPermanentHoldout);
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        Assert.Equal(TrainingExample.CreateObservationId(user, "library:" + item.ToString("N")), TrainingExample.CreateLibraryObservationId(user, item));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

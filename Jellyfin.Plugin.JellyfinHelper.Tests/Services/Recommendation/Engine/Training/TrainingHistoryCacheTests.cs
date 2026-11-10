@@ -22,10 +22,10 @@ public sealed class TrainingHistoryCacheTests
         var first = cache.Get(user, Prediction, new HashSet<Guid> { Guid.NewGuid() });
         var second = cache.Get(user, Prediction.ToLocalTime(), new HashSet<Guid> { Guid.NewGuid() });
 
-        Assert.Same(first.Profiles, second.Profiles);
+        Assert.Same(first.Profile, second.Profile);
         Assert.Same(first.Collaborative, second.Collaborative);
         Assert.Equal(1, cache.CachedCutoffCount);
-        Assert.Equal(first.Profiles.Sum(profile => profile.WatchedItems.Count + 1), cache.CachedRowCount);
+        Assert.Equal(first.Collaborative.UserSets.Values.Sum(set => set.Count + 1) + first.Profile.WatchedItems.Count, cache.CachedRowCount);
     }
 
     [Fact]
@@ -39,19 +39,18 @@ public sealed class TrainingHistoryCacheTests
         var filtered = cache.Get(user, Prediction, excluded);
         var reference = new Collection<UserWatchProfile>(profiles.Select(profile => TrainingHistory.Before(profile, Prediction, profile.UserId == user ? excluded : null)).ToList());
 
-        Assert.Equal(reference.SelectMany(profile => profile.WatchedItems.Select(row => (profile.UserId, row.ItemId))),
-            filtered.Profiles.SelectMany(profile => profile.WatchedItems.Select(row => (profile.UserId, row.ItemId))));
+        Assert.Equal(reference.Single(profile => profile.UserId == user).WatchedItems.Select(row => row.ItemId), filtered.Profile.WatchedItems.Select(row => row.ItemId));
         Assert.Equal(CollaborativeFilter.PrecomputeCollaborativeContext(CollaborativeFilter.PrecomputeUserWatchSets(reference)).ItemPopularity.OrderBy(pair => pair.Key), filtered.Collaborative.ItemPopularity.OrderBy(pair => pair.Key));
         foreach (var profile in reference)
         {
             var expected = CollaborativeFilter.BuildCollaborativeMap(profile, reference);
-            var actual = CollaborativeFilter.BuildCollaborativeMap(filtered.Profiles.Single(row => row.UserId == profile.UserId), filtered.Profiles, filtered.Collaborative);
+            var actual = CollaborativeFilter.BuildCollaborativeMap(profile.UserId, filtered.Collaborative);
             Assert.Equal(expected.OrderBy(pair => pair.Key), actual.OrderBy(pair => pair.Key));
         }
 
         Assert.Equal(6, unfiltered.Profile.WatchedItems.Count);
-        Assert.Same(unfiltered.Profiles, cache.Get(user, Prediction, new HashSet<Guid>()).Profiles);
-        Assert.Contains(excluded.Single(), cache.Get(profiles[1].UserId, Prediction, excluded).Profiles[0].WatchedItems.Select(row => row.ItemId));
+        Assert.Same(unfiltered.Profile, cache.Get(user, Prediction, new HashSet<Guid>()).Profile);
+        Assert.Contains(excluded.Single(), cache.Get(profiles[1].UserId, Prediction, excluded).Collaborative.UserSets[user]);
         Assert.Equal(8, profiles[0].WatchedItems.Count);
     }
 
@@ -107,7 +106,7 @@ public sealed class TrainingHistoryCacheTests
         }
 
         var rebuilt = cache.Get(user, Prediction, new HashSet<Guid>());
-        Assert.NotSame(first.Profiles, rebuilt.Profiles);
+        Assert.NotSame(first.Profile, rebuilt.Profile);
         Assert.Equal(first.Collaborative.ItemPopularity.OrderBy(pair => pair.Key), rebuilt.Collaborative.ItemPopularity.OrderBy(pair => pair.Key));
     }
 
@@ -139,6 +138,63 @@ public sealed class TrainingHistoryCacheTests
 
         var freshBuild = new TrainingHistoryCache(profiles, CancellationToken.None).Get(user, Prediction, new HashSet<Guid>());
         Assert.Empty(freshBuild.Profile.WatchedItems);
+    }
+
+    [Fact]
+    public void IncrementalContexts_MatchMaterializedHistoryAcrossOutOfOrderCutoffsAndDuplicateSeriesReferences()
+    {
+        var user = Guid.NewGuid();
+        var profiles = Profiles(user);
+        var series = Guid.NewGuid();
+        foreach (var profile in profiles)
+        {
+            for (var i = 0; i < 4; i++) profile.WatchedItems.Insert(0, new WatchedItemInfo { ItemId = new Guid(i + 1, 0, 0, new byte[8]), SeriesId = series, Played = true, LastPlayedDate = Prediction.AddHours(-i - 1) });
+        }
+
+        var cache = new TrainingHistoryCache(profiles, CancellationToken.None);
+        var first = cache.Get(user, Prediction, new HashSet<Guid>());
+        foreach (var cutoff in new[] { Prediction.AddDays(-4), Prediction.AddHours(-3), Prediction.AddDays(3), Prediction.AddHours(-1), Prediction })
+        {
+            var actual = cache.Get(user, cutoff, new HashSet<Guid>());
+            var reference = new Collection<UserWatchProfile>(profiles.Select(profile => TrainingHistory.Before(profile, cutoff)).ToList());
+            var expectedContext = CollaborativeFilter.PrecomputeCollaborativeContext(CollaborativeFilter.PrecomputeUserWatchSets(reference));
+            Assert.Equal(expectedContext.ItemPopularity.OrderBy(pair => pair.Key), actual.Collaborative.ItemPopularity.OrderBy(pair => pair.Key));
+            foreach (var profile in reference)
+            {
+                Assert.Equal(expectedContext.UserSets[profile.UserId].Order(), actual.Collaborative.UserSets[profile.UserId].Order());
+                Assert.Equal(CollaborativeFilter.BuildCollaborativeMap(profile, reference, expectedContext).OrderBy(pair => pair.Key), CollaborativeFilter.BuildCollaborativeMap(profile.UserId, actual.Collaborative).OrderBy(pair => pair.Key));
+            }
+        }
+
+        Assert.Equal(2, first.Collaborative.ItemPopularity[series]);
+        Assert.Contains(series, first.Collaborative.UserSets[user]);
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void DistinctPerUserCutoffs_DoNotMultiplyNeighbourReconstructionAllocations()
+    {
+        var profiles = new Collection<UserWatchProfile>();
+        for (var u = 0; u < 50; u++)
+        {
+            var profile = new UserWatchProfile { UserId = new Guid(u + 1, 0, 0, new byte[8]) };
+            for (var i = 0; i < 40; i++) profile.WatchedItems.Add(Watch(new Guid(i + 1, (short)(u + 1), 0, new byte[8]), Prediction.AddMinutes(-(u * 40.0 + i + 1))));
+            profiles.Add(profile);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var cache = new TrainingHistoryCache(profiles, CancellationToken.None);
+        foreach (var profile in profiles)
+        {
+            foreach (var row in profile.WatchedItems)
+            {
+                var inputs = cache.Get(profile.UserId, row.LastPlayedDate!.Value, new HashSet<Guid>());
+                Assert.DoesNotContain(row.ItemId, inputs.Collaborative.UserSets[profile.UserId]);
+            }
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated < 40_000_000, $"Distinct-cutoff contexts allocated {allocated:N0} bytes.");
     }
 
     [Fact]

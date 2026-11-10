@@ -13,6 +13,7 @@
  * `execInContainer`. Gated on docker availability like the other *-fs specs.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { createHash, randomUUID } from 'node:crypto';
 import { apiContext, loadAuth, p, runCleanupTask, sleep } from '../setup/api-client.ts';
 import {
   hasDocker,
@@ -21,6 +22,7 @@ import {
   containerFind,
   readContainerFile,
   containerFileExists,
+  q,
 } from '../setup/fs-assert.ts';
 
 /**
@@ -69,6 +71,8 @@ let auth: ReturnType<typeof loadAuth>;
 /** Item ids this suite marked played or favorite, so the teardown can undo that user-data change. */
 const seededPlayedIds: string[] = [];
 const seededFavoriteIds: string[] = [];
+const createdSeedFiles: Array<{ file: string; directory: string }> = [];
+const PER_USER_FIT_THRESHOLD = 12;
 
 test.beforeAll(async () => {
   auth = loadAuth();
@@ -90,6 +94,11 @@ test.afterAll(async () => {
     await ctx.delete(`/UserFavoriteItems/${id}?userId=${auth.userId}`).catch(() => undefined);
   }
 
+  for (const seed of createdSeedFiles) {
+    execInContainer(`rm -f -- ${q(seed.file)} && rmdir -- ${q(seed.directory)}`);
+  }
+  if (createdSeedFiles.length) await ctx.post('/Library/Refresh').catch(() => undefined);
+
   await ctx.dispose();
 });
 
@@ -102,11 +111,46 @@ async function putConfig(body: Record<string, unknown>) {
 }
 
 /** All Movie item ids in the scanned library. */
-async function movieItems(): Promise<Array<{ id: string; name: string }>> {
-  const res = await ctx.get(`/Items?IncludeItemTypes=Movie&Recursive=true&userId=${auth.userId}`);
+interface SeedMovie { id: string; name: string; path: string; played: boolean; favorite: boolean }
+
+async function movieItems(): Promise<SeedMovie[]> {
+  const res = await ctx.get(`/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Path&IsMissing=false&userId=${auth.userId}`);
   expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
-  const body = (await res.json()) as { Items?: Array<{ Id: string; Name: string }> };
-  return (body.Items ?? []).map((i) => ({ id: i.Id, name: i.Name }));
+  const body = (await res.json()) as { Items?: Array<{ Id: string; Name: string; Path?: string; IsVirtualItem?: boolean; UserData?: { Played?: boolean; IsFavorite?: boolean } }> };
+  return (body.Items ?? [])
+    .filter(item => !item.IsVirtualItem && /\.(mkv|mp4|avi|mov|webm)$/i.test(item.Path ?? ''))
+    .map(item => ({ id: item.Id, name: item.Name, path: item.Path!, played: item.UserData?.Played === true, favorite: item.UserData?.IsFavorite === true }));
+}
+
+function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
+  const user = auth.userId.replaceAll('-', '').toLowerCase();
+  return movies.filter(movie => {
+    const item = movie.id.replaceAll('-', '').toLowerCase();
+    return createHash('sha256').update(`${user}:library:${item}`).digest().readUInt32LE(0) % 10 !== 0;
+  });
+}
+
+async function ensureObservedSeed(): Promise<SeedMovie[]> {
+  let movies = await movieItems();
+  if (fittingMovies(movies).length < PER_USER_FIT_THRESHOLD) {
+    const source = movies.find(movie => containerFileExists(movie.path));
+    expect(source, 'need a real playable movie to expand the isolated model fixture').toBeDefined();
+    const extension = source!.path.slice(source!.path.lastIndexOf('.'));
+    const run = randomUUID().slice(0, 8);
+    // Copies are cheap, isolated to this suite and removed afterwards; no generated-only feedback is fabricated.
+    for (let i = 0; i < 24; i++) {
+      const title = `JFH Per User Seed ${run}-${i} (2020)`;
+      const directory = `/media/Movies/${title}`;
+      const file = `${directory}/${title}${extension}`;
+      createdSeedFiles.push({ file, directory });
+      const copied = execInContainer(`mkdir -p -- ${q(directory)} && cp -- ${q(source!.path)} ${q(file)}`);
+      expect(copied.code, copied.stderr).toBe(0);
+    }
+    expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
+    await expect.poll(async () => fittingMovies(await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
+    movies = await movieItems();
+  }
+  return fittingMovies(movies).slice(0, PER_USER_FIT_THRESHOLD);
 }
 
 /** Activate recommendations only; disable every filesystem stage so the run is isolated. */
@@ -140,21 +184,22 @@ test.describe.serial('per-user recommendation model files', () => {
       return;
     }
 
-    // The engine trains from a real watch profile, and cold-start users alone do not drive training. The
-    // per-user example threshold is twelve pooled examples per user; marking six movies played gives six
-    // organic examples on their own, and the second training run adds one exposure example per remaining
-    // recommended-but-unwatched candidate, so a single user reliably clears the threshold and gets a per-user
-    // model. Favoriting one of them adds a positive-engagement signal.
-    const movies = await movieItems();
-    expect(movies.length, 'need enough movies for a user to clear the per-user example threshold').toBeGreaterThan(11);
-    for (const m of movies.slice(0, 6)) {
-      const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
-      expect(mark.ok(), `mark-played ${m.name}: ${mark.status()}`).toBeTruthy();
-      seededPlayedIds.push(m.id);
+    // Only observed rows outside the permanent holdout count toward fitting. Six plays plus generated
+    // recommendations no longer clear the gate, so seed a complete eligible fitting slice explicitly.
+    const movies = await ensureObservedSeed();
+    expect(movies.length, 'need twelve actual observed fitting titles, excluding holdouts').toBe(PER_USER_FIT_THRESHOLD);
+    for (const m of movies) {
+      if (!m.played) {
+        const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
+        expect(mark.ok(), `mark-played ${m.name}: ${mark.status()}`).toBeTruthy();
+        seededPlayedIds.push(m.id);
+      }
     }
-    const fav = await ctx.post(`/UserFavoriteItems/${movies[0].id}?userId=${auth.userId}`);
-    expect([200, 204]).toContain(fav.status());
-    seededFavoriteIds.push(movies[0].id);
+    if (!movies[0].favorite) {
+      const fav = await ctx.post(`/UserFavoriteItems/${movies[0].id}?userId=${auth.userId}`);
+      expect([200, 204]).toContain(fav.status());
+      seededFavoriteIds.push(movies[0].id);
+    }
   });
 
   test.afterEach(() => {
@@ -213,13 +258,14 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     const weightFiles = perUserWeightFiles();
-    // The seeded six-movie watch profile clears the per-user example threshold, so at least one per-user model
+    // The eligible observed fitting slice clears the per-user example threshold, so this user's model
     // must exist. A hard assertion here (rather than a skip) keeps the per-user shape checks from silently
     // passing vacuously if the fixture ever stops driving training past the threshold.
     expect(
       weightFiles.length,
       'expected at least one per-user model file after training on the seeded watch profile',
     ).toBeGreaterThan(0);
+    expect(weightFiles).toContain(`ml_weights_${auth.userId.replaceAll('-', '').toLowerCase()}.json`);
 
     // Every per-user weight file must pair with an ensemble-state file for the same id.
     const dir = resolveDataDir();

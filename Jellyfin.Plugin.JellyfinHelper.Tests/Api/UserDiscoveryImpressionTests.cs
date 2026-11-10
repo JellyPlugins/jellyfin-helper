@@ -2,6 +2,7 @@ using System.Collections;
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -63,7 +64,22 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         Assert.IsType<NoContentResult>(controller.RecordImpressions(Payload(1, response.DeliveryId)));
 
         _feedback.Verify(store => store.RecordImpressions(user,
-            It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Count == 1 && items[0].TmdbId == 1 && items[0].ScoringFeatures!.GenreSimilarity == 0.3), generation), Times.Once);
+            It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Count == 1 && items[0].TmdbId == 1 && BitConverter.DoubleToInt64Bits(items[0].ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
+    }
+
+    [Fact]
+    public async Task Delivery_RedactsFeaturePayloadWithoutRemovingPersistedServerEvidence()
+    {
+        var user = Guid.NewGuid();
+        var delivered = await SaveAndDeliver(user, DateTime.UtcNow, 0.3);
+        Assert.Null(delivered.Recommendations.Single().ScoringFeatures);
+        var wire = JsonSerializer.Serialize(delivered);
+        Assert.DoesNotContain(nameof(CandidateFeatures.CollaborativeScore), wire);
+        Assert.DoesNotContain(nameof(CandidateFeatures.GenreSimilarity), wire);
+        var cached = Assert.Single(await _cache.LoadAsync(CancellationToken.None));
+        Assert.NotNull(cached.Recommendations.Single().ScoringFeatures);
+        Assert.IsType<NoContentResult>(Controller(user).RecordImpressions(Payload(1, delivered.DeliveryId)));
+        _feedback.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Single().ScoringFeatures != null), It.IsAny<DateTime>()), Times.Once);
     }
 
     [Fact]
@@ -141,8 +157,10 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         Assert.NotEqual(first.DeliveryId, second.DeliveryId);
 
         // Neither a changed source/cache nor a modified API response can rewrite retained evidence.
-        first.Recommendations[0].ScoringFeatures!.GenreSimilarity = 0.99;
-        second.Recommendations[0].ScoringFeatures!.GenreSimilarity = 0.99;
+        Assert.Null(first.Recommendations[0].ScoringFeatures);
+        Assert.Null(second.Recommendations[0].ScoringFeatures);
+        first.Recommendations[0].Title = "changed response";
+        second.Recommendations[0].Score = 0.99;
         var captured = new List<(double Genre, DateTime Generation)>();
         _feedback.Setup(store => store.RecordImpressions(user, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime>()))
             .Callback<Guid, IReadOnlyList<DiscoveryRecommendation>, DateTime>((_, items, generation) => captured.Add((items.Single().ScoringFeatures!.GenreSimilarity, generation)));
@@ -179,7 +197,7 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(Controller(user).RecordImpressions(Payload(1, oldest.DeliveryId)));
         Assert.IsType<NoContentResult>(Controller(user).RecordImpressions(Payload(1, latest.DeliveryId)));
-        _feedback.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Single().ScoringFeatures!.GenreSimilarity == 0.8), It.IsAny<DateTime>()), Times.Once);
+        _feedback.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => BitConverter.DoubleToInt64Bits(items.Single().ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.8)), It.IsAny<DateTime>()), Times.Once);
     }
 
     [Fact]
@@ -189,7 +207,7 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         var response = await SaveAndDeliver(user, DateTime.UtcNow, 0.3);
         var key = typeof(UserDiscoveryController).GetMethod("DeliveryKey", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [user]);
         Assert.True(_memory.TryGetValue(key!, out object? value));
-        var batch = Assert.IsAssignableFrom<IDictionary>(value).Values.Cast<object>().Single();
+        var batch = Assert.IsType<IDictionary>(value, exactMatch: false).Values.Cast<object>().Single();
         batch.GetType().GetProperty("DeliveredAtUtc")!.SetValue(batch, DateTime.UtcNow.AddMinutes(-6));
 
         Assert.IsType<BadRequestObjectResult>(Controller(user).RecordImpressions(Payload(1, response.DeliveryId)));

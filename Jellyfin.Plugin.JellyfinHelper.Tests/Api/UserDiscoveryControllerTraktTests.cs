@@ -316,7 +316,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
 
         Assert.IsType<NoContentResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = personal.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1000 }] }));
 
-        _feedbackStoreMock.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Single().ScoringFeatures!.GenreSimilarity == 0.3), pool.GeneratedAt), Times.Once);
+        _feedbackStoreMock.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => BitConverter.DoubleToInt64Bits(items.Single().ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), pool.GeneratedAt), Times.Once);
     }
 
     [Fact]

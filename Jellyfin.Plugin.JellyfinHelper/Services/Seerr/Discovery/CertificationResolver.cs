@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using MediaBrowser.Model.Globalization;
 
@@ -20,48 +22,49 @@ internal static class CertificationResolver
         }
 
         int? maximum = null;
-        if (TryResults(detail.Releases, out var movies))
+        foreach (var certification in ReadMovieCertifications(detail.Releases).Concat(ReadTelevisionCertifications(detail.ContentRatings)))
         {
-            foreach (var country in movies.EnumerateArray())
-            {
-                if (!CountryCode(country, out var code) || !country.TryGetProperty("release_dates", out var releases) || releases.ValueKind != JsonValueKind.Array)
-                {
-                    continue;
-                }
-
-                foreach (var release in releases.EnumerateArray())
-                {
-                    if (release.ValueKind == JsonValueKind.Object && release.TryGetProperty("certification", out var certification))
-                    {
-                        Accumulate(certification, code, localization, ref maximum);
-                    }
-                }
-            }
+            Accumulate(certification.Value, certification.Country, localization, ref maximum);
         }
 
-        if (TryResults(detail.ContentRatings, out var television))
+        return ApplyAdultRating(detail.Adult == true || adultFlag, localization, maximum);
+    }
+
+    private static IEnumerable<(JsonElement Value, string Country)> ReadMovieCertifications(JsonElement releases)
+        => TryResults(releases, out var countries)
+            ? countries.EnumerateArray().SelectMany(ReadMovieCountryCertifications)
+            : [];
+
+    private static IEnumerable<(JsonElement Value, string Country)> ReadMovieCountryCertifications(JsonElement country)
+    {
+        if (!CountryCode(country, out var code) || !country.TryGetProperty("release_dates", out var releases) || releases.ValueKind != JsonValueKind.Array)
         {
-            foreach (var country in television.EnumerateArray())
-            {
-                if (CountryCode(country, out var code) && country.TryGetProperty("rating", out var rating))
-                {
-                    Accumulate(rating, code, localization, ref maximum);
-                }
-            }
+            yield break;
         }
 
-        if (detail.Adult == true || adultFlag)
+        foreach (var release in releases.EnumerateArray().Where(release => release.ValueKind == JsonValueKind.Object && release.TryGetProperty("certification", out _)))
         {
-            var adult = localization.GetRatingScore("XXX", "US");
-            if (adult is null)
-            {
-                return null;
-            }
+            yield return (release.GetProperty("certification"), code);
+        }
+    }
 
-            maximum = Math.Max(maximum ?? adult.Score, adult.Score);
+    private static IEnumerable<(JsonElement Value, string Country)> ReadTelevisionCertifications(JsonElement ratings)
+        => TryResults(ratings, out var countries)
+            ? countries.EnumerateArray().Select(ReadTelevisionCountryCertification).Where(certification => certification.HasValue).Select(certification => certification.GetValueOrDefault())
+            : [];
+
+    private static (JsonElement Value, string Country)? ReadTelevisionCountryCertification(JsonElement country)
+        => CountryCode(country, out var code) && country.TryGetProperty("rating", out var rating) ? (rating, code) : null;
+
+    private static int? ApplyAdultRating(bool adultFlag, ILocalizationManager localization, int? maximum)
+    {
+        if (!adultFlag)
+        {
+            return maximum;
         }
 
-        return maximum;
+        var adult = localization.GetRatingScore("XXX", "US");
+        return adult is null ? null : Math.Max(maximum ?? adult.Score, adult.Score);
     }
 
     private static bool TryResults(JsonElement value, out JsonElement results)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
@@ -13,7 +14,8 @@ internal sealed class TrainingHistoryCache
     internal const int MaxCachedCutoffs = 32;
     internal const int MaxCachedRows = 32768;
 
-    private readonly Collection<UserWatchProfile> _source;
+    private readonly Dictionary<Guid, UserWatchProfile> _source;
+    private readonly TrainingHistoryIndex _index;
     private readonly CancellationToken _cancellationToken;
     private readonly Dictionary<DateTime, Snapshot> _snapshots = new();
     private readonly Queue<DateTime> _insertionOrder = new();
@@ -24,7 +26,8 @@ internal sealed class TrainingHistoryCache
     /// <param name="cancellationToken">The build cancellation token.</param>
     internal TrainingHistoryCache(Collection<UserWatchProfile> source, CancellationToken cancellationToken)
     {
-        _source = source;
+        _source = source.ToDictionary(profile => profile.UserId);
+        _index = new TrainingHistoryIndex(source, cancellationToken);
         _cancellationToken = cancellationToken;
     }
 
@@ -44,22 +47,46 @@ internal sealed class TrainingHistoryCache
         _cancellationToken.ThrowIfCancellationRequested();
         var cutoff = DateTimeNormalization.ToUtc(beforeUtc);
         var snapshot = GetSnapshot(cutoff);
-        var profile = snapshot.ByUserId[userId];
-        if (!profile.WatchedItems.Any(row => excludedIds.Contains(row.ItemId)))
+        var profile = GetProfile(snapshot, userId, cutoff);
+        if (excludedIds.Count == 0 || !profile.WatchedItems.Any(row => excludedIds.Contains(row.ItemId)))
         {
-            return new Inputs(profile, snapshot.Profiles, snapshot.Collaborative);
+            return new Inputs(profile, snapshot.Collaborative);
         }
 
         // Series targets can have earlier episodes. Their exclusions must not poison a cached
         // cutoff, the same user's next target, or another user's collaborative evidence.
         var filtered = TrainingHistory.Before(profile, cutoff, excludedIds);
-        var profiles = snapshot.Profiles.ToArray();
-        profiles[snapshot.Profiles.IndexOf(profile)] = filtered;
-        var userSets = new Dictionary<Guid, HashSet<Guid>>(snapshot.Collaborative.UserSets)
+        var replacement = filtered.WatchedItems.SelectMany(row => row.SeriesId is { } seriesId
+                ? new[] { row.ItemId, seriesId }
+                : new[] { row.ItemId }).ToImmutableHashSet();
+        var popularity = snapshot.Collaborative.ItemPopularity;
+        foreach (var removed in snapshot.Collaborative.UserSets[userId].Except(replacement))
         {
-            [userId] = CollaborativeFilter.PrecomputeUserWatchSets([filtered])[userId]
-        };
-        return new Inputs(filtered, new Collection<UserWatchProfile>(profiles), CollaborativeFilter.PrecomputeCollaborativeContext(userSets));
+            var users = popularity[removed] - 1;
+            popularity = users == 0 ? popularity.Remove(removed) : popularity.SetItem(removed, users);
+        }
+
+        var context = snapshot.Collaborative with { UserSets = snapshot.Collaborative.UserSets.SetItem(userId, replacement), ItemPopularity = popularity };
+        return new Inputs(filtered, context);
+    }
+
+    private UserWatchProfile GetProfile(Snapshot snapshot, Guid userId, DateTime cutoff)
+    {
+        if (snapshot.Profiles.TryGetValue(userId, out var cached))
+        {
+            return cached;
+        }
+
+        // Only the target needs rich preference metadata. Neighbours use immutable indexed sets.
+        var profile = TrainingHistory.Before(_source[userId], cutoff);
+        if (snapshot.Retained && _cachedRows + profile.WatchedItems.Count <= MaxCachedRows)
+        {
+            snapshot.Profiles.Add(userId, profile);
+            snapshot.RowCount += profile.WatchedItems.Count;
+            _cachedRows += profile.WatchedItems.Count;
+        }
+
+        return profile;
     }
 
     private Snapshot GetSnapshot(DateTime cutoff)
@@ -69,18 +96,7 @@ internal sealed class TrainingHistoryCache
             return cached;
         }
 
-        var profiles = new Collection<UserWatchProfile>();
-        foreach (var source in _source)
-        {
-            _cancellationToken.ThrowIfCancellationRequested();
-            profiles.Add(TrainingHistory.Before(source, cutoff));
-        }
-
-        var snapshot = new Snapshot(
-            profiles,
-            profiles.ToDictionary(profile => profile.UserId),
-            CollaborativeFilter.PrecomputeCollaborativeContext(CollaborativeFilter.PrecomputeUserWatchSets(profiles)),
-            profiles.Sum(profile => (long)profile.WatchedItems.Count + 1));
+        var snapshot = new Snapshot(_index.Before(cutoff), _index.SnapshotRowCost);
         _cancellationToken.ThrowIfCancellationRequested();
         if (snapshot.RowCount > MaxCachedRows)
         {
@@ -91,20 +107,30 @@ internal sealed class TrainingHistoryCache
         {
             var oldest = _insertionOrder.Dequeue();
             _cachedRows -= _snapshots[oldest].RowCount;
+            _snapshots[oldest].Retained = false;
             _snapshots.Remove(oldest);
         }
 
         _snapshots.Add(cutoff, snapshot);
         _insertionOrder.Enqueue(cutoff);
         _cachedRows += snapshot.RowCount;
+        snapshot.Retained = true;
         return snapshot;
     }
 
     /// <summary>A historical target and the complete corresponding neighbour context.</summary>
     /// <param name="Profile">The target's historical profile.</param>
-    /// <param name="Profiles">All profiles at the same cutoff, with any target exclusion applied.</param>
     /// <param name="Collaborative">The watch sets and popularity derived from those inputs.</param>
-    internal sealed record Inputs(UserWatchProfile Profile, Collection<UserWatchProfile> Profiles, CollaborativeFilter.CollaborativeContext Collaborative);
+    internal sealed record Inputs(UserWatchProfile Profile, CollaborativeFilter.HistoricalContext Collaborative);
 
-    private sealed record Snapshot(Collection<UserWatchProfile> Profiles, Dictionary<Guid, UserWatchProfile> ByUserId, CollaborativeFilter.CollaborativeContext Collaborative, long RowCount);
+    private sealed class Snapshot(CollaborativeFilter.HistoricalContext collaborative, long rowCount)
+    {
+        internal CollaborativeFilter.HistoricalContext Collaborative { get; } = collaborative;
+
+        internal Dictionary<Guid, UserWatchProfile> Profiles { get; } = new();
+
+        internal long RowCount { get; set; } = rowCount;
+
+        internal bool Retained { get; set; }
+    }
 }

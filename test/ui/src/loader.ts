@@ -234,7 +234,7 @@ const DISCOVERY_EXPECTED = [
   'isLoginPage', 'syncDiscoveryLifecycle', 'initDiscoveryLifecycle', 'teardownDiscoveryEntryPoints', 'disableDiscoveryUi',
   'beforeHostSessionChange', 'afterHostSessionChange',
   'isEmptyTraktResult', 'traktCacheFresh', 'makeTraktCacheEntry', 'spinnerHtml',
-  'renderTraktNotLinked', 'renderCards', 'esc', 'formatReason', 'formatRawReasonFallback',
+  'renderTraktNotLinked', 'renderCards', 'consumeDiscoveryItem', 'esc', 'formatReason', 'formatRawReasonFallback',
   'insertSlashBreaks', 'tabButton', 'checkEmptyDiscoveryState', 'renderOwnError',
   'renderTraktError', 'closeDiscoveryPopup',
   // Added for behavioral tests: each name is a real top-level function in

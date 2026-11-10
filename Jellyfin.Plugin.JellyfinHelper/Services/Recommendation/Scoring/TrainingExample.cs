@@ -128,4 +128,11 @@ public sealed class TrainingExample
     /// <returns>A stable observation identifier.</returns>
     internal static Guid CreateObservationId(Guid userId, string titleKey)
         => new(SHA256.HashData(Encoding.UTF8.GetBytes(userId.ToString("N") + ":" + titleKey)).AsSpan(0, 16));
+
+    /// <summary>Creates the canonical library observation key without duplicating the namespace at call sites.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="itemId">The library title or aggregated series id.</param>
+    /// <returns>The unchanged stable library observation identifier.</returns>
+    internal static Guid CreateLibraryObservationId(Guid userId, Guid itemId)
+        => CreateObservationId(userId, "library:" + itemId.ToString("N"));
 }

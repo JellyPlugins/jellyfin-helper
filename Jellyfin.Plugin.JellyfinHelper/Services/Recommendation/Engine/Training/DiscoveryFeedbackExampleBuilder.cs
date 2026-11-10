@@ -52,76 +52,75 @@ internal static class DiscoveryFeedbackExampleBuilder
             }
 
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
-
-            foreach (var entry in userFeedback.Entries)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var status = entry.GetStatus();
-                if (status == DiscoveryInteractionStatus.Generated
-                    || (status == DiscoveryInteractionStatus.Shown && entry.ImpressionAtUtc.HasValue
-                        && (DateTime.UtcNow - entry.ImpressionAtUtc.Value).TotalDays < EngineConstants.RecommendationInfluenceWindowDays))
-                {
-                    continue;
-                }
-
-                var label = GetLabelForStatus(status);
-                var featureProfile = userProfile is not null && entry.ScoringFeatures is null
-                    ? TrainingHistory.Before(userProfile, entry.ShownAtUtc)
-                    : userProfile;
-                BuildUserContext(
-                    featureProfile,
-                    seriesEpisodeCounts,
-                    out var genrePreferences,
-                    out var avgYear,
-                    out var preferredPeople,
-                    out var genreExposure);
-
-                var entryGenres = entry.Genres ?? Array.Empty<string>();
-                var (familiarity, genreAvgCompletion, genreAbandonRate) = featureProfile is not null
-                    ? ContentScoring.ComputeGenreEngagement(entryGenres, featureProfile)
-                    : (0.0, 0.5, 0.0);
-                var userRatingScore = featureProfile is not null
-                    ? ContentScoring.ComputeGenreRatingScore(entryGenres, featureProfile)
-                    : 0.5;
-                var features = BuildFeaturesFromEntry(
-                    entry,
-                    genrePreferences,
-                    preferredPeople,
-                    avgYear,
-                    genreExposure,
-                    featureMeans,
-                    out var hasLegacyPopularity);
-                features.HasUserInteraction = familiarity > 0.0;
-                features.CompletionRatio = genreAvgCompletion;
-                features.IsAbandoned = genreAbandonRate;
-                features.UserRatingScore = userRatingScore;
-
-                // Recorded inputs belong to the prediction, not to the user's later request/watch state.
-                if (entry.ScoringFeatures is not null)
-                {
-                    features = entry.ScoringFeatures.Copy();
-                }
-
-                var sampleWeight = hasLegacyPopularity
-                    ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5
-                    : EngineConstants.DiscoveryFeedbackSampleWeight;
-
-                examples.Add(new TrainingExample
-                {
-                    Features = features,
-                    Label = label,
-                    GeneratedAtUtc = GetLatestInteractionUtc(entry),
-                    SampleWeight = sampleWeight,
-                    UserId = userFeedback.UserId,
-                    ObservationId = TrainingExample.CreateObservationId(userFeedback.UserId, "tmdb:" + entry.MediaType + ":" + entry.TmdbId),
-                    HasStableObservationId = true,
-                    IsObserved = status != DiscoveryInteractionStatus.Shown || entry.ImpressionAtUtc.HasValue
-                });
-            }
+            AppendUserFeedbackExamples(examples, userFeedback, userProfile, seriesEpisodeCounts, featureMeans, cancellationToken);
         }
 
         return (examples, examples.Count);
+    }
+
+    private static void AppendUserFeedbackExamples(
+        List<TrainingExample> examples,
+        DiscoveryFeedbackResult userFeedback,
+        UserWatchProfile? userProfile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        IReadOnlyList<double>? featureMeans,
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in userFeedback.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var status = entry.GetStatus();
+            if (IsCensored(entry, status))
+            {
+                continue;
+            }
+
+            var features = BuildFeedbackFeatures(entry, userProfile, seriesEpisodeCounts, featureMeans, out var hasLegacyPopularity);
+            examples.Add(new TrainingExample
+            {
+                Features = features,
+                Label = GetLabelForStatus(status),
+                GeneratedAtUtc = GetLatestInteractionUtc(entry),
+                SampleWeight = hasLegacyPopularity ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5 : EngineConstants.DiscoveryFeedbackSampleWeight,
+                UserId = userFeedback.UserId,
+                ObservationId = TrainingExample.CreateObservationId(userFeedback.UserId, "tmdb:" + entry.MediaType + ":" + entry.TmdbId),
+                HasStableObservationId = true,
+                IsObserved = status != DiscoveryInteractionStatus.Shown || entry.ImpressionAtUtc.HasValue
+            });
+        }
+    }
+
+    private static bool IsCensored(DiscoveryFeedbackEntry entry, DiscoveryInteractionStatus status)
+        => status == DiscoveryInteractionStatus.Generated
+            || (status == DiscoveryInteractionStatus.Shown && entry.ImpressionAtUtc.HasValue
+                && (DateTime.UtcNow - entry.ImpressionAtUtc.Value).TotalDays < EngineConstants.RecommendationInfluenceWindowDays);
+
+    private static CandidateFeatures BuildFeedbackFeatures(
+        DiscoveryFeedbackEntry entry,
+        UserWatchProfile? userProfile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        IReadOnlyList<double>? featureMeans,
+        out bool hasLegacyPopularity)
+    {
+        hasLegacyPopularity = entry.Popularity <= 0;
+        // Recorded inputs belong to the prediction, not to the user's later request/watch state.
+        if (entry.ScoringFeatures is not null)
+        {
+            return entry.ScoringFeatures.Copy();
+        }
+
+        var featureProfile = userProfile is not null ? TrainingHistory.Before(userProfile, entry.ShownAtUtc) : null;
+        BuildUserContext(featureProfile, seriesEpisodeCounts, out var genres, out var avgYear, out var people, out var exposure);
+        var entryGenres = entry.Genres ?? Array.Empty<string>();
+        var (familiarity, completion, abandonment) = featureProfile is not null
+            ? ContentScoring.ComputeGenreEngagement(entryGenres, featureProfile)
+            : (0.0, 0.5, 0.0);
+        var features = BuildFeaturesFromEntry(entry, genres, people, avgYear, exposure, featureMeans, out hasLegacyPopularity);
+        features.HasUserInteraction = familiarity > 0.0;
+        features.CompletionRatio = completion;
+        features.IsAbandoned = abandonment;
+        features.UserRatingScore = featureProfile is not null ? ContentScoring.ComputeGenreRatingScore(entryGenres, featureProfile) : 0.5;
+        return features;
     }
 
     /// <summary>

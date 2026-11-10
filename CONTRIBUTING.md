@@ -628,6 +628,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
 │   │   │   │   ├── TrainingHistory.cs          # Conservative pre-prediction history reconstruction; excludes later and undated preference aggregates
 │   │   │   │   ├── TrainingHistoryCache.cs     # Bounded build-scoped neighbour/collaborative reuse; target exclusions never modify shared snapshots
+│   │   │   │   ├── TrainingHistoryIndex.cs     # Incremental immutable neighbour sets at exact cutoffs, including rewinds and duplicate series references
 │   │   │   │   ├── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction

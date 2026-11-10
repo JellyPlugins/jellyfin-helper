@@ -65,7 +65,7 @@ public class NeuralFeatureImportanceTests
         for (var i = 0; i < examples.Length; i++)
         {
             examples[i].SampleWeight = 0.1 + 0.9 * i / examples.Length;
-            examples[i].GeneratedAtUtc = reference.AddDays(-10 * i);
+            examples[i].GeneratedAtUtc = reference.AddDays(-10.0 * i);
         }
 
         var result = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, referenceTimeUtc: reference);

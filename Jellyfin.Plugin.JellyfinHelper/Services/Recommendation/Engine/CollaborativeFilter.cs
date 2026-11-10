@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -124,7 +125,6 @@ internal static class CollaborativeFilter
         Collection<UserWatchProfile> allProfiles,
         CollaborativeContext context)
     {
-        var coOccurrence = new Dictionary<Guid, double>();
         var userSets = context.UserSets;
 
         // Resolve the current user's combined watch set. Falls back to on-the-fly build if the user is not present in the shared context (e.g.
@@ -134,32 +134,43 @@ internal static class CollaborativeFilter
 
         if (userCombinedIds.Count == 0)
         {
-            return coOccurrence;
+            return new Dictionary<Guid, double>();
         }
 
-        var itemPopularity = context.ItemPopularity;
-        var trustGateActive = ComputeTrustGateActive(userProfile, allProfiles, userSets);
+        var neighbours = allProfiles.Where(profile => profile.UserId != userProfile.UserId)
+            .Select(profile => (IReadOnlySet<Guid>)(userSets.TryGetValue(profile.UserId, out var set) ? set : BuildCombinedWatchSet(profile)))
+            .ToArray();
+        return BuildMapFromWatchSets(userCombinedIds, neighbours, context.ItemPopularity);
+    }
 
-        // Iterate over all other users and compute Jaccard-weighted co-occurrence
-        foreach (var otherProfile in allProfiles)
+    /// <summary>Uses immutable historical watch sets without reconstructing every neighbour profile.</summary>
+    /// <param name="userId">The target user.</param>
+    /// <param name="context">An exact-cutoff historical context, including target exclusions.</param>
+    /// <returns>The same collaborative scores as the materialized-profile path.</returns>
+    internal static Dictionary<Guid, double> BuildCollaborativeMap(Guid userId, HistoricalContext context)
+    {
+        var target = context.UserSets[userId];
+        if (target.Count == 0)
         {
-            if (otherProfile.UserId == userProfile.UserId)
-            {
-                continue;
-            }
+            return new Dictionary<Guid, double>();
+        }
 
-            // Resolve the other user's combined watch set (uses the shared local materialisation
-            // in single-user mode so we do not rebuild this set on every iteration).
-            var otherCombinedIds = userSets.TryGetValue(otherProfile.UserId, out var otherPrecomputed)
-                ? otherPrecomputed
-                : BuildCombinedWatchSet(otherProfile);
+        var neighbours = context.UserIds.Where(id => id != userId).Select(id => (IReadOnlySet<Guid>)context.UserSets[id]).ToArray();
+        return BuildMapFromWatchSets(target, neighbours, context.ItemPopularity);
+    }
 
+    private static Dictionary<Guid, double> BuildMapFromWatchSets(IReadOnlySet<Guid> target, IReadOnlySet<Guid>[] neighbours, IReadOnlyDictionary<Guid, int> popularity)
+    {
+        var coOccurrence = new Dictionary<Guid, double>();
+        var trustGateActive = neighbours.Any(set => set.Count >= EngineConstants.CollaborativeTrustWatchCeiling);
+        foreach (var otherCombinedIds in neighbours)
+        {
             if (otherCombinedIds.Count == 0)
             {
                 continue;
             }
 
-            var jaccardWeight = ComputeJaccardWeight(userCombinedIds, otherCombinedIds);
+            var jaccardWeight = ComputeJaccardWeight(target, otherCombinedIds);
             if (jaccardWeight <= 0.0)
             {
                 continue;
@@ -175,42 +186,10 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            AccumulateCoOccurrence(coOccurrence, userCombinedIds, otherCombinedIds, itemPopularity, jaccardWeight, neighbourTrust);
+            AccumulateCoOccurrence(coOccurrence, target, otherCombinedIds, popularity, jaccardWeight, neighbourTrust);
         }
 
         return coOccurrence;
-    }
-
-    /// <summary>
-    ///     Computes the per-target-user trust gate. The gate activates when at least one NEIGHBOUR (any profile other than the target) has a watch count at or above the trust ceiling.
-    /// </summary>
-    /// <param name="userProfile">The target user's watch profile (excluded from the scan).</param>
-    /// <param name="allProfiles">All user watch profiles.</param>
-    /// <param name="userSets">Per-user combined watch sets, with a defensive on-the-fly fallback.</param>
-    /// <returns><c>true</c> when a rich-enough neighbour exists; otherwise <c>false</c>.</returns>
-    private static bool ComputeTrustGateActive(
-        UserWatchProfile userProfile,
-        Collection<UserWatchProfile> allProfiles,
-        Dictionary<Guid, HashSet<Guid>> userSets)
-    {
-        foreach (var profile in allProfiles)
-        {
-            if (profile.UserId == userProfile.UserId)
-            {
-                continue;
-            }
-
-            // Fall back to BuildCombinedWatchSet when a profile is missing from userSets so this scan cannot silently treat an "unindexed" neighbour as size-zero (which would make the trust-gate under-count and the later co-occurrence loop over-count for the same profile).
-            var otherCount = userSets.TryGetValue(profile.UserId, out var otherSet)
-                ? otherSet.Count
-                : BuildCombinedWatchSet(profile).Count;
-            if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -219,7 +198,7 @@ internal static class CollaborativeFilter
     /// <param name="userCombinedIds">The target user's combined watch set.</param>
     /// <param name="otherCombinedIds">The neighbour's combined watch set.</param>
     /// <returns>The Jaccard weight in [0, 1], or <c>0.0</c> when overlap is below the minimum.</returns>
-    private static double ComputeJaccardWeight(HashSet<Guid> userCombinedIds, HashSet<Guid> otherCombinedIds)
+    private static double ComputeJaccardWeight(IReadOnlySet<Guid> userCombinedIds, IReadOnlySet<Guid> otherCombinedIds)
     {
         // Compute overlap count by enumerating the smaller set for efficiency
         var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
@@ -248,9 +227,9 @@ internal static class CollaborativeFilter
     /// <param name="neighbourTrust">The trust factor for this neighbour.</param>
     private static void AccumulateCoOccurrence(
         Dictionary<Guid, double> coOccurrence,
-        HashSet<Guid> userCombinedIds,
-        HashSet<Guid> otherCombinedIds,
-        Dictionary<Guid, int> itemPopularity,
+        IReadOnlySet<Guid> userCombinedIds,
+        IReadOnlySet<Guid> otherCombinedIds,
+        IReadOnlyDictionary<Guid, int> itemPopularity,
         double jaccardWeight,
         double neighbourTrust)
     {
@@ -287,4 +266,13 @@ internal static class CollaborativeFilter
     internal sealed record CollaborativeContext(
         Dictionary<Guid, HashSet<Guid>> UserSets,
         Dictionary<Guid, int> ItemPopularity);
+
+    /// <summary>Structurally shared, immutable historical sets and their exact population counts.</summary>
+    /// <param name="UserIds">Users in the original neighbour accumulation order.</param>
+    /// <param name="UserSets">Combined title/series sets at one exclusive cutoff.</param>
+    /// <param name="ItemPopularity">Number of distinct users with each key at that cutoff.</param>
+    internal sealed record HistoricalContext(
+        ImmutableArray<Guid> UserIds,
+        ImmutableDictionary<Guid, ImmutableHashSet<Guid>> UserSets,
+        ImmutableDictionary<Guid, int> ItemPopularity);
 }

@@ -315,6 +315,74 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(0, _detailCalls);
     }
 
+    [Theory]
+    [InlineData(0, "movie")]
+    [InlineData(101, "music")]
+    public async Task RequestVerification_InvalidIdentifiersNeverReachProvider(int id, string mediaType)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        Assert.Equal((false, false), await CreateService().VerifyRequestForUserAsync(user, id, mediaType, CancellationToken.None));
+        Assert.Equal(0, _detailCalls);
+    }
+
+    [Fact]
+    public async Task RequestVerification_DisabledDuringFetchIsDeniedAndPolicyRelaxationIsRespected()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        var available = true;
+        var maximum = (int?)6;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (available, maximum));
+        _detailById[101] = CertifiedDetail(101, 6);
+        var service = CreateService();
+        _onDetailFetch = () => available = false;
+        Assert.Equal((false, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        available = true;
+        _onDetailFetch = () => maximum = null;
+        Assert.Equal((true, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RequestVerification_InvalidConfigurationAndUnavailablePolicyFailClosed()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        var service = CreateService();
+        Plugin.Instance!.Configuration.SeerrUrl = "not-an-http-url";
+        Assert.Equal((false, false), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Throws(new InvalidOperationException("policy unavailable"));
+        Assert.Equal((false, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        Assert.Equal(0, _detailCalls);
+    }
+
+    [Fact]
+    public async Task RequestVerification_MissingPluginConfigurationIsUnverified()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        var service = CreateService();
+        ControllerTestFactory.TeardownPluginInstance();
+        Assert.Equal((false, false), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        Assert.Equal(0, _detailCalls);
+    }
+
+    [Fact]
+    public async Task ProviderDetails_CacheRemainsBoundedAndRefreshingExistingKeyDoesNotEvictAnother()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var candidates = Enumerable.Range(1, 520).Select(Candidate).ToArray();
+        foreach (var candidate in candidates) _detailById[candidate.TmdbId] = CertifiedDetail(candidate.TmdbId, 6);
+        var service = CreateService();
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, candidates, CancellationToken.None));
+        var cache = (System.Collections.IDictionary)typeof(SeerrDiscoveryService).GetField("_metadataCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        Assert.Equal(512, cache.Count);
+        SetupProfile(user, 6);
+        Assert.Equal((true, true), await service.VerifyRequestForUserAsync(user, 520, "movie", CancellationToken.None));
+        Assert.Equal(512, cache.Count);
+    }
+
     [Fact]
     public async Task ReturnsNull_WhenCandidatesEmpty()
     {

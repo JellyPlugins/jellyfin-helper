@@ -63,9 +63,9 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         Assert.Empty(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile>(), null, null, CancellationToken.None).Examples);
         entry.ImpressionAtUtc = DateTime.UtcNow.AddDays(-8);
         var examples = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile>(), null, null, CancellationToken.None).Examples;
-        Assert.Single(examples);
-        Assert.True(examples[0].IsObserved);
-        Assert.Equal(0.05, examples[0].Label);
+        var example = Assert.Single(examples);
+        Assert.True(example.IsObserved);
+        Assert.Equal(0.05, example.Label);
     }
 
     [Fact]

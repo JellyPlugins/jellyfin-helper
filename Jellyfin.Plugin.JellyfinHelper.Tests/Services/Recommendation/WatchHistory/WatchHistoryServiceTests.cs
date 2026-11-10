@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
@@ -52,6 +53,52 @@ public sealed class WatchHistoryServiceTests
         var userId = Guid.NewGuid();
         _mockUserManager.Setup(m => m.GetUserById(userId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
         Assert.Null(_service.GetUserWatchProfile(userId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(6)]
+    [InlineData(18)]
+    public void GetUserParentalPolicy_ReadsCurrentPolicyWithoutBuildingHistory(int? maximum)
+    {
+        var user = CreateTestUser("policy");
+        user.MaxParentalRatingScore = maximum;
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        Assert.Equal((true, maximum), _service.GetUserParentalPolicy(user.Id));
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetUserParentalPolicy_UnavailableAccountsHaveNoPolicy(bool disabled)
+    {
+        var user = CreateTestUser("unavailable");
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(disabled ? user : null);
+        Assert.Equal((false, (int?)null), _service.GetUserParentalPolicy(user.Id));
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(true, 6)]
+    public void InterfaceDefaultPolicy_UsesTheLegacyProfileProvider(bool available, int? maximum)
+    {
+        IWatchHistoryService legacy = new LegacyHistoryProvider(available ? new UserWatchProfile { MaxParentalRating = maximum } : null);
+        Assert.Equal((available, available ? maximum : null), legacy.GetUserParentalPolicy(Guid.NewGuid()));
+    }
+
+    private sealed class LegacyHistoryProvider(UserWatchProfile? profile) : IWatchHistoryService
+    {
+        public UserWatchProfile? GetUserWatchProfile(Guid userId) => profile;
+
+        public Collection<UserWatchProfile> GetAllUserWatchProfiles() => [];
+
+        public IReadOnlyCollection<Guid> GetAllUserIds() => [];
+
+        public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts() => new Dictionary<Guid, int>();
     }
 
     [Fact]

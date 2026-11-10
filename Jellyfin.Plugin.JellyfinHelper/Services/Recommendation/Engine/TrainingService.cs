@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -464,7 +466,7 @@ internal sealed class TrainingService : IDisposable
     }
 
     /// <summary>
-    ///     Applies incremental-training example selection: keeps recent examples and reservoir-samples a fraction of the older ones.
+    ///     Keeps recent examples and deterministically selects a fraction of older ones using cryptographic hash priorities.
     /// </summary>
     /// <param name="examples">All built training examples.</param>
     /// <param name="previousResults">The previous-run recommendation results (for the recency cutoff).</param>
@@ -497,19 +499,12 @@ internal sealed class TrainingService : IDisposable
         }
 
         var batchSeed = unchecked((int)latestGeneratedAt.Ticks ^ (int)(latestGeneratedAt.Ticks >> 32) ^ examples.Count);
-        var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, batchSeed));
         var sampleCount = Math.Clamp(
             (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
             1,
             oldExamples.Count);
 
-        for (var i = 0; i < sampleCount; i++)
-        {
-            var j = rng.Next(i, oldExamples.Count);
-            (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
-        }
-
-        var sampledOld = oldExamples.GetRange(0, sampleCount);
+        var sampledOld = SelectReplayExamples(oldExamples, sampleCount, Engine.ComputeStableSeed(Guid.Empty, batchSeed));
         var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
         combined.AddRange(newExamples);
         combined.AddRange(sampledOld);
@@ -521,6 +516,29 @@ internal sealed class TrainingService : IDisposable
             _logger);
 
         return combined;
+    }
+
+    /// <summary>Assigns reproducible SHA-256 priorities without using a security-sensitive random generator.</summary>
+    /// <param name="examples">Older observations in their existing order.</param>
+    /// <param name="sampleCount">Number of distinct rows to retain.</param>
+    /// <param name="batchSeed">The established deterministic batch context.</param>
+    /// <returns>Selected rows without replacement; input ordering is unchanged.</returns>
+    private static List<TrainingExample> SelectReplayExamples(List<TrainingExample> examples, int sampleCount, int batchSeed)
+    {
+        var priorities = new (ulong Priority, int Index)[examples.Count];
+        Span<byte> input = stackalloc byte[24];
+        Span<byte> digest = stackalloc byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(input, batchSeed);
+        for (var i = 0; i < examples.Count; i++)
+        {
+            examples[i].ObservationId.TryWriteBytes(input.Slice(4, 16));
+            BinaryPrimitives.WriteInt32LittleEndian(input[20..], i);
+            SHA256.HashData(input, digest);
+            priorities[i] = (BinaryPrimitives.ReadUInt64LittleEndian(digest), i);
+        }
+
+        Array.Sort(priorities);
+        return priorities.Take(sampleCount).Select(row => examples[row.Index]).ToList();
     }
 
     /// <summary>

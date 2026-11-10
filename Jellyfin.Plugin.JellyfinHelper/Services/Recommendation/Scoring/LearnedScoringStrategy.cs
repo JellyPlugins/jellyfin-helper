@@ -524,7 +524,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             foldTrainIndices = foldTrainIndices.Concat(foldValIndices.Where(index => !examples[index].IsObserved)).ToArray();
             foldValIndices = foldValIndices.Where(index => examples[index].IsObserved).ToArray();
-            baselineSum += TrainingMath.BaselineValidationLoss(
+            var foldBaseline = TrainingMath.BaselineValidationLoss(
                 foldTrainIndices.Select(index => examples[index]).ToArray(),
                 foldValIndices.Select(index => examples[index]).ToArray(),
                 referenceTime,
@@ -560,15 +560,27 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 foldValIndices,
                 rng,
                 useEarlyStopping: true);
-            kFoldLossSum += foldLoss;
-            kFoldLossCount++;
+            AccumulateFoldEvidence(foldLoss, foldBaseline, ref kFoldLossSum, ref baselineSum, ref kFoldLossCount);
         }
 
         // Restore weights for final training on all data
         _weights = savedWeights;
         _bias = savedBias;
-        _lastBaselineValidationLoss = baselineSum / KFoldCount;
+        _lastBaselineValidationLoss = kFoldLossCount > 0 ? baselineSum / kFoldLossCount : double.NaN;
         return (kFoldLossSum, kFoldLossCount);
+    }
+
+    private static void AccumulateFoldEvidence(double modelLoss, double baselineLoss, ref double modelSum, ref double baselineSum, ref int count)
+    {
+        // Evaluate both predictors on exactly the same usable folds, not mismatched averages.
+        if (!double.IsFinite(modelLoss) || !double.IsFinite(baselineLoss))
+        {
+            return;
+        }
+
+        modelSum += modelLoss;
+        baselineSum += baselineLoss;
+        count++;
     }
 
     /// <summary>

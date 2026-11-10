@@ -501,8 +501,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            var permittedOffset = _qualityGateFrozen ? Math.Min(0.0, alphaOffset) : alphaOffset;
-            alpha = _qualityGateFrozen ? 0.0 : Math.Clamp(_alpha + permittedOffset, _alphaMin, _alphaMax);
+            alpha = ResolveOffsetAlpha(alphaOffset);
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
@@ -529,14 +528,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            var permittedOffset = _qualityGateFrozen ? Math.Min(0.0, alphaOffset) : alphaOffset;
-            alpha = _qualityGateFrozen ? 0.0 : Math.Clamp(_alpha + permittedOffset, _alphaMin, _alphaMax);
+            alpha = ResolveOffsetAlpha(alphaOffset);
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
 
         return ComputeBlendedExplanation(features, alpha, beta, floor);
     }
+
+    /// <summary>Resolves exploration under the caller's state lock; frozen fits ignore all offsets.</summary>
+    /// <param name="offset">The requested exploration adjustment.</param>
+    /// <returns>The effective ML blend.</returns>
+    private double ResolveOffsetAlpha(double offset)
+        => _qualityGateFrozen ? 0.0 : Math.Clamp(_alpha + offset, _alphaMin, _alphaMax);
 
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
@@ -600,19 +604,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         var result = ApplyExplanationPenalty(blended, features, floor);
 
         result.StrategyName = Name;
-        result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
-            result.GenreContribution,
-            result.CollaborativeContribution,
-            result.RatingContribution,
-            result.UserRatingContribution,
-            result.RecencyContribution,
-            result.YearProximityContribution,
-            result.InteractionContribution,
-            result.PeopleContribution,
-            result.StudioContribution,
-            result.FranchiseContribution,
-            result.CollectionProgressionContribution,
-            result.PopularityContribution);
+        result.DominantSignal = ResolveDominantSignal(result);
 
         return result;
     }
@@ -624,23 +616,26 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         if (raw.ContributionsAreMarginalEffects)
         {
             result.GenreContribution = result.FinalScore - ((raw.FinalScore - raw.GenreContribution) * floor);
-            result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
-                result.GenreContribution,
-                result.CollaborativeContribution,
-                result.RatingContribution,
-                result.UserRatingContribution,
-                result.RecencyContribution,
-                result.YearProximityContribution,
-                result.InteractionContribution,
-                result.PeopleContribution,
-                result.StudioContribution,
-                result.FranchiseContribution,
-                result.CollectionProgressionContribution,
-                result.PopularityContribution);
+            result.DominantSignal = ResolveDominantSignal(result);
         }
 
         return result;
     }
+
+    private static string ResolveDominantSignal(ScoreExplanation explanation)
+        => ScoreExplanation.DetermineDominantSignal(
+            explanation.GenreContribution,
+            explanation.CollaborativeContribution,
+            explanation.RatingContribution,
+            explanation.UserRatingContribution,
+            explanation.RecencyContribution,
+            explanation.YearProximityContribution,
+            explanation.InteractionContribution,
+            explanation.PeopleContribution,
+            explanation.StudioContribution,
+            explanation.FranchiseContribution,
+            explanation.CollectionProgressionContribution,
+            explanation.PopularityContribution);
 
     /// <summary>
     ///     Delegates training to the learned strategy and updates the blending factor.
@@ -691,30 +686,22 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         {
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
-            var qualityGatePassed = TrainingMath.QualityFactor(validationLoss, _learned.LastBaselineValidationLoss) > 0.0;
+            var qualityFactor = TrainingMath.QualityFactor(validationLoss, _learned.LastBaselineValidationLoss);
+            var qualityGatePassed = qualityFactor > 0.0;
+            var observedIds = examples.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().ToArray();
             MetricsTrend trend;
             lock (_syncRoot)
             {
-                foreach (var example in examples.Where(e => e.IsObserved))
-                {
-                    if (_observedTrainingIds.Count >= MaxTrackedObservations)
-                    {
-                        break;
-                    }
-
-                    _observedTrainingIds.Add(example.ObservationId);
-                }
-
-                _trainingExampleCount = _observedTrainingIds.Count;
+                UpdateObservedMaturity(observedIds);
 
                 // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
                 // The midpoint offset is adjusted by ApplyCohortFeedback based on cohort watch-rates.
                 var effectiveMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset;
                 var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, effectiveMidpoint, _alphaMin, _alphaMax);
 
-                var qualityFactor = UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
+                UpdateAlphaFromQualityGate(qualityFactor, sigmoidAlpha);
 
-                UpdateNeuralBeta(neuralTrained, examples.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().Count());
+                UpdateNeuralBeta(neuralTrained, observedIds.Length);
 
                 RecordMetricsSnapshot(validationLoss, examples.Count);
 
@@ -772,16 +759,30 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         return result;
     }
 
+    /// <summary>Updates bounded unique-observation maturity. The caller holds <c>_syncRoot</c>.</summary>
+    /// <param name="observedIds">Distinct observed identities in first-occurrence order.</param>
+    private void UpdateObservedMaturity(Guid[] observedIds)
+    {
+        foreach (var id in observedIds)
+        {
+            if (_observedTrainingIds.Count >= MaxTrackedObservations)
+            {
+                break;
+            }
+
+            _observedTrainingIds.Add(id);
+        }
+
+        _trainingExampleCount = _observedTrainingIds.Count;
+    }
+
     /// <summary>
     ///     Updates _alpha and the quality-gate freeze flag from the sigmoid target. Caller must hold _syncRoot.
     /// </summary>
-    /// <returns>The quality factor applied (1.0 when the gate passed), reused by trend adjustments.</returns>
-    private double UpdateAlphaFromQualityGate(bool qualityGatePassed, double validationLoss, double sigmoidAlpha)
+    private void UpdateAlphaFromQualityGate(double qualityFactor, double sigmoidAlpha)
     {
-        var qualityFactor = qualityGatePassed ? TrainingMath.QualityFactor(validationLoss, _learned.LastBaselineValidationLoss) : 0.0;
         _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
         _qualityGateFrozen = qualityFactor <= 0.0;
-        return qualityFactor;
     }
 
     /// <summary>

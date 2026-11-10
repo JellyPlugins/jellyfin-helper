@@ -50,7 +50,7 @@ public sealed class FeatureDiagnosticTests
             .Invoke(strategy, neural ? [CandidateFeatures.FeatureCount] : null);
 
         var invocation = logger.Invocations.Single(call => call.Method.Name == nameof(ILogger.Log) && call.Arguments[0] is LogLevel.Debug);
-        var state = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(invocation.Arguments[2]);
+        var state = Assert.IsType<IEnumerable<KeyValuePair<string, object?>>>(invocation.Arguments[2], exactMatch: false);
         var text = Assert.IsType<string>(state.Single(pair => pair.Key == (neural ? "FeatureImportance" : "FeatureWeights")).Value);
         for (var i = 0; i < ExpectedNames.Length; i++)
         {

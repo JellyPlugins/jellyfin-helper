@@ -13,6 +13,23 @@ public sealed class EnsembleScoringStrategyTrainingTests
     private const double AlphaMin = EnsembleScoringStrategy.DefaultAlphaMin;
     private const double AlphaMax = EnsembleScoringStrategy.DefaultAlphaMax;
 
+    [Fact]
+    public void ColdKFoldBaseline_UniformFoldDoesNotPoisonOtherObservedEvidence()
+    {
+        var examples = Enumerable.Range(0, 60).Select(i => new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = i < 2 ? 0.1 : 0.9 },
+            Label = i < 2 ? 0.1 : 0.9
+        }).ToArray();
+        var learned = new LearnedScoringStrategy();
+        Assert.True(learned.Train(examples));
+        Assert.True(double.IsFinite(learned.LastBaselineValidationLoss));
+        Assert.True(double.IsFinite(learned.LastValidationLoss));
+        var uniform = new LearnedScoringStrategy();
+        Assert.True(uniform.Train(examples.Select(example => new TrainingExample { Features = example.Features.Copy(), Label = 0.9 }).ToArray()));
+        Assert.True(double.IsNaN(uniform.LastBaselineValidationLoss));
+    }
+
     // Cleanly separable data -> low validation loss (passes the quality gate).
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {

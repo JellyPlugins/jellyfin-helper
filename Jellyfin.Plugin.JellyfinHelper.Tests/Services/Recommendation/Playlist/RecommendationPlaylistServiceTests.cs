@@ -694,11 +694,13 @@ public class RecommendationPlaylistServiceTests
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Deleted");
         _userManagerMock.Setup(manager => manager.GetUserById(userId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
-        var result = await CreateSut().UpdatePlaylistsForAllUsersAsync([CreateResult(userId, "Deleted", 3)], CancellationToken.None);
+        var recommendation = CreateResult(userId, "Deleted", 3);
+        recommendation.Recommendations[0].ItemType = "Series";
+        var result = await CreateSut().UpdatePlaylistsForAllUsersAsync([recommendation], CancellationToken.None);
 
         Assert.Equal(0, result.PlaylistsCreated);
         _playlistManagerMock.Verify(manager => manager.CreatePlaylist(It.IsAny<MediaBrowser.Model.Playlists.PlaylistCreationRequest>()), Times.Never);
-        _libraryManagerMock.Verify(manager => manager.GetItemById(It.IsAny<Guid>()), Times.Never);
+        _libraryManagerMock.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.Episode))), Times.Never);
     }
 
     [Fact]

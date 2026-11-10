@@ -238,11 +238,15 @@ public sealed class UserDiscoveryController : ControllerBase
             var now = DateTime.UtcNow;
             var current = previous?.Where(pair => now - pair.Value.DeliveredAtUtc <= ReconcileTtl).ToDictionary(pair => pair.Key, pair => pair.Value) ?? [];
             var items = new Dictionary<(int, string), DiscoveryRecommendation>();
-            foreach (var item in response.Recommendations.Take(_discovery.MaxVisiblePerUser))
+            foreach (var copy in response.Recommendations.Take(_discovery.MaxVisiblePerUser).Select(item => item.Clone()))
             {
-                var copy = item.Clone();
                 var mediaType = string.IsNullOrWhiteSpace(copy.MediaType) ? MovieMediaType : copy.MediaType.Trim().ToLowerInvariant();
                 items[(copy.TmdbId, mediaType)] = copy;
+            }
+
+            foreach (var item in response.Recommendations)
+            {
+                item.ScoringFeatures = null;
             }
 
             while (current.Count >= MaxRecentDeliveries)
@@ -553,14 +557,10 @@ public sealed class UserDiscoveryController : ControllerBase
             return overrideError;
         }
 
-        var certification = await _discovery.VerifyRequestForUserAsync(currentJellyfinUserId, dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
-        if (!certification.Verified || !certification.Allowed)
+        var certificationError = await ValidateRequestCertificationAsync(currentJellyfinUserId, dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+        if (certificationError is not null)
         {
-            return StatusCode(certification.Verified ? 403 : 503, new RequestResult
-            {
-                Success = false,
-                Message = certification.Verified ? "This title is not permitted by your Jellyfin parental policy." : "Could not verify this title's age certification. Please try again later."
-            });
+            return certificationError;
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
@@ -580,6 +580,21 @@ public sealed class UserDiscoveryController : ControllerBase
         await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId).ConfigureAwait(false);
 
         return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
+    }
+
+    private async Task<ObjectResult?> ValidateRequestCertificationAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken)
+    {
+        var certification = await _discovery.VerifyRequestForUserAsync(userId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+        if (certification.Verified && certification.Allowed)
+        {
+            return null;
+        }
+
+        return StatusCode(certification.Verified ? 403 : 503, new RequestResult
+        {
+            Success = false,
+            Message = certification.Verified ? "This title is not permitted by your Jellyfin parental policy." : "Could not verify this title's age certification. Please try again later."
+        });
     }
 
     /// <summary>

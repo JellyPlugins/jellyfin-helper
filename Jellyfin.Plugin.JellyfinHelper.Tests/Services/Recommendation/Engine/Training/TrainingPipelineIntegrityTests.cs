@@ -26,8 +26,8 @@ public sealed class TrainingPipelineIntegrityTests
 
         var historical = TrainingHistory.Before(profile, Prediction);
 
-        Assert.Single(historical.WatchedItems);
-        Assert.Same(past, historical.WatchedItems[0]);
+        var historicalItem = Assert.Single(historical.WatchedItems);
+        Assert.Same(past, historicalItem);
         Assert.Empty(historical.GenreDistribution);
         Assert.Empty(historical.LanguageProfile);
         Assert.Equal(3, profile.WatchedItems.Count);
@@ -112,6 +112,51 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.Empty(TrainingMath.FilterEffectiveExamples([example], Prediction.AddDays(1), 0.01));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RecommendedSeries_FinishedEarlierEpisodesRemainObservedWhenTheLatestEpisodeIsPartial(bool recorded)
+    {
+        var user = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        var completed = Watch(Guid.NewGuid(), Prediction.AddDays(1), ["Drama"]);
+        completed.ItemType = "Episode";
+        completed.SeriesId = series;
+        var partial = Watch(Guid.NewGuid(), Prediction.AddDays(2), ["Drama"]);
+        partial.ItemType = "Episode";
+        partial.SeriesId = series;
+        partial.Played = false;
+        partial.PlayCount = 0;
+        partial.PlaybackPositionTicks = partial.RuntimeTicks / 5;
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [completed, partial] };
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = series, ItemType = "Series", Genres = ["Drama"], ScoringFeatures = recorded ? new CandidateFeatures { IsSeries = true, GenreSimilarity = 0.4 } : null }] };
+
+        var example = Assert.Single(TrainingDataBuilder.BuildExamples([cached], [profile], CancellationToken.None).Examples);
+        Assert.True(example.IsObserved);
+        Assert.Single(TrainingMath.FilterEffectiveExamples([example], Prediction.AddDays(3), 0.01));
+    }
+
+    [Fact]
+    public void Contrasts_UseOnlyDatedPreferencesBeforeTheirPredictionTime()
+    {
+        var user = Guid.NewGuid();
+        var owner = Guid.NewGuid();
+        var prior = Watch(Guid.NewGuid(), Prediction.AddDays(-1), ["Drama"]);
+        var later = Watch(Guid.NewGuid(), Prediction.AddDays(1), ["Action"]);
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior, later], LanguageProfile = new Dictionary<string, LanguageProfileEntry> { ["de"] = new() { ChosenCount = 100 } } };
+        var negative = new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", Genres = ["Action"], AudioLanguages = ["de"], SubtitleLanguages = ["de"] };
+        var cached = new RecommendationResult { UserId = owner, GeneratedAt = Prediction, Recommendations = [negative] };
+        var built = TrainingDataBuilder.BuildExamples([cached], [profile, new UserWatchProfile { UserId = owner }], CancellationToken.None);
+        var contrast = Assert.Single(built.Examples, example => example.UserId == user && example.IsContrastSample);
+
+        Assert.Equal(Prediction, contrast.GeneratedAtUtc);
+        Assert.Equal(0.0, contrast.Features.GenreSimilarity);
+        Assert.False(contrast.Features.HasUserInteraction);
+        Assert.Equal(0.5, contrast.Features.LanguageAffinity);
+        Assert.Equal(0.5, contrast.Features.SubtitleLanguageAffinity);
+        Assert.Equal(Prediction.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday, contrast.Features.IsWeekend);
+    }
+
     [Fact]
     public void DiscoverySnapshot_PreservesPersonalInputsInsteadOfRebuildingWithGlobalMeans()
     {
@@ -156,9 +201,8 @@ public sealed class TrainingPipelineIntegrityTests
         }).ToList();
         var global = Split(examples);
         Assert.NotEmpty(global.Holdout);
-        foreach (var group in examples.GroupBy(e => e.UserId))
+        foreach (var personal in examples.GroupBy(e => e.UserId).Select(group => Split(group.ToList())))
         {
-            var personal = Split(group.ToList());
             Assert.All(personal.Holdout, example => Assert.Contains(example, global.Holdout));
             Assert.DoesNotContain(personal.Holdout, example => global.Fit.Contains(example));
         }

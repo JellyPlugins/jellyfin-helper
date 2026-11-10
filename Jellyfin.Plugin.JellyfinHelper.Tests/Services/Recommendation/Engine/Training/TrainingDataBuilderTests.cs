@@ -446,7 +446,7 @@ public sealed class TrainingDataBuilderTests
                         ItemType = "Episode",
                         Played = true,
                         Genres = ["Action"],
-                        LastPlayedDate = Anchor
+                        LastPlayedDate = Anchor.AddDays(-1)
                     },
                     new WatchedItemInfo
                     {
@@ -454,7 +454,7 @@ public sealed class TrainingDataBuilderTests
                         ItemType = "Movie",
                         Played = true,
                         Genres = ["Action"],
-                        LastPlayedDate = Anchor
+                        LastPlayedDate = Anchor.AddDays(-1)
                     }
                 }
             }

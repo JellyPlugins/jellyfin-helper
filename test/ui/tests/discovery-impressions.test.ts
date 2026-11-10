@@ -91,6 +91,16 @@ describe('Discovery delivery-bound impressions', () => {
     expect((posts()[0].body as any).DeliveryId).toBe(SECOND);
   });
 
+  test('an action renews observation for remaining cards without recording the consumed card', async () => {
+    render(FIRST, [1, 2]);
+    const old = VisibilityObserver.instances.at(-1)!;
+    ui.consumeDiscoveryItem(1, 'movie');
+    expect(old.active).toBe(false);
+    expect(VisibilityObserver.instances.at(-1)).not.toBe(old);
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 2, MediaType: 'movie' }] }]);
+  });
+
   test('protected old cards and refreshed siblings are sent in separate delivery batches', async () => {
     render(FIRST, [1, 2]);
     const firstCard = host.querySelector('.jfh-discovery-card')!;

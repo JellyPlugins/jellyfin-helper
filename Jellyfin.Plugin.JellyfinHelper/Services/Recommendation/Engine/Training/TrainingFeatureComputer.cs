@@ -334,7 +334,7 @@ internal static class TrainingFeatureComputer
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate ?? organicFallbackTimestamp),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency =
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
@@ -367,19 +367,13 @@ internal static class TrainingFeatureComputer
 
         // Label from aggregated completion.
         var explicitRatings = episodes.Where(e => e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)).Select(e => Math.Clamp(e.UserRating!.Value / 10.0, 0.0, 1.0)).ToArray();
-        double label;
-        if (explicitRatings.Length > 0)
-        {
-            label = explicitRatings.Average();
-        }
-        else
-        {
-            label = playedEps switch
+        var label = explicitRatings.Length > 0
+            ? explicitRatings.Average()
+            : playedEps switch
             {
                 0 when episodes.Any(e => e.IsFavorite) => 0.65,
                 _ => ContentScoring.ComputeEngagementLabel(completionRatio)
             };
-        }
 
         examples.Add(
             new TrainingExample
@@ -389,7 +383,7 @@ internal static class TrainingFeatureComputer
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId,
-                ObservationId = TrainingExample.CreateObservationId(userProfile.UserId, "library:" + seriesId.ToString("N")),
+                ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, seriesId),
                 HasStableObservationId = true,
                 IsObserved = episodes.Any(e => e.Played || e.IsFavorite || e.UserRating is > 0)
             });

@@ -674,23 +674,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // deferred until after the train/val split so stats come from the training split only (no leakage).
         var rawVectors = new double[examples.Count][];
         var weights = new double[examples.Count];
-        double[]? imputationMeans;
-        try
-        {
-            _rwLock.EnterReadLock();
-        }
-        catch (ObjectDisposedException)
+        if (!TryCaptureTrainingImputationMeans(out var imputationMeans))
         {
             return false;
-        }
-
-        try
-        {
-            imputationMeans = _featureMeans is null ? null : (double[])_featureMeans.Clone();
-        }
-        finally
-        {
-            _rwLock.ExitReadLock();
         }
 
         for (var i = 0; i < examples.Count; i++)
@@ -719,14 +705,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             // The fixed seed stabilizes ML validation membership and does not generate security-sensitive values.
             var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, new Random(42));
-            trainIdx = trainIdx.Concat(valIdx.Where(index => !examples[index].IsObserved)).ToArray();
-            valIdx = valIdx.Where(index => examples[index].IsObserved).ToArray();
-            useEarlyStopping = useEarlyStopping && valIdx.Length >= MinValidationExamples;
-            if (!useEarlyStopping)
-            {
-                trainIdx = trainIdx.Concat(valIdx).ToArray();
-                valIdx = [];
-            }
+            RestrictValidationToObservedExamples(examples, ref trainIdx, ref valIdx, ref useEarlyStopping);
 
             capturedBaselineLoss = TrainingMath.BaselineValidationLoss(
                 trainIdx.Select(index => examples[index]).ToArray(),
@@ -748,13 +727,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
             }
 
-            if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(
-                    _weightsIH, _biasH1, _featureMeans, _featureStdDevs, featureMeans, featureStdDevs))
-            {
-                // Adam moments belong to the previous parameter coordinates and cannot be reused after rebasing.
-                _mWIH = null;
-                EnsureAdamState(inputSize);
-            }
+            RebaseWarmInputNormalization(featureMeans, featureStdDevs, inputSize);
 
             var bestWIH = (double[])_weightsIH.Clone();
             var bestBH1 = (double[])_biasH1.Clone();
@@ -880,17 +853,69 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _lastBaselineValidationLoss = baselineLoss;
         }
 
-        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
-        if (_logger?.IsEnabled(LogLevel.Debug) == true)
-        {
-            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, metricsSource, referenceTimeUtc: referenceTime);
-            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
-            _logger.LogDebug(
-                "NeuralScoringStrategy permutation importance: {Importance}",
-                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
-        }
+        LogPermutationImportance(metricsSource, referenceTime);
 
         return true;
+    }
+
+    private bool TryCaptureTrainingImputationMeans(out double[]? means)
+    {
+        means = null;
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+
+        try
+        {
+            means = _featureMeans is null ? null : (double[])_featureMeans.Clone();
+            return true;
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
+
+    private static void RestrictValidationToObservedExamples(IReadOnlyList<TrainingExample> examples, ref int[] training, ref int[] validation, ref bool useEarlyStopping)
+    {
+        training = training.Concat(validation.Where(index => !examples[index].IsObserved)).ToArray();
+        validation = validation.Where(index => examples[index].IsObserved).ToArray();
+        useEarlyStopping = useEarlyStopping && validation.Length >= MinValidationExamples;
+        if (!useEarlyStopping)
+        {
+            training = training.Concat(validation).ToArray();
+            validation = [];
+        }
+    }
+
+    /// <summary>Rebases a fitted input layer and resets its optimizer coordinates. The caller holds the write lock.</summary>
+    /// <param name="means">The next training-split means.</param>
+    /// <param name="stdDevs">The next training-split standard deviations.</param>
+    /// <param name="inputSize">The unchanged feature count.</param>
+    private void RebaseWarmInputNormalization(double[]? means, double[]? stdDevs, int inputSize)
+    {
+        if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(_weightsIH, _biasH1, _featureMeans, _featureStdDevs, means, stdDevs))
+        {
+            // Adam moments belong to the previous parameter coordinates.
+            _mWIH = null;
+            EnsureAdamState(inputSize);
+        }
+    }
+
+    private void LogPermutationImportance(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
+    {
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples, referenceTimeUtc: referenceTime);
+            var sorted = importance.OrderByDescending(pair => Math.Abs(pair.Value));
+            var message = string.Join(", ", sorted.Select(pair => $"{pair.Key}={pair.Value:F4}"));
+            _logger.LogDebug("NeuralScoringStrategy permutation importance: {Importance}", message);
+        }
     }
 
     /// <summary>Resolves independent quality evidence without promoting unavailable validation to a successful fit.</summary>
