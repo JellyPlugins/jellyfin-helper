@@ -19,6 +19,55 @@ internal static class ScoringHelper
     /// </summary>
     internal const double NaNFallbackScore = 0.5;
 
+    /// <summary>Returns the canonical diagnostic name for a feature slot, excluding legacy aliases.</summary>
+    /// <param name="index">The feature slot.</param>
+    /// <returns>The canonical feature name.</returns>
+    internal static string GetFeatureName(FeatureIndex index)
+        => index == FeatureIndex.SeriesAffinity ? nameof(FeatureIndex.SeriesAffinity) : index.ToString();
+
+    /// <summary>Explains each named signal as an actual score-space removal effect, not a logit gradient.</summary>
+    /// <param name="features">The observed raw features.</param>
+    /// <param name="score">A scorer pinned to a coherent model state by its caller.</param>
+    /// <param name="strategyName">The strategy display name.</param>
+    /// <returns>Marginal effects; nonlinear and interacting effects are deliberately not presented as additive.</returns>
+    internal static ScoreExplanation BuildMarginalExplanation(CandidateFeatures features, Func<CandidateFeatures, double> score, string strategyName)
+    {
+        var full = score(features);
+        double Effect(FeatureIndex signal) => full - score(features.WithoutSignal(signal));
+        var explanation = new ScoreExplanation
+        {
+            FinalScore = full,
+            StrategyName = strategyName,
+            ContributionsAreMarginalEffects = true,
+            GenreContribution = Effect(FeatureIndex.GenreSimilarity),
+            CollaborativeContribution = Effect(FeatureIndex.CollaborativeScore),
+            RatingContribution = Effect(FeatureIndex.CombinedCriticScore),
+            RecencyContribution = Effect(FeatureIndex.RecencyScore),
+            YearProximityContribution = Effect(FeatureIndex.YearProximityScore),
+            UserRatingContribution = Effect(FeatureIndex.UserRatingScore),
+            PeopleContribution = Effect(FeatureIndex.PeopleSimilarity),
+            StudioContribution = Effect(FeatureIndex.StudioMatch),
+            FranchiseContribution = Effect(FeatureIndex.FranchiseAffinity),
+            CollectionProgressionContribution = Effect(FeatureIndex.CollectionProgressionBoost),
+            PopularityContribution = Effect(FeatureIndex.PopularityScore),
+            InteractionContribution = Effect(FeatureIndex.GenreCountNormalized)
+        };
+        explanation.DominantSignal = ScoreExplanation.DetermineDominantSignal(
+            explanation.GenreContribution,
+            explanation.CollaborativeContribution,
+            explanation.RatingContribution,
+            explanation.UserRatingContribution,
+            explanation.RecencyContribution,
+            explanation.YearProximityContribution,
+            explanation.InteractionContribution,
+            explanation.PeopleContribution,
+            explanation.StudioContribution,
+            explanation.FranchiseContribution,
+            explanation.CollectionProgressionContribution,
+            explanation.PopularityContribution);
+        return explanation;
+    }
+
     /// <summary>
     ///     Computes a soft genre penalty multiplier that ramps linearly from floor (at genreSimilarity = 0) to 1.0 (at genreSimilarity >= threshold).
     /// </summary>

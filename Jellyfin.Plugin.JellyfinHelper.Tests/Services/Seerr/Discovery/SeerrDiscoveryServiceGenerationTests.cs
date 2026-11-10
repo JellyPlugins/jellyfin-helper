@@ -16,6 +16,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -102,6 +104,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             pluginLog.Object);
         _perUserRegistry = perUserRegistry;
 
+        var localization = new Mock<ILocalizationManager>();
+        localization.Setup(l => l.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
+
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
@@ -113,7 +118,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             pluginLog.Object,
             TestFixtures.TestMockFactory.CreateSecretProtector(),
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
-            new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            new Mock<ILogger<SeerrDiscoveryService>>().Object,
+            localization.Object);
     }
 
     public void Dispose()
@@ -237,20 +243,22 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_ChildAccount_QueriesOnlyFamilyKidsAnimationGenres()
     {
-        // MaxParentalRating <= 60 -> child branch. Only the fixed Family/Animation/Kids routes are
+        // Jellyfin's native score <= 6 selects the child branch. Only the fixed Family/Animation/Kids routes are
         // registered; the user's own top-genre routes are intentionally left unregistered.
         var profile = NewProfile();
-        profile.MaxParentalRating = 60;
+        profile.MaxParentalRating = 6;
         _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(Profiles(profile));
 
-        // Child-safe candidates must carry a whitelisted genre (Family 10751 / Kids 10762) so
-        // ParentalRatingHelper keeps them, and vote >= the child floor (5.5).
+        // Routing uses child genres; safety requires an actual verified certification as well.
         RegisterRoute($"/genre/{TmdbGenreFamily}?page=1", [TmdbGenreFamily], [(9001, 6.0)]);
         RegisterRoute($"/genre/{TmdbGenreFamily}?page=2", [TmdbGenreFamily], []);
         RegisterRoute($"/genre/{TmdbGenreAnimation}?page=1", [TmdbGenreAnimation], []);
         RegisterRoute($"/genre/{TmdbGenreTvKids}?page=1", [TmdbGenreTvKids], [(9002, 6.0)]);
         RegisterRoute($"/genre/{TmdbGenreTvKids}?page=2", [TmdbGenreTvKids], []);
         // Family TV (page 1) shares the /genre/10751?page=1 suffix with Family movies above.
+        _handler.RegisterResponse(HttpMethod.Get, "/movie/9001", HttpStatusCode.OK, """{"id":9001,"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"6"}]}]}}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/tv/9001", HttpStatusCode.OK, """{"id":9001,"contentRatings":{"results":[{"iso_3166_1":"DE","rating":"6"}]}}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/tv/9002", HttpStatusCode.OK, """{"id":9002,"contentRatings":{"results":[{"iso_3166_1":"DE","rating":"6"}]}}""");
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore

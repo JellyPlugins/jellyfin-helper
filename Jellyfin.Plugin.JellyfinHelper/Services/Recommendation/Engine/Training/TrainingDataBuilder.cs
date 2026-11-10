@@ -167,6 +167,7 @@ internal static class TrainingDataBuilder
             OrganicFallbackTimestamp = organicFallbackTimestamp,
             Examples = examples,
             CancellationToken = cancellationToken,
+            HistoryCache = new TrainingHistoryCache(allProfiles, cancellationToken),
             SeriesEpisodeCounts = seriesEpisodeCounts
         };
 
@@ -345,25 +346,43 @@ internal static class TrainingDataBuilder
         // Fast profile lookup by user id.
         profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
 
+        var collaborative = CollaborativeFilter.PrecomputeCollaborativeContext(precomputedUserSets);
         foreach (var profile in allProfiles)
         {
-            var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
-            var co = CollaborativeFilter.BuildCollaborativeMap(profile, allProfiles, precomputedUserSets);
-            var cm = co.Values.Where(v => double.IsFinite(v) && v > 0.0).DefaultIfEmpty(0.0).Max();
-
-            var ay = ContentScoring.ComputeAverageYear(profile);
-            var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
-            var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts);
-            var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup);
-            var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup);
-            // Same PreferenceBuilder helpers as live scoring.
-            var pf = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
-            var pc = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
-            var pit = PreferenceBuilder.BuildInheritedTagPreferenceSet(profile);
-            var pww = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
-            perUserCache[profile.UserId] = (gp, co, cm, ay, ge, pw, ps, pt, pf, pc, pit, pww);
+            perUserCache[profile.UserId] = BuildArtifacts(profile, allProfiles, collaborative, lookups, seriesEpisodeCounts);
             profileById[profile.UserId] = profile;
         }
+    }
+
+    private static PerUserArtifacts BuildArtifacts(
+        UserWatchProfile profile,
+        Collection<UserWatchProfile> allProfiles,
+        CollaborativeFilter.CollaborativeContext collaborativeContext,
+        TrainingLookups lookups,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts)
+    {
+        var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
+        var collaborative = CollaborativeFilter.BuildCollaborativeMap(profile, allProfiles, collaborativeContext);
+        var maximum = collaborative.Values.Where(v => double.IsFinite(v) && v > 0.0).DefaultIfEmpty(0.0).Max();
+        return (genres, collaborative, maximum, ContentScoring.ComputeAverageYear(profile),
+            PreferenceBuilder.BuildGenreExposureAnalysis(genres, profile),
+            PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts),
+            TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup),
+            TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup),
+            PreferenceBuilder.BuildFranchisePreferenceVector(profile), PreferenceBuilder.BuildProductionCountryPreferenceVector(profile),
+            PreferenceBuilder.BuildInheritedTagPreferenceSet(profile), PreferenceBuilder.BuildWriterPreferenceWeights(profile));
+    }
+
+    private static (UserWatchProfile Profile, PerUserArtifacts Artifacts, WatchedContentSets Content) HistoricalInputs(
+        TrainingContext ctx, Guid userId, DateTime beforeUtc, HashSet<Guid> excluded)
+    {
+        var history = ctx.HistoryCache.Get(userId, beforeUtc, excluded);
+        var profile = history.Profile;
+        var artifacts = BuildArtifacts(profile, history.Profiles, history.Collaborative, ctx.Lookups, ctx.SeriesEpisodeCounts);
+        var sets = BuildWatchedContentSets(profile, ctx.Lookups);
+        var ids = new HashSet<Guid>(profile.WatchedItems.Select(w => w.ItemId));
+        ids.UnionWith(profile.WatchedItems.Where(w => w.SeriesId.HasValue).Select(w => w.SeriesId!.Value));
+        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, BuildWatchedBoxSetCounts(ids, ctx.Lookups.ItemBoxSetIdsLookup)));
     }
 
     /// <summary>
@@ -427,8 +446,22 @@ internal static class TrainingDataBuilder
 
             foreach (var rec in prevResult.Recommendations)
             {
+                var featureContext = userCtx;
+                if (rec.ScoringFeatures is null)
+                {
+                    var excluded = ContentScoring.BuildSeriesExcludeSet(rec.ItemId, userProfile);
+                    var history = HistoricalInputs(ctx, userProfile.UserId, prevResult.GeneratedAt, excluded);
+                    featureContext = userCtx with
+                    {
+                        UserProfile = history.Profile,
+                        Artifacts = history.Artifacts,
+                        ContentSets = history.Content,
+                        SeriesAffinity = ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null
+                    };
+                }
+
                 ctx.Examples.Add(
-                    BuildRecommendationFeedbackExample(rec, prevResult, userCtx, ctx.Lookups));
+                    BuildRecommendationFeedbackExample(rec, prevResult, featureContext, ctx.Lookups));
             }
         }
     }
@@ -572,6 +605,20 @@ internal static class TrainingDataBuilder
         var isAbandoned = genreAbandonRate;
         var actualCompletionRatio = ContentScoring.ComputeCompletionRatio(watchedItemForRec);
 
+        if (rec.ScoringFeatures is not null)
+        {
+            return new TrainingExample
+            {
+                Features = rec.ScoringFeatures.Copy(),
+                Label = ComputeRecommendationFeedbackLabel(wasWatched, isSeries, watchedItemForRec, prevResult, actualCompletionRatio),
+                GeneratedAtUtc = prevResult.GeneratedAt,
+                UserId = prevResult.UserId,
+                ObservationId = TrainingExample.CreateObservationId(prevResult.UserId, "library:" + rec.ItemId.ToString("N")),
+                HasStableObservationId = true,
+                IsObserved = wasWatched && HasReliableOutcome(watchedItemForRec, isSeries)
+            };
+        }
+
         var collabScore = ContentScoring.ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax);
 
         var combinedCriticScore =
@@ -630,16 +677,16 @@ internal static class TrainingDataBuilder
             SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
-                watchedItemForRec,
+                new WatchedItemInfo { ItemId = rec.ItemId, LastPlayedDate = prevResult.GeneratedAt },
                 recGenreSet,
                 userProfile,
                 isDay: true),
             HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
-                watchedItemForRec,
+                new WatchedItemInfo { ItemId = rec.ItemId, LastPlayedDate = prevResult.GeneratedAt },
                 recGenreSet,
                 userProfile,
                 isDay: false),
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, watchedItemForRec?.LastPlayedDate),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, prevResult.GeneratedAt),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = rec.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
@@ -677,7 +724,10 @@ internal static class TrainingDataBuilder
             Features = features,
             Label = label,
             GeneratedAtUtc = prevResult.GeneratedAt,
-            UserId = userProfile.UserId
+            UserId = userProfile.UserId,
+            ObservationId = TrainingExample.CreateObservationId(userProfile.UserId, "library:" + rec.ItemId.ToString("N")),
+            HasStableObservationId = true,
+            IsObserved = wasWatched && HasReliableOutcome(watchedItemForRec, isSeries)
         };
     }
 
@@ -691,6 +741,11 @@ internal static class TrainingDataBuilder
         RecommendationResult prevResult,
         double actualCompletionRatio)
     {
+        if (watchedItemForRec?.UserRating is > 0 && double.IsFinite(watchedItemForRec.UserRating.Value))
+        {
+            return Math.Clamp(watchedItemForRec.UserRating.Value / 10.0, 0.0, 1.0);
+        }
+
         if (wasWatched)
         {
             double baseLabel;
@@ -702,10 +757,7 @@ internal static class TrainingDataBuilder
                     break;
                 default:
                     {
-                        baseLabel =
-                            actualCompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold
-                                ? EngineConstants.AbandonedLabel
-                                : ContentScoring.ComputeEngagementLabel(actualCompletionRatio);
+                        baseLabel = ContentScoring.ComputeEngagementLabel(actualCompletionRatio);
                         break;
                     }
             }
@@ -723,6 +775,9 @@ internal static class TrainingDataBuilder
 
         return EngineConstants.ExposureLabel;
     }
+
+    private static bool HasReliableOutcome(WatchedItemInfo? item, bool isSeries)
+        => item is null ? isSeries : item.Played || item.IsFavorite || item.UserRating is > 0;
 
     /// <summary>
     ///     Builds the per-user set of item IDs recommended to that user across all previous results.
@@ -884,29 +939,32 @@ internal static class TrainingDataBuilder
 
             if (seriesEpisodeLookupOrganic.TryGetValue(w.SeriesId.Value, out var seriesEpisodes))
             {
+                var before = seriesEpisodes.Select(e => e.LastPlayedDate).Max() ?? ctx.OrganicFallbackTimestamp;
+                var history = HistoricalInputs(ctx, userProfile.UserId, before, ContentScoring.BuildSeriesExcludeSet(w.SeriesId.Value, userProfile));
+                var historicalArtifacts = history.Artifacts;
                 TrainingFeatureComputer.AddAggregatedSeriesExample(
                     ctx.Examples,
                     seriesEpisodes,
                     w.SeriesId.Value,
-                    userProfile,
-                    genrePreferences,
-                    coOccurrence,
-                    collaborativeMax,
-                    avgYear,
-                    genreExposureOrganic,
+                    history.Profile,
+                    historicalArtifacts.GenrePreferences,
+                    historicalArtifacts.CoOccurrence,
+                    historicalArtifacts.CollaborativeMax,
+                    historicalArtifacts.AvgYear,
+                    historicalArtifacts.GenreExposure,
                     lookups.CachedPeopleLookup,
-                    preferredPeopleWeightsOrganic,
+                    historicalArtifacts.PeopleWeights,
                     lookups.ItemStudiosLookup,
-                    preferredStudiosOrganic,
+                    historicalArtifacts.PreferredStudios,
                     lookups.ItemTagsLookup,
-                    preferredTagsOrganic,
-                    preferredFranchisesOrganic,
-                    preferredCountriesOrganic,
-                    preferredInheritedTagsOrganic,
-                    preferredWriterWeightsOrganic,
+                    historicalArtifacts.PreferredTags,
+                    historicalArtifacts.PreferredFranchises,
+                    historicalArtifacts.PreferredCountries,
+                    historicalArtifacts.PreferredInheritedTags,
+                    historicalArtifacts.PreferredWriterWeights,
                     lookups.GenreStudioIdf,
                     ctx.OrganicFallbackTimestamp,
-                    userCtx.SeriesAffinity);
+                    ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null);
                 return 1;
             }
 
@@ -963,15 +1021,18 @@ internal static class TrainingDataBuilder
         double completionRatio,
         bool isSeries)
     {
-        var userProfile = userCtx.UserProfile;
-        var watchedBoxSetCountsOrganic = userCtx.WatchedBoxSetCountsOrganic;
+        var excluded = isSeries ? ContentScoring.BuildSeriesExcludeSet(w.ItemId, userCtx.UserProfile) : new HashSet<Guid> { w.ItemId };
+        var history = HistoricalInputs(ctx, userCtx.UserProfile.UserId, w.LastPlayedDate ?? ctx.OrganicFallbackTimestamp, excluded);
+        var userProfile = history.Profile;
+        var watchedBoxSetCountsOrganic = history.Content.WatchedBoxSetCounts;
         var lookups = ctx.Lookups;
         var organicFallbackTimestamp = ctx.OrganicFallbackTimestamp;
 
         var (genrePreferences, _, _, avgYear, genreExposureOrganic,
              preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic,
              preferredFranchisesOrganic, preferredCountriesOrganic, preferredInheritedTagsOrganic, preferredWriterWeightsOrganic) =
-            userCtx.Artifacts;
+             history.Artifacts;
+        collabScore = ContentScoring.ComputeCollaborativeScore(w.ItemId, history.Artifacts.CoOccurrence, history.Artifacts.CollaborativeMax);
 
         var peopleSimilarity = lookups.CachedPeopleLookup.TryGetValue(w.ItemId, out var organicPeople)
             ? SimilarityComputer.ComputePeopleSimilarity(organicPeople, preferredPeopleWeightsOrganic)
@@ -1025,8 +1086,8 @@ internal static class TrainingDataBuilder
             IsAbandoned = genreAbandonRate2,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
-            SeriesAffinity = userCtx.SeriesAffinity is not null
-                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, userCtx.SeriesAffinity, lookups.CachedPeopleLookup, excludeSeriesId: w.ItemId)
+            SeriesAffinity = ctx.SeriesEpisodeCounts is not null
+                ? ContentScoring.ComputeSeriesAffinity(isSeries, w.ItemId, wGenres, ContentScoring.BuildSeriesAffinityContext(userProfile, ctx.SeriesEpisodeCounts), lookups.CachedPeopleLookup, excludeSeriesId: w.ItemId)
                 : 0.0,
             CollectionProgressionBoost = lookups.ItemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                 ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
@@ -1041,6 +1102,8 @@ internal static class TrainingDataBuilder
                 : ContentScoring.ComputeRecencyScore(default),
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
+            ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
+                wGenres, w.PeopleNames, organicStudios ?? [], history.Content.WatchedGenreSets, history.Content.WatchedPeopleSets, history.Content.WatchedStudioSets),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
@@ -1058,14 +1121,19 @@ internal static class TrainingDataBuilder
         features.GenreAffinityGap = organicAffGap;
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.
-        var label = w switch
+        double label;
+        if (w.UserRating is > 0 && double.IsFinite(w.UserRating.Value))
         {
-            { Played: false, PlaybackPositionTicks: > 0 } when completionRatio <
-                                                               EngineConstants.AbandonedCompletionThreshold =>
-                EngineConstants.AbandonedLabel,
-            { Played: false, PlaybackPositionTicks: <= 0, IsFavorite: true } => 0.65,
-            _ => ContentScoring.ComputeEngagementLabel(completionRatio)
-        };
+            label = Math.Clamp(w.UserRating.Value / 10.0, 0.0, 1.0);
+        }
+        else
+        {
+            label = w switch
+            {
+                { Played: false, PlaybackPositionTicks: <= 0, IsFavorite: true } => 0.65,
+                _ => ContentScoring.ComputeEngagementLabel(completionRatio)
+            };
+        }
 
         return new TrainingExample
         {
@@ -1073,7 +1141,10 @@ internal static class TrainingDataBuilder
             Label = label,
             GeneratedAtUtc = w.LastPlayedDate ?? organicFallbackTimestamp,
             SampleWeight = 0.7,
-            UserId = userProfile.UserId
+            UserId = userProfile.UserId,
+            ObservationId = TrainingExample.CreateObservationId(userProfile.UserId, "library:" + w.ItemId.ToString("N")),
+            HasStableObservationId = true,
+            IsObserved = HasReliableOutcome(w, isSeries)
         };
     }
 
@@ -1306,7 +1377,11 @@ internal static class TrainingDataBuilder
             Label = 0.0,
             GeneratedAtUtc = organicFallbackTimestamp,
             SampleWeight = 0.5,
-            UserId = userProfile.UserId
+            UserId = userProfile.UserId,
+            ObservationId = TrainingExample.CreateObservationId(userProfile.UserId, "library:" + neg.ItemId.ToString("N")),
+            HasStableObservationId = true,
+            IsObserved = false,
+            IsContrastSample = true
         };
     }
 
@@ -1423,6 +1498,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the cancellation token for the build operation.</summary>
         public CancellationToken CancellationToken { get; init; }
+
+        /// <summary>Gets the bounded historical neighbour cache, owned exclusively by this build.</summary>
+        public TrainingHistoryCache HistoryCache { get; init; }
 
         /// <summary>Gets the per-series total episode count map (library-wide). Used in training to compute SeriesAffinity on the same basis as inference.</summary>
         public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }

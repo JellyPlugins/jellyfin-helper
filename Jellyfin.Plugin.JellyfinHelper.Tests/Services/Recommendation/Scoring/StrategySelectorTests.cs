@@ -15,6 +15,22 @@ public class StrategySelectorTests
     }
 
     [Fact]
+    public void FrozenQualityGate_DisablesCohortsEvenWithEnoughDataAndHistory()
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var train = Enumerable.Range(0, 60).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 1.0 }).ToArray();
+        var holdout = Enumerable.Range(0, 10).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 0.0 }).ToArray();
+        Assert.True(ensemble.Train(train, holdout));
+        Assert.True(ensemble.Train(train, holdout));
+        Assert.True(ensemble.IsQualityGateFrozen);
+        Assert.True(ensemble.TrainingExampleCount >= StrategySelector.MinExamplesForExploration);
+        var selector = new StrategySelector(ensemble);
+
+        Assert.Equal(0.0, selector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal("control", selector.GetCohortName(Guid.Empty));
+    }
+
+    [Fact]
     public void GetAlphaOffset_ExplorationInactive_AllUsersControl()
     {
         var ensemble = new EnsembleScoringStrategy();

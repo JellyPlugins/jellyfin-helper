@@ -58,10 +58,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    // Bumped 2 -> 3: features 9/10/11/12/15 moved to genre-level aggregates. Keeping v2 would silently
-    // break scoring due to old weights on new feature semantics.
-    // The recommendation-review metadata changes also alter feature VALUES and ride on this
-    internal const int CurrentWeightsVersion = 3;
+    // V4 adds prediction-time training inputs and model-specific imputation coordinates.
+    // Feature indices stay unchanged, so shape validation alone cannot reject older fits.
+    internal const int CurrentWeightsVersion = 4;
 
     /// <summary>
     ///     Cached JSON serializer options for weight persistence. Compact (non-indented) output - the file is machine-read only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
@@ -73,6 +72,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     private readonly string? _weightsPath;
     private double _bias;
     private double _lastValidationLoss = double.NaN;
+    private double _lastBaselineValidationLoss = double.NaN;
+    private double[]? _imputationMeans;
+    private bool _hasTrainedWeights;
     private double _lastPrecisionAtK = double.NaN;
     private double _lastRecallAtK = double.NaN;
     private double _lastNdcgAtK = double.NaN;
@@ -112,6 +114,18 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <inheritdoc />
     public string Name => "Learned (Adaptive ML)";
+
+    /// <summary>Gets the independently evaluated constant-predictor baseline, or NaN without usable evidence.</summary>
+    internal double LastBaselineValidationLoss
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _lastBaselineValidationLoss;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public string NameKey => "strategyLearned";
@@ -276,6 +290,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             _bias = snapshot.Bias;
             _featureMeans = snapshot.FeatureMeans;
             _featureStdDevs = snapshot.FeatureStdDevs;
+            _imputationMeans = snapshot.ImputationMeans;
+            _hasTrainedWeights = snapshot.HasTrainedWeights;
             _trainingGeneration = 0;
         }
     }
@@ -284,7 +300,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     ///     Takes a consistent copy of the weights, bias, and standardization stats under one lock so a warm
     ///     start seeds from a single coherent model state rather than a mix of concurrent training states.
     /// </summary>
-    private (double[] Weights, double Bias, double[]? FeatureMeans, double[]? FeatureStdDevs) CaptureSeedSnapshot()
+    private (double[] Weights, double Bias, double[]? FeatureMeans, double[]? FeatureStdDevs, double[]? ImputationMeans, bool HasTrainedWeights) CaptureSeedSnapshot()
     {
         lock (_syncRoot)
         {
@@ -292,7 +308,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 (double[])_weights.Clone(),
                 _bias,
                 _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
-                _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null);
+                _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
+                _imputationMeans is not null ? (double[])_imputationMeans.Clone() : null,
+                _hasTrainedWeights);
         }
     }
 
@@ -308,10 +326,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         {
             // Clear only the portion we use (Rent may return a larger array)
             Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
-            features.WriteToVector(vector);
-
             lock (_syncRoot)
             {
+                features.WriteForModel(vector, _imputationMeans);
                 // Apply Z-score standardization if statistics are available
                 if (_featureMeans is not null && _featureStdDevs is not null)
                 {
@@ -331,27 +348,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
         ArgumentNullException.ThrowIfNull(features);
-
-        var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
-        try
+        lock (_syncRoot)
         {
-            Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
-            features.WriteToVector(vector);
-
-            lock (_syncRoot)
-            {
-                // Apply Z-score standardization if statistics are available
-                if (_featureMeans is not null && _featureStdDevs is not null)
-                {
-                    StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
-                }
-
-                return ScoringHelper.BuildExplanation(vector, _weights, _bias, Name);
-            }
-        }
-        finally
-        {
-            ArrayPool<double>.Shared.Return(vector);
+            return ScoringHelper.BuildMarginalExplanation(features, Score, Name);
         }
     }
 
@@ -377,15 +376,23 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Pre-compute all feature vectors ONCE before training. These are the RAW (unstandardized) vectors used as the source of truth.
         var rawVectors = new double[examples.Count][];
         var effectiveWeights = new double[examples.Count];
+        double[]? imputationMeans;
+        bool wasWarm;
+        lock (_syncRoot)
+        {
+            imputationMeans = _featureMeans is null ? null : (double[])_featureMeans.Clone();
+            wasWarm = _hasTrainedWeights;
+        }
 
         for (var i = 0; i < examples.Count; i++)
         {
-            rawVectors[i] = examples[i].Features.ToVector();
+            rawVectors[i] = examples[i].Features.ToModelVector(imputationMeans);
             effectiveWeights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
         // Determine whether standardization should be applied at all. Thread-safety note: featureMeans/featureStdDevs are computed from local data (no shared state), then assigned to instance fields INSIDE the lock below.
         var useStandardization = examples.Count >= MinExamplesForStandardization;
+        var internalBaselineLoss = double.NaN;
 
         lock (_syncRoot)
         {
@@ -420,7 +427,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     effectiveWeights,
                     allIndices,
                     rng,
-                    useStandardization);
+                    useStandardization,
+                    referenceTime);
+                internalBaselineLoss = _lastBaselineValidationLoss;
             }
 
             RunFinalTrainingPass(
@@ -433,6 +442,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 kFoldLoss);
 
             LogFeatureImportance();
+            _imputationMeans = imputationMeans;
+            _hasTrainedWeights = true;
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
 
         // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally, which acquires _syncRoot.
@@ -440,9 +451,16 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         var validationLoss = TrainingMath.ValidationLoss(
             heldOutForMetrics, this, referenceTime, MinSampleWeight, LastValidationLoss);
+        var baselineLoss = TrainingMath.BaselineValidationLoss(examples, heldOutForMetrics, referenceTime, MinSampleWeight);
+        if (heldOutForMetrics is null && !wasWarm)
+        {
+            baselineLoss = internalBaselineLoss;
+        }
+
         lock (_syncRoot)
         {
             _lastValidationLoss = validationLoss;
+            _lastBaselineValidationLoss = baselineLoss;
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
@@ -467,6 +485,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <param name="allIndices">The shuffled index array spanning all examples.</param>
     /// <param name="rng">The deterministic RNG used for per-epoch shuffling.</param>
     /// <param name="useStandardization">Whether Z-score standardization should be applied.</param>
+    /// <param name="referenceTime">The fixed temporal-weight reference for fold baselines.</param>
     /// <returns>The summed per-fold validation loss and the number of contributing folds.</returns>
     private (double Sum, int Count) RunKFoldCrossValidation(
         IReadOnlyList<TrainingExample> examples,
@@ -474,7 +493,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         double[] effectiveWeights,
         int[] allIndices,
         Random rng,
-        bool useStandardization)
+        bool useStandardization,
+        DateTime referenceTime)
     {
         // Each fold computes standardization statistics from its TRAINING fold only, preventing validation data from leaking into the feature normalization.
         var foldSize = examples.Count / KFoldCount;
@@ -482,6 +502,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         var savedBias = _bias;
         var kFoldLossSum = 0.0;
         var kFoldLossCount = 0;
+        var baselineSum = 0.0;
 
         for (var fold = 0; fold < KFoldCount; fold++)
         {
@@ -500,6 +521,14 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     foldTrainIndices[ti++] = allIndices[j];
                 }
             }
+
+            foldTrainIndices = foldTrainIndices.Concat(foldValIndices.Where(index => !examples[index].IsObserved)).ToArray();
+            foldValIndices = foldValIndices.Where(index => examples[index].IsObserved).ToArray();
+            baselineSum += TrainingMath.BaselineValidationLoss(
+                foldTrainIndices.Select(index => examples[index]).ToArray(),
+                foldValIndices.Select(index => examples[index]).ToArray(),
+                referenceTime,
+                MinSampleWeight);
 
             // Clone raw vectors into working copies so per-fold standardization
             // does not mutate the originals (needed for subsequent folds + final pass).
@@ -538,6 +567,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Restore weights for final training on all data
         _weights = savedWeights;
         _bias = savedBias;
+        _lastBaselineValidationLoss = baselineSum / KFoldCount;
         return (kFoldLossSum, kFoldLossCount);
     }
 
@@ -939,14 +969,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             return;
         }
 
-        var featureNames = Enum.GetNames<FeatureIndex>();
         var inputSize = _weights.Length;
 
         // Sort by absolute weight descending for readability
         var ranked = new (string Name, double Weight)[inputSize];
         for (var i = 0; i < inputSize; i++)
         {
-            ranked[i] = (i < featureNames.Length ? featureNames[i] : $"Feature{i}", _weights[i]);
+            ranked[i] = (ScoringHelper.GetFeatureName((FeatureIndex)i), _weights[i]);
         }
 
         Array.Sort(ranked, (a, b) => Math.Abs(b.Weight).CompareTo(Math.Abs(a.Weight)));
@@ -1058,13 +1087,16 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             {
                 if (meansValid && stdDevsValid && bothNullOrBothPresent
                     && (data.FeatureMeans is null || AllFinite(data.FeatureMeans))
-                    && (data.FeatureStdDevs is null || AllFinite(data.FeatureStdDevs)))
+                    && (data.FeatureStdDevs is null || AllFinite(data.FeatureStdDevs))
+                    && (data.ImputationMeans is null || (data.ImputationMeans.Length == CandidateFeatures.FeatureCount && AllFinite(data.ImputationMeans))))
                 {
                     _weights = data.Weights;
                     _bias = data.Bias;
                     _trainingGeneration = data.TrainingGeneration;
                     _featureMeans = data.FeatureMeans;
                     _featureStdDevs = data.FeatureStdDevs;
+                    _imputationMeans = data.ImputationMeans;
+                    _hasTrainedWeights = true;
                 }
                 else
                 {
@@ -1124,6 +1156,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     Bias = _bias,
                     FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
                     FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
+                    ImputationMeans = _imputationMeans is not null ? (double[])_imputationMeans.Clone() : null,
                     TrainingGeneration = _trainingGeneration,
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                     Version = CurrentWeightsVersion
@@ -1188,6 +1221,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         /// <summary>Gets or sets the per-feature standard deviations for Z-score standardization.</summary>
         public double[]? FeatureStdDevs { get; set; }
+
+        /// <summary>Gets or sets the raw external imputation means used by the fitted model.</summary>
+        public double[]? ImputationMeans { get; set; }
 
         /// <summary>Gets or sets the training generation counter for seed variation.</summary>
         public int TrainingGeneration { get; set; }

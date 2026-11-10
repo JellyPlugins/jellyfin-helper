@@ -127,6 +127,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         {
             [sharedPerson] = 3
         };
+        foreach (var watch in profile.WatchedItems.Take(3)) watch.PeopleNames = [sharedPerson];
 
         var entry = ShownEntry();
         entry.KnownPeople = [sharedPerson, "Someone Else"];
@@ -197,7 +198,8 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         Genres = [ActionGenre],
         TmdbRating = 7.0,
         Popularity = 120.0,
-        ShownAtUtc = shownAt ?? DateTime.UtcNow
+        ShownAtUtc = shownAt ?? DateTime.UtcNow.AddDays(-EngineConstants.RecommendationInfluenceWindowDays - 2),
+        ImpressionAtUtc = shownAt?.AddDays(1) ?? DateTime.UtcNow.AddDays(-EngineConstants.RecommendationInfluenceWindowDays - 1)
     };
 
     private static DiscoveryFeedbackResult WithEntry(Guid userId, DiscoveryFeedbackEntry entry)
@@ -235,7 +237,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = DateTime.UtcNow.AddDays(-i),
+                LastPlayedDate = DateTime.UtcNow.AddDays(-EngineConstants.RecommendationInfluenceWindowDays - i - 3),
                 Genres = [ActionGenre],
                 Year = 2015
             });

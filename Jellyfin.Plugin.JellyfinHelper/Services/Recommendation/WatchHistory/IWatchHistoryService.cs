@@ -16,6 +16,15 @@ public interface IWatchHistoryService
     /// <returns>The user's watch profile, or null if the user was not found or is disabled.</returns>
     UserWatchProfile? GetUserWatchProfile(Guid userId);
 
+    /// <summary>Reads current account availability and parental policy without building a media history.</summary>
+    /// <param name="userId">The authenticated user.</param>
+    /// <returns>Whether the account is available and its current Jellyfin rating limit.</returns>
+    (bool Available, int? MaximumRating) GetUserParentalPolicy(Guid userId)
+    {
+        var profile = GetUserWatchProfile(userId);
+        return (profile is not null, profile?.MaxParentalRating);
+    }
+
     /// <summary>
     ///     Builds watch profiles for all enabled Jellyfin users. Disabled users are skipped.
     /// </summary>

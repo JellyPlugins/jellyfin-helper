@@ -105,8 +105,10 @@ internal sealed class StrategySelector : IStrategySelector
     /// </summary>
     private bool IsExplorationActive()
     {
-        return _ensemble.TrainingExampleCount >= MinExamplesForExploration
-               && _ensemble.MetricsHistoryCount >= MinMetricsHistoryForExploration;
+        var diagnostics = _ensemble.GetDiagnosticsSnapshot();
+        return !diagnostics.QualityGateFrozen
+               && diagnostics.TrainingExampleCount >= MinExamplesForExploration
+               && diagnostics.MetricsHistoryCount >= MinMetricsHistoryForExploration;
     }
 
     /// <summary>

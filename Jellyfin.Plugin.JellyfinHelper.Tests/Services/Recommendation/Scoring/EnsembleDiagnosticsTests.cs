@@ -153,6 +153,7 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
         {
             SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
             TrainingExampleCount = 200,
+            ObservedTrainingIds = Enumerable.Range(1, 200).Select(index => new Guid(index, 0, 0, new byte[8])).ToArray(),
             Alpha = AlphaMin,
             NeuralBeta = 0.0,
             QualityGateFrozen = true,

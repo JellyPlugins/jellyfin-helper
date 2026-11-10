@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -12,6 +14,8 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
@@ -34,6 +38,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private readonly Mock<MediaBrowser.Controller.Library.ILibraryManager> _libraryManager =
         TestMockFactory.CreateLibraryManager();
     private readonly Dictionary<int, string> _detailById = new();
+    private int _detailCalls;
+    private HttpStatusCode _detailStatus = HttpStatusCode.OK;
+    private Exception? _detailFailure;
+    private Action? _onDetailFetch;
 
     // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
     // own cached recommendations (the source the own-recommendation exclusion reads).
@@ -48,6 +56,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "seerr-key";
+        _history.Setup(h => h.GetUserParentalPolicy(It.IsAny<Guid>())).Returns((Available: true, MaximumRating: (int?)null));
     }
 
     public void Dispose()
@@ -82,6 +91,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync((System.Net.Http.HttpRequestMessage request, CancellationToken _) =>
             {
+                Interlocked.Increment(ref _detailCalls);
+                _onDetailFetch?.Invoke();
+                if (_detailFailure is not null) throw _detailFailure;
+                if (_detailStatus != HttpStatusCode.OK) return new System.Net.Http.HttpResponseMessage(_detailStatus);
                 var segments = request.RequestUri?.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
                     ?? [];
                 var last = segments.Length > 0 ? segments[^1] : string.Empty;
@@ -129,11 +142,15 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                 EnsembleScoringStrategy.DefaultGenrePenaltyFloor),
             pluginLog.Object);
         _registries.Add(perUserRegistry);
+        var localization = new Mock<ILocalizationManager>();
+        localization.Setup(mapper => mapper.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
+        localization.Setup(mapper => mapper.GetRatingScore("18", "DE")).Returns(new ParentalRatingScore(18, null));
+        localization.Setup(mapper => mapper.GetRatingScore("XXX", "US")).Returns(new ParentalRatingScore(1000, null));
         return new SeerrDiscoveryService(
             factory.Object, _history.Object, arr.Object, _libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
             TestMockFactory.CreateSecretProtector(),
-            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object);
     }
 
     private void SetupProfile(Guid userId, int? maxParentalRating = null)
@@ -148,6 +165,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             GenreDistribution = new Dictionary<string, int> { ["Action"] = 10, ["Drama"] = 5 },
         };
         _history.Setup(h => h.GetUserWatchProfile(userId)).Returns(profile);
+        _history.Setup(h => h.GetUserParentalPolicy(userId)).Returns((Available: true, MaximumRating: maxParentalRating));
         _history.Setup(h => h.GetSeriesEpisodeCounts()).Returns(new Dictionary<Guid, int>());
     }
 
@@ -170,6 +188,132 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         GenreIds = [28],
         PosterPath = "/p" + tmdbId + ".jpg",
     };
+
+    private static string CertifiedDetail(int id, int age) => $$"""{"id":{{id}},"genres":[{"id":28}],"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"{{age}}"}]}] } }""";
+
+    [Fact]
+    public async Task RequestCertification_ForcesProviderRefreshAndDoesNotTrustAnEarlierSafeDetail()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        _detailById[101] = CertifiedDetail(101, 6);
+        var service = CreateService();
+        Assert.Equal((true, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        _detailById[101] = CertifiedDetail(101, 18);
+
+        Assert.Equal((false, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        Assert.Equal(2, _detailCalls);
+    }
+
+    [Theory]
+    [InlineData(6, true)]
+    [InlineData(18, false)]
+    public async Task RequestCertification_UsesVerifiedNativeProviderScores(int age, bool allowed)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        _detailById[101] = CertifiedDetail(101, age);
+
+        Assert.Equal((allowed, true), await CreateService().VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"id\":101}")]
+    [InlineData("{broken")]
+    [InlineData("{\"id\":102,\"releases\":{\"results\":[{\"iso_3166_1\":\"DE\",\"release_dates\":[{\"certification\":\"6\"}]}]}}")]
+    public async Task RequestCertification_UnknownMalformedOrWrongIdentity_IsUnverified(string detail)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        _detailById[101] = detail;
+        Assert.Equal((false, false), await CreateService().VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RequestCertification_ProviderFailureDoesNotAuthorizeRestrictedRequest(bool transportFailure)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 6);
+        if (transportFailure) _detailFailure = new System.Net.Http.HttpRequestException("offline");
+        else _detailStatus = HttpStatusCode.ServiceUnavailable;
+        Assert.Equal((false, false), await CreateService().VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CurrentUnavailablePolicy_CannotBeOverriddenByAStaleUnrestrictedProfile()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns((false, (int?)null));
+        var service = CreateService();
+        Assert.Empty(service.FilterConsumedItems(user, new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 101 }] }).Recommendations);
+        Assert.Equal((false, true), await service.VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+        Assert.Equal(0, _detailCalls);
+        _history.Verify(history => history.GetUserWatchProfile(user), Times.Never);
+    }
+
+    [Fact]
+    public async Task PolicyTightenedDuringProviderFetch_IsRecheckedBeforeAuthorizing()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, 18);
+        var maximum = 18;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (true, (int?)maximum));
+        _detailById[101] = CertifiedDetail(101, 18);
+        _onDetailFetch = () => maximum = 6;
+        Assert.Equal((false, true), await CreateService().VerifyRequestForUserAsync(user, 101, "movie", CancellationToken.None));
+    }
+
+    [Fact]
+    public void CachedResults_AreFilteredAgainstCurrentPolicyOnEveryRead()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var maximum = (int?)null;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (true, maximum));
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, CertificationScore = 6 }, new DiscoveryRecommendation { TmdbId = 2, CertificationScore = 18 }, new DiscoveryRecommendation { TmdbId = 3 }] };
+        var service = CreateService();
+        Assert.Equal(3, service.FilterConsumedItems(user, cached).Recommendations.Count);
+        maximum = 6;
+        Assert.Equal(1, service.FilterConsumedItems(user, cached).Recommendations.Single().TmdbId);
+        Assert.Equal(3, cached.Recommendations.Count);
+    }
+
+    [Fact]
+    public async Task ProviderDetails_AreReusedButExpiredEntriesAndCredentialsAreIsolated()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _detailById[101] = CertifiedDetail(101, 6);
+        var service = CreateService();
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.Equal(1, _detailCalls);
+        var cache = (System.Collections.IDictionary)typeof(SeerrDiscoveryService).GetField("_metadataCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        var entry = cache.Values.Cast<object>().Single();
+        entry.GetType().GetProperty("ExpiresAtUtc")!.SetValue(entry, DateTime.UtcNow.AddMinutes(-1));
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.Equal(2, _detailCalls);
+        Plugin.Instance!.Configuration.SeerrApiKey = "another-key";
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Plugin.Instance.Configuration.SeerrUrl = "https://another-seerr.example.com";
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.Equal(4, _detailCalls);
+    }
+
+    [Fact]
+    public async Task RequestVerification_HonorsCancellationEvenForUnrestrictedAccounts()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => CreateService().VerifyRequestForUserAsync(user, 101, "movie", cancelled.Token));
+        Assert.Equal(0, _detailCalls);
+    }
 
     [Fact]
     public async Task ReturnsNull_WhenCandidatesEmpty()
@@ -237,7 +381,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
-    public async Task EnrichedHorrorGenre_DroppedForTeenProfile()
+    public async Task UnknownCertification_DroppedForRestrictedProfileEvenWhenGenresAreKnown()
     {
         var userId = Guid.NewGuid();
         SetupProfile(userId, maxParentalRating: 90);
@@ -248,7 +392,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             [Candidate(101)],
             CancellationToken.None);
 
-        // The enriched Horror genre hits the teen blacklist; nothing survives.
+        // A genre label cannot prove age suitability without a recognized certification.
         Assert.Null(result);
     }
 
@@ -379,7 +523,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             [Candidate(101)],
             CancellationToken.None);
 
-        // Fail closed: without enriched genres the blacklist cannot judge, so the item is dropped.
+        // Fail closed: unavailable provider details cannot establish a safe certification.
         Assert.Null(teenResult);
 
         var openId = Guid.NewGuid();

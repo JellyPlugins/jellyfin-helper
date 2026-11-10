@@ -9,12 +9,25 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 public interface IDiscoveryFeedbackStore
 {
     /// <summary>
-    ///     Records that a set of discovery items were shown to a user. Called when the discovery task generates new recommendations.
+    ///     Legacy alias for recording generated candidates; this does not confirm a viewport impression.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <param name="userName">The user's display name.</param>
     /// <param name="items">The discovery recommendations that were shown.</param>
     void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items);
+
+    /// <summary>Records generated candidates without claiming that the user saw them.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="userName">The display name.</param>
+    /// <param name="items">The generated candidates and their prediction-time features.</param>
+    /// <param name="generatedAtUtc">The generation timestamp, or null for the current time.</param>
+    void RecordGenerated(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items, DateTime? generatedAtUtc = null);
+
+    /// <summary>Records confirmed impressions of candidates validated against the server's own delivered response.</summary>
+    /// <param name="userId">The authenticated owning user.</param>
+    /// <param name="items">Trusted delivered candidates, never client-supplied feature values.</param>
+    /// <param name="generatedAtUtc">The timestamp of the delivered candidate generation.</param>
+    void RecordImpressions(Guid userId, IReadOnlyList<DiscoveryRecommendation> items, DateTime generatedAtUtc);
 
     /// <summary>
     ///     Records that a user explicitly dismissed a discovery item.

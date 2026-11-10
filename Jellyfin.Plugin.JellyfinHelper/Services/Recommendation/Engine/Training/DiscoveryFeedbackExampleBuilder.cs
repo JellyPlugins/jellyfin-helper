@@ -53,27 +53,36 @@ internal static class DiscoveryFeedbackExampleBuilder
 
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
-            BuildUserContext(
-                userProfile,
-                seriesEpisodeCounts,
-                out var genrePreferences,
-                out var avgYear,
-                out var preferredPeople,
-                out var genreExposure);
-
             foreach (var entry in userFeedback.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var status = entry.GetStatus();
+                if (status == DiscoveryInteractionStatus.Generated
+                    || (status == DiscoveryInteractionStatus.Shown && entry.ImpressionAtUtc.HasValue
+                        && (DateTime.UtcNow - entry.ImpressionAtUtc.Value).TotalDays < EngineConstants.RecommendationInfluenceWindowDays))
+                {
+                    continue;
+                }
+
                 var label = GetLabelForStatus(status);
+                var featureProfile = userProfile is not null && entry.ScoringFeatures is null
+                    ? TrainingHistory.Before(userProfile, entry.ShownAtUtc)
+                    : userProfile;
+                BuildUserContext(
+                    featureProfile,
+                    seriesEpisodeCounts,
+                    out var genrePreferences,
+                    out var avgYear,
+                    out var preferredPeople,
+                    out var genreExposure);
 
                 var entryGenres = entry.Genres ?? Array.Empty<string>();
-                var (familiarity, genreAvgCompletion, genreAbandonRate) = userProfile is not null
-                    ? ContentScoring.ComputeGenreEngagement(entryGenres, userProfile)
+                var (familiarity, genreAvgCompletion, genreAbandonRate) = featureProfile is not null
+                    ? ContentScoring.ComputeGenreEngagement(entryGenres, featureProfile)
                     : (0.0, 0.5, 0.0);
-                var userRatingScore = userProfile is not null
-                    ? ContentScoring.ComputeGenreRatingScore(entryGenres, userProfile)
+                var userRatingScore = featureProfile is not null
+                    ? ContentScoring.ComputeGenreRatingScore(entryGenres, featureProfile)
                     : 0.5;
                 var features = BuildFeaturesFromEntry(
                     entry,
@@ -88,6 +97,12 @@ internal static class DiscoveryFeedbackExampleBuilder
                 features.IsAbandoned = genreAbandonRate;
                 features.UserRatingScore = userRatingScore;
 
+                // Recorded inputs belong to the prediction, not to the user's later request/watch state.
+                if (entry.ScoringFeatures is not null)
+                {
+                    features = entry.ScoringFeatures.Copy();
+                }
+
                 var sampleWeight = hasLegacyPopularity
                     ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5
                     : EngineConstants.DiscoveryFeedbackSampleWeight;
@@ -98,7 +113,10 @@ internal static class DiscoveryFeedbackExampleBuilder
                     Label = label,
                     GeneratedAtUtc = GetLatestInteractionUtc(entry),
                     SampleWeight = sampleWeight,
-                    UserId = userFeedback.UserId
+                    UserId = userFeedback.UserId,
+                    ObservationId = TrainingExample.CreateObservationId(userFeedback.UserId, "tmdb:" + entry.MediaType + ":" + entry.TmdbId),
+                    HasStableObservationId = true,
+                    IsObserved = status != DiscoveryInteractionStatus.Shown || entry.ImpressionAtUtc.HasValue
                 });
             }
         }
@@ -174,6 +192,11 @@ internal static class DiscoveryFeedbackExampleBuilder
     private static DateTime GetLatestInteractionUtc(DiscoveryFeedbackEntry entry)
     {
         var latest = entry.ShownAtUtc;
+        if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value > latest)
+        {
+            latest = entry.ImpressionAtUtc.Value;
+        }
+
         if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
         {
             latest = entry.DismissedAtUtc.Value;
@@ -230,6 +253,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         var features = new CandidateFeatures
         {
+            IsExternalCandidate = true,
             GenreSimilarity = genreSimilarity,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
@@ -244,7 +268,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,
             HourOfDayAffinity = 0.5,
-            IsWeekend = false,
+            IsWeekend = entry.ShownAtUtc.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = 0.0,
             LibraryAddedRecency = 0.5,
             ContentNearestNeighborScore = 0.0,

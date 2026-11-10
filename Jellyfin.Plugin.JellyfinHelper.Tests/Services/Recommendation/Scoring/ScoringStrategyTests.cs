@@ -943,7 +943,8 @@ public sealed class ScoringStrategyTests : IDisposable
         var result = strategy.Train(examples);
 
         Assert.True(result);
-        var expectedAlpha25 = EnsembleScoringStrategy.ComputeSigmoidAlpha(25, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
+        var quality = TrainingMath.QualityFactor(strategy.LearnedStrategy.LastValidationLoss, strategy.LearnedStrategy.LastBaselineValidationLoss);
+        var expectedAlpha25 = EnsembleScoringStrategy.DefaultAlphaMin + ((EnsembleScoringStrategy.ComputeSigmoidAlpha(25, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax) - EnsembleScoringStrategy.DefaultAlphaMin) * quality);
         Assert.Equal(expectedAlpha25, strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha > initialAlpha, "Alpha should increase with training data");
         Assert.Equal(25, strategy.TrainingExampleCount);
@@ -955,13 +956,16 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new EnsembleScoringStrategy();
 
         // Train with 50 examples first
-        strategy.Train(GenerateTrainingExamples(50));
+        var validation = GenerateTrainingExamples(40);
+        strategy.Train(GenerateTrainingExamples(50), validation);
         var alphaAfter50 = strategy.CurrentAlpha;
-        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(50, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax), alphaAfter50, 4);
+        Assert.True(alphaAfter50 > EnsembleScoringStrategy.DefaultAlphaMin);
 
         // Train with 60 more examples (total = 110)
-        strategy.Train(GenerateTrainingExamples(60));
-        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(110, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax), strategy.CurrentAlpha, 4);
+        strategy.Train(GenerateTrainingExamples(60), validation);
+        var quality = TrainingMath.QualityFactor(strategy.LearnedStrategy.LastValidationLoss, strategy.LearnedStrategy.LastBaselineValidationLoss);
+        var expected = EnsembleScoringStrategy.DefaultAlphaMin + ((EnsembleScoringStrategy.ComputeSigmoidAlpha(110, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax) - EnsembleScoringStrategy.DefaultAlphaMin) * quality);
+        Assert.Equal(expected, strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha > alphaAfter50, "Alpha should increase with more data");
         Assert.Equal(110, strategy.TrainingExampleCount);
     }
@@ -975,7 +979,8 @@ public sealed class ScoringStrategyTests : IDisposable
         strategy.Train(examples);
 
         // With few examples, alpha should still be close to AlphaMin
-        var expectedAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(15, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
+        var quality = TrainingMath.QualityFactor(strategy.LearnedStrategy.LastValidationLoss, strategy.LearnedStrategy.LastBaselineValidationLoss);
+        var expectedAlpha = EnsembleScoringStrategy.DefaultAlphaMin + ((EnsembleScoringStrategy.ComputeSigmoidAlpha(15, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax) - EnsembleScoringStrategy.DefaultAlphaMin) * quality);
         Assert.Equal(expectedAlpha, strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha < (EnsembleScoringStrategy.DefaultAlphaMin + EnsembleScoringStrategy.DefaultAlphaMax) / 2.0,
             "With few examples, alpha should be below the midpoint");

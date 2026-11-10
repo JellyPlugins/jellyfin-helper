@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 
@@ -39,6 +40,9 @@ public sealed class RecommendedItem
     ///     Gets or sets the combined recommendation score (0.0-1.0).
     /// </summary>
     public double Score { get; set; }
+
+    /// <summary>Gets or sets the raw features captured before any feedback for this recommendation.</summary>
+    public CandidateFeatures? ScoringFeatures { get; set; }
 
     /// <summary>
     ///     Gets or sets a human-readable reason for the recommendation.

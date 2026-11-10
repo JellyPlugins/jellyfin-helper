@@ -42,6 +42,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryCacheService>>().Object);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
+        _discoveryMock.Setup(d => d.VerifyRequestForUserAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Allowed: true, Verified: true));
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
         _configServiceMock = new Mock<IPluginConfigurationService>();
@@ -211,6 +213,29 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(403, status.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false, true, 403)]
+    [InlineData(false, false, 503)]
+    [InlineData(true, false, 503)]
+    public async Task SubmitMyRequest_DeniedOrUnverifiedCertification_NeverSubmits(bool allowed, bool verified, int expectedStatus)
+    {
+        var userId = Guid.NewGuid();
+        _discoveryMock.Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock.Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(42);
+        _discoveryMock.Setup(d => d.VerifyRequestForUserAsync(userId, 100, "movie", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((allowed, verified));
+
+        var result = await CreateController(userId).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", SeerrUserId = 999 }, CancellationToken.None);
+
+        var status = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(expectedStatus, status.StatusCode);
+        Assert.False(Assert.IsType<RequestResult>(status.Value).Success);
+        _discoveryMock.Verify(d => d.VerifyRequestForUserAsync(userId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
+        _discoveryMock.Verify(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedbackStoreMock.Verify(f => f.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

@@ -33,6 +33,8 @@ public sealed class UserDiscoveryController : ControllerBase
     private const string TraktDisabledMessage = "Trakt is not enabled by the administrator.";
     private const string MovieMediaType = "movie";
     private const string RadarrServiceType = "radarr";
+    // Six complete visible responses retain the previous 60-card budget without merging generations or tabs.
+    private const int MaxRecentDeliveries = 6;
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
 
     /// <summary>
@@ -123,6 +125,8 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(null);
         }
 
+        userResult = _discovery.FilterConsumedItems(currentUserId, userResult) ?? new DiscoveryResult { UserId = currentUserId, GeneratedAt = userResult.GeneratedAt };
+
         // Filter persisted pool: exclude dismissed/requested, serve next N. Normalize MediaType
         // like DiscoveryFeedbackStore does so matching is case-insensitive.
         var excluded = BuildExcludedItemKeys(currentUserId);
@@ -137,14 +141,123 @@ public sealed class UserDiscoveryController : ControllerBase
             .Take(_discovery.MaxVisiblePerUser)
             .ToList();
 
-        return Ok(new DiscoveryResult
+        var response = new DiscoveryResult
         {
             UserId = userResult.UserId,
             UserName = userResult.UserName,
             Recommendations = visible,
             GeneratedAt = userResult.GeneratedAt
-        });
+        };
+        return Ok(RememberDelivered(currentUserId, response));
     }
+
+    /// <summary>Records real card visibility without accepting client-supplied scores or other users' candidates.</summary>
+    /// <param name="dto">The visible card ids.</param>
+    /// <returns>No content on success, or a validation/access/persistence error.</returns>
+    [HttpPost("Impressions")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult RecordImpressions([FromBody] DiscoveryImpressionsDto dto)
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = DiscoveryAccessDisabledMessage });
+        }
+
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        if (dto?.Items is null || !dto.DeliveryId.HasValue || dto.DeliveryId.Value == Guid.Empty || dto.Items.Count is < 1 or > 20
+            || dto.Items.Any(item => item is null || item.TmdbId <= 0 || item.MediaType is not ("movie" or "tv")))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Invalid impression identifiers." });
+        }
+
+        var config = _configurationService.GetConfiguration();
+        if (config.RecommendationsTaskMode != Configuration.TaskMode.Activate)
+        {
+            return Ok(new RequestResult { Success = false, Message = "Recommendation feedback is inactive." });
+        }
+
+        var trusted = new List<DiscoveryRecommendation>();
+        DateTime generatedAt;
+        lock (RateLimitGate)
+        {
+            if (!_memoryCache.TryGetValue<Dictionary<Guid, DeliveredBatch>>(DeliveryKey(userId.Value), out var delivered)
+                || delivered is null || !delivered.TryGetValue(dto.DeliveryId.Value, out var batch)
+                || DateTime.UtcNow - batch.DeliveredAtUtc > ReconcileTtl)
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "No matching recent discovery delivery." });
+            }
+
+            generatedAt = batch.GeneratedAtUtc;
+            foreach (var item in dto.Items.DistinctBy(item => (item.TmdbId, item.MediaType)))
+            {
+                if (!batch.Items.TryGetValue((item.TmdbId, item.MediaType), out var candidate))
+                {
+                    return BadRequest(new RequestResult { Success = false, Message = "Only recently delivered own candidates can be confirmed." });
+                }
+
+                trusted.Add(candidate.Clone());
+            }
+        }
+
+        try
+        {
+            _feedbackStore.RecordImpressions(userId.Value, trusted, generatedAt);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _logger.LogWarning(ex, "Could not persist discovery impressions for user {UserId}", userId.Value);
+            return StatusCode(503, new RequestResult { Success = false, Message = "Feedback persistence is temporarily unavailable." });
+        }
+
+        return NoContent();
+    }
+
+    private DiscoveryResult? RememberDelivered(Guid userId, DiscoveryResult? result)
+    {
+        if (result is null || result.UserId != userId)
+        {
+            return result;
+        }
+
+        // The response and retained evidence are detached from each other and from service caches.
+        // Even identical generation timestamps (different sources) receive distinct delivery ids.
+        var response = result.Clone();
+        response.DeliveryId = Guid.NewGuid();
+        lock (RateLimitGate)
+        {
+            var key = DeliveryKey(userId);
+            _memoryCache.TryGetValue<Dictionary<Guid, DeliveredBatch>>(key, out var previous);
+            var now = DateTime.UtcNow;
+            var current = previous?.Where(pair => now - pair.Value.DeliveredAtUtc <= ReconcileTtl).ToDictionary(pair => pair.Key, pair => pair.Value) ?? [];
+            var items = new Dictionary<(int, string), DiscoveryRecommendation>();
+            foreach (var item in response.Recommendations.Take(_discovery.MaxVisiblePerUser))
+            {
+                var copy = item.Clone();
+                var mediaType = string.IsNullOrWhiteSpace(copy.MediaType) ? MovieMediaType : copy.MediaType.Trim().ToLowerInvariant();
+                items[(copy.TmdbId, mediaType)] = copy;
+            }
+
+            while (current.Count >= MaxRecentDeliveries)
+            {
+                current.Remove(current.MinBy(pair => pair.Value.DeliveredAtUtc).Key);
+            }
+
+            current[response.DeliveryId.Value] = new DeliveredBatch(items, response.GeneratedAt, now);
+            _memoryCache.Set(key, current, ReconcileTtl);
+        }
+
+        return response;
+    }
+
+    private static string DeliveryKey(Guid userId) => $"JellyfinHelper:discovery:delivery:{_rateLimitGeneration}:{userId:N}";
 
     /// <summary>
     ///     Runs discovery reconciliation for the user at most once per <see cref="ReconcileTtl"/> window. The reconciliation itself is fail-safe; this wrapper additionally guarantees a reconciliation failure never breaks the view render.
@@ -440,6 +553,16 @@ public sealed class UserDiscoveryController : ControllerBase
             return overrideError;
         }
 
+        var certification = await _discovery.VerifyRequestForUserAsync(currentJellyfinUserId, dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+        if (!certification.Verified || !certification.Allowed)
+        {
+            return StatusCode(certification.Verified ? 403 : 503, new RequestResult
+            {
+                Success = false,
+                Message = certification.Verified ? "This title is not permitted by your Jellyfin parental policy." : "Could not verify this title's age certification. Please try again later."
+            });
+        }
+
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
@@ -649,7 +772,8 @@ public sealed class UserDiscoveryController : ControllerBase
             linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
-        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = CapToVisible(result) });
+        var visible = RememberDelivered(userId.Value, CapToVisible(result));
+        return Ok(new TraktDiscoveryResponse { Linked = linked, Result = visible });
     }
 
     /// <summary>
@@ -675,7 +799,8 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var result = await _traktDiscovery.GetTrendingAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        return Ok(CapToVisible(result));
+        var visible = RememberDelivered(userId.Value, CapToVisible(result));
+        return Ok(visible);
     }
 
     /// <summary>
@@ -690,6 +815,12 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <returns>The result with its recommendations capped, or null when the input was null.</returns>
     private DiscoveryResult? CapToVisible(DiscoveryResult? result)
     {
+        var user = GetCurrentUserId();
+        if (result is not null && user.HasValue)
+        {
+            result = _discovery.FilterConsumedItems(user.Value, result) ?? new DiscoveryResult { UserId = user.Value, GeneratedAt = result.GeneratedAt };
+        }
+
         if (result is null || result.Recommendations.Count <= _discovery.MaxVisiblePerUser)
         {
             return result;
@@ -840,4 +971,6 @@ public sealed class UserDiscoveryController : ControllerBase
 
     private static string SanitizeForLog(string value)
         => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
+
+    private sealed record DeliveredBatch(Dictionary<(int, string), DiscoveryRecommendation> Items, DateTime GeneratedAtUtc, DateTime DeliveredAtUtc);
 }

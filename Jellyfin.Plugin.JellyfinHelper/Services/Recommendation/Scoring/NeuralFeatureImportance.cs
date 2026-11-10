@@ -5,7 +5,7 @@ using System.Linq;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Computes permutation-based feature importance for the neural scoring strategy. Permutation importance measures the actual score impact of each feature by shuffling its values across samples and measuring the resulting score degradation.
+///     Measures feature importance as the increase in weighted MSE after permuting a feature column.
 /// </summary>
 /// <remarks>
 ///     Complexity: O(FeatureCount × SampleSize) forward passes. At 38 features × 200 samples = 7,600 forward passes on a 4-layer MLP.
@@ -16,34 +16,26 @@ internal static class NeuralFeatureImportance
     internal const int DefaultSampleSize = 200;
 
     /// <summary>
-    ///     Computes permutation importance for all features of the neural strategy. For each feature, shuffles its values across the sample set and measures the mean score drop compared to baseline (unshuffled) scores.
+    ///     Computes permutation importance from effective examples, keeping their labels and weights fixed.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
     /// <param name="examples">Training examples providing realistic feature distributions.</param>
-    /// <param name="sampleSize">Maximum samples to use (capped at examples.Count).</param>
-    /// <returns>Dictionary mapping feature name to importance drop (positive = important).</returns>
+    /// <param name="sampleSize">Maximum samples to use, capped at the number of effective examples.</param>
+    /// <param name="referenceTimeUtc">Optional fixed reference time for temporal weighting.</param>
+    /// <returns>Feature names mapped to weighted MSE increases; positive values indicate useful features.</returns>
     internal static Dictionary<string, double> ComputePermutationImportance(
         NeuralScoringStrategy strategy,
         IReadOnlyList<TrainingExample> examples,
-        int sampleSize = DefaultSampleSize)
+        int sampleSize = DefaultSampleSize,
+        DateTime? referenceTimeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(strategy);
         ArgumentNullException.ThrowIfNull(examples);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleSize);
 
+        var referenceTime = referenceTimeUtc ?? DateTime.UtcNow;
+        examples = TrainingMath.FilterEffectiveExamples(examples, referenceTime, NeuralScoringStrategy.MinSampleWeight).Where(e => e.IsObserved).ToArray();
         var featureCount = CandidateFeatures.FeatureCount;
-        var featureNames = Enum.GetValues<FeatureIndex>().Distinct().Select(v => v.ToString()).ToArray();
-
-        // Guarantee the canonical name for the aliased enum value 15.
-        // FeatureIndex.SeriesAffinity and FeatureIndex.SeriesProgressionBoost share the same
-        // underlying value, so Enum.ToString() is not guaranteed to return a specific alias.
-        // Override explicitly so the importance dictionary always uses "SeriesAffinity".
-        var seriesAffinitySlot = (int)FeatureIndex.SeriesAffinity;
-        if (seriesAffinitySlot < featureNames.Length)
-        {
-            featureNames[seriesAffinitySlot] = nameof(FeatureIndex.SeriesAffinity);
-        }
-
         var actualSampleSize = Math.Min(sampleSize, examples.Count);
 
         if (actualSampleSize < 2)
@@ -66,79 +58,71 @@ internal static class NeuralFeatureImportance
             (indices[i], indices[j]) = (indices[j], indices[i]);
         }
 
-        // Pre-compute feature vectors for selected samples
-        var vectors = new double[actualSampleSize][];
+        var samples = new ImportanceSample[actualSampleSize];
+        var imputationMeans = strategy.GetImputationMeans();
         for (var i = 0; i < actualSampleSize; i++)
         {
-            vectors[i] = examples[indices[i]].Features.ToVector();
+            var example = examples[indices[i]];
+            samples[i] = new ImportanceSample(example.Features.ToModelVector(imputationMeans), example.Label, example.ComputeEffectiveWeight(referenceTime));
         }
 
-        // Compute baseline scores (each vector is cloned internally by ScoreVector's
-        // standardization, but we keep originals intact for per-feature permutation)
-        var baselineMean = ComputeBaselineMean(strategy, vectors, actualSampleSize);
+        var baselineLoss = ComputeBaselineLoss(strategy, samples);
 
-        // For each feature, shuffle its column and measure mean score impact
         var importance = new Dictionary<string, double>(featureCount);
         var shuffledVector = new double[featureCount];
 
         for (var f = 0; f < featureCount; f++)
         {
-            var shuffledMean = ComputeShuffledFeatureMean(
-                strategy, vectors, shuffledVector, actualSampleSize, featureCount, f, rng);
-            var featureName = f < featureNames.Length ? featureNames[f] : $"Feature{f}";
-            importance[featureName] = baselineMean - shuffledMean;
+            var shuffledLoss = ComputeShuffledFeatureLoss(strategy, samples, shuffledVector, f, rng);
+            importance[ScoringHelper.GetFeatureName((FeatureIndex)f)] = shuffledLoss - baselineLoss;
         }
 
         return importance;
     }
 
     /// <summary>
-    ///     Computes the mean baseline score over the sample set. Extracted verbatim from the baseline-score block of ComputePermutationImportance; each vector is cloned before scoring because ScoreVector mutates its input via standardization.
+    ///     Computes baseline weighted MSE without allowing score-time normalization to mutate samples.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
-    /// <param name="vectors">The pre-computed sample feature vectors.</param>
-    /// <param name="actualSampleSize">The number of samples to score.</param>
-    /// <returns>The mean baseline (unshuffled) score.</returns>
-    private static double ComputeBaselineMean(
+    /// <param name="samples">The sampled features, labels and effective weights.</param>
+    /// <returns>The baseline weighted MSE.</returns>
+    private static double ComputeBaselineLoss(
         NeuralScoringStrategy strategy,
-        double[][] vectors,
-        int actualSampleSize)
+        ImportanceSample[] samples)
     {
-        var baselineMean = 0.0;
-        for (var i = 0; i < actualSampleSize; i++)
+        var loss = 0.0;
+        var totalWeight = 0.0;
+        foreach (var sample in samples)
         {
-            var copy = (double[])vectors[i].Clone();
-            baselineMean += strategy.ScoreVector(copy);
+            var error = strategy.ScoreVector((double[])sample.Vector.Clone()) - sample.Label;
+            loss += sample.Weight * error * error;
+            totalWeight += sample.Weight;
         }
 
-        return baselineMean / actualSampleSize;
+        return loss / totalWeight;
     }
 
     /// <summary>
-    ///     Shuffles a single feature column across the sample set and returns the resulting mean score.
+    ///     Permutes one column while keeping the original labels and effective weights attached to each sample.
     /// </summary>
     /// <param name="strategy">The trained neural scoring strategy to evaluate.</param>
-    /// <param name="vectors">The pre-computed sample feature vectors (left intact).</param>
+    /// <param name="samples">The sampled features, labels and effective weights (left intact).</param>
     /// <param name="shuffledVector">Reusable scratch buffer for the substituted vector.</param>
-    /// <param name="actualSampleSize">The number of samples to score.</param>
-    /// <param name="featureCount">The number of features per vector.</param>
     /// <param name="f">The index of the feature column being permuted.</param>
     /// <param name="rng">The (seeded) RNG driving the column shuffle.</param>
-    /// <returns>The mean score after permuting feature <paramref name="f"/>.</returns>
-    private static double ComputeShuffledFeatureMean(
+    /// <returns>The weighted MSE after permuting feature <paramref name="f"/>.</returns>
+    private static double ComputeShuffledFeatureLoss(
         NeuralScoringStrategy strategy,
-        double[][] vectors,
+        ImportanceSample[] samples,
         double[] shuffledVector,
-        int actualSampleSize,
-        int featureCount,
         int f,
         Random rng)
     {
         // Extract feature f values across all samples
-        var featureValues = new double[actualSampleSize];
-        for (var i = 0; i < actualSampleSize; i++)
+        var featureValues = new double[samples.Length];
+        for (var i = 0; i < samples.Length; i++)
         {
-            featureValues[i] = vectors[i][f];
+            featureValues[i] = samples[i].Vector[f];
         }
 
         // Fisher-Yates shuffle of the feature column
@@ -148,19 +132,22 @@ internal static class NeuralFeatureImportance
             (featureValues[i], featureValues[j]) = (featureValues[j], featureValues[i]);
         }
 
-        // Score each sample with shuffled feature f
-        var shuffledScoreSum = 0.0;
-        for (var i = 0; i < actualSampleSize; i++)
+        var loss = 0.0;
+        var totalWeight = 0.0;
+        for (var i = 0; i < samples.Length; i++)
         {
-            // Copy original vector, replace only feature f with shuffled value
-            Array.Copy(vectors[i], shuffledVector, featureCount);
+            var sample = samples[i];
+            Array.Copy(sample.Vector, shuffledVector, shuffledVector.Length);
             shuffledVector[f] = featureValues[i];
 
-            // ScoreVector mutates its input (standardization), so pass a copy
-            var scoringCopy = (double[])shuffledVector.Clone();
-            shuffledScoreSum += strategy.ScoreVector(scoringCopy);
+            // Every iteration overwrites the whole scratch vector before score-time standardization.
+            var error = strategy.ScoreVector(shuffledVector) - sample.Label;
+            loss += sample.Weight * error * error;
+            totalWeight += sample.Weight;
         }
 
-        return shuffledScoreSum / actualSampleSize;
+        return loss / totalWeight;
     }
+
+    private readonly record struct ImportanceSample(double[] Vector, double Label, double Weight);
 }

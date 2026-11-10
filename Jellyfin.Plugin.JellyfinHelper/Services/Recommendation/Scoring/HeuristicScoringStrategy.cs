@@ -68,23 +68,9 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     {
         ArgumentNullException.ThrowIfNull(features);
 
-        // Rent from ArrayPool to avoid per-call allocation (same pattern as LearnedScoringStrategy).
-        var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
-        try
-        {
-            Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
-            features.WriteToVector(vector);
-
-            // Uses WithPenalty() to scale both FinalScore and all contributions consistently,
-            // so that FinalScore = Σ(contributions) × GenrePenaltyMultiplier holds true.
-            return ScoringHelper
-                .BuildExplanation(vector, WeightsArray, bias: 0.0, Name)
-                .WithPenalty(PenaltyMultiplier(features.GenreSimilarity));
-        }
-        finally
-        {
-            ArrayPool<double>.Shared.Return(vector);
-        }
+        var explanation = ScoringHelper.BuildMarginalExplanation(features, Score, Name);
+        explanation.GenrePenaltyMultiplier = PenaltyMultiplier(features.GenreSimilarity);
+        return explanation;
     }
 
     /// <summary>

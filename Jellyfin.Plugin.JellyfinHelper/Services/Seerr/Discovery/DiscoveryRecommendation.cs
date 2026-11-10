@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -10,6 +12,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryRecommendation
 {
+    /// <summary>Gets or sets the raw features captured when this candidate was scored.</summary>
+    public CandidateFeatures? ScoringFeatures { get; set; }
+
+    /// <summary>Gets or sets the verified Jellyfin-scale certification score; null means unknown, never child-safe.</summary>
+    public int? CertificationScore { get; set; }
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
     /// </summary>
@@ -113,7 +121,7 @@ public sealed class DiscoveryRecommendation
     }
 
     /// <summary>
-    ///     Returns a detached shallow copy of this recommendation. All scalar fields are copied by value.
+    ///     Returns a detached copy, including independent metadata collections and raw feature signals.
     /// </summary>
     /// <returns>A detached copy of this <see cref="DiscoveryRecommendation"/>.</returns>
     public DiscoveryRecommendation Clone() => new()
@@ -126,14 +134,16 @@ public sealed class DiscoveryRecommendation
         Reason = Reason,
         ReasonKey = ReasonKey,
         RelatedInfo = RelatedInfo,
-        Genres = Genres,
+        Genres = Genres?.ToArray() ?? [],
         TmdbRating = TmdbRating,
         PosterPath = PosterPath,
         Overview = Overview,
         AlreadyRequested = AlreadyRequested,
-        KnownPeople = KnownPeople,
+        KnownPeople = KnownPeople?.ToArray(),
         Popularity = Popularity,
         TraktSlug = TraktSlug,
         SourceRank = SourceRank,
+        ScoringFeatures = ScoringFeatures?.Copy(),
+        CertificationScore = CertificationScore,
     };
 }

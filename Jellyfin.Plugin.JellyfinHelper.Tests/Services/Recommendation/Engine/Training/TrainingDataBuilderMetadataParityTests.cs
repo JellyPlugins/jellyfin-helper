@@ -46,7 +46,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             {
                 UserId = user,
                 UserName = "u",
-                WatchedItems = [new WatchedItemInfo { ItemId = watchedItemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor }]
+                WatchedItems = [new WatchedItemInfo { ItemId = watchedItemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1) }]
             }
         };
 
@@ -140,7 +140,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             {
                 UserId = user,
                 UserName = "u",
-                WatchedItems = [new WatchedItemInfo { ItemId = itemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor }]
+                WatchedItems = [new WatchedItemInfo { ItemId = itemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1) }]
             }
         };
 
@@ -318,7 +318,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
             {
                 UserId = user,
                 UserName = "u",
-                WatchedItems = [new WatchedItemInfo { ItemId = watchedItemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor }]
+                WatchedItems = [new WatchedItemInfo { ItemId = watchedItemId, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1) }]
             }
         };
         var results = new List<RecommendationResult>

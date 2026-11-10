@@ -431,10 +431,10 @@ public class SeerrDiscoveryDtoTests
     }
 
     [Fact]
-    public void DiscoveryFeedbackEntry_GetStatus_ShownOnly_ReturnsShown()
+    public void DiscoveryFeedbackEntry_GetStatus_GeneratedOnly_DoesNotClaimAnImpression()
     {
         var e = new DiscoveryFeedbackEntry { ShownAtUtc = DateTime.UtcNow };
-        Assert.Equal(DiscoveryInteractionStatus.Shown, e.GetStatus());
+        Assert.Equal(DiscoveryInteractionStatus.Generated, e.GetStatus());
     }
 
     [Fact]
@@ -495,6 +495,7 @@ public class SeerrDiscoveryDtoTests
         var e = new DiscoveryFeedbackEntry
         {
             ShownAtUtc = DateTime.UtcNow,
+            ImpressionAtUtc = DateTime.UtcNow,
             WasWatched = true // no RequestedAtUtc
         };
         Assert.Equal(DiscoveryInteractionStatus.Shown, e.GetStatus());

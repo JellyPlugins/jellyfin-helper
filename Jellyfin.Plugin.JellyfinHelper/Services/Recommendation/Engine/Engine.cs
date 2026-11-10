@@ -940,6 +940,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        var featureSnapshots = new Dictionary<Guid, CandidateFeatures>();
         var candidateIndex = 0;
         var userMaxRating = userProfile.MaxParentalRating;
         foreach (var candidate in allCandidates)
@@ -987,13 +988,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     genreStudioIdf,
                     seriesAffinityCtx,
                     genreEngagementCtx,
-                    alphaOffset));
+                    alphaOffset,
+                    featureSnapshots));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
         var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
-            .Select(s => BuildRecommendedItem(s, contentAffinityLookup, peopleLookup, candidateBoxSetLookup))
+            .Select(s => BuildRecommendedItem(s, contentAffinityLookup, peopleLookup, candidateBoxSetLookup, featureSnapshots))
             .ToList();
 
         _pluginLog.LogInfo(
@@ -1056,12 +1058,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="contentAffinityLookup">Per-snapshot content-affinity precompute.</param>
     /// <param name="peopleLookup">Item id -> person name set lookup.</param>
     /// <param name="candidateBoxSetLookup">Item id -> containing BoxSet ids lookup.</param>
+    /// <param name="featureSnapshots">Raw signals captured before feedback for the selected candidates.</param>
     /// <returns>The populated recommendation DTO.</returns>
     private RecommendedItem BuildRecommendedItem(
         (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) s,
         Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
         Dictionary<Guid, HashSet<string>> peopleLookup,
-        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        Dictionary<Guid, CandidateFeatures> featureSnapshots)
     {
         // Resolve the candidate's content-affinity source data ONCE from the per-snapshot precompute (fallback to a live resolve only for a just-added candidate), then reuse it for all seven cached DTO fields below - no per-field GetPeople/GetInheritedTags.
         var content = contentAffinityLookup.TryGetValue(s.Item.Id, out var cachedContent)
@@ -1073,6 +1077,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             Name = s.Item.Name ?? string.Empty,
             ItemType = s.Item.GetType().Name,
             Score = Math.Round(s.Score, 4),
+            ScoringFeatures = featureSnapshots.TryGetValue(s.Item.Id, out var features) ? features.Copy() : null,
             Reason = s.Reason,
             ReasonKey = s.ReasonKey,
             RelatedItemName = s.RelatedItem,
@@ -1275,7 +1280,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         ContentScoring.SeriesAffinityContext seriesAffinityCtx,
         ContentScoring.GenreEngagementContext genreEngagementCtx,
-        double alphaOffset = 0.0)
+        double alphaOffset = 0.0,
+        Dictionary<Guid, CandidateFeatures>? featureSnapshots = null)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
@@ -1391,6 +1397,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
+
+        if (featureSnapshots is not null)
+        {
+            featureSnapshots[candidate.Id] = features.Copy();
+        }
 
         // Apply alpha offset for cohort exploration when the strategy supports it.
         // For control cohort (offset≈0), this is a zero-cost fast path via the standard method.

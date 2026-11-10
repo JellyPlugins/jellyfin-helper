@@ -82,6 +82,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     /// <inheritdoc />
     public void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items)
+        => RecordGenerated(userId, userName, items);
+
+    /// <inheritdoc />
+    public void RecordGenerated(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items, DateTime? generatedAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(userName);
         ArgumentNullException.ThrowIfNull(items);
@@ -105,7 +109,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 entryLookup.TryAdd((entry.TmdbId, NormalizeMediaType(entry.MediaType)), entry);
             }
 
-            var now = DateTime.UtcNow;
+            var now = DateTimeNormalization.ToUtc(generatedAtUtc ?? DateTime.UtcNow);
             var modified = false;
 
             foreach (var item in items)
@@ -114,6 +118,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 var key = (item.TmdbId, normalizedType);
                 if (entryLookup.TryGetValue(key, out var existing))
                 {
+                    if (existing.GetStatus() == DiscoveryInteractionStatus.Generated)
+                    {
+                        existing.ScoringFeatures = item.ScoringFeatures?.Copy();
+                        existing.ShownAtUtc = now;
+                        modified = true;
+                    }
+
                     modified |= BackfillExistingEntry(existing, item);
                     continue;
                 }
@@ -128,6 +139,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     TmdbRating = item.TmdbRating,
                     Popularity = item.Popularity,
                     Score = item.Score,
+                    ScoringFeatures = item.ScoringFeatures?.Copy(),
                     ShownAtUtc = now,
                     KnownPeople = item.KnownPeople?.ToList() ?? []
                 };
@@ -139,6 +151,57 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (modified)
             {
                 SaveInternal(data);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void RecordImpressions(Guid userId, IReadOnlyList<DiscoveryRecommendation> items, DateTime generatedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        lock (_fileLock)
+        {
+            var data = LoadInternal();
+            var userResult = GetOrCreateUserResult(data, userId, string.Empty);
+            var modified = false;
+            foreach (var item in items)
+            {
+                var mediaType = NormalizeMediaType(item.MediaType);
+                var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == item.TmdbId && e.MediaType == mediaType);
+                if (entry is null)
+                {
+                    entry = new DiscoveryFeedbackEntry { TmdbId = item.TmdbId, MediaType = mediaType };
+                    userResult.Entries.Add(entry);
+                }
+
+                if (entry.ImpressionAtUtc.HasValue)
+                {
+                    continue;
+                }
+
+                // Explicit feedback can arrive before an in-flight impression. Freeze the first
+                // verified display, not the newest generated features, while preserving its outcome.
+                entry.Title = item.Title;
+                entry.Year = item.Year;
+                entry.Genres = item.Genres.ToArray();
+                entry.KnownPeople = item.KnownPeople?.ToList() ?? [];
+                entry.TmdbRating = item.TmdbRating;
+                entry.Popularity = item.Popularity;
+                entry.Score = item.Score;
+                entry.ScoringFeatures = item.ScoringFeatures?.Copy();
+                entry.ShownAtUtc = DateTimeNormalization.ToUtc(generatedAtUtc);
+                entry.ImpressionAtUtc = DateTime.UtcNow;
+                modified = true;
+            }
+
+            if (modified && !SaveInternal(data))
+            {
+                throw new IOException("Could not persist confirmed discovery impressions.");
             }
         }
     }
@@ -380,6 +443,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 TmdbRating = e.TmdbRating,
                 Popularity = e.Popularity,
                 Score = e.Score,
+                ScoringFeatures = e.ScoringFeatures?.Copy(),
+                ImpressionAtUtc = e.ImpressionAtUtc,
                 KnownPeople = e.KnownPeople?.ToList() ?? [],
                 ShownAtUtc = e.ShownAtUtc,
                 DismissedAtUtc = e.DismissedAtUtc,
@@ -445,7 +510,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <summary>
     ///     Saves the feedback data to disk using atomic write (temp file + move). Applies eviction rules before saving.
     /// </summary>
-    private void SaveInternal(List<DiscoveryFeedbackResult> data)
+    private bool SaveInternal(List<DiscoveryFeedbackResult> data)
     {
         // Work on a deep copy so eviction mutations never touch the live _memoryCache.
         // The copy is swapped into _memoryCache atomically after a successful disk write.
@@ -486,6 +551,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             // Atomically replace the live cache with the post-eviction copy.
             _memoryCache = workingCopy;
+            return true;
         }
 
         // Broader filter than plain IOException / UnauthorizedAccessException / JsonException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException and ArgumentException (malformed path characters from OS layer).
@@ -504,6 +570,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 ex,
                 _logger);
         }
+
+        return false;
     }
 
     /// <summary>
@@ -569,6 +637,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private static DateTime GetLatestActivityUtc(DiscoveryFeedbackEntry entry)
     {
         var latest = entry.ShownAtUtc;
+        if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value > latest)
+        {
+            latest = entry.ImpressionAtUtc.Value;
+        }
+
         if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
         {
             latest = entry.DismissedAtUtc.Value;

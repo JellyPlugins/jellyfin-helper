@@ -165,12 +165,14 @@ internal sealed class TrainingService : IDisposable
             var pooled = BuildTrainingExamples(
                 globalEnsemble, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
 
-            var globalExamples = incremental && pooled.Count >= EngineConstants.IncrementalMinExamplesThreshold
-                ? ApplyIncrementalSampling(pooled, previousResults)
-                : pooled;
+            SplitHeldOut(pooled, out var globalExamples, out var globalHoldout);
+            if (incremental && globalExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
+            {
+                globalExamples = ApplyIncrementalSampling(globalExamples, previousResults);
+            }
 
             // Global pass: trains the learned model, the neural MLP (once), and the global blend state.
-            var globalTrained = TrainStrategyOnExamples(globalEnsemble, globalExamples, trainNeural: true, cancellationToken);
+            var globalTrained = TrainStrategyOnExamples(globalEnsemble, globalExamples, trainNeural: true, cancellationToken, globalHoldout);
 
             // Per-user passes train on the full per-user slices so incremental subsampling of the pooled set
             // never drops a user below the threshold or starves their model of their own recent history.
@@ -239,7 +241,8 @@ internal sealed class TrainingService : IDisposable
             }
 
             var userExamples = group.ToList();
-            if (userExamples.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
+            SplitHeldOut(userExamples, out var userFit, out var userHoldout);
+            if (userFit.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
             {
                 // Below threshold: no per-user model. Evict any model this user built on a previous, richer run
                 // so they fall back to the global model rather than keep scoring on a stale personal fit; a user
@@ -255,7 +258,7 @@ internal sealed class TrainingService : IDisposable
             }
 
             var ensemble = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
-            if (TrainStrategyOnExamples(ensemble, userExamples, trainNeural: false, cancellationToken))
+            if (TrainStrategyOnExamples(ensemble, userFit, trainNeural: false, cancellationToken, userHoldout))
             {
                 trainedUsers++;
             }
@@ -316,10 +319,14 @@ internal sealed class TrainingService : IDisposable
     {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         cancellationToken.ThrowIfCancellationRequested();
+        // The live profile provider excludes deleted/disabled accounts. Cached feedback and
+        // recommendation pools must not reintroduce those users into fitting or contrasts.
+        var activeUserIds = allProfiles.Select(profile => profile.UserId).ToHashSet();
+        previousResults = previousResults.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
 
         // Load discovery feedback if available (Phase 4 data source).
         // Best-effort: if the store is unavailable or throws, training continues without it.
-        var discoveryFeedback = LoadDiscoveryFeedback();
+        var discoveryFeedback = LoadDiscoveryFeedback()?.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
 
         // Discovery training imputes the uncomputable external-candidate features to the model's persisted
         // training-set means, so it must use the SAME means discovery inference reads (from the learned
@@ -334,6 +341,8 @@ internal sealed class TrainingService : IDisposable
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
+
+        examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight).ToList();
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         // Separate discovery from organic in the log so operators can see whether positive signal comes from actual watched consumption or external Seerr requests.
@@ -359,17 +368,30 @@ internal sealed class TrainingService : IDisposable
     ///     is fit only once, globally.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="protectedHoldout">The pre-reserved evaluation partition, or null to split locally.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
     private bool TrainStrategyOnExamples(
         IScoringStrategy strategy,
         List<TrainingExample> trainingExamples,
         bool trainNeural,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<TrainingExample>? protectedHoldout = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
-        SplitHeldOut(trainingExamples, out var trainSplit, out var heldOutSplit);
+        // Reuse the permanent user/title holdout reserved before replay and global/personal fitting.
+        // Ad-hoc examples without stable identities use the legacy local split.
+        List<TrainingExample> trainSplit;
+        List<TrainingExample> heldOutSplit;
+        if (protectedHoldout is not null)
+        {
+            trainSplit = trainingExamples;
+            heldOutSplit = protectedHoldout;
+        }
+        else
+        {
+            SplitHeldOut(trainingExamples, out trainSplit, out heldOutSplit);
+        }
 
         // Pass the held-out slice into the strategy so the metrics it publishes (used by the ensemble's quality gate + trend analyser) come from the same out-of-sample set the log line below reports.
         var heldOutForMetrics = heldOutSplit.Count >= 2 ? heldOutSplit : null;
@@ -474,7 +496,8 @@ internal sealed class TrainingService : IDisposable
             return newExamples;
         }
 
-        var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
+        var batchSeed = unchecked((int)latestGeneratedAt.Ticks ^ (int)(latestGeneratedAt.Ticks >> 32) ^ examples.Count);
+        var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, batchSeed));
         var sampleCount = Math.Clamp(
             (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
             1,
@@ -513,6 +536,16 @@ internal sealed class TrainingService : IDisposable
     {
         const int minExamplesForHeldOut = 20;
         const double heldOutFraction = 0.10;
+
+        if (trainingExamples.Any(example => example.HasStableObservationId))
+        {
+            // The same user/title partition is reserved before global fitting, personal warm starts and replay.
+            // A later watch/request changes the outcome, not membership; validation titles are never fit as contrasts either.
+            trainSplit = trainingExamples.Where(example => !example.IsPermanentHoldout).ToList();
+            heldOutSplit = trainingExamples.Where(example => example.IsPermanentHoldout && example.IsObserved)
+                .OrderByDescending(example => example.GeneratedAtUtc).ToList();
+            return;
+        }
 
         if (trainingExamples.Count >= minExamplesForHeldOut)
         {

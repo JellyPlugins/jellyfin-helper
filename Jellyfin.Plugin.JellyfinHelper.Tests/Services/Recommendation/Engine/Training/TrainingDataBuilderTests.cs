@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Xunit;
@@ -139,10 +140,11 @@ public sealed class TrainingDataBuilderTests
     [Fact]
     public void BuildExamples_RecommendationWithRichMetadata_PopulatesCachedLookups()
     {
-        // A recommended item that the user also organically watched (same ItemId in a prior rec AND in WatchedItems).
+        // Candidate metadata matches a different title watched before prediction, never the target itself.
         var user = Guid.NewGuid();
         var itemId = Guid.NewGuid();
         var boxSet = Guid.NewGuid();
+        var earlierItem = Guid.NewGuid();
 
         var profiles = new Collection<UserWatchProfile>
         {
@@ -157,11 +159,17 @@ public sealed class TrainingDataBuilderTests
                         ItemId = itemId,
                         ItemType = "Movie",
                         Played = true,
-                        LastPlayedDate = Anchor
+                        LastPlayedDate = Anchor.AddDays(1)
                     }
                 }
             }
         };
+
+        profiles[0].WatchedItems.Add(new WatchedItemInfo { ItemId = earlierItem, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1), Genres = ["Action"], PeopleNames = ["Keanu Reeves"] });
+        var metadata = new LibraryItemMetadata(
+            new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["Lionsgate"] },
+            new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["heist"] },
+            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] });
 
         var results = new List<RecommendationResult>
         {
@@ -186,9 +194,16 @@ public sealed class TrainingDataBuilderTests
             }
         };
 
-        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
+        results.Add(new RecommendationResult
+        {
+            UserId = user,
+            GeneratedAt = Anchor.AddDays(-2),
+            Recommendations = [new RecommendedItem { ItemId = earlierItem, ItemType = "Movie", Genres = ["Action"], PeopleNames = ["Keanu Reeves"] }]
+        });
 
-        var example = Assert.Single(examples);
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, null, null, null, metadata, null, CancellationToken.None);
+
+        var example = Assert.Single(examples, e => e.ObservationId == TrainingExample.CreateObservationId(user, "library:" + itemId.ToString("N")));
         Assert.True(example.Features.StudioMatch);
         Assert.True(example.Features.PeopleSimilarity > 0.0);
         Assert.True(example.Features.TagSimilarity > 0.0);
@@ -218,7 +233,7 @@ public sealed class TrainingDataBuilderTests
                 UserName = "A",
                 WatchedItems =
                 {
-                    Watched(shared1, Anchor), Watched(shared2, Anchor), Watched(shared3, Anchor),
+                    Watched(shared1, Anchor.AddDays(-2)), Watched(shared2, Anchor.AddDays(-2)), Watched(shared3, Anchor.AddDays(-2)),
                     Watched(uniqueA, Anchor)
                 }
             },
@@ -228,8 +243,8 @@ public sealed class TrainingDataBuilderTests
                 UserName = "B",
                 WatchedItems =
                 {
-                    Watched(shared1, Anchor), Watched(shared2, Anchor), Watched(shared3, Anchor),
-                    Watched(uniqueB, Anchor)
+                    Watched(shared1, Anchor.AddDays(-2)), Watched(shared2, Anchor.AddDays(-2)), Watched(shared3, Anchor.AddDays(-2)),
+                    Watched(uniqueB, Anchor.AddDays(-1))
                 }
             }
         };
@@ -347,9 +362,9 @@ public sealed class TrainingDataBuilderTests
     }
 
     [Fact]
-    public void BuildExamples_StartedThenAbandonedRecommendation_GetsAbandonedLabel()
+    public void BuildExamples_UnfinishedRecommendation_IsNotObservedRejection()
     {
-        // A recommended item the user started but abandoned early (playback progress well below the abandoned-completion threshold, never marked played, not a favorite) is active rejection - it must be labelled AbandonedLabel (0.0), not treated as a normal watch.
+        // Unfinished playback may be resumed later and cannot establish observed rejection.
         var user = Guid.NewGuid();
         var itemId = Guid.NewGuid();
 
@@ -391,7 +406,8 @@ public sealed class TrainingDataBuilderTests
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
 
         var example = Assert.Single(examples);
-        Assert.Equal(EngineConstants.AbandonedLabel, example.Label, 9);
+        Assert.False(example.IsObserved);
+        Assert.Empty(TrainingMath.FilterEffectiveExamples(examples, Anchor, 0.01));
     }
 
     [Fact]
@@ -564,7 +580,7 @@ public sealed class TrainingDataBuilderTests
                         ItemType = "Episode",
                         Played = true,
                         Genres = ["Action"],
-                        LastPlayedDate = Anchor
+                        LastPlayedDate = Anchor.AddDays(-1)
                     }
                 }
             }

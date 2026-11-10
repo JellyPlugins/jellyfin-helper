@@ -26,6 +26,29 @@ public class TrainingServiceTests
     private TrainingService CreateSut()
         => new(_watchHistoryMock.Object, _feedbackStoreMock.Object, _pluginLogMock.Object, _loggerMock.Object);
 
+    [Fact]
+    public void Training_ExcludesCachedRecommendationsAndDiscoveryFeedbackForUnavailableUsers()
+    {
+        var active = new Guid(2026, 0, 0, new byte[8]);
+        var inactive = Guid.NewGuid();
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns(new Collection<UserWatchProfile> { new() { UserId = active } });
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns(new[]
+        {
+            new DiscoveryFeedbackResult { UserId = active, Entries = [new DiscoveryFeedbackEntry { TmdbId = 1, RequestedAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.4 } }] },
+            new DiscoveryFeedbackResult { UserId = inactive, Entries = [new DiscoveryFeedbackEntry { TmdbId = 2, RequestedAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.9 } }] }
+        });
+        var previous = new[] { new RecommendationResult { UserId = inactive, Recommendations = [new RecommendedItem { ItemId = Guid.NewGuid(), Genres = ["Horror"] }] } };
+        using var service = CreateSut();
+        var recorder = new RecordingStrategy();
+
+        service.Train(recorder, previous, cancellationToken: TestContext.Current.CancellationToken);
+
+        var example = Assert.Single(recorder.LastReceivedTrainSet!);
+        Assert.Equal(active, example.UserId);
+        Assert.Equal(0.4, example.Features.GenreSimilarity);
+        Assert.DoesNotContain(recorder.LastReceivedTrainSet!, row => row.IsContrastSample);
+    }
+
     /// <summary>
     ///     Minimal recording strategy that captures the last received training set so tests can assert against it.
     /// </summary>
@@ -676,9 +699,11 @@ public class TrainingServiceTests
     [Fact]
     public void Train_WithEnoughExamples_UsesHeldOutValidationSplit()
     {
-        // BUG GUARD: The held-out split path (Lines 209-215) only fires when trainingExamples.Count >= 20. Below that threshold the code falls back to "train on all, validate on training-set fit".
-        var userId = Guid.NewGuid();
-        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        // Stable user/title identities reserve observed validation rows independently of batch timestamps.
+        var userId = new Guid(200, 0, 0, new byte[8]);
+        var profile = CreateLargeProfile(userId, watchedCount: 100);
+        for (var i = 0; i < profile.WatchedItems.Count; i++) profile.WatchedItems[i].ItemId = new Guid(i + 1, 0, 0, new byte[8]);
+        var profiles = new Collection<UserWatchProfile> { profile };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
@@ -690,10 +715,10 @@ public class TrainingServiceTests
 
         Assert.True(result);
         Assert.NotNull(strategy.LastReceivedTrainSet);
-        // With 20+ examples, a non-null held-out slice must be forwarded to the strategy.
+        // This deterministic fixture has enough reserved observed rows to publish an independent holdout.
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.True(strategy.LastReceivedHeldOutSet!.Count >= 2,
-            "Held-out split must contain at least 2 examples (Math.Max(2, 10%) floor).");
+            "The strategy must receive at least two effective observed holdout examples.");
         // The train split must be non-empty AND the two splits must be disjoint by object reference - together this proves the split actually partitioned the example set rather than degenerating to either "all-training / no-holdout" or "all-holdout / no-training" (either extreme would.
         Assert.NotEmpty(strategy.LastReceivedTrainSet!);
         var trainSetRefs = new HashSet<TrainingExample>(
@@ -706,33 +731,42 @@ public class TrainingServiceTests
     }
 
     [Fact]
-    public void Train_HeldOutSplit_PicksMostRecentAsValidation()
+    public void Train_HeldOutSplit_ReservesStableObservedTitlesAcrossRepeatedBuilds()
     {
-        // BUG GUARD: The comment at line 211 promises "Sort by GeneratedAtUtc descending to pick the most recent as held-out".
-        var userId = Guid.NewGuid();
-        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        var userId = new Guid("be4aef1d-2db0-4f2b-8bd9-70cec9094284");
+        var profile = CreateLargeProfile(userId, watchedCount: 100);
+        for (var i = 0; i < profile.WatchedItems.Count; i++) profile.WatchedItems[i].ItemId = new Guid(i + 1, 0, 0, new byte[8]);
+        var profiles = new Collection<UserWatchProfile> { profile };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         using var sut = CreateSut();
         var strategy = new RecordingStrategy();
-        var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+        var previous = new[] { CreateLargeResult(userId, recommendationCount: 100, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+        for (var i = 0; i < previous[0].Recommendations.Count; i++)
+        {
+            previous[0].Recommendations[i].ItemId = profile.WatchedItems[i].ItemId;
+            previous[0].Recommendations[i].ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.5 };
+        }
 
         sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.NotNull(strategy.LastReceivedTrainSet);
 
-        // Hard requirement: with 30 watched items + 30 prior recommendations, BuildExamples MUST produce enough examples to populate BOTH splits.
         Assert.NotEmpty(strategy.LastReceivedHeldOutSet!);
         Assert.NotEmpty(strategy.LastReceivedTrainSet!);
 
-        var minHeldOut = strategy.LastReceivedHeldOutSet!.Min(e => e.GeneratedAtUtc);
-        var maxTrain = strategy.LastReceivedTrainSet!.Max(e => e.GeneratedAtUtc);
+        var reserved = strategy.LastReceivedHeldOutSet!.Select(e => e.ObservationId).Order().ToArray();
+        Assert.All(strategy.LastReceivedHeldOutSet!, e => Assert.True(e.IsObserved && e.IsPermanentHoldout));
+        Assert.DoesNotContain(strategy.LastReceivedTrainSet!, e => reserved.Contains(e.ObservationId));
 
-        // Every held-out example must be at least as recent as the newest training example. (Ties can occur because BuildExamples stamps a batch of examples with the same GeneratedAtUtc; the invariant is "no train example is strictly newer than any held-out example".).
-        Assert.True(minHeldOut >= maxTrain,
-            $"Temporal leakage detected: oldest held-out ({minHeldOut:o}) predates newest train ({maxTrain:o}).");
+        previous[0].GeneratedAt = previous[0].GeneratedAt.AddDays(30);
+        profile.WatchedItems[0].IsFavorite = true;
+        sut.Train(strategy, previous, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(reserved, strategy.LastReceivedHeldOutSet!.Select(e => e.ObservationId).Order().ToArray());
+        Assert.DoesNotContain(strategy.LastReceivedTrainSet!, e => reserved.Contains(e.ObservationId));
     }
 
     [Fact]

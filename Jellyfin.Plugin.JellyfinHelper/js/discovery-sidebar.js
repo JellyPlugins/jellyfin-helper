@@ -16,6 +16,7 @@
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
     // Discovery has no standalone page, so the sidebar link activates the native Home tab.
     var API_URL = '/JellyfinHelper/Discovery/My';
+    var _reportedImpressions = new WeakMap();
 
     var TOAST_DURATION_MS = 5000;
 
@@ -1038,7 +1039,7 @@
             wanted.add(key);
             var markup = renderSidebarCardHtml(recommendation);
             var card = existing.get(key) || createSidebarCard(markup, key);
-            updateSidebarCard(card, markup);
+            updateSidebarCard(card, markup, userDiscovery.DeliveryId);
             placeSidebarCard(grid, card, reference, preserveOrder);
             reference = card.nextElementSibling;
         }
@@ -1046,6 +1047,69 @@
             if (!wanted.has(old.dataset.cardKey) && !old._jfhConsuming && !window.JellyfinHelperUi.ownsDialogTrigger(old)) window.JellyfinHelperUi.removeCard(old);
         }
         bindSidebarCardHandlers(container);
+        observeVisibleDiscoveryCards(container);
+    }
+
+    function observeVisibleDiscoveryCards(container) {
+        if (typeof window.IntersectionObserver !== 'function') return;
+        container._jfhImpressionObserver?.disconnect();
+        if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+        container._jfhImpressionTimer = null;
+        var request = captureDiscoveryRequest();
+        var pending = new Map();
+        var observer = new window.IntersectionObserver(function (entries) {
+            if (!isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible') return;
+            for (var entry of entries) {
+                var card = entry.target;
+                var button = card.querySelector('[data-jfh-action="request"]');
+                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !button || button.disabled || !card._jfhDeliveryId
+                    || _reportedImpressions.get(card) === card._jfhDeliveryId) continue;
+                pending.set(card.dataset.cardKey, card);
+            }
+            if (!pending.size || container._jfhImpressionTimer) return;
+            container._jfhImpressionTimer = setTimeout(function () {
+                container._jfhImpressionTimer = null;
+                if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible'
+                    || document.getElementById('jfhDiscoveryPopup')) { pending.clear(); return; }
+                var batch = [];
+                for (var card of pending.values()) {
+                    var rect = card.getBoundingClientRect();
+                    var button = card.querySelector('[data-jfh-action="request"]');
+                    if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
+                        || rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) continue;
+                    var visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+                    var visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                    if (visibleWidth * visibleHeight < rect.width * rect.height * 0.5) continue;
+                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: Number.parseInt(button.dataset.tmdb, 10), type: button.dataset.type });
+                    if (batch.length === 20) break;
+                }
+                pending.clear();
+                if (!batch.length) return;
+                // A protected dialog card can retain an older delivery while its siblings are refreshed.
+                // Never send those cards under the new response's token.
+                var deliveries = new Map();
+                for (var item of batch) {
+                    if (!deliveries.has(item.deliveryId)) deliveries.set(item.deliveryId, []);
+                    deliveries.get(item.deliveryId).push(item);
+                }
+                for (const [deliveryId, items] of deliveries) {
+                    request.client.ajax({
+                        type: 'POST', url: request.client.getUrl(API_URL + '/Impressions'),
+                        contentType: 'application/json',
+                        data: JSON.stringify({ DeliveryId: deliveryId, Items: items.map(function (item) { return { TmdbId: item.id, MediaType: item.type }; }) })
+                    }).then(function (result) {
+                        if (result?.Success === false || !isCurrentDiscoveryRequest(request)) return;
+                        for (var item of items) {
+                            if (item.card._jfhDeliveryId === deliveryId) _reportedImpressions.set(item.card, deliveryId);
+                        }
+                    }, function () {
+                        // Failed feedback writes do not claim an impression; a later render can retry.
+                    });
+                }
+            }, 0);
+        }, { threshold: 0.5 });
+        container._jfhImpressionObserver = observer;
+        for (var card of container.querySelectorAll('.jfh-discovery-card')) observer.observe(card);
     }
 
     function renderEmptySidebarCards(container) {
@@ -1070,9 +1134,11 @@
         return card;
     }
 
-    function updateSidebarCard(card, markup) {
-        if (card._jfhMarkup === markup || card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
+    function updateSidebarCard(card, markup, deliveryId) {
+        if (card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
             || card.querySelector('button:disabled:not(.jfh-discovery-btn-done), .jfh-discovery-btn-failed')) return;
+        card._jfhDeliveryId = deliveryId;
+        if (card._jfhMarkup === markup) return;
         var focused = card.contains(document.activeElement) ? document.activeElement.dataset.jfhAction : null;
         var flipped = card.querySelector('.flipped') != null;
         card.innerHTML = createSidebarCard(markup, card.dataset.cardKey).innerHTML;
@@ -1874,6 +1940,11 @@
         _strings = null;
         _permCache = {};
         _consumedDiscoveryItems.clear();
+        _reportedImpressions = new WeakMap();
+        document.querySelectorAll('.jfh-ui-surface').forEach(function (container) {
+            container._jfhImpressionObserver?.disconnect();
+            if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+        });
         closeDiscoveryPopup(null, false);
         document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { window.JellyfinHelperUi.closeToast(toast, true); });
         if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {

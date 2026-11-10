@@ -402,6 +402,43 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         Assert.True(File.Exists(StatePath), "Ensemble state must be written after a successful weights save");
     }
 
+    [Fact]
+    public void Reload_PreservesUniqueObservationMaturityWithoutCountingReplayAgain()
+    {
+        var examples = CleanExamples(60);
+        var validation = CleanExamples(20, seed: 99);
+        using (var first = BuildSut())
+        {
+            Assert.True(first.Train(examples, validation));
+            Assert.Equal(60, first.TrainingExampleCount);
+        }
+
+        using var reloaded = BuildSut();
+        Assert.Equal(60, reloaded.TrainingExampleCount);
+        Assert.True(reloaded.Train(examples, validation));
+        Assert.Equal(60, reloaded.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void InflatedPersistedCount_CannotActivateNeuralWithoutDistinctObservedIds()
+    {
+        var id = Guid.NewGuid();
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = 10000,
+            ObservedTrainingIds = new[] { id, id, Guid.Empty },
+            Alpha = AlphaMin,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction,
+            MetricsHistory = Array.Empty<object>()
+        }));
+        using var neural = new NeuralScoringStrategy();
+        using var ensemble = BuildSut(neural: neural);
+
+        Assert.Equal(1, ensemble.TrainingExampleCount);
+        Assert.Equal(0.0, ensemble.CurrentNeuralBeta);
+    }
+
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {
         var examples = new List<TrainingExample>(count);

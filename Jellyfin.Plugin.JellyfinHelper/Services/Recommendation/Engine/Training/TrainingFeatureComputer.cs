@@ -135,7 +135,7 @@ internal static class TrainingFeatureComputer
         UserWatchProfile userProfile,
         bool isDay)
     {
-        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0)
+        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0 || userProfile.WatchedItems.Count < 10)
         {
             return 0.5;
         }
@@ -366,15 +366,20 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         // Label from aggregated completion.
-        var label = playedEps switch
+        var explicitRatings = episodes.Where(e => e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)).Select(e => Math.Clamp(e.UserRating!.Value / 10.0, 0.0, 1.0)).ToArray();
+        double label;
+        if (explicitRatings.Length > 0)
         {
-            0 when episodes.Any(e => e.PlaybackPositionTicks > 0) =>
-                completionRatio < EngineConstants.AbandonedCompletionThreshold
-                    ? EngineConstants.AbandonedLabel
-                    : ContentScoring.ComputeEngagementLabel(completionRatio),
-            0 when episodes.Any(e => e.IsFavorite) => 0.65,
-            _ => ContentScoring.ComputeEngagementLabel(completionRatio)
-        };
+            label = explicitRatings.Average();
+        }
+        else
+        {
+            label = playedEps switch
+            {
+                0 when episodes.Any(e => e.IsFavorite) => 0.65,
+                _ => ContentScoring.ComputeEngagementLabel(completionRatio)
+            };
+        }
 
         examples.Add(
             new TrainingExample
@@ -383,7 +388,10 @@ internal static class TrainingFeatureComputer
                 Label = label,
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
                 SampleWeight = 0.7,
-                UserId = userProfile.UserId
+                UserId = userProfile.UserId,
+                ObservationId = TrainingExample.CreateObservationId(userProfile.UserId, "library:" + seriesId.ToString("N")),
+                HasStableObservationId = true,
+                IsObserved = episodes.Any(e => e.Played || e.IsFavorite || e.UserRating is > 0)
             });
     }
 

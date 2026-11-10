@@ -32,6 +32,10 @@ public sealed class DiscoveryResult
     /// </summary>
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Gets or sets the opaque identity of this API delivery, not of the cached recommendation pool.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? DeliveryId { get; set; }
+
     /// <summary>
     ///     Returns a deep copy of this result with a new, independent Recommendations list.
     /// </summary>
@@ -43,6 +47,7 @@ public sealed class DiscoveryResult
             UserId = UserId,
             UserName = UserName,
             GeneratedAt = GeneratedAt,
+            DeliveryId = DeliveryId,
         };
         foreach (var rec in Recommendations)
         {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -10,6 +11,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 public sealed class DiscoveryFeedbackEntry
 {
     private string _mediaType = "movie";
+
+    /// <summary>Gets or sets the immutable-by-copy prediction-time features, absent on legacy feedback.</summary>
+    public CandidateFeatures? ScoringFeatures { get; set; }
+
+    /// <summary>Gets or sets the first confirmed viewport impression, distinct from candidate generation.</summary>
+    public DateTime? ImpressionAtUtc { get; set; }
 
     /// <summary>
     ///     Gets or sets the TMDb ID of the discovery item.
@@ -117,6 +124,6 @@ public sealed class DiscoveryFeedbackEntry
             return DiscoveryInteractionStatus.Dismissed;
         }
 
-        return DiscoveryInteractionStatus.Shown;
+        return ImpressionAtUtc.HasValue ? DiscoveryInteractionStatus.Shown : DiscoveryInteractionStatus.Generated;
     }
 }

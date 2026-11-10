@@ -243,6 +243,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
+│   ├── UserDiscoveryImpressionTests.cs               # Bounded opaque deliveries, overlapping tabs/generations, exact server snapshots, ownership, expiry and persistence failures
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
 │   ├── UserDiscoveryControllerTraktTests.cs          # Trakt read endpoints: official-plugin-absent/master-switch 403 gates, linked/not-linked envelope, mid-fetch link lapse, authentication requirement
 │   ├── TraktDiscoveryDtoTests.cs                     # Trakt linked/unlinked envelope DTO: defaults, result carriage, JSON round-trip
@@ -344,6 +345,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryCacheServiceTests.cs            # Disk + memory persistence; per-test real file to avoid cross-test contamination
 │   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
 │   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
+│   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
 │   │       ├── DiscoveryFeedbackStoreConstructionTests.cs # NormalizeMediaType defaults, directory creation, graceful save degradation
 │   │       ├── DiscoveryFeedbackExampleBuilderLabelTests.cs # Label assignment, latest-interaction timestamp, people-similarity parity
 │   │       ├── SeerrDiscoveryServiceGenerationTests.cs   # GenerateDiscoveryRecommendationsAsync pipeline: guards, child/language routing, exclusions, credits, Arr exclusion
@@ -365,7 +368,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
 │   │       ├── SeerrDiscoveryReconcileFailureTests.cs  # Reconcile fail-safe catches: throwing feedback store (read and write) and an invalid Seerr URL reached after the roster was cached
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # DetermineReason branches, threshold gates, priority ordering
-│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # ScoreExternalCandidatesAsync seam: config/profile/empty guards, candidate mapping + filtering, source-rank ordering, relaxed quality floors, own-rec exclusion, feature-reason preservation
+│   │       ├── SeerrDiscoveryExternalScoringTests.cs    # External scoring, current parental-policy/certification guards, forced request refresh, detail-cache isolation/expiry and provider failures
 │   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: HasPermission zero-flag, admin bypass, per-media-type flags, null-user throws
 │   │       └── TmdbDiscoverItemTests.cs                 # GenreIds null-coalesce, DisplayTitle fallback chain, EffectiveReleaseDate TV/movie, JSON round-trip
 │   ├── Statistics/                # Statistics service tests
@@ -427,6 +430,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
+│       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
+│       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
 │       │       ├── TrainingDataBuilderMetadataParityTests.cs # Watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
@@ -438,9 +443,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── Scoring/               # Strategy-specific tests
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
+│       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
+│       │   ├── FeatureDiagnosticTests.cs                 # Every feature log slot/name/weight, including the legacy SeriesAffinity alias
+│       │   ├── MarginalExplanationTests.cs                # Exact score-removal effects instead of logit gradients; derived interactions and genre penalties remain coherent
 │       │   ├── EnsembleScoringStrategyAdvancedTests.cs # ScoreWithOffset, ApplyCohortFeedback, constructor guards
 │       │   ├── EnsembleScoringStrategyNeuralTests.cs   # Neural sub-strategy blending and post-dispose degradation
-│       │   ├── EnsembleScoringStrategyStateTests.cs    # State-file persistence: save-failure swallowed and logged (cross-platform IO error)
+│       │   ├── EnsembleScoringStrategyStateTests.cs    # State persistence/migration, bounded unique-observation maturity, replay-safe reload and IO failures
 │       │   ├── EnsembleScoringStrategyTrainingTests.cs # Validation-loss dampening of alpha; quality-factor mapping
 │       │   ├── EnsembleDiagnosticsTests.cs             # GetDiagnosticsSnapshot coherence: alpha within bounds, counts match, neural-enabled flag, frozen-gate case
 │       │   ├── LearnedScoringStrategyStandardizationTests.cs # Feature standardization: mean/variance normalization and guards
@@ -452,7 +460,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EnsembleBlendBoundsTests.cs             # Blend-bounds value: null-config defaults, configured pass-through, record equality
 │       │   ├── PerUserGoldenDigestTests.cs             # Single-user per-user model reproduces the global fit (behaviour preservation)
 │       │   ├── LearnedScoringStrategySeedTests.cs      # SeedFrom warm-start: copies weights/bias/standardization stats, identical scores, source independence
-│       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance for MLP
+│       │   ├── NeuralFeatureImportanceTests.cs         # Weighted MSE permutation importance: predictive/harmful features, temporal weights, ignored data and normalization isolation
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
 │       │   ├── TrainingInvariantsTests.cs    # Effective data, independent validation and coordinate-preserving warm starts
@@ -536,6 +544,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── DiscoverySupport.cs              # Shared helpers for both discovery controllers: GetCurrentUserId(ClaimsPrincipal) claim resolution and BuildExcludedItemKeys(store, userId, onError) union of dismissed+requested items. onError is a callback so each controller keeps its own static log template (CA2254).
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── DiscoveryImpressionsDto.cs       # Bounded visible-card identifiers; ownership and features are recovered from server-issued deliveries
 │   ├── TraktDiscoveryResponse.cs        # Trakt personal envelope (Linked flag + DiscoveryResult)
 │   ├── OfficialTraktPluginStatusResponse.cs # Admin-only GET /Trakt/OfficialPluginStatus payload: Present flag so the config page can relax the own-client-id requirement
 │   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
@@ -617,6 +626,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
 │   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   ├── TrainingHistory.cs          # Conservative pre-prediction history reconstruction; excludes later and undated preference aggregates
+│   │   │   │   ├── TrainingHistoryCache.cs     # Bounded build-scoped neighbour/collaborative reuse; target exclusions never modify shared snapshots
 │   │   │   │   ├── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
@@ -694,6 +705,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 38-feature vector for TMDb items
 │   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
 │   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
+│   │       ├── CertificationResolver.cs   # Actual Seerr movie/TV certifications resolved through Jellyfin's own country-aware rating mapper
 │   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
 │   │       ├── TmdbDiscoverItem.cs       # TMDb candidate DTO
 │   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response

@@ -1,4 +1,6 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -55,6 +57,34 @@ public sealed class TrainingExample
     /// <summary>Gets or sets the owning user. Used to compute per-user ranking metrics.</summary>
     public Guid UserId { get; set; }
 
+    /// <summary>Gets or initializes the observation identity; builders assign a stable user/title key.</summary>
+    public Guid ObservationId { get; init; } = Guid.NewGuid();
+
+    /// <summary>Gets or initializes a value indicating whether the identity remains stable across builds and restarts.</summary>
+    public bool HasStableObservationId { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether this label is observed feedback rather than an unlabeled contrast sample.</summary>
+    public bool IsObserved { get; init; } = true;
+
+    /// <summary>Gets or initializes a value indicating whether an unobserved title is intentionally sampled as an implicit contrast.</summary>
+    public bool IsContrastSample { get; init; }
+
+    /// <summary>Gets a value indicating whether this stable observation belongs to the permanent held-out partition.</summary>
+    internal bool IsPermanentHoldout
+    {
+        get
+        {
+            if (!HasStableObservationId)
+            {
+                return false;
+            }
+
+            Span<byte> bytes = stackalloc byte[16];
+            ObservationId.TryWriteBytes(bytes);
+            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes) % 10 == 0;
+        }
+    }
+
     /// <summary>
     ///     Computes a temporal decay weight based on the age of this example.
     ///     Newer examples get weight closer to 1.0, older examples decay exponentially.
@@ -91,4 +121,11 @@ public sealed class TrainingExample
     {
         return SampleWeight * ComputeTemporalWeight(referenceTimeUtc);
     }
+
+    /// <summary>Creates a stable, name-free observation key for one user's interaction with a title.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="titleKey">The namespaced library or TMDb title key.</param>
+    /// <returns>A stable observation identifier.</returns>
+    internal static Guid CreateObservationId(Guid userId, string titleKey)
+        => new(SHA256.HashData(Encoding.UTF8.GetBytes(userId.ToString("N") + ":" + titleKey)).AsSpan(0, 16));
 }

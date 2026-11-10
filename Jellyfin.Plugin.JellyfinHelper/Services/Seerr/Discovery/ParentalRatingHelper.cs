@@ -1,118 +1,17 @@
-using System.Collections.Generic;
-using System.Linq;
-
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
-/// <summary>
-///     Provides mapping between Jellyfin parental rating values and TMDb certification
-///     parameters for content filtering in discovery queries.
-/// </summary>
-/// <remarks>
-///     Jellyfin uses numeric parental rating values that correspond to various regional rating systems.
-/// </remarks>
+/// <summary>Applies verified Jellyfin-scale certifications to external candidates; genres are not age ratings.</summary>
 internal static class ParentalRatingHelper
 {
-    /// <summary>
-    ///     TMDb genre IDs that are inappropriate for young teen accounts (MaxParentalRating 61-100 / FSK-12).
-    /// </summary>
-    private static readonly HashSet<int> TeenRestrictedGenreIds = new()
-    {
-        27, // Horror
-        80, // Crime
-        53, // Thriller
-        10752, // War (movies)
-        10768 // War & Politics (TV)
-    };
+    /// <summary>Only an effectively unbounded score limit is equivalent to an unrestricted account.</summary>
+    internal const int UnrestrictedThreshold = int.MaxValue;
 
-    /// <summary>
-    ///     TMDb genre IDs that are explicitly allowed for strict child accounts (MaxParentalRating 60 or lower, FSK-6).
-    /// </summary>
-    private static readonly HashSet<int> ChildAllowedGenreIds = new()
-    {
-        10751, // Family
-        10762, // Kids (TV)
-        10402 // Music
-    };
-
-    /// <summary>
-    ///     Max parental rating at or above which users are treated as unrestricted (no filtering applied).
-    /// </summary>
-    internal const int UnrestrictedThreshold = 141;
-
-    /// <summary>
-    ///     Determines whether a candidate item should be excluded based on parental rating constraints.
-    /// </summary>
-    /// <param name="candidate">The TMDb discover item to check.</param>
-    /// <param name="maxParentalRating">
-    ///     The user's max parental rating value.
-    ///     Use <c>null</c> or any value &gt;= 141 for unrestricted/adult users;
-    ///     both are treated identically (no filtering applied).
-    /// </param>
-    /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
+    /// <summary>Rejects unknown or excessive certifications for a restricted profile.</summary>
+    /// <param name="candidate">The provider candidate with a server-resolved certification.</param>
+    /// <param name="maxParentalRating">The current Jellyfin account rating limit, or null for unrestricted access.</param>
+    /// <returns>True when the candidate cannot be verified as allowed.</returns>
     internal static bool ShouldExclude(TmdbDiscoverItem candidate, int? maxParentalRating)
-    {
-        if (!maxParentalRating.HasValue || maxParentalRating.Value >= UnrestrictedThreshold)
-        {
-            return false;
-        }
-
-        // Always exclude adult-flagged content for any restricted user
-        if (candidate.Adult)
-        {
-            return true;
-        }
-
-        // For strict child accounts (FSK-6 and below): STRICT WHITELIST approach Animation alone is NOT enough (American Dad, Family Guy, Archer are all "Animation") Must have Family (10751) or Kids (10762) or Music (10402) genre.
-        if (maxParentalRating.Value <= 60)
-        {
-            return ShouldExcludeForStrictChild(candidate);
-        }
-
-        // For young teen accounts (FSK-12): BLACKLIST approach
-        // Exclude specific inappropriate genres
-        if (maxParentalRating.Value <= 100 && candidate.GenreIds.Any(TeenRestrictedGenreIds.Contains))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    ///     Applies the strict-whitelist rule for FSK-6-and-below child accounts: the item must contain at least one primary child-safe genre (Family, Kids, Music) and must not contain any teen-restricted genre.
-    /// </summary>
-    /// <param name="candidate">The TMDb discover item to check.</param>
-    /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
-    private static bool ShouldExcludeForStrictChild(TmdbDiscoverItem candidate)
-    {
-        var hasPrimaryChildGenre = false;
-        var hasRestrictedGenre = false;
-
-        foreach (var genreId in candidate.GenreIds)
-        {
-            if (ChildAllowedGenreIds.Contains(genreId))
-            {
-                hasPrimaryChildGenre = true;
-            }
-
-            if (TeenRestrictedGenreIds.Contains(genreId))
-            {
-                hasRestrictedGenre = true;
-            }
-        }
-
-        // Must have at least one primary child-safe genre (Family, Kids, Music). Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe because of adult animation (Family Guy, Archer) and adult comedies.
-        if (!hasPrimaryChildGenre)
-        {
-            return true;
-        }
-
-        // Even with Family genre, still exclude if a restricted genre is present
-        if (hasRestrictedGenre)
-        {
-            return true;
-        }
-
-        return false;
-    }
+        => maxParentalRating.HasValue && maxParentalRating.Value < UnrestrictedThreshold
+            && (!candidate.CertificationScore.HasValue || candidate.CertificationScore.Value < 0
+                || candidate.CertificationScore.Value > maxParentalRating.Value);
 }
