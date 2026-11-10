@@ -113,6 +113,25 @@ public class RecommendationControllerTests
         _mockEngine.Verify(e => e.GetRecommendations(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Responses_DoNotExposeOrMutateServerOnlyContrastSnapshots(bool cached)
+    {
+        var user = Guid.NewGuid();
+        var result = new RecommendationResult { UserId = user, Recommendations = [new RecommendedItem { ItemId = Guid.NewGuid() }], TrainingContrasts = [new RecommendedItem { ItemId = Guid.NewGuid() }] };
+        _mockCache.Setup(cache => cache.LoadResults()).Returns(cached ? new List<RecommendationResult> { result } : null);
+        _mockEngine.Setup(engine => engine.GetRecommendations(user, It.IsAny<int>(), It.IsAny<CancellationToken>())).Returns(result);
+        _mockEngine.Setup(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>())).Returns([result]);
+        var own = Assert.IsType<RecommendationResult>(Assert.IsType<OkObjectResult>(_controller.GetUserRecommendations(user, cancellationToken: TestContext.Current.CancellationToken).Result).Value);
+        Assert.Null(own.TrainingContrasts);
+        var all = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
+        var responses = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(Assert.IsType<OkObjectResult>(all.Result).Value);
+        Assert.Null(Assert.Single(responses).TrainingContrasts);
+        Assert.Single(result.TrainingContrasts!);
+        Assert.Single(result.Recommendations);
+    }
+
     [Fact]
     public void GetUserRecommendations_CacheMiss_GeneratesOnDemand()
     {

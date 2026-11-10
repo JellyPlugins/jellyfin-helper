@@ -219,7 +219,7 @@ public class RecommendationController : ControllerBase
         var cachedUser = cached?.FirstOrDefault(r => r.UserId == userId);
         if (cachedUser is not null)
         {
-            if (cachedUser.Recommendations.Count <= maxResults)
+            if (cachedUser.Recommendations.Count <= maxResults && cachedUser.TrainingContrasts is null)
             {
                 return Ok(cachedUser);
             }
@@ -247,7 +247,7 @@ public class RecommendationController : ControllerBase
             return NotFound();
         }
 
-        return Ok(result);
+        return Ok(TrimRecommendations([result], maxResults)[0]);
     }
 
     /// <summary>
@@ -330,7 +330,7 @@ public class RecommendationController : ControllerBase
         IReadOnlyList<RecommendationResult> results,
         int maxPerUser)
     {
-        var needsTrim = results.Any(r => r.Recommendations.Count > maxPerUser);
+        var needsTrim = results.Any(r => r.Recommendations.Count > maxPerUser || r.TrainingContrasts is not null);
         if (!needsTrim)
         {
             return results;
@@ -339,7 +339,7 @@ public class RecommendationController : ControllerBase
         var trimmed = new List<RecommendationResult>();
         foreach (var r in results)
         {
-            if (r.Recommendations.Count > maxPerUser)
+            if (r.Recommendations.Count > maxPerUser || r.TrainingContrasts is not null)
             {
                 trimmed.Add(
                     new RecommendationResult

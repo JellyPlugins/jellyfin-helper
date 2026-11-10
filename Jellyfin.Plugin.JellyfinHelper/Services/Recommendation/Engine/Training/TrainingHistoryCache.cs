@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
@@ -26,7 +27,7 @@ internal sealed class TrainingHistoryCache
     /// <param name="cancellationToken">The build cancellation token.</param>
     internal TrainingHistoryCache(Collection<UserWatchProfile> source, CancellationToken cancellationToken)
     {
-        _source = source.ToDictionary(profile => profile.UserId);
+        _source = source.ToDictionary(profile => profile.UserId, profile => TrainingHistory.Before(profile, DateTime.MaxValue));
         _index = new TrainingHistoryIndex(source, cancellationToken);
         _cancellationToken = cancellationToken;
     }
@@ -55,17 +56,12 @@ internal sealed class TrainingHistoryCache
 
         // Series targets can have earlier episodes. Their exclusions must not poison a cached
         // cutoff, the same user's next target, or another user's collaborative evidence.
-        var filtered = TrainingHistory.Before(profile, cutoff, excludedIds);
+        var filtered = TrainingHistory.BeforePlaybackSnapshot(profile, cutoff, excludedIds);
         var replacement = filtered.WatchedItems.SelectMany(row => row.SeriesId is { } seriesId
                 ? new[] { row.ItemId, seriesId }
                 : new[] { row.ItemId }).ToImmutableHashSet();
-        var popularity = snapshot.Collaborative.ItemPopularity;
-        foreach (var removed in snapshot.Collaborative.UserSets[userId].Except(replacement))
-        {
-            var users = popularity[removed] - 1;
-            popularity = users == 0 ? popularity.Remove(removed) : popularity.SetItem(removed, users);
-        }
-
+        var removed = snapshot.Collaborative.UserSets[userId].Except(replacement).ToHashSet();
+        var popularity = new AdjustedPopularity(snapshot.Collaborative.ItemPopularity, removed);
         var context = snapshot.Collaborative with { UserSets = snapshot.Collaborative.UserSets.SetItem(userId, replacement), ItemPopularity = popularity };
         return new Inputs(filtered, context);
     }
@@ -78,7 +74,7 @@ internal sealed class TrainingHistoryCache
         }
 
         // Only the target needs rich preference metadata. Neighbours use immutable indexed sets.
-        var profile = TrainingHistory.Before(_source[userId], cutoff);
+        var profile = TrainingHistory.BeforePlaybackSnapshot(_source[userId], cutoff);
         if (snapshot.Retained && _cachedRows + profile.WatchedItems.Count <= MaxCachedRows)
         {
             snapshot.Profiles.Add(userId, profile);
@@ -122,6 +118,49 @@ internal sealed class TrainingHistoryCache
     /// <param name="Profile">The target's historical profile.</param>
     /// <param name="Collaborative">The watch sets and popularity derived from those inputs.</param>
     internal sealed record Inputs(UserWatchProfile Profile, CollaborativeFilter.HistoricalContext Collaborative);
+
+    /// <summary>Subtracts only the excluded target user's memberships without copying the entire population map.</summary>
+    private sealed class AdjustedPopularity(IReadOnlyDictionary<Guid, int> source, IReadOnlySet<Guid> removed) : IReadOnlyDictionary<Guid, int>
+    {
+        public int Count { get; } = source.Count - removed.Count(key => source[key] == 1);
+
+        public IEnumerable<Guid> Keys => this.Select(pair => pair.Key);
+
+        public IEnumerable<int> Values => this.Select(pair => pair.Value);
+
+        public int this[Guid key] => TryGetValue(key, out var value) ? value : throw new KeyNotFoundException();
+
+        public bool ContainsKey(Guid key) => TryGetValue(key, out _);
+
+        public bool TryGetValue(Guid key, out int value)
+        {
+            if (!source.TryGetValue(key, out value))
+            {
+                return false;
+            }
+
+            if (removed.Contains(key))
+            {
+                value--;
+            }
+
+            return value > 0;
+        }
+
+        public IEnumerator<KeyValuePair<Guid, int>> GetEnumerator()
+        {
+            foreach (var pair in source)
+            {
+                var value = pair.Value - (removed.Contains(pair.Key) ? 1 : 0);
+                if (value > 0)
+                {
+                    yield return new KeyValuePair<Guid, int>(pair.Key, value);
+                }
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 
     private sealed class Snapshot(CollaborativeFilter.HistoricalContext collaborative, long rowCount)
     {

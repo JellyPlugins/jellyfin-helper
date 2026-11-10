@@ -104,7 +104,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     {
         hasLegacyPopularity = entry.Popularity <= 0;
         // Recorded inputs belong to the prediction, not to the user's later request/watch state.
-        if (entry.ScoringFeatures is not null)
+        if (entry.HasConfirmedPrediction && entry.ScoringFeatures is not null)
         {
             return entry.ScoringFeatures.Copy();
         }

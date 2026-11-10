@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -187,4 +188,21 @@ public sealed class WatchedItemInfo
     /// <returns>True if there is real playback.</returns>
     public bool HasPlaybackActivity()
         => Played || PlayCount > 0 || PlaybackPositionTicks > 0;
+
+    /// <summary>Copies dated playback without treating untimestamped current favorite/rating edits as historical facts.</summary>
+    /// <returns>A detached playback row; the live profile and its explicit feedback remain unchanged.</returns>
+    internal WatchedItemInfo CopyPlaybackHistory()
+    {
+        var copy = (WatchedItemInfo)MemberwiseClone();
+        copy.IsFavorite = false;
+        copy.UserRating = null;
+        copy.LastPlayedDate = LastPlayedDate.HasValue ? DateTimeNormalization.ToUtc(LastPlayedDate.Value) : null;
+        copy.Genres = Genres.ToArray();
+        copy.PeopleNames = PeopleNames.ToArray();
+        copy.PeopleWeights = PeopleWeights.ToArray();
+        copy.WriterNames = WriterNames.ToArray();
+        copy.ProductionCountries = ProductionCountries.ToArray();
+        copy.InheritedTags = InheritedTags.ToArray();
+        return copy;
+    }
 }

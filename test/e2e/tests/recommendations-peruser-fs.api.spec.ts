@@ -184,8 +184,8 @@ test.describe.serial('per-user recommendation model files', () => {
       return;
     }
 
-    // Only observed rows outside the permanent holdout count toward fitting. Six plays plus generated
-    // recommendations no longer clear the gate, so seed a complete eligible fitting slice explicitly.
+    // Seed a complete observed fitting slice outside the permanent holdout, without relying on generated
+    // contrast candidates or an incidental recommendation pool to clear the model's fitting threshold.
     const movies = await ensureObservedSeed();
     expect(movies.length, 'need twelve actual observed fitting titles, excluding holdouts').toBe(PER_USER_FIT_THRESHOLD);
     for (const m of movies) {

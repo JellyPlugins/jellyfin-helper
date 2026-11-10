@@ -16,7 +16,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
         typeof(NeuralScoringStrategy).GetField("_lastValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(shared, 0.1);
         typeof(NeuralScoringStrategy).GetField("_lastBaselineValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(shared, 0.25);
         using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), shared, ownsNeural: false);
-        var observed = Enumerable.Range(0, 19).Select(i => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1 }).ToList();
+        var observed = Enumerable.Range(0, 19).Select(i => new TrainingExample { HasStableObservationId = true, Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1 }).ToList();
         var contrasts = Enumerable.Range(0, 170).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.1 }, Label = 0.05, IsObserved = false, IsContrastSample = true });
         var validation = Enumerable.Range(0, 20).Select(i => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1 }).ToArray();
 
@@ -35,6 +35,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,

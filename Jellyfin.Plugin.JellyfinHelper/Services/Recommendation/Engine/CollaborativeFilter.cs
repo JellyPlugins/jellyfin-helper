@@ -12,6 +12,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal static class CollaborativeFilter
 {
+    /// <summary>Exact indexed set operations; unmatched contexts retain the materialized fallback.</summary>
+    internal interface IHistoricalWatchSet : IReadOnlySet<Guid>
+    {
+        bool TryCountOverlap(IReadOnlySet<Guid> other, out int count);
+
+        bool TryGetDifference(IReadOnlySet<Guid> other, out IEnumerable<Guid> difference);
+    }
+
     /// <summary>
     ///     Pre-computes watched-item HashSets for all users at once. Called once in batch recommendation generation and shared across all per-user calls to avoid rebuilding O(U) HashSets per user (O(U²) total to O(U) total).
     /// </summary>
@@ -155,7 +163,7 @@ internal static class CollaborativeFilter
             return new Dictionary<Guid, double>();
         }
 
-        var neighbours = context.UserIds.Where(id => id != userId).Select(id => (IReadOnlySet<Guid>)context.UserSets[id]).ToArray();
+        var neighbours = context.UserIds.Where(id => id != userId).Select(id => context.UserSets[id]).ToArray();
         return BuildMapFromWatchSets(target, neighbours, context.ItemPopularity);
     }
 
@@ -204,7 +212,9 @@ internal static class CollaborativeFilter
         var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
             ? (userCombinedIds, otherCombinedIds)
             : (otherCombinedIds, userCombinedIds);
-        int overlap = smaller.Count(id => larger.Contains(id));
+        var overlap = userCombinedIds is IHistoricalWatchSet indexed && indexed.TryCountOverlap(otherCombinedIds, out var indexedOverlap)
+            ? indexedOverlap
+            : smaller.Count(id => larger.Contains(id));
 
         if (overlap < EngineConstants.MinCollaborativeOverlap)
         {
@@ -233,13 +243,11 @@ internal static class CollaborativeFilter
         double jaccardWeight,
         double neighbourTrust)
     {
-        foreach (var itemId in otherCombinedIds)
+        var unwatched = otherCombinedIds is IHistoricalWatchSet indexed && indexed.TryGetDifference(userCombinedIds, out var difference)
+            ? difference
+            : otherCombinedIds.Where(itemId => !userCombinedIds.Contains(itemId));
+        foreach (var itemId in unwatched)
         {
-            if (userCombinedIds.Contains(itemId))
-            {
-                continue;
-            }
-
             var idfFactor = 1.0;
 
             // IDF boost: 1 / log2(1 + userCount)
@@ -258,9 +266,7 @@ internal static class CollaborativeFilter
         }
     }
 
-    /// <summary>
-    ///     Batch-mode aggregate state shared across every BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext) call in one scheduled run.
-    /// </summary>
+    /// <summary>Batch-mode aggregate state shared across all collaborative maps in one scheduled run.</summary>
     /// <param name="UserSets">Per-user combined watched-item sets (item IDs + series IDs).</param>
     /// <param name="ItemPopularity">Item ID to number of users who have watched it (IDF prior).</param>
     internal sealed record CollaborativeContext(
@@ -273,6 +279,6 @@ internal static class CollaborativeFilter
     /// <param name="ItemPopularity">Number of distinct users with each key at that cutoff.</param>
     internal sealed record HistoricalContext(
         ImmutableArray<Guid> UserIds,
-        ImmutableDictionary<Guid, ImmutableHashSet<Guid>> UserSets,
-        ImmutableDictionary<Guid, int> ItemPopularity);
+        ImmutableDictionary<Guid, IReadOnlySet<Guid>> UserSets,
+        IReadOnlyDictionary<Guid, int> ItemPopularity);
 }

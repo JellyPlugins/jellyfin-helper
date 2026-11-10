@@ -65,6 +65,22 @@ public sealed class TrainingInvariantsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Ensemble_UnstableOrEmptyIdentitiesCannotAccumulateMaturity(bool emptyIdentity)
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        for (var round = 0; round < 3; round++)
+        {
+            var examples = Batch(160, 0.1, 0.9).Select(example => new TrainingExample { Features = example.Features, Label = example.Label,
+                ObservationId = emptyIdentity ? Guid.Empty : Guid.NewGuid(), HasStableObservationId = emptyIdentity, GeneratedAtUtc = example.GeneratedAtUtc }).ToArray();
+            Assert.True(ensemble.Train(examples, Batch(20, 0.1, 0.9)));
+            Assert.Equal(0, ensemble.TrainingExampleCount);
+            Assert.Equal(0, ensemble.CurrentNeuralBeta);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void SuppliedHoldoutLoss_MatchesTheFittedModelRatherThanItsTrainingFit(bool neural)
     {
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
@@ -291,7 +307,7 @@ public sealed class TrainingInvariantsTests
         Enumerable.Range(0, count).Select(i =>
         {
             var genre = low + (high - low) * i / (count - 1);
-            return new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = genre },
+            return new TrainingExample { HasStableObservationId = true, Features = new CandidateFeatures { GenreSimilarity = genre },
                 Label = label ?? (genre > 0.5 ? 1 : 0), SampleWeight = weight, GeneratedAtUtc = DateTime.UtcNow.AddHours(1) };
         }).ToList();
 

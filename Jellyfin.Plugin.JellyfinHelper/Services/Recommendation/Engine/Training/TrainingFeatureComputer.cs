@@ -366,10 +366,7 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         // Label from aggregated completion.
-        var explicitRatings = episodes.Where(e => e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)).Select(e => Math.Clamp(e.UserRating!.Value / 10.0, 0.0, 1.0)).ToArray();
-        var label = explicitRatings.Length > 0
-            ? explicitRatings.Average()
-            : playedEps switch
+        var label = AverageExplicitRatings(episodes) ?? playedEps switch
             {
                 0 when episodes.Any(e => e.IsFavorite) => 0.65,
                 _ => ContentScoring.ComputeEngagementLabel(completionRatio)
@@ -385,8 +382,18 @@ internal static class TrainingFeatureComputer
                 UserId = userProfile.UserId,
                 ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, seriesId),
                 HasStableObservationId = true,
-                IsObserved = episodes.Any(e => e.Played || e.IsFavorite || e.UserRating is > 0)
+                IsObserved = episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
             });
+    }
+
+    /// <summary>Computes the explicit series feedback from finite rated episodes, ignoring unrated partial plays.</summary>
+    /// <param name="episodes">The series' current outcome rows, never historical feature inputs.</param>
+    /// <returns>The mean normalized rating, or null without explicit rating evidence.</returns>
+    internal static double? AverageExplicitRatings(IEnumerable<WatchedItemInfo> episodes)
+    {
+        var ratings = episodes.Where(episode => episode.UserRating is > 0 && double.IsFinite(episode.UserRating.Value))
+            .Select(episode => Math.Clamp(episode.UserRating!.Value / 10.0, 0.0, 1.0)).ToArray();
+        return ratings.Length > 0 ? ratings.Average() : null;
     }
 
     /// <summary>

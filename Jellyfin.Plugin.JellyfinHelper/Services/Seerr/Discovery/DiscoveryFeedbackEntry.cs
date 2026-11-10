@@ -18,6 +18,12 @@ public sealed class DiscoveryFeedbackEntry
     /// <summary>Gets or sets the first confirmed viewport impression, distinct from candidate generation.</summary>
     public DateTime? ImpressionAtUtc { get; set; }
 
+    /// <summary>Gets or sets when the first delivery-bound action or impression confirmed the prediction's provenance.</summary>
+    public DateTime? PredictionEvidenceAtUtc { get; set; }
+
+    /// <summary>Gets a value indicating whether features belong to a confirmed delivery rather than an unseen generation.</summary>
+    internal bool HasConfirmedPrediction => ImpressionAtUtc.HasValue || PredictionEvidenceAtUtc.HasValue;
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the discovery item.
     /// </summary>

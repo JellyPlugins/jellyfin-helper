@@ -689,10 +689,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             var qualityFactor = TrainingMath.QualityFactor(validationLoss, _learned.LastBaselineValidationLoss);
             var qualityGatePassed = qualityFactor > 0.0;
             var observedIds = examples.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().ToArray();
+            var stableObservedIds = examples.Where(example => example.IsObserved && example.HasStableObservationId && example.ObservationId != Guid.Empty)
+                .Select(example => example.ObservationId).Distinct().ToArray();
             MetricsTrend trend;
             lock (_syncRoot)
             {
-                UpdateObservedMaturity(observedIds);
+                UpdateObservedMaturity(stableObservedIds);
 
                 // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
                 // The midpoint offset is adjusted by ApplyCohortFeedback based on cohort watch-rates.

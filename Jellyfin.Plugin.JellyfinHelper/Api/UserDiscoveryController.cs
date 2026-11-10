@@ -33,6 +33,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private const string TraktDisabledMessage = "Trakt is not enabled by the administrator.";
     private const string MovieMediaType = "movie";
     private const string RadarrServiceType = "radarr";
+    private const string ActionDeliveryUnavailableMessage = "No matching recent discovery delivery for this action.";
     // Six complete visible responses retain the previous 60-card budget without merging generations or tabs.
     private const int MaxRecentDeliveries = 6;
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
@@ -236,6 +237,7 @@ public sealed class UserDiscoveryController : ControllerBase
             var key = DeliveryKey(userId);
             _memoryCache.TryGetValue<Dictionary<Guid, DeliveredBatch>>(key, out var previous);
             var now = DateTime.UtcNow;
+            response.DeliveryExpiresAtUtc = now.Add(ReconcileTtl);
             var current = previous?.Where(pair => now - pair.Value.DeliveredAtUtc <= ReconcileTtl).ToDictionary(pair => pair.Key, pair => pair.Value) ?? [];
             var items = new Dictionary<(int, string), DiscoveryRecommendation>();
             foreach (var copy in response.Recommendations.Take(_discovery.MaxVisiblePerUser).Select(item => item.Clone()))
@@ -262,6 +264,31 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     private static string DeliveryKey(Guid userId) => $"JellyfinHelper:discovery:delivery:{_rateLimitGeneration}:{userId:N}";
+
+    /// <summary>Captures action evidence before any provider round-trip; invalid supplied tokens never fall back to a newer pool.</summary>
+    private bool TryResolveActionDelivery(Guid userId, Guid? deliveryId, int tmdbId, string mediaType, out DeliveredCandidate? delivery)
+    {
+        delivery = null;
+        if (!deliveryId.HasValue)
+        {
+            return true; // Compatible non-card requests have no confirmed feature evidence.
+        }
+
+        lock (RateLimitGate)
+        {
+            if (deliveryId.Value == Guid.Empty
+                || !_memoryCache.TryGetValue<Dictionary<Guid, DeliveredBatch>>(DeliveryKey(userId), out var batches)
+                || batches is null || !batches.TryGetValue(deliveryId.Value, out var batch)
+                || DateTime.UtcNow - batch.DeliveredAtUtc > ReconcileTtl
+                || !batch.Items.TryGetValue((tmdbId, mediaType), out var candidate))
+            {
+                return false;
+            }
+
+            delivery = new DeliveredCandidate(candidate.Clone(), batch.GeneratedAtUtc);
+            return true;
+        }
+    }
 
     /// <summary>
     ///     Runs discovery reconciliation for the user at most once per <see cref="ReconcileTtl"/> window. The reconciliation itself is fail-safe; this wrapper additionally guarantees a reconciliation failure never breaks the view render.
@@ -506,6 +533,10 @@ public sealed class UserDiscoveryController : ControllerBase
 
         var currentJellyfinUserId = jellyfinUserId.Value;
         var mediaType = dto.MediaType.Trim().ToLowerInvariant();
+        if (!TryResolveActionDelivery(currentJellyfinUserId, dto.DeliveryId, dto.TmdbId, mediaType, out var delivery))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = ActionDeliveryUnavailableMessage });
+        }
 
         // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
         // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
@@ -577,7 +608,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
-        await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId).ConfigureAwait(false);
+        await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId, delivery).ConfigureAwait(false);
 
         return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
     }
@@ -687,7 +718,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Performs the best-effort local bookkeeping (cache + feedback store) after Seerr has accepted a request.
     /// </summary>
-    private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId)
+    private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId, DeliveredCandidate? delivery)
     {
         // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store updates below. Once Seerr has accepted the request above, the local bookkeeping MUST run regardless of whether the HTTP client has disconnected - otherwise: 1.
         try
@@ -702,7 +733,14 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            _feedbackStore.RecordRequested(currentJellyfinUserId, dto.TmdbId, mediaType);
+            if (delivery is not null)
+            {
+                _feedbackStore.RecordRequested(currentJellyfinUserId, delivery.Item, delivery.GeneratedAtUtc);
+            }
+            else
+            {
+                _feedbackStore.RecordRequested(currentJellyfinUserId, dto.TmdbId, mediaType);
+            }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -736,10 +774,21 @@ public sealed class UserDiscoveryController : ControllerBase
 
         var currentUserId = userId.Value;
         var mediaType = dto.MediaType.Trim().ToLowerInvariant();
+        if (!TryResolveActionDelivery(currentUserId, dto.DeliveryId, dto.TmdbId, mediaType, out var delivery))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = ActionDeliveryUnavailableMessage });
+        }
 
         try
         {
-            _feedbackStore.RecordDismissed(currentUserId, dto.TmdbId, mediaType);
+            if (delivery is not null)
+            {
+                _feedbackStore.RecordDismissed(currentUserId, delivery.Item, delivery.GeneratedAtUtc);
+            }
+            else
+            {
+                _feedbackStore.RecordDismissed(currentUserId, dto.TmdbId, mediaType);
+            }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -988,4 +1037,6 @@ public sealed class UserDiscoveryController : ControllerBase
         => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
 
     private sealed record DeliveredBatch(Dictionary<(int, string), DiscoveryRecommendation> Items, DateTime GeneratedAtUtc, DateTime DeliveredAtUtc);
+
+    private sealed record DeliveredCandidate(DiscoveryRecommendation Item, DateTime GeneratedAtUtc);
 }

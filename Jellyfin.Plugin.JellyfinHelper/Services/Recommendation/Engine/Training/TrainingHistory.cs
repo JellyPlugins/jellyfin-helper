@@ -20,8 +20,25 @@ internal static class TrainingHistory
         var cutoff = DateTimeNormalization.ToUtc(beforeUtc);
         var rows = source.WatchedItems.Where(w => w.LastPlayedDate.HasValue
             && DateTimeNormalization.ToUtc(w.LastPlayedDate.Value) < cutoff
-            && w.HasMeaningfulInteraction()
-            && (excludedIds is null || !excludedIds.Contains(w.ItemId))).ToList();
+            && w.HasPlaybackActivity()
+            && (excludedIds is null || !excludedIds.Contains(w.ItemId)))
+            .Select(w => w.CopyPlaybackHistory()).ToList();
+        return BuildProfile(source, rows);
+    }
+
+    /// <summary>Filters already detached playback rows owned exclusively by a training build, without cloning every prefix again.</summary>
+    /// <param name="source">The build-owned sanitized playback snapshot.</param>
+    /// <param name="cutoff">The normalized exclusive prediction cutoff.</param>
+    /// <param name="excludedIds">Target memberships to exclude from this profile only.</param>
+    /// <returns>A profile reusing immutable build-owned rows.</returns>
+    internal static UserWatchProfile BeforePlaybackSnapshot(UserWatchProfile source, DateTime cutoff, IReadOnlySet<Guid>? excludedIds = null)
+    {
+        var rows = source.WatchedItems.Where(row => row.LastPlayedDate < cutoff && (excludedIds is null || !excludedIds.Contains(row.ItemId))).ToList();
+        return BuildProfile(source, rows);
+    }
+
+    private static UserWatchProfile BuildProfile(UserWatchProfile source, List<WatchedItemInfo> rows)
+    {
         var profile = new UserWatchProfile
         {
             UserId = source.UserId,
@@ -30,20 +47,16 @@ internal static class TrainingHistory
             WatchedItems = new Collection<WatchedItemInfo>(rows),
             LastActivityDate = rows.Select(w => w.LastPlayedDate).Max()
         };
-        foreach (var row in rows)
+        foreach (var row in rows.Where(row => row.PeopleNames.Count > 0))
         {
-            if (row.ItemType == "Series" && row.IsFavorite)
-            {
-                profile.FavoriteSeriesIds.Add(row.ItemId);
-            }
-
             foreach (var person in row.PeopleNames.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 profile.PeopleProfile[person] = profile.PeopleProfile.GetValueOrDefault(person) + 1;
             }
         }
 
-        // Current aggregate genre/language counters have no event timestamps and cannot be copied into the past.
+        // Neither aggregate counters nor current favorite/rating edits have event timestamps.
+        // Only recorded prediction snapshots can preserve those preferences faithfully.
         return profile;
     }
 }

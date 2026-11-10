@@ -432,6 +432,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
+│       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
 │       │       ├── TrainingDataBuilderMetadataParityTests.cs # Watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
@@ -626,9 +627,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
 │   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
-│   │   │   │   ├── TrainingHistory.cs          # Conservative pre-prediction history reconstruction; excludes later and undated preference aggregates
-│   │   │   │   ├── TrainingHistoryCache.cs     # Bounded build-scoped neighbour/collaborative reuse; target exclusions never modify shared snapshots
-│   │   │   │   ├── TrainingHistoryIndex.cs     # Incremental immutable neighbour sets at exact cutoffs, including rewinds and duplicate series references
+│   │   │   │   ├── TrainingHistory.cs          # Conservative dated playback; later/undated favorites and ratings never become historical preferences
+│   │   │   │   ├── TrainingHistoryCache.cs     # Build-owned playback copies and bounded cutoff reuse; target exclusions never modify shared snapshots
+│   │   │   │   ├── TrainingHistoryIndex.cs     # First-playback indexes and immutable exact-cutoff views; arbitrary query order never replays all user histories
+│   │   │   │   ├── TrainingNeighbourTimeline.cs # Per-target neighbour overlap/difference indexes, retained only for the currently trained user's neighbourhood
 │   │   │   │   ├── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction

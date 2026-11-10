@@ -100,7 +100,7 @@ public sealed class TrainingHistoryCacheTests
         for (var i = 1; i <= TrainingHistoryCache.MaxCachedCutoffs + 2; i++)
         {
             var inputs = cache.Get(user, Prediction.AddMinutes(i), new HashSet<Guid>());
-            Assert.Equal(first.Profile.WatchedItems, inputs.Profile.WatchedItems);
+            Assert.Equal(first.Profile.WatchedItems.Select(row => (row.ItemId, row.LastPlayedDate)), inputs.Profile.WatchedItems.Select(row => (row.ItemId, row.LastPlayedDate)));
             Assert.InRange(cache.CachedCutoffCount, 1, TrainingHistoryCache.MaxCachedCutoffs);
             Assert.InRange(cache.CachedRowCount, 1, TrainingHistoryCache.MaxCachedRows);
         }
@@ -170,15 +170,17 @@ public sealed class TrainingHistoryCacheTests
         Assert.Contains(series, first.Collaborative.UserSets[user]);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     [Trait("Category", "Performance")]
-    public void DistinctPerUserCutoffs_DoNotMultiplyNeighbourReconstructionAllocations()
+    public void DistinctPerUserCutoffs_DoNotMultiplyNeighbourReconstructionAllocations(bool interleaved)
     {
         var profiles = new Collection<UserWatchProfile>();
         for (var u = 0; u < 50; u++)
         {
             var profile = new UserWatchProfile { UserId = new Guid(u + 1, 0, 0, new byte[8]) };
-            for (var i = 0; i < 40; i++) profile.WatchedItems.Add(Watch(new Guid(i + 1, (short)(u + 1), 0, new byte[8]), Prediction.AddMinutes(-(u * 40.0 + i + 1))));
+            for (var i = 0; i < 40; i++) profile.WatchedItems.Add(Watch(new Guid(i + 1, (short)(u + 1), 0, new byte[8]), Prediction.AddMinutes(-(interleaved ? i * 50.0 + u + 1 : u * 40.0 + i + 1))));
             profiles.Add(profile);
         }
 
@@ -198,6 +200,46 @@ public sealed class TrainingHistoryCacheTests
     }
 
     [Fact]
+    public void IndexedViews_ObeySetAndDictionaryContractsAtExclusiveCutoffs()
+    {
+        var user = Guid.NewGuid();
+        var known = Guid.NewGuid();
+        var future = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { new() { UserId = user, WatchedItems = [Watch(known, Prediction.AddDays(-1)), Watch(future, Prediction)] } };
+        var cache = new TrainingHistoryCache(profiles, CancellationToken.None);
+        var context = cache.Get(user, Prediction, new HashSet<Guid>()).Collaborative;
+        var set = context.UserSets[user];
+        Assert.True(set.SetEquals([known, known]));
+        Assert.True(set.IsSubsetOf([known, future]));
+        Assert.True(set.IsProperSubsetOf([known, future]));
+        Assert.True(set.IsSupersetOf([known]));
+        Assert.True(set.IsProperSupersetOf([]));
+        Assert.True(set.Overlaps([known]));
+        Assert.False(set.Overlaps([future]));
+        Assert.Equal(new[] { known }, ((System.Collections.IEnumerable)set).Cast<Guid>());
+        Assert.Single(context.ItemPopularity);
+        Assert.Equal(new[] { known }, context.ItemPopularity.Keys);
+        Assert.Equal(new[] { 1 }, context.ItemPopularity.Values);
+        Assert.True(context.ItemPopularity.ContainsKey(known));
+        Assert.False(context.ItemPopularity.ContainsKey(future));
+        Assert.False(context.ItemPopularity.TryGetValue(future, out var futureCount));
+        Assert.Equal(0, futureCount);
+        Assert.Throws<KeyNotFoundException>(() => context.ItemPopularity[future]);
+        Assert.Throws<KeyNotFoundException>(() => context.ItemPopularity[Guid.NewGuid()]);
+        Assert.Single(((System.Collections.IEnumerable)context.ItemPopularity).Cast<KeyValuePair<Guid, int>>());
+
+        var excluded = cache.Get(user, Prediction, new HashSet<Guid> { known }).Collaborative.ItemPopularity;
+        Assert.Empty(excluded);
+        Assert.Empty(excluded.Keys);
+        Assert.Empty(excluded.Values);
+        Assert.False(excluded.ContainsKey(known));
+        Assert.False(excluded.TryGetValue(future, out _));
+        Assert.Throws<KeyNotFoundException>(() => excluded[known]);
+        Assert.Empty(((System.Collections.IEnumerable)excluded).Cast<KeyValuePair<Guid, int>>());
+        Assert.Equal(1, context.ItemPopularity[known]);
+    }
+
+    [Fact]
     [Trait("Category", "Performance")]
     public void BuildExamples_50UsersWithSnapshotsAndHistoricalActivity_StaysWithinAllocationBudget()
     {
@@ -207,7 +249,7 @@ public sealed class TrainingHistoryCacheTests
         {
             var user = new Guid(u, 0, 0, new byte[8]);
             var profile = new UserWatchProfile { UserId = user };
-            var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction };
+            var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, TrainingContrasts = [] };
             for (var i = 0; i < 30; i++) profile.WatchedItems.Add(Watch(new Guid(i + 1, 1, 0, new byte[8]), Prediction.AddDays(-60 + i)));
             for (var i = 0; i < 20; i++)
             {
@@ -217,6 +259,7 @@ public sealed class TrainingHistoryCacheTests
             }
 
             profiles.Add(profile);
+            for (var i = 0; i < 5; i++) result.TrainingContrasts!.Add(new RecommendedItem { ItemId = new Guid(i + 100, (short)(u + 80), 0, new byte[8]), ItemType = "Movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.7 } });
             previous.Add(result);
         }
 

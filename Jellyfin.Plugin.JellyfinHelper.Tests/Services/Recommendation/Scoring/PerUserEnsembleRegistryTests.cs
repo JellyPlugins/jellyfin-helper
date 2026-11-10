@@ -1028,6 +1028,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             var genreSim = rng.NextDouble();
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = genreSim,

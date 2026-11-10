@@ -850,7 +850,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     // Bounds enforcement: MaxFileSizeBytes / MaxEntriesPerUser / MaxEntryAgeDays These branches guard against three separate DoS-style corruption modes: 1.
 
     [Fact]
-    public void LoadForUser_OversizeFile_DeletesFileAndReturnsNull()
+    public void LoadForUser_OversizedValidEmptyFile_IsCompactedRatherThanDeleted()
     {
         // Any file larger than MaxFileSizeBytes (30 MB) must be treated as poisoned - deserializing a 30 MB+ JSON payload can OOM small deployments (e.g.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
@@ -888,7 +888,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var result = store.LoadForUser(Guid.NewGuid());
 
         Assert.Null(result);
-        Assert.False(File.Exists(filePath), "oversize file must be deleted");
+        Assert.True(File.Exists(filePath), "valid oversized feedback must be recovered, not deleted");
+        Assert.True(new FileInfo(filePath).Length <= 30 * 1024 * 1024);
         Assert.Equal(1, warningCount);
     }
 

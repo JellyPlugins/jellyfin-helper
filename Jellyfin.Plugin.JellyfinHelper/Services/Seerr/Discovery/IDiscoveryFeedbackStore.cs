@@ -37,6 +37,12 @@ public interface IDiscoveryFeedbackStore
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     void RecordDismissed(Guid userId, int tmdbId, string mediaType);
 
+    /// <summary>Records dismissal with a detached, server-validated prediction, without claiming viewport visibility.</summary>
+    /// <param name="userId">The authenticated owning user.</param>
+    /// <param name="item">The exact delivered candidate acted upon.</param>
+    /// <param name="generatedAtUtc">Its original prediction timestamp.</param>
+    void RecordDismissed(Guid userId, DiscoveryRecommendation item, DateTime generatedAtUtc);
+
     /// <summary>
     ///     Records that a user requested a discovery item via Seerr.
     /// </summary>
@@ -44,6 +50,12 @@ public interface IDiscoveryFeedbackStore
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     void RecordRequested(Guid userId, int tmdbId, string mediaType);
+
+    /// <summary>Records a request with the exact server-validated card prediction, independently of impressions.</summary>
+    /// <param name="userId">The authenticated owning user.</param>
+    /// <param name="item">The exact delivered candidate acted upon.</param>
+    /// <param name="generatedAtUtc">Its original prediction timestamp.</param>
+    void RecordRequested(Guid userId, DiscoveryRecommendation item, DateTime generatedAtUtc);
 
     /// <summary>
     ///     Marks requested items as watched when they appear in the user's watch history. Called during training data preparation to detect "requested AND watched" items.

@@ -34,8 +34,8 @@ public class TrainingServiceTests
         _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns(new Collection<UserWatchProfile> { new() { UserId = active } });
         _feedbackStoreMock.Setup(store => store.LoadAll()).Returns(new[]
         {
-            new DiscoveryFeedbackResult { UserId = active, Entries = [new DiscoveryFeedbackEntry { TmdbId = 1, RequestedAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.4 } }] },
-            new DiscoveryFeedbackResult { UserId = inactive, Entries = [new DiscoveryFeedbackEntry { TmdbId = 2, RequestedAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.9 } }] }
+            new DiscoveryFeedbackResult { UserId = active, Entries = [new DiscoveryFeedbackEntry { TmdbId = 1, RequestedAtUtc = DateTime.UtcNow, PredictionEvidenceAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.4 } }] },
+            new DiscoveryFeedbackResult { UserId = inactive, Entries = [new DiscoveryFeedbackEntry { TmdbId = 2, RequestedAtUtc = DateTime.UtcNow, PredictionEvidenceAtUtc = DateTime.UtcNow, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.9 } }] }
         });
         var previous = new[] { new RecommendationResult { UserId = inactive, Recommendations = [new RecommendedItem { ItemId = Guid.NewGuid(), Genres = ["Horror"] }] } };
         using var service = CreateSut();

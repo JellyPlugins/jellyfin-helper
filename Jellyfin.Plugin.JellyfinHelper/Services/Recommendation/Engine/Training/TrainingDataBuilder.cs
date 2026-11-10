@@ -131,7 +131,14 @@ internal static class TrainingDataBuilder
             itemStudiosLookup,
             itemTagsLookup,
             itemBoxSetIdsLookup,
-            genreStudioIdf);
+            genreStudioIdf,
+            new Dictionary<WatchedItemInfo, CachedContentSets>(),
+            new Dictionary<CachedContentSets, CachedContentSets>(new ContentSetComparer()),
+            allProfiles.ToDictionary(profile => profile.UserId, profile => new AvailablePreferenceMetadata(
+                profile.WatchedItems.Any(row => !string.IsNullOrWhiteSpace(row.TmdbCollectionName)),
+                profile.WatchedItems.Any(row => row.ProductionCountries.Count > 0),
+                profile.WatchedItems.Any(row => row.InheritedTags.Count > 0),
+                profile.WatchedItems.Any(row => row.WriterNames.Count > 0))));
 
         var examples = new List<TrainingExample>();
 
@@ -327,13 +334,16 @@ internal static class TrainingDataBuilder
     {
         var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
         var maximum = collaborative.Values.Where(v => double.IsFinite(v) && v > 0.0).DefaultIfEmpty(0.0).Max();
+        var available = lookups.AvailableMetadata[profile.UserId];
         return (genres, collaborative, maximum, ContentScoring.ComputeAverageYear(profile),
             PreferenceBuilder.BuildGenreExposureAnalysis(genres, profile),
-            PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts),
-            TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup),
-            TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup),
-            PreferenceBuilder.BuildFranchisePreferenceVector(profile), PreferenceBuilder.BuildProductionCountryPreferenceVector(profile),
-            PreferenceBuilder.BuildInheritedTagPreferenceSet(profile), PreferenceBuilder.BuildWriterPreferenceWeights(profile));
+            lookups.CachedPeopleLookup.Count == 0 && profile.PeopleProfile.Count == 0 ? new Dictionary<string, double>() : PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts),
+            lookups.ItemStudiosLookup.Count == 0 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup),
+            lookups.ItemTagsLookup.Count == 0 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup),
+            available.Franchises ? PreferenceBuilder.BuildFranchisePreferenceVector(profile) : new Dictionary<string, double>(),
+            available.Countries ? PreferenceBuilder.BuildProductionCountryPreferenceVector(profile) : new Dictionary<string, double>(),
+            available.InheritedTags ? PreferenceBuilder.BuildInheritedTagPreferenceSet(profile) : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            available.Writers ? PreferenceBuilder.BuildWriterPreferenceWeights(profile) : new Dictionary<string, double>());
     }
 
     private static (UserWatchProfile Profile, PerUserArtifacts Artifacts, WatchedContentSets Content) HistoricalInputs(
@@ -343,9 +353,23 @@ internal static class TrainingDataBuilder
         var profile = history.Profile;
         var artifacts = BuildArtifacts(profile, CollaborativeFilter.BuildCollaborativeMap(profile.UserId, history.Collaborative), ctx.Lookups, ctx.SeriesEpisodeCounts);
         var sets = BuildWatchedContentSets(profile, ctx.Lookups);
-        var ids = new HashSet<Guid>(profile.WatchedItems.Select(w => w.ItemId));
-        ids.UnionWith(profile.WatchedItems.Where(w => w.SeriesId.HasValue).Select(w => w.SeriesId!.Value));
-        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, BuildWatchedBoxSetCounts(ids, ctx.Lookups.ItemBoxSetIdsLookup)));
+        var boxes = new Dictionary<Guid, int>();
+        if (ctx.Lookups.ItemBoxSetIdsLookup.Count > 0)
+        {
+            var ids = new HashSet<Guid>(profile.WatchedItems.Count);
+            foreach (var row in profile.WatchedItems)
+            {
+                ids.Add(row.ItemId);
+                if (row.SeriesId is { } seriesId)
+                {
+                    ids.Add(seriesId);
+                }
+            }
+
+            boxes = BuildWatchedBoxSetCounts(ids, ctx.Lookups.ItemBoxSetIdsLookup);
+        }
+
+        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes));
     }
 
     /// <summary>
@@ -452,31 +476,51 @@ internal static class TrainingDataBuilder
         var watchedGenreSets = new List<HashSet<string>>();
         var watchedPeopleSets = new List<HashSet<string>>();
         var watchedStudioSets = new List<HashSet<string>>();
+        var unique = new HashSet<CachedContentSets>();
         foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
         {
-            watchedGenreSets.Add(
-                w.Genres is { Count: > 0 }
-                    ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
-                    : []);
-
-            watchedPeopleSets.Add(
-                lookups.CachedPeopleLookup.TryGetValue(w.ItemId, out var wp) ? wp : []);
-
-            HashSet<string> studioSet = [];
-            if (lookups.ItemStudiosLookup.TryGetValue(w.ItemId, out var ws) && ws.Count > 0)
+            if (!lookups.ContentByRow.TryGetValue(w, out var content))
             {
-                studioSet = new HashSet<string>(ws, StringComparer.OrdinalIgnoreCase);
-            }
-            else if (w.SeriesId.HasValue
-                     && lookups.ItemStudiosLookup.TryGetValue(w.SeriesId.Value, out var ss) && ss.Count > 0)
-            {
-                studioSet = new HashSet<string>(ss, StringComparer.OrdinalIgnoreCase);
+                content = BuildRowContentSets(w, lookups);
+                lookups.ContentByRow.Add(w, content);
             }
 
-            watchedStudioSets.Add(studioSet);
+            // Nearest-neighbour scoring takes a maximum: identical metadata cannot change it.
+            if (!unique.Add(content))
+            {
+                continue;
+            }
+
+            watchedGenreSets.Add(content.Genres);
+            watchedPeopleSets.Add(content.People);
+            watchedStudioSets.Add(content.Studios);
         }
 
         return (watchedGenreSets, watchedPeopleSets, watchedStudioSets);
+    }
+
+    private static CachedContentSets BuildRowContentSets(WatchedItemInfo row, TrainingLookups lookups)
+    {
+        var genres = new HashSet<string>(row.Genres, StringComparer.OrdinalIgnoreCase);
+        var people = lookups.CachedPeopleLookup.TryGetValue(row.ItemId, out var known) ? known : [];
+        HashSet<string> studios = [];
+        if (lookups.ItemStudiosLookup.TryGetValue(row.ItemId, out var ownStudios) && ownStudios.Count > 0)
+        {
+            studios = new HashSet<string>(ownStudios, StringComparer.OrdinalIgnoreCase);
+        }
+        else if (row.SeriesId.HasValue && lookups.ItemStudiosLookup.TryGetValue(row.SeriesId.Value, out var seriesStudios))
+        {
+            studios = new HashSet<string>(seriesStudios, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var content = new CachedContentSets(genres, people, studios);
+        if (lookups.SharedContent.TryGetValue(content, out var existing))
+        {
+            return existing;
+        }
+
+        lookups.SharedContent.Add(content, content);
+        return content;
     }
 
     /// <summary>
@@ -515,40 +559,21 @@ internal static class TrainingDataBuilder
         TrainingLookups lookups)
     {
         var userProfile = userCtx.UserProfile;
-        var watchedIds = userCtx.WatchedIds;
-        var watchedSeriesIds = userCtx.WatchedSeriesIds;
-        var watchedItemLookup = userCtx.WatchedItemLookup;
-        var seriesEpisodeLookup = userCtx.SeriesEpisodeLookup;
-        var wasWatched = watchedIds.Contains(rec.ItemId)
-                         || (watchedSeriesIds?.Contains(rec.ItemId) ?? false);
-
-        watchedItemLookup.TryGetValue(rec.ItemId, out var watchedItemForRec);
-
         var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
-
-        // Use latest episode for series temporal signals.
-        if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForSeries))
-        {
-            watchedItemForRec = episodesForSeries
-                .Where(e => e.HasPlaybackActivity())
-                .OrderByDescending(e => e.LastPlayedDate)
-                .FirstOrDefault();
-        }
-
-        var actualCompletionRatio = ContentScoring.ComputeCompletionRatio(watchedItemForRec);
-        var isObserved = wasWatched && HasReliableRecommendationOutcome(rec.ItemId, isSeries, watchedItemForRec, seriesEpisodeLookup);
+        var outcome = ResolveRecommendationOutcome(rec.ItemId, isSeries, prevResult, userCtx);
 
         if (rec.ScoringFeatures is not null)
         {
             return new TrainingExample
             {
                 Features = rec.ScoringFeatures.Copy(),
-                Label = ComputeRecommendationFeedbackLabel(wasWatched, isSeries, watchedItemForRec, prevResult, actualCompletionRatio),
+                Label = outcome.Label,
                 GeneratedAtUtc = prevResult.GeneratedAt,
                 UserId = prevResult.UserId,
                 ObservationId = TrainingExample.CreateLibraryObservationId(prevResult.UserId, rec.ItemId),
                 HasStableObservationId = true,
-                IsObserved = isObserved
+                IsObserved = outcome.IsObserved,
+                IsContrastSample = outcome.IsContrast
             };
         }
 
@@ -658,17 +683,16 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        var label = ComputeRecommendationFeedbackLabel(wasWatched, isSeries, watchedItemForRec, prevResult, actualCompletionRatio);
-
         return new TrainingExample
         {
             Features = features,
-            Label = label,
+            Label = outcome.Label,
             GeneratedAtUtc = prevResult.GeneratedAt,
             UserId = userProfile.UserId,
             ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, rec.ItemId),
             HasStableObservationId = true,
-            IsObserved = isObserved
+            IsObserved = outcome.IsObserved,
+            IsContrastSample = outcome.IsContrast
         };
     }
 
@@ -680,11 +704,12 @@ internal static class TrainingDataBuilder
         bool isSeries,
         WatchedItemInfo? watchedItemForRec,
         RecommendationResult prevResult,
-        double actualCompletionRatio)
+        double actualCompletionRatio,
+        double? explicitRating)
     {
-        if (watchedItemForRec?.UserRating is > 0 && double.IsFinite(watchedItemForRec.UserRating.Value))
+        if (explicitRating.HasValue)
         {
-            return Math.Clamp(watchedItemForRec.UserRating.Value / 10.0, 0.0, 1.0);
+            return explicitRating.Value;
         }
 
         if (wasWatched)
@@ -718,12 +743,31 @@ internal static class TrainingDataBuilder
     }
 
     private static bool HasReliableOutcome(WatchedItemInfo? item, bool isSeries)
-        => item is null ? isSeries : item.Played || item.IsFavorite || item.UserRating is > 0;
+        => item is null ? isSeries : item.Played || item.IsFavorite || NormalizeExplicitRating(item.UserRating).HasValue;
 
-    private static bool HasReliableRecommendationOutcome(Guid itemId, bool isSeries, WatchedItemInfo? representative, Dictionary<Guid, List<WatchedItemInfo>> episodes)
-        => isSeries && episodes.TryGetValue(itemId, out var seriesEpisodes)
-            ? seriesEpisodes.Any(episode => HasReliableOutcome(episode, isSeries: false))
-            : HasReliableOutcome(representative, isSeries);
+    private static double? NormalizeExplicitRating(double? rating)
+        => rating is > 0 && double.IsFinite(rating.Value) ? Math.Clamp(rating.Value / 10.0, 0.0, 1.0) : null;
+
+    /// <summary>Explicit title ratings win; episode ratings are averaged consistently with organic series feedback.</summary>
+    private static (double Label, bool IsObserved, bool IsContrast) ResolveRecommendationOutcome(Guid itemId, bool isSeries, RecommendationResult result, Phase1UserContext context)
+    {
+        var wasWatched = context.WatchedIds.Contains(itemId) || (context.WatchedSeriesIds?.Contains(itemId) ?? false);
+        context.WatchedItemLookup.TryGetValue(itemId, out var representative);
+        var rating = NormalizeExplicitRating(representative?.UserRating);
+        if (isSeries && context.SeriesEpisodeLookup.TryGetValue(itemId, out var episodes))
+        {
+            rating ??= TrainingFeatureComputer.AverageExplicitRatings(episodes);
+            // A newer partial play is not a completed or explicit outcome. It must not replace one.
+            representative = episodes.Where(episode => HasReliableOutcome(episode, isSeries: false))
+                .OrderByDescending(episode => episode.LastPlayedDate).FirstOrDefault()
+                ?? representative
+                ?? episodes.OrderByDescending(episode => episode.LastPlayedDate).FirstOrDefault();
+        }
+
+        var observed = wasWatched && HasReliableOutcome(representative, isSeries);
+        var label = ComputeRecommendationFeedbackLabel(wasWatched, isSeries, representative, result, ContentScoring.ComputeCompletionRatio(representative), rating);
+        return (label, observed, !wasWatched);
+    }
 
     /// <summary>
     ///     Builds the per-user set of item IDs recommended to that user across all previous results.
@@ -1103,6 +1147,19 @@ internal static class TrainingDataBuilder
         Dictionary<Guid, DateTime> predictionTimes,
         TrainingContext ctx)
     {
+        var ownResult = ctx.PreviousResults.Where(result => result.UserId == userProfile.UserId).MaxBy(result => result.GeneratedAt);
+        if (ownResult?.TrainingContrasts is not null)
+        {
+            return EmitRecordedContrasts(ownResult, ctx);
+        }
+
+        if (ownResult?.Recommendations.Any(item => item.ScoringFeatures is not null) == true)
+        {
+            // Old snapshot-aware caches lack contrast predictions. Phase 1's recorded unwatched
+            // recommendations already provide contrasts; do not add mismatched full-history reconstructions.
+            return 0;
+        }
+
         // Per-user deterministic RNG: same cache + same user => same negatives.
         // Keeps training reproducible without coupling across users.
         var rngNeg = new Random(Engine.ComputeStableSeed(userProfile.UserId, ctx.PreviousResults.Count));
@@ -1148,6 +1205,38 @@ internal static class TrainingDataBuilder
         }
 
         return randomNegativeCount;
+    }
+
+    private static int EmitRecordedContrasts(RecommendationResult result, TrainingContext ctx)
+    {
+        var emitted = 0;
+        var watched = ctx.ProfileLookup[result.UserId];
+        var series = ctx.SeriesLookup[result.UserId];
+        var recommended = ctx.RecommendedItemIdsByUser.GetValueOrDefault(result.UserId);
+        foreach (var item in result.TrainingContrasts!.Take(EngineConstants.RandomNegativeSamplesPerUser))
+        {
+            ctx.CancellationToken.ThrowIfCancellationRequested();
+            if (item.ScoringFeatures is null || watched.Contains(item.ItemId) || series.Contains(item.ItemId) || (recommended?.Contains(item.ItemId) ?? false))
+            {
+                continue;
+            }
+
+            ctx.Examples.Add(new TrainingExample
+            {
+                Features = item.ScoringFeatures.Copy(),
+                Label = 0.0,
+                GeneratedAtUtc = result.GeneratedAt,
+                SampleWeight = 0.5,
+                UserId = result.UserId,
+                ObservationId = TrainingExample.CreateLibraryObservationId(result.UserId, item.ItemId),
+                HasStableObservationId = true,
+                IsObserved = false,
+                IsContrastSample = true
+            });
+            emitted++;
+        }
+
+        return emitted;
     }
 
     private static TrainingExample BuildHistoricalNegativeExample(RecommendedItem item, Guid userId, DateTime predictionTime, TrainingContext ctx)
@@ -1319,7 +1408,10 @@ internal static class TrainingDataBuilder
         Dictionary<Guid, IReadOnlyList<string>> ItemStudiosLookup,
         Dictionary<Guid, IReadOnlyList<string>> ItemTagsLookup,
         Dictionary<Guid, IReadOnlyList<Guid>> ItemBoxSetIdsLookup,
-        IReadOnlyDictionary<string, double>? GenreStudioIdf);
+        IReadOnlyDictionary<string, double>? GenreStudioIdf,
+        Dictionary<WatchedItemInfo, CachedContentSets> ContentByRow,
+        Dictionary<CachedContentSets, CachedContentSets> SharedContent,
+        Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata);
 
     /// <summary>
     ///     Groups per user watched content sets and BoxSet counts.
@@ -1430,5 +1522,28 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the mutable set tracking series already emitted as aggregated examples.</summary>
         public HashSet<Guid> AggregatedSeriesIds { get; init; }
+    }
+
+    private sealed record CachedContentSets(HashSet<string> Genres, HashSet<string> People, HashSet<string> Studios);
+
+    private sealed record AvailablePreferenceMetadata(bool Franchises, bool Countries, bool InheritedTags, bool Writers);
+
+    private sealed record ContentSetComparer : IEqualityComparer<CachedContentSets>
+    {
+        public bool Equals(CachedContentSets? x, CachedContentSets? y)
+            => ReferenceEquals(x, y) || (x is not null && y is not null && x.Genres.SetEquals(y.Genres) && x.People.SetEquals(y.People) && x.Studios.SetEquals(y.Studios));
+
+        public int GetHashCode(CachedContentSets obj) => HashCode.Combine(SetHash(obj.Genres), SetHash(obj.People), SetHash(obj.Studios));
+
+        private static int SetHash(HashSet<string> values)
+        {
+            var hash = 0;
+            foreach (var value in values)
+            {
+                hash ^= value is null ? 0 : StringComparer.OrdinalIgnoreCase.GetHashCode(value);
+            }
+
+            return hash;
+        }
     }
 }

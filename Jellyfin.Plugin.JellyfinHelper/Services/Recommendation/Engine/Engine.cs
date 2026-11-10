@@ -998,6 +998,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .Select(s => BuildRecommendedItem(s, contentAffinityLookup, peopleLookup, candidateBoxSetLookup, featureSnapshots))
             .ToList();
 
+        var selectedIds = topItems.Select(item => item.ItemId).ToHashSet();
+        var contrastSeed = (explorationSeed ?? ComputeStableSeed(userProfile.UserId, maxResults)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // Stable hash priorities keep the sample reproducible without an insecure random generator.
+        var contrasts = new Collection<RecommendedItem>(scored.Where(item => !selectedIds.Contains(item.Item.Id))
+            .OrderBy(item => TrainingExample.CreateObservationId(userProfile.UserId, $"contrast:{contrastSeed}:{item.Item.Id:N}"))
+            .Take(EngineConstants.RandomNegativeSamplesPerUser)
+            .Select(item => BuildRecommendedItem(item, contentAffinityLookup, peopleLookup, candidateBoxSetLookup, featureSnapshots)).ToList());
+
         _pluginLog.LogInfo(
             LogCategory,
             $"Generated {topItems.Count} recommendations for user '{userProfile.UserName}' using strategy '{strategy.Name}'",
@@ -1009,6 +1017,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             UserName = userProfile.UserName,
             Profile = ReasonResolver.StripWatchedItemsForResponse(userProfile),
             Recommendations = new Collection<RecommendedItem>(topItems),
+            TrainingContrasts = contrasts,
             GeneratedAt = DateTime.UtcNow,
             ScoringStrategy = strategy.Name,
             ScoringStrategyKey = strategy.NameKey,

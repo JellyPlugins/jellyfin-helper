@@ -18,7 +18,7 @@ public class StrategySelectorTests
     public void FrozenQualityGate_DisablesCohortsEvenWithEnoughDataAndHistory()
     {
         using var ensemble = new EnsembleScoringStrategy();
-        var train = Enumerable.Range(0, 60).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 1.0 }).ToArray();
+        var train = Enumerable.Range(0, 60).Select(_ => new TrainingExample { HasStableObservationId = true, Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 1.0 }).ToArray();
         var holdout = Enumerable.Range(0, 10).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 0.0 }).ToArray();
         Assert.True(ensemble.Train(train, holdout));
         Assert.True(ensemble.Train(train, holdout));
@@ -302,6 +302,7 @@ public class StrategySelectorTests
             var t = (double)i / Math.Max(1, count - 1);
             list.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = t,

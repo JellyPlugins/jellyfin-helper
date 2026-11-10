@@ -82,6 +82,81 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         _feedback.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Single().ScoringFeatures != null), It.IsAny<DateTime>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ActionsWithoutImpressions_UseTheExactOwnDeliveryInsteadOfANewerPool(bool requested)
+    {
+        var user = Guid.NewGuid();
+        var generation = DateTime.UtcNow.AddDays(-2);
+        var first = await SaveAndDeliver(user, generation, 0.3);
+        await SaveAndDeliver(user, generation.AddDays(1), 0.8);
+        ConfigureAcceptedRequests();
+        var controller = Controller(user);
+        var result = requested
+            ? (await controller.SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 1, DeliveryId = first.DeliveryId }, CancellationToken.None)).Result
+            : controller.DismissItem(new DiscoveryDismissDto { TmdbId = 1, DeliveryId = first.DeliveryId }).Result;
+        Assert.True(Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(result, exactMatch: false).Value).Success);
+        if (requested)
+        {
+            _feedback.Verify(store => store.RecordRequested(user, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
+        }
+        else
+        {
+            _feedback.Verify(store => store.RecordDismissed(user, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
+        }
+
+        _feedback.Verify(store => store.RecordImpressions(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime>()), Times.Never);
+        _feedback.Verify(store => store.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+        _feedback.Verify(store => store.RecordDismissed(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false, "empty")]
+    [InlineData(true, "empty")]
+    [InlineData(false, "unknown")]
+    [InlineData(true, "unknown")]
+    [InlineData(false, "other-user")]
+    [InlineData(true, "other-user")]
+    [InlineData(false, "expired")]
+    [InlineData(true, "expired")]
+    [InlineData(false, "wrong-item")]
+    [InlineData(true, "wrong-item")]
+    public async Task InvalidActionDeliveries_NeverPersistFeedbackOrReachTheProvider(bool requested, string invalid)
+    {
+        var user = Guid.NewGuid();
+        var owner = invalid == "other-user" ? Guid.NewGuid() : user;
+        var first = await SaveAndDeliver(owner, DateTime.UtcNow, 0.3);
+        var deliveryId = invalid switch { "empty" => Guid.Empty, "unknown" => Guid.NewGuid(), _ => first.DeliveryId!.Value };
+        if (invalid == "expired")
+        {
+            var key = typeof(UserDiscoveryController).GetMethod("DeliveryKey", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [user]);
+            Assert.True(_memory.TryGetValue(key!, out object? value));
+            var batch = Assert.IsType<IDictionary>(value, exactMatch: false).Values.Cast<object>().Single();
+            batch.GetType().GetProperty("DeliveredAtUtc")!.SetValue(batch, DateTime.UtcNow.AddMinutes(-6));
+        }
+
+        ConfigureAcceptedRequests();
+        var id = invalid == "wrong-item" ? 2 : 1;
+        _feedback.Invocations.Clear();
+        var controller = Controller(user);
+        var result = requested
+            ? (await controller.SubmitMyRequest(new DiscoveryRequestDto { TmdbId = id, DeliveryId = deliveryId }, CancellationToken.None)).Result
+            : controller.DismissItem(new DiscoveryDismissDto { TmdbId = id, DeliveryId = deliveryId }).Result;
+        Assert.IsType<BadRequestObjectResult>(result);
+        _feedback.VerifyNoOtherCalls();
+        _discovery.Verify(service => service.GetUserRequestPermissionsAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _discovery.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private void ConfigureAcceptedRequests()
+    {
+        _discovery.Setup(service => service.GetUserRequestPermissionsAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discovery.Setup(service => service.ResolveSeerrUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(10);
+        _discovery.Setup(service => service.VerifyRequestForUserAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((true, true));
+        _discovery.Setup(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync((true, "accepted"));
+    }
+
     [Fact]
     public async Task GeneratedButNotDeliveredPoolTail_CannotBeConfirmed()
     {

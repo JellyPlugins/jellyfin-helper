@@ -452,6 +452,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,

@@ -1144,6 +1144,7 @@ public sealed class ScoringStrategyTests : IDisposable
             var isPositive = i % 3 != 0; // roughly 2/3 positive
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = isPositive ? 0.5 + (rng.NextDouble() * 0.5) : rng.NextDouble() * 0.3,

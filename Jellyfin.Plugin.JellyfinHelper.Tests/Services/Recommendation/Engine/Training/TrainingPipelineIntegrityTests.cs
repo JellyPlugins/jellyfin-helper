@@ -27,11 +27,83 @@ public sealed class TrainingPipelineIntegrityTests
         var historical = TrainingHistory.Before(profile, Prediction);
 
         var historicalItem = Assert.Single(historical.WatchedItems);
-        Assert.Same(past, historicalItem);
+        Assert.NotSame(past, historicalItem);
+        Assert.Equal(past.ItemId, historicalItem.ItemId);
+        Assert.Equal(past.LastPlayedDate, historicalItem.LastPlayedDate);
         Assert.Empty(historical.GenreDistribution);
         Assert.Empty(historical.LanguageProfile);
         Assert.Equal(3, profile.WatchedItems.Count);
         Assert.Equal(99, profile.GenreDistribution["Action"]);
+    }
+
+    [Fact]
+    public void HistoricalProfile_LaterFavoriteAndRatingEditsDoNotRewritePastInputsOrSharedSnapshots()
+    {
+        var past = Watch(Guid.NewGuid(), Prediction.AddDays(-2), ["Drama"]);
+        past.PeopleNames = ["Actor"];
+        past.PeopleWeights = [0.5];
+        past.WriterNames = ["Writer"];
+        past.ProductionCountries = ["DE"];
+        past.InheritedTags = ["Tag"];
+        var favoriteOnly = new WatchedItemInfo { ItemId = Guid.NewGuid(), LastPlayedDate = Prediction.AddDays(-1), IsFavorite = true, UserRating = 10 };
+        var source = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [past, favoriteOnly] };
+        var baseline = TrainingHistory.Before(source, Prediction);
+        var oldFeatures = ContentScoring.ComputeGenreRatingScore(["Drama"], baseline);
+        var cache = new TrainingHistoryCache([source], CancellationToken.None);
+        var shared = cache.Get(source.UserId, Prediction, new HashSet<Guid>());
+        past.IsFavorite = true;
+        past.UserRating = 10;
+        var rebuilt = TrainingHistory.Before(source, Prediction);
+        Assert.Equal(oldFeatures, ContentScoring.ComputeGenreRatingScore(["Drama"], rebuilt));
+        Assert.Equal(PreferenceBuilder.BuildGenrePreferenceVector(baseline), PreferenceBuilder.BuildGenrePreferenceVector(rebuilt));
+        Assert.Single(rebuilt.WatchedItems);
+        Assert.DoesNotContain(favoriteOnly.ItemId, shared.Collaborative.UserSets[source.UserId]);
+        Assert.Empty(rebuilt.FavoriteSeriesIds);
+        Assert.True(past.IsFavorite);
+        Assert.Equal(10, past.UserRating);
+        Assert.Null(shared.Profile.WatchedItems[0].UserRating);
+        Assert.False(shared.Profile.WatchedItems[0].IsFavorite);
+        foreach (var property in new[] { nameof(WatchedItemInfo.Genres), nameof(WatchedItemInfo.PeopleNames), nameof(WatchedItemInfo.PeopleWeights), nameof(WatchedItemInfo.WriterNames), nameof(WatchedItemInfo.ProductionCountries), nameof(WatchedItemInfo.InheritedTags) })
+        {
+            var info = typeof(WatchedItemInfo).GetProperty(property)!;
+            Assert.NotSame(info.GetValue(past), info.GetValue(rebuilt.WatchedItems[0]));
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, 0.1)]
+    [InlineData(true, false, 0.1)]
+    [InlineData(false, true, 0.5)]
+    [InlineData(true, true, 0.5)]
+    public void RecommendedSeries_ExplicitRatingsSurviveNewerUnratedPartialPlayback(bool recorded, bool secondRating, double expected)
+    {
+        var user = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        var completed = Watch(Guid.NewGuid(), Prediction.AddDays(1), ["Drama"]);
+        completed.ItemType = "Episode";
+        completed.SeriesId = series;
+        completed.UserRating = 1;
+        var partial = Watch(Guid.NewGuid(), Prediction.AddDays(2), ["Drama"]);
+        partial.ItemType = "Episode";
+        partial.SeriesId = series;
+        partial.Played = false;
+        partial.PlayCount = 0;
+        partial.PlaybackPositionTicks = partial.RuntimeTicks / 5;
+        partial.UserRating = secondRating ? 9 : null;
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [completed, partial] };
+        var recommendation = new RecommendedItem { ItemId = series, ItemType = "Series", Genres = ["Drama"], ScoringFeatures = recorded ? new CandidateFeatures { IsSeries = true } : null };
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [recommendation] };
+        var observed = Assert.Single(TrainingDataBuilder.BuildExamples([cached], [profile], CancellationToken.None).Examples);
+        var organic = Assert.Single(TrainingDataBuilder.BuildExamples([], [profile], CancellationToken.None).Examples);
+        Assert.True(observed.IsObserved);
+        Assert.Equal(expected, observed.Label);
+        Assert.Equal(organic.Label, observed.Label);
+
+        var parent = Watch(series, Prediction.AddDays(1), ["Drama"]);
+        parent.ItemType = "Series";
+        parent.UserRating = 2;
+        profile.WatchedItems.Add(parent);
+        Assert.Equal(0.2, Assert.Single(TrainingDataBuilder.BuildExamples([cached], [profile], CancellationToken.None).Examples).Label);
     }
 
     [Fact]
@@ -115,6 +187,44 @@ public sealed class TrainingPipelineIntegrityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void UnwatchedRecommendations_AreFittingContrastsButNeverObservedHoldoutEvidence(bool recorded)
+    {
+        var user = Guid.NewGuid();
+        var id = Guid.NewGuid();
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = id, ItemType = "Movie", ScoringFeatures = recorded ? new CandidateFeatures { GenreSimilarity = 0.6 } : null }] };
+        var example = Assert.Single(TrainingDataBuilder.BuildExamples([cached], [new UserWatchProfile { UserId = user }], CancellationToken.None).Examples);
+        Assert.False(example.IsObserved);
+        Assert.True(example.IsContrastSample);
+        Assert.Equal(EngineConstants.ExposureLabel, example.Label);
+        Assert.Single(TrainingMath.FilterEffectiveExamples([example], Prediction.AddDays(1), 0.01));
+        Assert.False(TrainingMath.HasRankingEvidence([example], Prediction.AddDays(1), 0.01));
+    }
+
+    [Fact]
+    public void CapturedContrasts_UseTheSamePreferenceBasisAsRecordedPositivesAndUnwatchedRecommendations()
+    {
+        var user = Guid.NewGuid();
+        var playedId = Guid.NewGuid();
+        var exposedId = Guid.NewGuid();
+        var contrastId = Guid.NewGuid();
+        var features = new CandidateFeatures { GenreSimilarity = 0.7, LanguageAffinity = 0.8, SubtitleLanguageAffinity = 0.3 };
+        var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction,
+            Recommendations = [new RecommendedItem { ItemId = playedId, ItemType = "Movie", ScoringFeatures = features.Copy() }, new RecommendedItem { ItemId = exposedId, ItemType = "Movie", ScoringFeatures = features.Copy() }],
+            TrainingContrasts = [new RecommendedItem { ItemId = contrastId, ItemType = "Movie", ScoringFeatures = features.Copy() }] };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [Watch(playedId, Prediction.AddDays(1), ["Drama"])] };
+        var built = TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None);
+        Assert.Equal(1, built.RandomNegativeCount);
+        Assert.All(built.Examples, example => { Assert.Equal(0.8, example.Features.LanguageAffinity); Assert.Equal(0.3, example.Features.SubtitleLanguageAffinity); });
+        Assert.Single(built.Examples, example => example.IsObserved);
+        Assert.Equal(2, built.Examples.Count(example => example.IsContrastSample));
+        Assert.All(built.Examples, example => Assert.NotSame(features, example.Features));
+        profile.WatchedItems.Add(Watch(contrastId, Prediction.AddDays(1), ["Drama"]));
+        Assert.Equal(0, TrainingDataBuilder.BuildExamples([result], [profile], CancellationToken.None).RandomNegativeCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void RecommendedSeries_FinishedEarlierEpisodesRemainObservedWhenTheLatestEpisodeIsPartial(bool recorded)
     {
         var user = Guid.NewGuid();
@@ -161,7 +271,7 @@ public sealed class TrainingPipelineIntegrityTests
     public void DiscoverySnapshot_PreservesPersonalInputsInsteadOfRebuildingWithGlobalMeans()
     {
         var user = Guid.NewGuid();
-        var entry = new DiscoveryFeedbackEntry { TmdbId = 123, RequestedAtUtc = Prediction.AddDays(1), ShownAtUtc = Prediction, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, CollaborativeScore = 0.6, GenreSimilarity = 0.3 } };
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 123, RequestedAtUtc = Prediction.AddDays(1), PredictionEvidenceAtUtc = Prediction.AddDays(1), ShownAtUtc = Prediction, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, CollaborativeScore = 0.6, GenreSimilarity = 0.3 } };
         var globalMeans = Enumerable.Repeat(0.2, CandidateFeatures.FeatureCount).ToArray();
         var built = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new DiscoveryFeedbackResult { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile> { [user] = new() { UserId = user } }, null, globalMeans, CancellationToken.None);
 
@@ -227,7 +337,7 @@ public sealed class TrainingPipelineIntegrityTests
     public void ReplayingTheSameObservations_DoesNotIncreaseInformationCount()
     {
         using var ensemble = new EnsembleScoringStrategy();
-        var examples = Balanced(20);
+        var examples = Balanced(20).Select(example => new TrainingExample { Features = example.Features, Label = example.Label, GeneratedAtUtc = example.GeneratedAtUtc, ObservationId = example.ObservationId, HasStableObservationId = true }).ToArray();
         var heldout = Balanced(20);
         for (var i = 0; i < 10; i++) Assert.True(ensemble.Train(examples, heldout));
         Assert.Equal(20, ensemble.TrainingExampleCount);
