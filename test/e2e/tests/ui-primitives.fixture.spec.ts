@@ -29,7 +29,15 @@ function discoveryFixtureScript(script: string): string {
   const anchor = /^[ \t]*initDiscoveryLifecycle\s*\(\s*\)\s*;[ \t]*\r?$/gm;
   const matches = script.match(anchor);
   if (matches?.length !== 1) throw new Error('Expected exactly one Discovery lifecycle initialization anchor');
-  return script.replace(anchor, () => '    window.fixtureDiscovery = { renderCards, injectStyles, consumeDiscoveryItem };');
+  return script.replace(anchor, () => `    window.fixtureDiscovery = {
+        renderCards, injectStyles, consumeDiscoveryItem,
+        renderTabs: function (container) {
+            _traktEnabled = true;
+            _traktLinked = true;
+            _strings = { discoveryTabForYou: 'Für dich', discoveryTabTraktForYou: 'Trakt für dich', discoveryTabTraktTrending: 'Trakt Trending' };
+            renderShell(container, false);
+        }
+    };`);
 }
 
 let pageErrors: string[];
@@ -72,7 +80,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState };\n})();');
+      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -89,6 +97,13 @@ async function discovery(page: Page) {
     fixture.injectStyles();
     fixture.renderCards(document.getElementById('cards'), { Recommendations: recommendations });
   }, discoveryRecommendations);
+}
+
+async function controlSizes(page: Page, selector: string) {
+  return page.locator(selector).evaluateAll(elements => elements.map(element => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, fontSize: getComputedStyle(element).fontSize };
+  }));
 }
 
 test('fixture bootstrap accepts formatting and rejects missing or duplicated initialization', () => {
@@ -258,6 +273,65 @@ for (const width of [320, 1280]) {
 
 test.describe('touch controls', () => {
   test.use({ hasTouch: true });
+
+  for (const width of [320, 390]) {
+    for (const colorScheme of ['dark', 'light'] as const) {
+      test(`dashboard ${width}px ${colorScheme}: touch preserves Settings and Arr control sizes`, async ({ page, browser }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+        const referenceContext = await browser.newContext({ viewport: { width, height: 844 }, colorScheme, reducedMotion: 'reduce', hasTouch: false });
+        try {
+          const reference = await referenceContext.newPage();
+          reference.on('pageerror', error => pageErrors.push(error.message));
+          for (const fixture of [page, reference]) {
+            await dashboard(fixture);
+            await fixture.locator('.tab-btn[data-tab="settings"]').click();
+          }
+          const fields = '#cfgOrphanAge, #cfgLang, #cfgTrickplayMode, #cfgSeerrUrl, #cfgSeerrApiKey, #cfgExcludedWrapper .library-multiselect-toggle';
+          const expectedFields = await controlSizes(reference, fields);
+          expect(expectedFields).toHaveLength(6);
+          expect(await controlSizes(page, fields)).toEqual(expectedFields);
+          for (const fixture of [page, reference]) {
+            await fixture.locator('.tab-btn[data-tab="arr"]').click();
+            await fixture.evaluate(() => (window as any).fixtureAdmin.initArrButtons({
+              RadarrInstances: [{ Name: 'Radarr', Url: 'http://radarr:7878', ApiKey: 'key' }],
+              SonarrInstances: [{ Name: 'Sonarr', Url: 'http://sonarr:8989', ApiKey: 'key' }],
+            }));
+          }
+          const expectedButtons = await controlSizes(reference, '.arr-compare-btn');
+          expect(expectedButtons).toHaveLength(2);
+          expect(await controlSizes(page, '.arr-compare-btn')).toEqual(expectedButtons);
+          for (const button of expectedButtons) expect(button.height).toBeLessThan(44);
+        } finally {
+          await referenceContext.close();
+        }
+      });
+
+      test(`Discovery ${width}px ${colorScheme}: touch preserves compact subtab sizes`, async ({ page, browser }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+        const referenceContext = await browser.newContext({ viewport: { width, height: 844 }, colorScheme, reducedMotion: 'reduce', hasTouch: false });
+        try {
+          const reference = await referenceContext.newPage();
+          reference.on('pageerror', error => pageErrors.push(error.message));
+          for (const fixture of [page, reference]) {
+            await discovery(fixture);
+            await fixture.evaluate(() => (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards')));
+            await expect(fixture.getByRole('tab')).toHaveCount(3);
+          }
+          const expectedTabs = await controlSizes(reference, '.jfh-discovery-tab');
+          expect(await controlSizes(page, '.jfh-discovery-tab')).toEqual(expectedTabs);
+          expect(await controlSizes(page, '.jfh-discovery-tabs')).toEqual(await controlSizes(reference, '.jfh-discovery-tabs'));
+          for (const tab of expectedTabs) expect(tab.height).toBeLessThan(44);
+          await page.getByRole('tab', { name: 'Trakt Trending', exact: true }).tap();
+          await expect(page.getByRole('tab', { name: 'Trakt Trending', exact: true })).toHaveAttribute('aria-selected', 'true');
+        } finally {
+          await referenceContext.close();
+        }
+      });
+    }
+  }
+
   test('Discovery poster taps open and close details without a separate button', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -279,7 +353,12 @@ test.describe('touch controls', () => {
     await page.locator('.tab-btn[data-tab="settings"]').click();
     const input = page.locator('#cfgOrphanAge');
     await expect(input).toBeVisible();
-    expect(await input.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(32);
+    const fontSizes = await input.evaluate(element => ({
+      input: Number.parseFloat(getComputedStyle(element).fontSize),
+      form: Number.parseFloat(getComputedStyle(element.closest('.settings-form')!).fontSize),
+    }));
+    expect(fontSizes.form).toBe(32);
+    expect(fontSizes.input).toBeCloseTo(fontSizes.form * 0.95, 1);
     await input.fill('45');
     const band = page.locator('#settingsSaveBand');
     await expect(band).toHaveClass(/is-visible/);
