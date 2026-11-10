@@ -1062,7 +1062,7 @@
             for (var entry of entries) {
                 var card = entry.target;
                 var button = card.querySelector('[data-jfh-action="request"]');
-                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !button || button.disabled || !card._jfhDeliveryId
+                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
                     || _reportedImpressions.get(card) === card._jfhDeliveryId) continue;
                 pending.set(card.dataset.cardKey, card);
             }
@@ -1075,7 +1075,7 @@
                 for (var card of pending.values()) {
                     var rect = card.getBoundingClientRect();
                     var button = card.querySelector('[data-jfh-action="request"]');
-                    if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
+                    if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
                         || rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) continue;
                     var visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
                     var visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
@@ -1181,6 +1181,11 @@
             generation: _discoveryGeneration,
             resp: { ...probe.resp, Result: filtered(probe.resp.Result) }
         };
+        // Mutations invalidate the captured generation. Fresh observers receive an initial
+        // visibility check from the browser for remaining cards without weakening session guards.
+        document.querySelectorAll('.jfh-ui-surface').forEach(function (container) {
+            if (container.querySelector('.jfh-discovery-card')) observeVisibleDiscoveryCards(container);
+        });
     }
 
     function renderSidebarExternalLinksHtml(r, mediaType) {
