@@ -390,6 +390,7 @@
                 setCachedDiscoveryResult(data);
                 var changed = !previous
                     || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous)
+                    || data?.DeliveryId !== previous?.DeliveryId
                     || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
                 // Render into the panel that is live now, not the one captured at
                 // call time, because Jellyfin may have rebuilt it while we were away.
@@ -906,7 +907,7 @@
         if (isEmptyTraktResult(entry.data)) {
             return (Date.now() - entry.storedAt) < TRAKT_EMPTY_CACHE_MS;
         }
-        return true;
+        return !entry.data?.DeliveryExpiresAtUtc || Date.parse(entry.data.DeliveryExpiresAtUtc) > Date.now();
     }
 
     function makeTraktCacheEntry(data, userId) {
@@ -1014,6 +1015,7 @@
     }
 
     function renderCards(container, userDiscovery) {
+        container._jfhDiscoverySource = _activeTab;
         container.classList.add('jfh-ui-surface');
         var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
             return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
@@ -1039,7 +1041,7 @@
             wanted.add(key);
             var markup = renderSidebarCardHtml(recommendation);
             var card = existing.get(key) || createSidebarCard(markup, key);
-            updateSidebarCard(card, markup, userDiscovery.DeliveryId);
+            updateSidebarCard(card, markup, userDiscovery.DeliveryId, userDiscovery.DeliveryExpiresAtUtc);
             placeSidebarCard(grid, card, reference, preserveOrder);
             reference = card.nextElementSibling;
         }
@@ -1073,6 +1075,11 @@
                     || document.getElementById('jfhDiscoveryPopup')) { pending.clear(); return; }
                 var batch = [];
                 for (var card of pending.values()) {
+                    if (deliveryExpired(card)) {
+                        pending.clear();
+                        refreshDiscoveryDelivery(container, request);
+                        return;
+                    }
                     var rect = card.getBoundingClientRect();
                     var button = card.querySelector('[data-jfh-action="request"]');
                     if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
@@ -1102,7 +1109,8 @@
                         for (var item of items) {
                             if (item.card._jfhDeliveryId === deliveryId) _reportedImpressions.set(item.card, deliveryId);
                         }
-                    }, function () {
+                    }, function (error) {
+                        if (error?.status === 400 && isCurrentDiscoveryRequest(request)) refreshDiscoveryDelivery(container, request);
                         // Failed feedback writes do not claim an impression; a later render can retry.
                     });
                 }
@@ -1134,10 +1142,11 @@
         return card;
     }
 
-    function updateSidebarCard(card, markup, deliveryId) {
+    function updateSidebarCard(card, markup, deliveryId, expiresAt) {
         if (card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
             || card.querySelector('button:disabled:not(.jfh-discovery-btn-done), .jfh-discovery-btn-failed')) return;
         card._jfhDeliveryId = deliveryId;
+        card._jfhDeliveryExpiresAt = expiresAt ? Date.parse(expiresAt) : 0;
         if (card._jfhMarkup === markup) return;
         var focused = card.contains(document.activeElement) ? document.activeElement.dataset.jfhAction : null;
         var flipped = card.querySelector('.flipped') != null;
@@ -1145,6 +1154,30 @@
         card._jfhMarkup = markup;
         if (flipped) toggleSidebarDetails(card.querySelector('.jfh-discovery-card-poster'), true);
         if (focused) card.querySelector('[data-jfh-action="' + focused + '"]')?.focus({ preventScroll: true });
+    }
+
+    function deliveryExpired(card) {
+        return card?._jfhDeliveryExpiresAt > 0 && card._jfhDeliveryExpiresAt <= Date.now();
+    }
+
+    // Refresh the visible server response, never re-sign stale client features under a new delivery id.
+    function refreshDiscoveryDelivery(container, request) {
+        if (container._jfhDeliveryRefreshInFlight || !container.isConnected || !isCurrentDiscoveryRequest(request)
+            || _discoveryDisabled || document.getElementById('jfhDiscoveryPopup')) return;
+        container._jfhDeliveryRefreshInFlight = true;
+        var source = container._jfhDiscoverySource;
+        var url = source === TAB_TRAKT ? API_URL + '/Trakt' : source === TAB_TRENDING ? API_URL + '/Trakt/Trending' : API_URL;
+        request.client.ajax({ type: 'GET', url: request.client.getUrl(url), dataType: 'json' }).then(function (response) {
+            if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled || container._jfhDiscoverySource !== source) return;
+            if (source === TAB_TRAKT && response?.Linked !== true) { renderTraktNotLinked(container); return; }
+            var data = source === TAB_TRAKT ? response.Result : response;
+            if (source === TAB_TRAKT) _traktPersonalCache = makeTraktCacheEntry(data, request.userId);
+            else if (source === TAB_TRENDING) _traktTrendingCache = makeTraktCacheEntry(data, request.userId);
+            else setCachedDiscoveryResult(data);
+            renderCards(container, data);
+        }).catch(function (error) {
+            if (isCurrentDiscoveryRequest(request) && error?.status === 403 && source !== TAB_TRAKT && source !== TAB_TRENDING) disableDiscoveryUi();
+        }).finally(function () { container._jfhDeliveryRefreshInFlight = false; });
     }
 
     function placeSidebarCard(grid, card, reference, preserveOrder) {
@@ -1345,6 +1378,7 @@
     function handleRequest(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
+        if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
@@ -1564,6 +1598,8 @@
         btn.disabled = true;
         btn.textContent = t('discoveryRequesting', 'Requesting...');
         var payload = { TmdbId: tmdbId, MediaType: mediaType };
+        var deliveryId = btn.closest('.jfh-discovery-card')?._jfhDeliveryId;
+        if (deliveryId) payload.DeliveryId = deliveryId;
         if (serverId != null) payload.ServerId = serverId;
         if (profileId != null) payload.ProfileId = profileId;
         if (rootFolder) payload.RootFolder = rootFolder;
@@ -1637,6 +1673,7 @@
     function handleDismissClick(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
+        if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         var title = btn.dataset.title || '';
@@ -1702,12 +1739,15 @@
      */
     function executeDismiss(tmdbId, mediaType, btn) {
         var request = captureDiscoveryRequest();
+        var payload = { TmdbId: tmdbId, MediaType: mediaType };
+        var deliveryId = btn.closest('.jfh-discovery-card')?._jfhDeliveryId;
+        if (deliveryId) payload.DeliveryId = deliveryId;
         btn.disabled = true;
         btn.textContent = '...';
         ApiClient.ajax({
             type: 'POST',
             url: ApiClient.getUrl(API_URL + '/Dismiss'),
-            data: JSON.stringify({ TmdbId: tmdbId, MediaType: mediaType }),
+            data: JSON.stringify(payload),
             contentType: 'application/json',
             dataType: 'json'
         }).then(function () {
@@ -1729,6 +1769,14 @@
             btn.textContent = t('discoveryDismiss', 'Not interested');
             showToast(t('discoveryDismissError', 'Could not dismiss this item. Please try again.'));
         });
+    }
+
+    function refreshExpiredActionCard(button) {
+        var card = button.closest('.jfh-discovery-card');
+        if (!deliveryExpired(card)) return false;
+        var container = card.closest('.jfh-ui-surface');
+        if (container) refreshDiscoveryDelivery(container, captureDiscoveryRequest());
+        return true;
     }
 
     // Adds a zero-width space (U+200B) after each slash so the browser may break a slashed compound like
