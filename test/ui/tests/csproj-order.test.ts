@@ -60,3 +60,26 @@ describe('loader module order matches the .csproj compose order', () => {
     expect(compose).toContain('CodecsExplorer.js');
   });
 });
+
+describe('Vitest MSBuild integration', () => {
+  function vitestExec() {
+    const project = new DOMParser().parseFromString(readFileSync(
+      join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper.Tests', 'Jellyfin.Plugin.JellyfinHelper.Tests.csproj'),
+      'utf8',
+    ), 'application/xml');
+    const exec = project.querySelector('Target[Name="VitestUi"] > Exec');
+    expect(exec).not.toBeNull();
+    return exec!;
+  }
+
+  test('successful test names containing error are not parsed as build failures', () => {
+    expect(vitestExec().getAttribute('IgnoreStandardErrorWarningFormat')).toBe('true');
+  });
+
+  test('test and coverage failure exit codes remain fatal', () => {
+    const exec = vitestExec();
+    expect(exec.getAttribute('Command')).toContain('run test:coverage');
+    expect(exec.getAttribute('IgnoreExitCode')).not.toBe('true');
+    expect([null, 'false', 'ErrorAndStop']).toContain(exec.getAttribute('ContinueOnError'));
+  });
+});

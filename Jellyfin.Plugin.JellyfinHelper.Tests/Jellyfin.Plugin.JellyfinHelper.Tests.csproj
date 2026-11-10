@@ -56,7 +56,9 @@
   </PropertyGroup>
 
   <Target Name="VitestUi" AfterTargets="VSTest" Condition="'$(RunVitest)' == 'true' And Exists('$(UiTestDir)/node_modules')">
-    <Exec Command="npm --prefix &quot;$(UiTestDir)&quot; run test:coverage -- $(VitestArguments)" />
+    <!-- Vitest test names can contain "error callbacks:"; only the runner's exit code signals failure. -->
+    <Exec Command="npm --prefix &quot;$(UiTestDir)&quot; run test:coverage -- $(VitestArguments)"
+          IgnoreStandardErrorWarningFormat="true" />
   </Target>
 
 </Project>

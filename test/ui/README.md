@@ -33,7 +33,7 @@ validators are pinned without a browser.
 | Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
-| Compose-order sync guard (.csproj vs loader) | `tests/csproj-order.test.ts` |
+| Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |
 | README drift guard (every test file documented) | `tests/docs.test.ts` |
 
 ## Running it
@@ -48,6 +48,10 @@ npm run test:coverage   # run + coverage gate (fails below the mark)
 `dotnet test` runs this suite automatically when `test/ui/node_modules`
 exists (skip otherwise). Set `RunVitest=false` to opt out, e.g.
 `dotnet test -p:RunVitest=false`.
+
+The MSBuild runner uses the test/coverage command's exit code rather than parsing
+test names as compiler errors (for example, a passing test named `error callbacks:`).
+Failing tests or the coverage gate still fail `dotnet test` and abort deployment.
 
 To select a different Vitest worker pool locally, pass its options through the combined runner:
 
