@@ -113,10 +113,9 @@ public sealed class EngineDiscoveryWatchedStatusTests
     }
 
     [Fact]
-    public void TrainStrategy_FavoriteSeriesWatched_MarksSeriesWatchedAsTv()
+    public void TrainStrategy_FavoriteSeriesWithoutPlayedEpisodes_IsNotMarkedWatched()
     {
-        // A favorited series whose id resolves to a library TMDb id must be marked watched with the
-        // 'tv' media type - the series-favorite branch of the watched-set resolution.
+        // Explicit interest is not proof of consumption; requested-and-watched needs played media.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         const int seriesTmdbId = 1399;
@@ -138,12 +137,41 @@ public sealed class EngineDiscoveryWatchedStatusTests
 
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
-        var expected = (seriesTmdbId, "tv");
         harness.FeedbackStore.Verify(
-            f => f.MarkWatched(
-                userId,
-                It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(s => s.Contains(expected))),
-            Times.Once);
+            store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TrainStrategy_PartialOrFavoriteMovieDoesNotBecomeWatched(bool favorite)
+    {
+        var harness = EngineTestFactory.Create();
+        var user = Guid.NewGuid();
+        var movie = Guid.NewGuid();
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns([MakeRequestedNotWatched(user, 550, "movie")]);
+        WireLibraryItems(harness, [MakeMovieWithTmdb(movie, 550)]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = movie, IsFavorite = favorite, Played = false, PlayCount = favorite ? 0 : 1, PlaybackPositionTicks = favorite ? 0 : 10 }] }]);
+
+        harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
+
+        harness.FeedbackStore.Verify(store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+    }
+
+    [Fact]
+    public void TrainStrategy_PlayedEpisodeMarksItsRequestedSeriesAsConsumed()
+    {
+        var harness = EngineTestFactory.Create();
+        var user = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns([MakeRequestedNotWatched(user, 1399, "tv")]);
+        WireLibraryItems(harness, [MakeSeriesWithTmdb(series, 1399)]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", Played = true }] }]);
+
+        harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
+
+        var expected = (1399, "tv");
+        harness.FeedbackStore.Verify(store => store.MarkWatched(user, It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Contains(expected))), Times.Once);
     }
 
     [Fact]

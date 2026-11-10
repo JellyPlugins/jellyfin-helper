@@ -2421,7 +2421,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Builds the composite (TmdbId, MediaType) key set for a single user's watched items and series-level favorites.
+    ///     Builds composite keys only from Jellyfin-confirmed played items; a favorite or partial playback is not watched.
     /// </summary>
     private static HashSet<(int TmdbId, string MediaType)> CollectWatchedTmdbKeys(
         UserWatchProfile userProfile,
@@ -2429,7 +2429,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         Dictionary<Guid, string> mediaTypeByItemId)
     {
         var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
-        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
+        foreach (var w in userProfile.WatchedItems.Where(w => w.Played))
         {
             if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
             {
@@ -2441,15 +2441,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
             {
                 watchedItems.Add((seriesTmdbId, "tv"));
-            }
-        }
-
-        // Include series-level favorites (user favorited the series itself, not individual episodes)
-        foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
-        {
-            if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
-            {
-                watchedItems.Add((favoriteSeriesTmdbId, "tv"));
             }
         }
 
