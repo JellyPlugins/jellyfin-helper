@@ -28,7 +28,7 @@
             '.jfh-toast-visible{opacity:1;pointer-events:auto;transform:none}' +
             '.jfh-toast-hidden{opacity:0;pointer-events:none;transform:translateY(8px)}' +
             '.jfh-toast-close{position:absolute;right:.4rem;top:.4rem;background:transparent;border:none;color:inherit;cursor:pointer;width:32px;height:32px}.jfh-toast-close::before{content:"×";font-size:1.3rem}' +
-            '@media(pointer:coarse){.jfh-ui-surface .action-btn,.jfh-ui-surface .jfh-discovery-btn,.jfh-ui-surface .jfh-discovery-tab,.jfh-ui-surface .jfh-discovery-popup-item,.jfh-ui-surface .jfh-discovery-popup-cancel{touch-action:manipulation}}' +
+            '@media(pointer:coarse){.jfh-ui-surface :where(input:not([type]),input[type="text"],input[type="number"],input[type="password"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],textarea){font-size:max(16px,1em)!important}.jfh-ui-surface .action-btn,.jfh-ui-surface .jfh-discovery-btn,.jfh-ui-surface .jfh-discovery-tab,.jfh-ui-surface .jfh-discovery-popup-item,.jfh-ui-surface .jfh-discovery-popup-cancel{touch-action:manipulation}}' +
             '@media(prefers-color-scheme:light){.jfh-ui-surface{--color-primary:#00749c;--color-surface-card:#ffffff;--color-text:#17171b;--color-text-muted:#565660;--color-border:rgba(0,0,0,.15);--color-primary-scrollbar:rgba(0,136,184,.55);--color-primary-scrollbar-hover:rgba(0,136,184,.75)}}' +
             '@media(prefers-reduced-motion:reduce){.jfh-ui-surface .jfh-card-exiting,.jfh-toast{transform:none;transition:none}}';
         document.head.appendChild(style);

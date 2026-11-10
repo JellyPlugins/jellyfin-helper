@@ -42,7 +42,8 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - Stable Discovery cards with poster-based details, keyboard activation, Escape focus restoration and touch toggling; no separate Details button.
 - Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
 - Reduced motion, larger text on touch devices, and log-filter alignment.
-- Touch retains the per-tab Settings field, Arr compare button and Discovery subtab sizes instead of imposing global font sizes or minimum heights (320px/390px, light/dark).
+- Touch keeps Arr compare buttons and Discovery subtabs compact (320px/390px, light/dark), without global minimum heights.
+- Editable fields have a scalable 16px minimum to avoid iOS focus zoom; Settings inputs and dropdowns retain matching sizes, including at 200% text scaling, without changing host controls, checkboxes, sliders or other buttons.
 - Explicit failure when the Discovery bootstrap source anchor is missing or duplicated.
 - Native panel and custom-dropdown transitions with immediate closing accessibility state.
 - Mid-transition reversal preserves presentation height and cancels stale closing cleanup.

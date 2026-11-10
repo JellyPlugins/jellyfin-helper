@@ -276,7 +276,7 @@ test.describe('touch controls', () => {
 
   for (const width of [320, 390]) {
     for (const colorScheme of ['dark', 'light'] as const) {
-      test(`dashboard ${width}px ${colorScheme}: touch preserves Settings and Arr control sizes`, async ({ page, browser }) => {
+      test(`dashboard ${width}px ${colorScheme}: touch keeps Settings consistent and Arr compact`, async ({ page, browser }) => {
         await page.setViewportSize({ width, height: 844 });
         await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
         const referenceContext = await browser.newContext({ viewport: { width, height: 844 }, colorScheme, reducedMotion: 'reduce', hasTouch: false });
@@ -290,7 +290,12 @@ test.describe('touch controls', () => {
           const fields = '#cfgOrphanAge, #cfgLang, #cfgTrickplayMode, #cfgSeerrUrl, #cfgSeerrApiKey, #cfgExcludedWrapper .library-multiselect-toggle';
           const expectedFields = await controlSizes(reference, fields);
           expect(expectedFields).toHaveLength(6);
-          expect(await controlSizes(page, fields)).toEqual(expectedFields);
+          const touchFields = await controlSizes(page, fields);
+          expect(touchFields.map(field => field.width)).toEqual(expectedFields.map(field => field.width));
+          expect(touchFields.map(field => field.fontSize)).toEqual(Array(6).fill('16px'));
+          const heights = touchFields.map(field => field.height);
+          expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(2);
+          expect(Math.max(...heights)).toBeLessThan(44);
           for (const fixture of [page, reference]) {
             await fixture.locator('.tab-btn[data-tab="arr"]').click();
             await fixture.evaluate(() => (window as any).fixtureAdmin.initArrButtons({
@@ -332,6 +337,25 @@ test.describe('touch controls', () => {
     }
   }
 
+  test('editable fields prevent focus zoom and scale without enlarging other controls', async ({ page }) => {
+    await page.setContent(`<style>body{font:16px system-ui}input,textarea,select,button{font-size:.85em}</style>
+      <main class="jfh-ui-surface">
+        <input class="editable"><input class="editable" type="text"><input class="editable" type="number">
+        <input class="editable" type="password"><input class="editable" type="search"><input class="editable" type="email">
+        <input class="editable" type="url"><input class="editable" type="tel"><textarea class="editable"></textarea>
+        <input class="unchanged" type="checkbox"><input class="unchanged" type="radio"><input class="unchanged" type="range">
+        <select class="unchanged"><option>Default</option></select><button class="unchanged">Action</button>
+      </main><input id="hostInput" type="text">`);
+    const before = await controlSizes(page, '.unchanged, #hostInput');
+    await page.addScriptTag({ content: primitives });
+    expect(await controlSizes(page, '.unchanged, #hostInput')).toEqual(before);
+    expect((await controlSizes(page, '.editable')).map(field => field.fontSize)).toEqual(Array(9).fill('16px'));
+    await page.locator('.editable').first().focus();
+    await expect(page.locator('.editable').first()).toBeFocused();
+    await page.addStyleTag({ content: '.jfh-ui-surface{font-size:200%}' });
+    expect((await controlSizes(page, '.editable')).map(field => field.fontSize)).toEqual(Array(9).fill('32px'));
+  });
+
   test('Discovery poster taps open and close details without a separate button', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -359,6 +383,9 @@ test.describe('touch controls', () => {
     }));
     expect(fontSizes.form).toBe(32);
     expect(fontSizes.input).toBeCloseTo(fontSizes.form * 0.95, 1);
+    const fields = await controlSizes(page, '#cfgLang, #cfgSeerrUrl, #cfgSeerrApiKey, #cfgExcludedWrapper .library-multiselect-toggle');
+    expect(fields).toHaveLength(4);
+    for (const field of fields) expect(Number.parseFloat(field.fontSize)).toBeCloseTo(fontSizes.input, 1);
     await input.fill('45');
     const band = page.locator('#settingsSaveBand');
     await expect(band).toHaveClass(/is-visible/);
