@@ -45,6 +45,30 @@
     color-scheme: light dark;
 }
 
+/* Avoid iOS focus zoom without making dropdowns smaller than editable fields. */
+@media (pointer: coarse) {
+    .jfh-ui-surface .settings-form input[type="text"],
+    .jfh-ui-surface .settings-form input[type="number"],
+    .jfh-ui-surface .settings-form input[type="password"],
+    .jfh-ui-surface .settings-form select,
+    .jfh-ui-surface .settings-form .library-multiselect-toggle {
+        font-size: max(16px, 0.95em);
+    }
+
+    /* The decorative chevron must not increase the field's height. */
+    .settings-form .library-multiselect-toggle {
+        position: relative;
+        padding-right: 2.2em;
+    }
+
+    .settings-form .library-multiselect-chevron {
+        position: absolute;
+        right: 0.5em;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+}
+
 .settings-form select {
     -webkit-appearance: none;
     -moz-appearance: none;
