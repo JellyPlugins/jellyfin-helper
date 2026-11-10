@@ -47,12 +47,12 @@
 
 /* Avoid iOS focus zoom without making dropdowns smaller than editable fields. */
 @media (pointer: coarse) {
-    .settings-form input[type="text"],
-    .settings-form input[type="number"],
-    .settings-form input[type="password"],
-    .settings-form select,
-    .settings-form .library-multiselect-toggle {
-        font-size: max(16px, 0.95em) !important;
+    .jfh-ui-surface .settings-form input[type="text"],
+    .jfh-ui-surface .settings-form input[type="number"],
+    .jfh-ui-surface .settings-form input[type="password"],
+    .jfh-ui-surface .settings-form select,
+    .jfh-ui-surface .settings-form .library-multiselect-toggle {
+        font-size: max(16px, 0.95em);
     }
 
     /* The decorative chevron must not increase the field's height. */
