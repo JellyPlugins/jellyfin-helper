@@ -54,6 +54,19 @@
     .settings-form .library-multiselect-toggle {
         font-size: max(16px, 0.95em) !important;
     }
+
+    /* The decorative chevron must not increase the field's height. */
+    .settings-form .library-multiselect-toggle {
+        position: relative;
+        padding-right: 2.2em;
+    }
+
+    .settings-form .library-multiselect-chevron {
+        position: absolute;
+        right: 0.5em;
+        top: 50%;
+        transform: translateY(-50%);
+    }
 }
 
 .settings-form select {
