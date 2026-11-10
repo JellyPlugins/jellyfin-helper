@@ -45,6 +45,17 @@
     color-scheme: light dark;
 }
 
+/* Avoid iOS focus zoom without making dropdowns smaller than editable fields. */
+@media (pointer: coarse) {
+    .settings-form input[type="text"],
+    .settings-form input[type="number"],
+    .settings-form input[type="password"],
+    .settings-form select,
+    .settings-form .library-multiselect-toggle {
+        font-size: max(16px, 0.95em) !important;
+    }
+}
+
 .settings-form select {
     -webkit-appearance: none;
     -moz-appearance: none;
