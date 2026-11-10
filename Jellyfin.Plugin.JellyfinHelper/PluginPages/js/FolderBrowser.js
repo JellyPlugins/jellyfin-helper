@@ -70,7 +70,7 @@ function openFolderBrowserDialog() {
     var newFolderRow = document.createElement('div');
     newFolderRow.style.cssText = 'margin-top:0.8em;';
     newFolderRow.innerHTML = '<label style="font-size:0.82em;opacity:0.8;">' + escHtml(T('trashBrowseCreateNew', 'Or type a new folder name:')) + '</label>'
-        + '<input type="text" id="folderBrowserNewName" placeholder=".jellyfin-trash" style="width:100%;margin-top:0.3em;padding:0.4em 0.6em;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.2);color:inherit;font-size:0.9em;">';
+        + '<input type="text" id="folderBrowserNewName" placeholder=".jellyfin-trash" style="width:100%;margin-top:0.3em;padding:0.4em 0.6em;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.2);color:inherit;font-size:max(var(--jfh-editable-font-min,0px),0.9em);">';
     dialog.appendChild(newFolderRow);
 
     // Action buttons

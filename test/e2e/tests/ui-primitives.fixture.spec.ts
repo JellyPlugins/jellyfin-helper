@@ -356,6 +356,32 @@ test.describe('touch controls', () => {
     expect((await controlSizes(page, '.editable')).map(field => field.fontSize)).toEqual(Array(9).fill('32px'));
   });
 
+  test('folder browser field retains the touch font minimum without overriding desktop sizing', async ({ page, browser }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const referenceContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: false });
+    try {
+      const reference = await referenceContext.newPage();
+      reference.on('pageerror', error => pageErrors.push(error.message));
+      for (const fixture of [page, reference]) {
+        await dashboard(fixture);
+        await fixture.locator('.tab-btn[data-tab="settings"]').click();
+        await fixture.locator('#cfgTrash').check();
+        await fixture.locator('#btnBrowseTrash').click();
+        await expect(fixture.locator('#folderBrowserNewName')).toBeVisible();
+      }
+      expect((await controlSizes(page, '#folderBrowserNewName'))[0].fontSize).toBe('16px');
+      expect(Number.parseFloat((await controlSizes(reference, '#folderBrowserNewName'))[0].fontSize)).toBeCloseTo(14.4, 1);
+      for (const fixture of [page, reference]) {
+        await fixture.addStyleTag({ content: 'body{font-size:200%}' });
+        expect(Number.parseFloat((await controlSizes(fixture, '#folderBrowserNewName'))[0].fontSize)).toBeCloseTo(28.8, 1);
+        await fixture.locator('#folderBrowserCancel').click();
+        await expect(fixture.locator('#btnBrowseTrash')).toBeFocused();
+      }
+    } finally {
+      await referenceContext.close();
+    }
+  });
+
   test('Discovery poster taps open and close details without a separate button', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
