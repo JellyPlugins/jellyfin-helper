@@ -214,6 +214,15 @@ describe('formatReason / formatRawReasonFallback', () => {
     expect(ui.formatReason('reasonDefault')).toBe('Recommended for you');
   });
 
+  test('metadata reasons remain readable when translations are unavailable', () => {
+    const fallback = freshDiscoveryHelpers();
+    expect(fallback.formatReason('reasonFranchiseNamed', null, 'Actual saga')).toBe('More from the Actual saga collection');
+    expect(fallback.formatReason('reasonStudioNamed', null, 'Studio A')).toBe('From Studio A');
+    expect(fallback.formatReason('reasonFranchise')).toBe('From a franchise you follow');
+    expect(fallback.formatReason('reasonCollectionContinuation')).toBe("Continue a collection you've explored");
+    expect(fallback.formatRawReasonFallback('reasonFranchiseNamed: Actual saga')).toBe('More from the Actual saga collection');
+  });
+
   test('empty when neither key nor reason present', () => {
     expect(ui.formatReason('', '')).toBe('');
   });
@@ -358,6 +367,14 @@ describe('renderCards', () => {
     const reqBtn = el.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)') as HTMLElement;
     expect(reqBtn.dataset.tmdb).toBe('603');
     expect(reqBtn.dataset.type).toBe('movie');
+  });
+
+  test('cold-start suggestions do not claim a personal match percentage', () => {
+    const el = document.createElement('div');
+    ui.renderCards(el, { Recommendations: [rec({ IsPersonalized: false, Score: 0.99 })] });
+    expect(el.querySelector('.jfh-discovery-score-bar')).toBeNull();
+    expect(el.textContent).toContain('not personalized yet');
+    expect(el.textContent).not.toContain('99%');
   });
 
   test('escapes a hostile title so no script element is created', () => {

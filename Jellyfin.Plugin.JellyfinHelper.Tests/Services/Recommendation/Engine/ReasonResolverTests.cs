@@ -58,6 +58,16 @@ public class ReasonResolverTests
         };
 
     [Fact]
+    public void GenreReasons_UseCanonicalWeightsButOriginalCandidateLabels()
+    {
+        var candidate = CreateMovie(genres: ["Krimi", "Thriller"]);
+        var explanation = Explain(genre: AboveThreshold);
+        var (_, key, related) = ReasonResolver.DetermineReason(candidate, explanation, new Dictionary<string, double> { ["Crime"] = 1, ["Thriller"] = 0.2 });
+        Assert.Equal("reasonGenre", key);
+        Assert.Equal("Krimi", related);
+    }
+
+    [Fact]
     public void GenrePlusPeople_WithMatchedPerson_ReturnsNamedCombo()
     {
         var id = Guid.NewGuid();

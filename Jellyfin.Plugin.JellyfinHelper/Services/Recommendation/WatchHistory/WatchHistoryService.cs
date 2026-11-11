@@ -13,6 +13,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +33,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IPluginLogService _pluginLog;
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
+    private readonly ILinkedChildrenService? _linkedChildren;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -42,13 +44,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="userDataManager">The user data manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="linkedChildren">Optional authoritative Jellyfin collection membership service.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
         IPluginConfigurationService configService,
         IUserManager userManager,
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
-        ILogger<WatchHistoryService> logger)
+        ILogger<WatchHistoryService> logger,
+        ILinkedChildrenService? linkedChildren = null)
     {
         _libraryManager = libraryManager;
         _configService = configService;
@@ -56,6 +60,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _userDataManager = userDataManager;
         _pluginLog = pluginLog;
         _logger = logger;
+        _linkedChildren = linkedChildren;
     }
 
     /// <inheritdoc />
@@ -337,6 +342,29 @@ public sealed class WatchHistoryService : IWatchHistoryService
         allSeries ??= LoadAllSeriesItems(onDemandScope);
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
         seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
+        var seriesStudiosById = new Dictionary<Guid, IReadOnlyList<string>>();
+        var seriesTagsById = new Dictionary<Guid, IReadOnlyList<string>>();
+        var seriesLifecycleById = new Dictionary<Guid, (string? Status, DateTime? EndDate)>();
+        foreach (var series in allSeries)
+        {
+            seriesStudiosById[series.Id] = series.Studios?.ToArray() ?? [];
+            seriesTagsById[series.Id] = series.Tags?.ToArray() ?? [];
+            seriesLifecycleById[series.Id] = (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series));
+        }
+
+        var collectionIds = new Dictionary<Guid, int>();
+        if (allItems.Any(ContentAffinityResolver.NeedsCollectionCorroboration))
+        {
+            try
+            {
+                var collections = (_libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Recursive = true }) ?? []).OfType<BoxSet>().ToArray();
+                collectionIds = CollectionMembershipResolver.CollectionIds(allItems, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogDebug(LogCategory, "Ambiguous collection IDs remain unconfirmed; collection evidence is unavailable.", _logger);
+            }
+        }
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -359,7 +387,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, seriesTmdbById, ref ratingSum, ref ratingCount);
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, seriesTmdbById, seriesStudiosById, seriesTagsById, seriesLifecycleById, collectionIds, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
@@ -404,6 +432,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
     /// <param name="seriesGenresById">Map of series id to genres, used to give an episode its parent series' genres when the episode has none.</param>
     /// <param name="seriesTmdbById">Map of series id to TMDb id, used to attribute a watched episode to its parent series' TMDb id.</param>
+    /// <param name="seriesStudiosById">Already-loaded parent studios; avoids per-episode library queries.</param>
+    /// <param name="seriesTagsById">Own parent-series tags, excluding library/folder inheritance.</param>
+    /// <param name="seriesLifecycleById">Already-loaded series status and end dates, rather than empty episode metadata.</param>
+    /// <param name="collectionIds">Pre-resolved collection identities corroborated by actual membership.</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private void AccumulateWatchedItem(
@@ -413,6 +445,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         HashSet<Guid> watchedSeriesIds,
         Dictionary<Guid, IReadOnlyList<string>> seriesGenresById,
         Dictionary<Guid, int> seriesTmdbById,
+        Dictionary<Guid, IReadOnlyList<string>> seriesStudiosById,
+        Dictionary<Guid, IReadOnlyList<string>> seriesTagsById,
+        Dictionary<Guid, (string? Status, DateTime? EndDate)> seriesLifecycleById,
+        Dictionary<Guid, int> collectionIds,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -442,6 +478,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var seriesTmdbId = seriesId.HasValue && seriesTmdbById.TryGetValue(seriesId.Value, out var resolvedSeriesTmdb)
             ? resolvedSeriesTmdb
             : 0;
+        var ownStudios = item.Studios?.ToArray() ?? [];
+        var ownTags = item.Tags?.ToArray() ?? [];
+        var parentStudios = seriesId.HasValue && seriesStudiosById.TryGetValue(seriesId.Value, out var inheritedStudios) ? inheritedStudios : null;
+        var parentTags = seriesId.HasValue && seriesTagsById.TryGetValue(seriesId.Value, out var inheritedTags) ? inheritedTags : null;
+        var lifecycle = seriesId.HasValue && seriesLifecycleById.TryGetValue(seriesId.Value, out var parentLifecycle)
+            ? parentLifecycle
+            : (Status: ContentAffinityResolver.ResolveSeriesStatus(item), EndDate: ContentAffinityResolver.ResolveSeriesEndDate(item));
 
         var watchedItem = new WatchedItemInfo
         {
@@ -468,10 +511,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             // Content-affinity source fields.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
+            TmdbCollectionId = collectionIds.GetValueOrDefault(item.Id, ContentAffinityResolver.ResolveTmdbCollectionId(item)),
+            Studios = parentStudios is { Count: > 0 } ? ownStudios.Concat(parentStudios).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() : ownStudios,
+            Tags = parentTags is { Count: > 0 } ? ownTags.Concat(parentTags).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() : ownTags,
+            OwnStudios = ownStudios,
+            OwnTags = ownTags,
+            SeriesStudios = parentStudios,
+            SeriesTags = parentTags,
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
-            SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
-            EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
+            SeriesStatus = lifecycle.Status,
+            EndDate = lifecycle.EndDate,
             WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
         };
 
@@ -634,6 +684,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             // Content-affinity source fields for the favorited series, using the same shared resolvers as the primary loop so a favorited series contributes franchise/country/ inherited-tag/writer/completability preference signal identically to a watched item.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
+            Studios = series.Studios?.ToArray() ?? [],
+            Tags = series.Tags?.ToArray() ?? [],
+            OwnStudios = series.Studios?.ToArray() ?? [],
+            OwnTags = series.Tags?.ToArray() ?? [],
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
             SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),

@@ -2,15 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Querying;
 using Moq;
 using Xunit;
@@ -90,6 +93,107 @@ public sealed class EngineLibraryMetadataTests : IDisposable
         ];
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CollectionQueryFailure_PreservesPreviouslyCorroboratedIdsButConfirmedRemovalClearsThem(bool failure, bool linkedFailure)
+    {
+        var linked = new Mock<ILinkedChildrenService>();
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        var probe = MakeMovie("Previously corroborated");
+        probe.ProviderIds["Tmdb"] = "123";
+        probe.ProviderIds["TmdbCollection"] = "123";
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var roster = harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))));
+        if (failure && !linkedFailure) roster.Throws(new InvalidOperationException("roster unavailable"));
+        else roster.Returns([collection]);
+        if (linkedFailure) linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Throws(new InvalidOperationException("membership unavailable"));
+        else linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([]);
+        var metadata = harness.Engine.BuildTrainingLibraryMetadata([probe], []);
+        Assert.Equal(!failure, metadata.TmdbCollectionIds!.ContainsKey(probe.Id));
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-2);
+        var profiles = new Collection<UserWatchProfile> { new() { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbCollectionId = 123, Played = true, ItemType = "Movie", LastPlayedDate = at.AddDays(-1) }] } };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = at, Recommendations = [new RecommendedItem { ItemId = probe.Id, TmdbId = 123, TmdbCollectionId = 123, ItemType = "Movie", Genres = ["Action"] }] };
+        var examples = TrainingDataBuilder.BuildExamples([previous], profiles, null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples;
+        var recommendation = Assert.Single(examples, example => example.ObservationId == TrainingExample.CreateTitleObservationId(user, probe.Id, 123, false));
+        Assert.Equal(failure ? 1 : 0, recommendation.Features.FranchiseAffinity);
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(1, false)]
+    public void OrganicSeries_UseHistoricalDistinctSiblingCountsAndExcludeTheirOwnEpisodes(int siblings, bool membership)
+    {
+        var linked = new Mock<ILinkedChildrenService>();
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        var seriesId = Guid.NewGuid();
+        var siblingId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        var collection = new BoxSet { Id = Guid.NewGuid() };
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns(membership ? [collection] : []);
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([seriesId, siblingId, movieId]);
+        var metadata = harness.Engine.BuildTrainingLibraryMetadata([new Movie { Id = movieId }], [new Series { Id = seriesId }, new Series { Id = siblingId }]);
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-1);
+        var profile = new UserWatchProfile { UserId = user };
+        for (var i = 0; i < 5; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = seriesId, Played = true, LastPlayedDate = at.AddMinutes(-i), Genres = ["Drama"] });
+        if (siblings > 0)
+        {
+            for (var i = 0; i < 5; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = siblingId, Played = true, LastPlayedDate = at.AddDays(-1).AddMinutes(-i), Genres = ["Action"] });
+        }
+
+        if (siblings > 1) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = movieId, ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-1), Genres = ["Action"] });
+        var examples = TrainingDataBuilder.BuildExamples([], new Collection<UserWatchProfile> { profile }, null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples;
+        var series = Assert.Single(examples, example => example.ObservationId == TrainingExample.CreateTitleObservationId(user, seriesId, 0, true));
+        Assert.Equal(membership && siblings > 0 ? 0.3 + ((siblings - 1) * 0.2) : 0, series.Features.CollectionProgressionBoost, 12);
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("library")]
+    [InlineData("linked")]
+    [InlineData("null")]
+    public void RemovedMembershipsAndMetadata_ClearCachedValuesOnlyWhenConfirmed(string failure)
+    {
+        var linked = new Mock<ILinkedChildrenService>();
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        var watched = MakeMovie("Metadata removed");
+        var probe = MakeMovie("Still in collection", ["OldStudio"], ["old tag"]);
+        var collection = new BoxSet { Id = Guid.NewGuid() };
+        var query = harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(q => q.IncludeItemTypes.Contains(BaseItemKind.BoxSet))));
+        if (failure == "library") query.Throws(new InvalidOperationException("roster unavailable"));
+        else if (failure == "null") query.Returns((IReadOnlyList<BaseItem>)null!);
+        else query.Returns([collection]);
+        if (failure == "linked") linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Throws(new InvalidOperationException("membership unavailable"));
+        else linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([probe.Id]);
+        var metadata = harness.Engine.BuildTrainingLibraryMetadata([watched, probe], []);
+        Assert.Empty(metadata.Studios[watched.Id]);
+        Assert.Empty(metadata.Tags[watched.Id]);
+        if (failure == "none") Assert.Empty(metadata.BoxSetIds[watched.Id]);
+        else Assert.False(metadata.BoxSetIds.ContainsKey(watched.Id));
+
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-2);
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = watched.Id, ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-1), Genres = ["Action"], Studios = ["OldStudio"], Tags = ["old tag"] }] }
+        };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = at, Recommendations =
+        [
+            new RecommendedItem { ItemId = watched.Id, ItemType = "Movie", Genres = ["Action"], Studios = ["OldStudio"], Tags = ["old tag"], BoxSetIds = [collection.Id] },
+            new RecommendedItem { ItemId = probe.Id, ItemType = "Movie", Genres = ["Comedy", "Indie"], Studios = ["OldStudio"], Tags = ["old tag"], BoxSetIds = [collection.Id] }
+        ] };
+        var examples = TrainingDataBuilder.BuildExamples([previous], profiles, null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples;
+        var features = Assert.Single(examples, example => example.Features.GenreCount == 2).Features;
+        Assert.False(features.StudioMatch);
+        Assert.Equal(0, features.TagSimilarity);
+        Assert.Equal(failure == "none" ? 0 : 0.3, features.CollectionProgressionBoost);
+    }
+
     [Fact]
     public void TrainStrategy_QueriesLibraryForMovieAndSeriesMetadata()
     {
@@ -119,7 +223,7 @@ public sealed class EngineLibraryMetadataTests : IDisposable
     [Fact]
     public void TrainStrategy_ItemsWithEmptyStudiosAndTags_DoNotThrow()
     {
-        // AddLibraryItemMetadata must skip empty/whitespace studios and tags without adding a map entry.
+        // Empty/whitespace metadata must be accepted and recorded as a known empty value.
         var harness = EngineTestFactory.Create();
         SetupLibrary(
             harness,

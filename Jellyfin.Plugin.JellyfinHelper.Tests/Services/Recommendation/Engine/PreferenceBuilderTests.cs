@@ -41,7 +41,7 @@ public class PreferenceBuilderTests
             ]
         };
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
-        Assert.True(vector["SciFi"] > vector["Drama"]);
+        Assert.True(vector["Science Fiction"] > vector["Drama"]);
     }
 
     [Fact]
@@ -212,8 +212,8 @@ public class PreferenceBuilderTests
         var weighted = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
 
         // The completed Drama series is boosted and the abandoned SciFi series is dampened, so the Drama/SciFi ratio must be strictly larger with the map than without it.
-        var neutralRatio = neutral["Drama"] / neutral["SciFi"];
-        var weightedRatio = weighted["Drama"] / weighted["SciFi"];
+        var neutralRatio = neutral["Drama"] / neutral["Science Fiction"];
+        var weightedRatio = weighted["Drama"] / weighted["Science Fiction"];
         Assert.True(
             weightedRatio > neutralRatio,
             $"progression map must reshape the vector (weighted ratio {weightedRatio} should exceed neutral {neutralRatio})");
@@ -505,13 +505,13 @@ public class PreferenceBuilderTests
         // Baseline contract: the proximity-OFF vector reflects only direct-watch frequency (Action=Adventure=1.0 as the shared peak, SciFi=16/20=0.8).
         Assert.True(baselineVector.TryGetValue("Action", out var baselineAction));
         Assert.True(baselineVector.TryGetValue("Adventure", out var baselineAdventure));
-        Assert.True(baselineVector.TryGetValue("SciFi", out var baselineSciFi));
+        Assert.True(baselineVector.TryGetValue("Science Fiction", out var baselineSciFi));
         Assert.InRange(baselineAction, 0.999, 1.0001);
         Assert.InRange(baselineAdventure, 0.999, 1.0001);
         Assert.InRange(baselineSciFi, 0.79, 0.81);
 
         // Full profile with proximity expansion: SciFi's normalised weight MUST be strictly above the baseline 0.8 because ExpandGenreProximity adds a co-occurrence-derived boost from both Action↔SciFi and Adventure↔SciFi (min-count gate passes for both pairs at 8 co-occurrences each).
-        Assert.True(vector.TryGetValue("SciFi", out var sciFiWeight));
+        Assert.True(vector.TryGetValue("Science Fiction", out var sciFiWeight));
         Assert.True(sciFiWeight > baselineSciFi + 0.005,
             $"Proximity expansion must lift SciFi above its direct-watch baseline of ~0.8. " +
             $"Got baseline={baselineSciFi:F4}, full={sciFiWeight:F4}. " +
@@ -551,7 +551,7 @@ public class PreferenceBuilderTests
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
 
-        Assert.True(vector.TryGetValue("SciFi", out var sciFiWeight));
+        Assert.True(vector.TryGetValue("Science Fiction", out var sciFiWeight));
         Assert.True(vector.TryGetValue("Drama", out var dramaWeight));
         Assert.True(sciFiWeight > dramaWeight,
             $"Fully-completed series should out-weigh abandoned series after progression scaling " +
@@ -607,9 +607,9 @@ public class PreferenceBuilderTests
         var vectorA = PreferenceBuilder.BuildGenrePreferenceVector(withPartials, counts);
         var vectorB = PreferenceBuilder.BuildGenrePreferenceVector(withoutPartials, counts);
 
-        Assert.True(vectorA.TryGetValue("SciFi", out var sciFiA));
+        Assert.True(vectorA.TryGetValue("Science Fiction", out var sciFiA));
         Assert.True(vectorA.TryGetValue("Anchor", out var anchorA));
-        Assert.True(vectorB.TryGetValue("SciFi", out var sciFiB));
+        Assert.True(vectorB.TryGetValue("Science Fiction", out var sciFiB));
         Assert.True(vectorB.TryGetValue("Anchor", out var anchorB));
 
         var ratioA = sciFiA / anchorA;
@@ -1075,9 +1075,9 @@ public class PreferenceBuilderTests
         var vecNonFav = PreferenceBuilder.BuildGenrePreferenceVector(profileNonFav, counts);
         var vecFav = PreferenceBuilder.BuildGenrePreferenceVector(profileFav, counts);
 
-        Assert.True(vecNonFav.TryGetValue("SciFi", out var sciFiNonFav));
+        Assert.True(vecNonFav.TryGetValue("Science Fiction", out var sciFiNonFav));
         Assert.True(vecNonFav.TryGetValue("Anchor", out var anchorNonFav));
-        Assert.True(vecFav.TryGetValue("SciFi", out var sciFiFav));
+        Assert.True(vecFav.TryGetValue("Science Fiction", out var sciFiFav));
         Assert.True(vecFav.TryGetValue("Anchor", out var anchorFav));
 
         var ratioNonFav = sciFiNonFav / anchorNonFav;
@@ -1667,8 +1667,8 @@ public class PreferenceBuilderTests
         var vectorZeroTotal = PreferenceBuilder.BuildGenrePreferenceVector(profileZero, countsZero);
         var vectorMappedOne = PreferenceBuilder.BuildGenrePreferenceVector(profileMapped, countsOne);
 
-        var zeroRatio = vectorZeroTotal["SciFi"] / vectorZeroTotal["Anchor"];
-        var mappedRatio = vectorMappedOne["SciFi"] / vectorMappedOne["Anchor"];
+        var zeroRatio = vectorZeroTotal["Science Fiction"] / vectorZeroTotal["Anchor"];
+        var mappedRatio = vectorMappedOne["Science Fiction"] / vectorMappedOne["Anchor"];
 
         // totalEps<=0 -> neutral 1.0 (same as Anchor); the 1-episode control -> ceiling ~1.5 boost.
         Assert.True(zeroRatio < mappedRatio,

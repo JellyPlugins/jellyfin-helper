@@ -31,6 +31,8 @@ internal static class ExternalCandidateFeatureBuilder
     ///     constant, so under standardization they land at ~0 ("no information") rather than biasing the
     ///     score. Null (no trained model yet) keeps the legacy neutral constants.
     /// </param>
+    /// <param name="watchedCollections">Known library BoxSets and the user's distinct engaged sibling counts.</param>
+    /// <param name="userContext">A single immutable user-preference preparation shared by pre- and final scoring.</param>
     /// <returns>A populated feature vector.</returns>
     internal static CandidateFeatures Build(
         TmdbDiscoverItem candidate,
@@ -39,12 +41,15 @@ internal static class ExternalCandidateFeatureBuilder
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         UserWatchProfile? profile = null,
-        IReadOnlyList<double>? featureMeans = null)
+        IReadOnlyList<double>? featureMeans = null,
+        IReadOnlyDictionary<int, int>? watchedCollections = null,
+        UserContext? userContext = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(genrePreferences);
         ArgumentNullException.ThrowIfNull(preferredPeople);
         ArgumentNullException.ThrowIfNull(genreExposure);
+        userContext ??= PrepareUserContext(profile);
 
         // Ensure case insensitive matching.
         if (preferredPeople.Count > 0 && preferredPeople.Comparer != StringComparer.OrdinalIgnoreCase)
@@ -52,21 +57,22 @@ internal static class ExternalCandidateFeatureBuilder
             preferredPeople = new HashSet<string>(preferredPeople, StringComparer.OrdinalIgnoreCase);
         }
 
-        var genres = TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds);
+        var genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
 
         // Genre-engagement package, computed on the same basis as discovery training so the model
         // scores the signal it was trained on. External candidates are never in the watch set, so no
         // self-exclusion is needed (mirrors a genuine unseen candidate at inference).
-        var (familiarity, genreAvgCompletion, genreAbandonRate) = profile is not null
-            ? ContentScoring.ComputeGenreEngagement(genres, profile)
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = userContext.Engagement is not null
+            ? ContentScoring.ComputeGenreEngagement(genres, userContext.Engagement)
             : (0.0, 0.5, 0.0);
-        var userRatingScore = profile is not null
-            ? ContentScoring.ComputeGenreRatingScore(genres, profile)
+        var userRatingScore = userContext.Engagement is not null
+            ? ContentScoring.ComputeGenreRatingScore(genres, userContext.Engagement)
             : 0.5;
 
         var features = new CandidateFeatures
         {
             IsExternalCandidate = true,
+            HasGenreEvidence = genres.Count > 0 && genrePreferences.Count > 0,
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
             CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
             RecencyScore =
@@ -112,6 +118,7 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
+        ApplyAvailableMetadata(features, candidate, userContext, watchedCollections);
         ApplyMeanImputation(features, featureMeans);
 
         return features;
@@ -145,19 +152,70 @@ internal static class ExternalCandidateFeatureBuilder
         features.SeriesProgressionBoost = featureMeans[(int)FeatureIndex.SeriesProgressionBoost];
         features.DayOfWeekAffinity = featureMeans[(int)FeatureIndex.DayOfWeekAffinity];
         features.HourOfDayAffinity = featureMeans[(int)FeatureIndex.HourOfDayAffinity];
-        features.TagSimilarity = featureMeans[(int)FeatureIndex.TagSimilarity];
+        if (!features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity))
+        {
+            features.TagSimilarity = featureMeans[(int)FeatureIndex.TagSimilarity];
+        }
+
         features.LibraryAddedRecency = featureMeans[(int)FeatureIndex.LibraryAddedRecency];
         features.ContentNearestNeighborScore = featureMeans[(int)FeatureIndex.ContentNearestNeighborScore];
         features.LanguageAffinity = featureMeans[(int)FeatureIndex.LanguageAffinity];
         features.SubtitleLanguageAffinity = featureMeans[(int)FeatureIndex.SubtitleLanguageAffinity];
-        features.CollectionProgressionBoost = featureMeans[(int)FeatureIndex.CollectionProgressionBoost];
-        features.FranchiseAffinity = featureMeans[(int)FeatureIndex.FranchiseAffinity];
+        if (!features.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost))
+        {
+            features.CollectionProgressionBoost = featureMeans[(int)FeatureIndex.CollectionProgressionBoost];
+        }
+
+        if (!features.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity))
+        {
+            features.FranchiseAffinity = featureMeans[(int)FeatureIndex.FranchiseAffinity];
+        }
+
         features.ProductionLocationAffinity = featureMeans[(int)FeatureIndex.ProductionLocationAffinity];
         features.InheritedTagSimilarity = featureMeans[(int)FeatureIndex.InheritedTagSimilarity];
         features.SeriesCompletability = featureMeans[(int)FeatureIndex.SeriesCompletability];
         features.WriterAffinity = featureMeans[(int)FeatureIndex.WriterAffinity];
         features.BillingWeightedPeople = featureMeans[(int)FeatureIndex.BillingWeightedPeople];
         features.GenreStudioIdfPrior = featureMeans[(int)FeatureIndex.GenreStudioIdfPrior];
+    }
+
+    /// <summary>Prepares personal metadata once, using the same eligible rows and own tags as local training.</summary>
+    /// <param name="profile">The current user's watch profile, or null for metadata-only scoring.</param>
+    /// <returns>Detached lookup sets and cached engagement measurements.</returns>
+    internal static UserContext PrepareUserContext(UserWatchProfile? profile)
+    {
+        return new UserContext(
+            profile is null ? new Dictionary<string, double>() : PreferenceBuilder.BuildFranchisePreferenceVector(profile),
+            profile is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : PreferenceBuilder.BuildTagPreferenceSet(profile, []),
+            profile is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : PreferenceBuilder.BuildStudioPreferenceSet(profile, []),
+            profile is null ? null : ContentScoring.BuildGenreEngagementContext(profile));
+    }
+
+    private static void ApplyAvailableMetadata(CandidateFeatures features, TmdbDiscoverItem candidate, UserContext userContext, IReadOnlyDictionary<int, int>? watchedCollections)
+    {
+        if (candidate.HasCollectionMetadata)
+        {
+            features.FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(candidate.CollectionId, candidate.CollectionName, userContext.Franchises);
+            features.MarkExternalFeatureKnown(FeatureIndex.FranchiseAffinity);
+            if (watchedCollections is not null)
+            {
+                features.CollectionProgressionBoost = EngineConstants.ComputeCollectionProgressionBoost(watchedCollections.GetValueOrDefault(candidate.CollectionId));
+                features.MarkExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost);
+            }
+        }
+
+        if (candidate.KnownKeywords is not null)
+        {
+            var keywords = new HashSet<string>(candidate.KnownKeywords, StringComparer.OrdinalIgnoreCase);
+            features.TagSimilarity = SimilarityComputer.ComputeJaccardFromSets(keywords, userContext.Tags);
+            features.MarkExternalFeatureKnown(FeatureIndex.TagSimilarity);
+        }
+
+        if (candidate.KnownStudios is not null)
+        {
+            features.StudioMatch = candidate.KnownStudios.Any(userContext.Studios.Contains);
+            features.MarkExternalFeatureKnown(FeatureIndex.StudioMatch);
+        }
     }
 
     /// <summary>
@@ -211,4 +269,11 @@ internal static class ExternalCandidateFeatureBuilder
 
         return ComputePeopleSimilarityFromNames(candidate.KnownPeople, preferredPeople);
     }
+
+    /// <summary>Prepared user metadata shared across all candidates in one scoring pass.</summary>
+    /// <param name="Franchises">Stable and legacy franchise preference weights.</param>
+    /// <param name="Tags">Own item/series tags, never folder-inherited tags.</param>
+    /// <param name="Studios">Preferred production companies.</param>
+    /// <param name="Engagement">Cached genre completion/rating inputs.</param>
+    internal sealed record UserContext(Dictionary<string, double> Franchises, HashSet<string> Tags, HashSet<string> Studios, ContentScoring.GenreEngagementContext? Engagement);
 }

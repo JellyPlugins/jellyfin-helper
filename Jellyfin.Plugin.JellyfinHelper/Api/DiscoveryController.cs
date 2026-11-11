@@ -70,8 +70,9 @@ public sealed class DiscoveryController : ControllerBase
         var filtered = new List<DiscoveryResult>(Math.Min(results.Count, effectiveTake));
         foreach (var userResult in results.Skip(effectiveSkip).Take(effectiveTake))
         {
+            var allowed = _discovery.FilterConsumedItems(userResult.UserId, userResult) ?? new DiscoveryResult { UserId = userResult.UserId, GeneratedAt = userResult.GeneratedAt };
             var excluded = BuildExcludedItemKeys(userResult.UserId);
-            var visible = userResult.Recommendations
+            var visible = allowed.Recommendations
                 .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, string.IsNullOrWhiteSpace(r.MediaType) ? "movie" : r.MediaType.Trim().ToLowerInvariant())))
                 .Take(_discovery.MaxVisiblePerUser)
                 .ToList();

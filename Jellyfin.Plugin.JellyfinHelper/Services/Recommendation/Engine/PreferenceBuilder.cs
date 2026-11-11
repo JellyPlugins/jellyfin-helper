@@ -152,7 +152,7 @@ internal static class PreferenceBuilder
 
             var weight = ComputeGenreItemWeight(item, now, seriesEpisodeCounts, watchedEpisodesPerSeries);
 
-            foreach (var genre in item.Genres.Where(static g => !string.IsNullOrWhiteSpace(g)))
+            foreach (var genre in GenreNormalizer.Set(item.Genres))
             {
                 vector.TryGetValue(genre, out var current);
                 vector[genre] = current + weight;
@@ -169,17 +169,18 @@ internal static class PreferenceBuilder
     {
         if (profile.GenreDistribution.Count > 0)
         {
-            var maxCount = profile.GenreDistribution.Values.Max();
+            var distribution = GenreNormalizer.Preferences(profile.GenreDistribution
+                .Where(entry => entry.Value > 0)
+                .ToDictionary(entry => entry.Key, entry => (double)entry.Value, StringComparer.OrdinalIgnoreCase));
+            var maxCount = distribution.Values.DefaultIfEmpty(0.0).Max();
             if (maxCount > 0)
             {
-                foreach (var (genre, count) in profile.GenreDistribution)
+                foreach (var (genre, count) in distribution)
                 {
-                    if (string.IsNullOrWhiteSpace(genre) || count <= 0 || vector.ContainsKey(genre))
+                    if (!vector.ContainsKey(genre))
                     {
-                        continue;
+                        vector[genre] = count / maxCount;
                     }
-
-                    vector[genre] = (double)count / maxCount;
                 }
             }
         }
@@ -224,7 +225,7 @@ internal static class PreferenceBuilder
             item,
             seriesEpisodeCounts,
             watchedEpisodesPerSeries);
-        var weight = (temporalWeight + playCountBoost) * progressionMultiplier;
+        var weight = temporalWeight * (1.0 + playCountBoost) * progressionMultiplier;
 
         // Favorite boost - additive, never touched by the progression multiplier so an
         // explicit favorite click always outweighs a mediocre re-watch pattern.
@@ -316,10 +317,7 @@ internal static class PreferenceBuilder
 
         // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
         // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
-        return item.Genres
-            .Where(static g => !string.IsNullOrWhiteSpace(g))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return GenreNormalizer.Set(item.Genres).ToArray();
     }
 
     /// <summary>
@@ -401,42 +399,10 @@ internal static class PreferenceBuilder
     internal static HashSet<string> BuildStudioPreferenceSet(
         UserWatchProfile userProfile,
         Dictionary<Guid, BaseItem> candidateLookup)
-    {
-        var studios = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // Collect studios from watched and favorited movies and series
-        foreach (var w in userProfile.WatchedItems)
-        {
-            // Same eligibility as BuildGenrePreferenceVector so a PlayCount>0 row that contributes its genres also contributes its studios.
-            if (!IsEligibleForPreferenceWeighting(w))
-            {
-                continue;
-            }
-
-            // Try direct item match (movies)
-            if (candidateLookup.TryGetValue(w.ItemId, out var item) && item.Studios is { Length: > 0 })
-            {
-                foreach (var s in item.Studios.Where(static s => !string.IsNullOrWhiteSpace(s)))
-                {
-                    studios.Add(s);
-                }
-            }
-
-            // Also try series match (episodes -> parent series)
-            if (!w.SeriesId.HasValue || !candidateLookup.TryGetValue(w.SeriesId.Value, out var seriesItem)
-                                     || seriesItem.Studios is not { Length: > 0 })
-            {
-                continue;
-            }
-
-            foreach (var s in seriesItem.Studios.Where(static s => !string.IsNullOrWhiteSpace(s)))
-            {
-                studios.Add(s);
-            }
-        }
-
-        return studios;
-    }
+        => BuildMetadataPreferenceSet(
+            userProfile,
+            id => candidateLookup.TryGetValue(id, out var item) ? item.Studios ?? [] : null,
+            row => (row.Studios, row.OwnStudios, row.SeriesStudios));
 
     /// <summary>
     ///     Builds a set of tags the user prefers, derived from their watched and favorited items.
@@ -447,41 +413,42 @@ internal static class PreferenceBuilder
     internal static HashSet<string> BuildTagPreferenceSet(
         UserWatchProfile userProfile,
         Dictionary<Guid, BaseItem> candidateLookup)
+        => BuildMetadataPreferenceSet(
+            userProfile,
+            id => candidateLookup.TryGetValue(id, out var item) ? item.Tags ?? [] : null,
+            row => (row.Tags, row.OwnTags, row.SeriesTags));
+
+    /// <summary>Resolves own and parent metadata independently; known empty parents cannot resurrect old combined episode values.</summary>
+    /// <param name="profile">Eligible watch/favorite rows.</param>
+    /// <param name="lookup">Known current metadata, returning null only for an unavailable item.</param>
+    /// <param name="snapshot">Combined legacy metadata and any verified own/parent provenance.</param>
+    /// <returns>Shared library/training/external preference semantics.</returns>
+    internal static HashSet<string> BuildMetadataPreferenceSet(
+        UserWatchProfile profile,
+        Func<Guid, IReadOnlyList<string>?> lookup,
+        Func<WatchedItemInfo, (IReadOnlyList<string> Combined, IReadOnlyList<string>? Own, IReadOnlyList<string>? Parent)> snapshot)
     {
-        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var w in userProfile.WatchedItems)
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in profile.WatchedItems.Where(IsEligibleForPreferenceWeighting))
         {
-            // Aligned with BuildGenrePreferenceVector - a PlayCount>0 row that contributes
-            // its genres should also contribute its tags for consistent similarity signals.
-            if (!IsEligibleForPreferenceWeighting(w))
+            var own = lookup(row.ItemId);
+            var parent = row.SeriesId is { } seriesId ? lookup(seriesId) : null;
+            var stored = snapshot(row);
+            if (own is null && parent is null)
             {
+                result.UnionWith(stored.Combined.Where(static value => !string.IsNullOrWhiteSpace(value)));
                 continue;
             }
 
-            // Direct item match (movies)
-            if (candidateLookup.TryGetValue(w.ItemId, out var item) && item.Tags is { Length: > 0 })
+            var ownValues = own ?? stored.Own ?? (row.SeriesId.HasValue ? [] : stored.Combined);
+            result.UnionWith(ownValues.Where(static value => !string.IsNullOrWhiteSpace(value)));
+            if (row.SeriesId.HasValue)
             {
-                foreach (var t in item.Tags.Where(static t => !string.IsNullOrWhiteSpace(t)))
-                {
-                    tags.Add(t);
-                }
-            }
-
-            // Series match (episodes -> parent series)
-            if (!w.SeriesId.HasValue || !candidateLookup.TryGetValue(w.SeriesId.Value, out var seriesItem)
-                                     || seriesItem.Tags is not { Length: > 0 })
-            {
-                continue;
-            }
-
-            foreach (var t in seriesItem.Tags.Where(static t => !string.IsNullOrWhiteSpace(t)))
-            {
-                tags.Add(t);
+                result.UnionWith((parent ?? stored.Parent ?? []).Where(static value => !string.IsNullOrWhiteSpace(value)));
             }
         }
 
-        return tags;
+        return result;
     }
 
     /// <summary>
@@ -621,9 +588,9 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <returns>A case-insensitive franchise -> normalized-weight map (empty when no signal).</returns>
-    internal static Dictionary<string, double> BuildFranchisePreferenceVector(UserWatchProfile profile)
+    internal static FranchisePreferenceVector BuildFranchisePreferenceVector(UserWatchProfile profile)
     {
-        var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var vector = new FranchisePreferenceVector();
         if (profile.WatchedItems.Count == 0)
         {
             return vector;
@@ -634,36 +601,75 @@ internal static class PreferenceBuilder
         // Loyalty is demonstrated by actually finishing titles, so favorited-but-unplayed rows do not count here
         // (they still shape the weighted vector above). Dedup by TMDb id so two library copies of one movie count once.
         var distinctTitles = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var identities = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        // Resolve name-to-ID evidence before accumulating weights. A name-only legacy row may contribute
+        // to a stable identity only when the same history corroborates exactly one ID for that name.
+        foreach (var item in profile.WatchedItems.Where(item => IsEligibleForPreferenceWeighting(item) && item.TmdbCollectionId > 0 && !string.IsNullOrWhiteSpace(item.TmdbCollectionName)))
+        {
+            if (!vector.ConfirmedIdsByName.TryGetValue(item.TmdbCollectionName!, out var confirmed))
+            {
+                confirmed = [];
+                vector.ConfirmedIdsByName[item.TmdbCollectionName!] = confirmed;
+            }
+
+            confirmed.Add(item.TmdbCollectionId);
+        }
 
         foreach (var item in profile.WatchedItems)
         {
             if (!IsEligibleForPreferenceWeighting(item)
-                || string.IsNullOrWhiteSpace(item.TmdbCollectionName))
+                || (string.IsNullOrWhiteSpace(item.TmdbCollectionName) && item.TmdbCollectionId <= 0))
             {
                 continue;
             }
 
-            var weight = ComputePreferenceRowWeight(item);
-            vector.TryGetValue(item.TmdbCollectionName, out var current);
-            vector[item.TmdbCollectionName] = current + weight;
-
+            var key = FranchiseIdentityKey(item, vector);
+            identities[key] = identities.GetValueOrDefault(key) + ComputePreferenceRowWeight(item);
             if (!IsEpisodeCompletedForProgression(item))
             {
                 continue;
             }
 
-            if (!distinctTitles.TryGetValue(item.TmdbCollectionName, out var ids))
+            if (!distinctTitles.TryGetValue(key, out var ids))
             {
                 ids = new HashSet<string>(StringComparer.Ordinal);
-                distinctTitles[item.TmdbCollectionName] = ids;
+                distinctTitles[key] = ids;
             }
 
             ids.Add(DistinctTitleKey(item));
         }
 
-        NormalizeByMax(vector);
-        ApplyFranchiseLoyaltyFloor(vector, distinctTitles);
+        NormalizeByMax(identities);
+        ApplyFranchiseLoyaltyFloor(identities, distinctTitles);
+        foreach (var (key, weight) in identities)
+        {
+            vector[key] = weight;
+        }
+
+        // Display aliases are attached only after identities have been normalized. Colliding translated
+        // names can never double the denominator or dilute two unrelated confirmed collection IDs.
+        foreach (var (name, ids) in vector.ConfirmedIdsByName.Where(entry => entry.Value.Count == 1))
+        {
+            vector[name] = identities.GetValueOrDefault(ContentAffinityResolver.CollectionKey(ids.First(), null)!);
+        }
+
         return vector;
+    }
+
+    private static string FranchiseIdentityKey(WatchedItemInfo item, FranchisePreferenceVector preferences)
+    {
+        if (item.TmdbCollectionId > 0)
+        {
+            return ContentAffinityResolver.CollectionKey(item.TmdbCollectionId, null)!;
+        }
+
+        if (item.TmdbCollectionName is { } name && preferences.ConfirmedIdsByName.TryGetValue(name, out var confirmed) && confirmed.Count == 1)
+        {
+            return ContentAffinityResolver.CollectionKey(confirmed.First(), null)!;
+        }
+
+        return item.TmdbCollectionName!;
     }
 
     /// <summary>
@@ -822,7 +828,7 @@ internal static class PreferenceBuilder
         var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
         var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
 
-        var weight = temporalWeight + playCountBoost;
+        var weight = temporalWeight * (1.0 + playCountBoost);
         if (item.IsFavorite)
         {
             weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -867,6 +873,7 @@ internal static class PreferenceBuilder
         Dictionary<string, double> genrePreferences,
         UserWatchProfile profile)
     {
+        genrePreferences = GenreNormalizer.Preferences(genrePreferences);
         // No genre signal at all -> all features default to 0 (neutral). This is the only truly-invalid
         // case; a user with some genre history but fewer than MinWatchCountForGenreExposure watches is
         // handled by the confidence ramp below rather than a hard zero, so the cold-start window still
@@ -951,27 +958,28 @@ internal static class PreferenceBuilder
         var underexposedCount = 0;
         var dominantCount = 0;
         var candidateWeightSum = 0.0;
+        var dominantGenres = GenreNormalizer.CanonicalSet(analysis.DominantGenres);
+        var underexposedGenres = GenreNormalizer.CanonicalSet(analysis.UnderexposedGenres);
+        var preferences = GenreNormalizer.Preferences(analysis.GenrePreferences);
 
         // De-duplicate candidate genres case-insensitively BEFORE counting, mirroring the sibling SimilarityComputer.ComputeGenreSimilarity.
-        var distinctGenres = new HashSet<string>(
-            candidateGenres.Where(static g => !string.IsNullOrWhiteSpace(g)),
-            StringComparer.OrdinalIgnoreCase);
+        var distinctGenres = GenreNormalizer.Set(candidateGenres);
         var validCount = distinctGenres.Count;
 
         foreach (var genre in distinctGenres)
         {
-            if (analysis.UnderexposedGenres.Contains(genre))
+            if (underexposedGenres.Contains(genre))
             {
                 underexposedCount++;
             }
 
-            if (analysis.DominantGenres.Contains(genre))
+            if (dominantGenres.Contains(genre))
             {
                 dominantCount++;
             }
 
             // Look up the user's preference weight for this genre (0 if never watched)
-            analysis.GenrePreferences.TryGetValue(genre, out var weight);
+            preferences.TryGetValue(genre, out var weight);
             candidateWeightSum += weight;
         }
 
@@ -1022,7 +1030,7 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="row">The watched-item row to classify.</param>
     /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
-    private static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
+    internal static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
     {
         return row.IsFavorite || IsEpisodeCompletedForProgression(row);
     }
@@ -1126,6 +1134,18 @@ internal static class PreferenceBuilder
             ProgressionFloor + (rawRatio * ProgressionSpan),
             ProgressionFloor,
             ProgressionCeiling);
+    }
+
+    /// <summary>Franchise weights with exact-name identity evidence for safe mixed legacy/current histories.</summary>
+    internal sealed class FranchisePreferenceVector : Dictionary<string, double>
+    {
+        /// <summary>Initializes a new instance of the <see cref="FranchisePreferenceVector"/> class.</summary>
+        internal FranchisePreferenceVector() : base(StringComparer.OrdinalIgnoreCase)
+        {
+        }
+
+        /// <summary>Gets confirmed IDs attached to each display name; unrelated ID keys do not block legacy matches.</summary>
+        internal Dictionary<string, HashSet<int>> ConfirmedIdsByName { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

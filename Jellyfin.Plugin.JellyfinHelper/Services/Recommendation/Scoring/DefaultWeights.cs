@@ -135,7 +135,7 @@ public static class DefaultWeights
     /// <summary>
     ///     Weight for collection/BoxSet progression boost signal. Rewards items belonging to a collection where the user has already watched other entries, encouraging "complete the collection" recommendations.
     /// </summary>
-    public const double CollectionProgressionBoost = 0.045;
+    public const double CollectionProgressionBoost = 0.150;
 
     /// <summary>
     ///     Weight for subtitle language affinity signal. Items available in the user's preferred subtitle language get a small boost.
@@ -145,7 +145,7 @@ public static class DefaultWeights
     /// <summary>
     ///     Weight for franchise affinity signal (TMDb collection membership the user has engaged with).
     /// </summary>
-    public const double FranchiseAffinity = 0.040;
+    public const double FranchiseAffinity = 0.025;
 
     /// <summary>
     ///     Weight for production-location (country-of-origin) affinity signal. Anchored just below StudioMatch (0.020) as a content-origin taste axis.

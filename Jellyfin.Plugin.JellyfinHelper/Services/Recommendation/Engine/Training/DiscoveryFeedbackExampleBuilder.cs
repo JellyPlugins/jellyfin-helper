@@ -257,7 +257,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = yearProximityScore,
-            GenreCount = genres.Count,
+            GenreCount = GenreNormalizer.Set(genres).Count,
             IsSeries = isSeries,
             PeopleSimilarity = peopleSimilarity,
             PopularityScore = popularityScore,

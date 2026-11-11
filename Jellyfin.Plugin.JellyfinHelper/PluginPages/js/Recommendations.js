@@ -560,10 +560,14 @@ function renderDiscoveryCard(rec, index) {
     if (!Number.isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
-    html += '<div class="recs-item-score ' + cls + '">';
-    html += '<div class="recs-score-bar" style="width:' + pct + '%"></div>';
-    html += '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span>';
-    html += '</div>';
+    if (rec.IsPersonalized === false) {
+        html += '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</span>';
+    } else {
+        html += '<div class="recs-item-score ' + cls + '">';
+        html += '<div class="recs-score-bar" style="width:' + pct + '%"></div>';
+        html += '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span>';
+        html += '</div>';
+    }
 
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');
     if (rec.RelatedInfo) {

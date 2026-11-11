@@ -205,6 +205,7 @@ internal sealed class SimilarityComputer
         IReadOnlyList<string> candidateGenres,
         Dictionary<string, double> genrePreferences)
     {
+        genrePreferences = GenreNormalizer.Preferences(genrePreferences);
         var userNormSq = 0.0;
         foreach (var w in genrePreferences.Values)
         {
@@ -231,10 +232,14 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Deduplicate candidate genres to avoid inflated similarity from repeated entries
-        var uniqueCandidateGenres = new HashSet<string>(
-            candidateGenres.Where(static g => !string.IsNullOrWhiteSpace(g)),
-            StringComparer.OrdinalIgnoreCase);
+        var normalizedPreferences = GenreNormalizer.Preferences(genrePreferences);
+        if (!ReferenceEquals(normalizedPreferences, genrePreferences))
+        {
+            genrePreferences = normalizedPreferences;
+            precomputedUserNormSq = genrePreferences.Values.Sum(weight => weight * weight);
+        }
+
+        var uniqueCandidateGenres = GenreNormalizer.Set(candidateGenres);
 
         if (uniqueCandidateGenres.Count == 0)
         {
@@ -272,6 +277,14 @@ internal sealed class SimilarityComputer
         if (double.IsNaN(cosineSimilarity))
         {
             return 0;
+        }
+
+        // Explicit Kids metadata is an audience signal, not a synonym for Animation. A strong Family
+        // preference also supports movie-only family viewers; this is a soft prior, never an age ban.
+        if (uniqueCandidateGenres.Contains("Kids") && genrePreferences.GetValueOrDefault("Kids") <= 0
+            && genrePreferences.GetValueOrDefault("Family") < genrePreferences.Values.Max() * 0.5)
+        {
+            cosineSimilarity *= 0.3;
         }
 
         // Unknown-genre damping: reduce similarity proportionally when a candidate has genres the user has never watched, so items mixing familiar and unfamiliar genres score below fully-familiar ones.
@@ -488,11 +501,40 @@ internal sealed class SimilarityComputer
         return union > 0 ? (double)intersection / union : 0;
     }
 
-    /// <summary>
-    ///     Computes franchise affinity: how strongly a candidate's TMDb collection matches the user's franchise preference map.
-    /// </summary>
-    /// <param name="candidateFranchise">The candidate's TMDb collection name, or null/empty.</param>
-    /// <param name="preferredFranchises">The user's normalized franchise to weight map.</param>
+    /// <summary>Matches stable IDs first, allowing legacy exact names only when their confirmed identities do not conflict.</summary>
+    /// <param name="id">The corroborated provider identity.</param>
+    /// <param name="name">An optional display label from legacy metadata.</param>
+    /// <param name="preferences">ID/name preferences from the same profile snapshot.</param>
+    /// <returns>Affinity without guessing across conflicting confirmed collection identities.</returns>
+    internal static double ComputeFranchiseAffinity(int id, string? name, IReadOnlyDictionary<string, double> preferences)
+    {
+        if (id > 0)
+        {
+            var key = ContentAffinityResolver.CollectionKey(id, null)!;
+            if (preferences.TryGetValue(key, out var weight))
+            {
+                return Math.Clamp(weight, 0.0, 1.0);
+            }
+
+            if (preferences is PreferenceBuilder.FranchisePreferenceVector evidence)
+            {
+                if (name is not null && evidence.ConfirmedIdsByName.TryGetValue(name, out var confirmed) && confirmed.Any(value => value != id))
+                {
+                    return 0.0;
+                }
+            }
+            else if (preferences.Keys.Any(value => value.StartsWith("tmdb:collection:", StringComparison.Ordinal)))
+            {
+                return 0.0;
+            }
+        }
+
+        return ComputeFranchiseAffinity(name, preferences);
+    }
+
+    /// <summary>Computes exact-key affinity from a normalized franchise preference map.</summary>
+    /// <param name="candidateFranchise">The candidate's stable key or legacy name.</param>
+    /// <param name="preferredFranchises">The user's normalized franchise weights.</param>
     /// <returns>Franchise affinity in [0, 1].</returns>
     internal static double ComputeFranchiseAffinity(
         string? candidateFranchise,
@@ -692,7 +734,7 @@ internal sealed class SimilarityComputer
             }
         }
 
-        Accumulate(candidateGenres);
+        Accumulate(GenreNormalizer.Set(candidateGenres).ToArray());
         Accumulate(candidateStudios);
 
         return counted > 0 ? Math.Clamp(sum / counted, 0.0, 1.0) : 0.0;

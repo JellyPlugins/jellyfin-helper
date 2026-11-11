@@ -137,11 +137,12 @@ internal static class TrainingDataBuilder
             new Dictionary<WatchedItemInfo, CachedContentSets>(),
             new Dictionary<CachedContentSets, CachedContentSets>(new ContentSetComparer()),
             allProfiles.ToDictionary(profile => profile.UserId, profile => new AvailablePreferenceMetadata(
-                profile.WatchedItems.Any(row => !string.IsNullOrWhiteSpace(row.TmdbCollectionName)),
+                profile.WatchedItems.Any(row => row.TmdbCollectionId > 0 || !string.IsNullOrWhiteSpace(row.TmdbCollectionName)),
                 profile.WatchedItems.Any(row => row.ProductionCountries.Count > 0),
                 profile.WatchedItems.Any(row => row.InheritedTags.Count > 0),
                 profile.WatchedItems.Any(row => row.WriterNames.Count > 0))),
-            BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata));
+            BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata),
+            BuildCollectionIdLookup(previousResults, allProfiles, libraryItemMetadata));
 
         var examples = new List<TrainingExample>();
 
@@ -212,6 +213,36 @@ internal static class TrainingDataBuilder
             .Select(DateTimeNormalization.ToUtc)
             .DefaultIfEmpty(DateTime.UnixEpoch)
             .Min();
+    }
+
+    private static Dictionary<Guid, int> BuildCollectionIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
+    {
+        var ids = new Dictionary<Guid, int>();
+        foreach (var item in previous.SelectMany(result => result.Recommendations))
+        {
+            if (item.TmdbCollectionId > 0)
+            {
+                ids[item.ItemId] = item.TmdbCollectionId;
+            }
+        }
+
+        foreach (var item in profiles.SelectMany(profile => profile.WatchedItems))
+        {
+            if (item.TmdbCollectionId > 0)
+            {
+                ids[item.ItemId] = item.TmdbCollectionId;
+            }
+        }
+
+        if (library?.TmdbCollectionIds is { } current)
+        {
+            foreach (var (item, id) in current)
+            {
+                ids[item] = id;
+            }
+        }
+
+        return ids;
     }
 
     private static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
@@ -389,8 +420,8 @@ internal static class TrainingDataBuilder
         return (genres, collaborative, maximum, ContentScoring.ComputeAverageYear(profile),
             PreferenceBuilder.BuildGenreExposureAnalysis(genres, profile),
             lookups.CachedPeopleLookup.Count == 0 && profile.PeopleProfile.Count == 0 ? new Dictionary<string, double>() : PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookups.CachedPeopleLookup, seriesEpisodeCounts),
-            lookups.ItemStudiosLookup.Count == 0 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup),
-            lookups.ItemTagsLookup.Count == 0 ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup),
+            TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookups.ItemStudiosLookup),
+            TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookups.ItemTagsLookup),
             available.Franchises ? PreferenceBuilder.BuildFranchisePreferenceVector(profile) : new Dictionary<string, double>(),
             available.Countries ? PreferenceBuilder.BuildProductionCountryPreferenceVector(profile) : new Dictionary<string, double>(),
             available.InheritedTags ? PreferenceBuilder.BuildInheritedTagPreferenceSet(profile) : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
@@ -552,7 +583,7 @@ internal static class TrainingDataBuilder
 
     private static CachedContentSets BuildRowContentSets(WatchedItemInfo row, TrainingLookups lookups)
     {
-        var genres = new HashSet<string>(row.Genres, StringComparer.OrdinalIgnoreCase);
+        var genres = GenreNormalizer.Set(row.Genres);
         var people = lookups.CachedPeopleLookup.TryGetValue(row.ItemId, out var known) ? known : [];
         HashSet<string> studios = [];
         if (lookups.ItemStudiosLookup.TryGetValue(row.ItemId, out var ownStudios) && ownStudios.Count > 0)
@@ -654,13 +685,13 @@ internal static class TrainingDataBuilder
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
             : 0.0;
 
-        var studioMatch = rec.Studios.Count > 0
-                          && rec.Studios.Any(preferredStudios.Contains);
+        var candidateStudios = lookups.ItemStudiosLookup.GetValueOrDefault(rec.ItemId) ?? rec.Studios;
+        var candidateTags = lookups.ItemTagsLookup.GetValueOrDefault(rec.ItemId) ?? rec.Tags;
+        var candidateCollections = lookups.ItemBoxSetIdsLookup.GetValueOrDefault(rec.ItemId) ?? rec.BoxSetIds;
+        var studioMatch = candidateStudios.Count > 0 && candidateStudios.Any(preferredStudios.Contains);
 
-        var tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(rec.Tags, preferredTags);
-        var recGenreSet = rec.Genres.Count > 0
-            ? new HashSet<string>(rec.Genres, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(candidateTags, preferredTags);
+        var recGenreSet = GenreNormalizer.Set(rec.Genres);
 
         double recencyScore;
         if (rec.PremiereDate.HasValue)
@@ -679,11 +710,12 @@ internal static class TrainingDataBuilder
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(rec.Genres, genrePreferences),
+            HasGenreEvidence = recGenreSet.Count > 0 && genrePreferences.Count > 0,
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = ContentScoring.ComputeYearProximity(rec.Year, avgYear),
-            GenreCount = rec.Genres.Count,
+            GenreCount = GenreNormalizer.Set(rec.Genres).Count,
             IsSeries = isSeries,
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
@@ -711,21 +743,21 @@ internal static class TrainingDataBuilder
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 rec.Genres,
                 rec.PeopleNames,
-                rec.Studios,
+                candidateStudios,
                 contentSets.WatchedGenreSets,
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
-            CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(rec.BoxSetIds, contentSets.WatchedBoxSetCounts),
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(candidateCollections, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
-            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(rec.TmdbCollectionName, preferredFranchises),
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(rec.ItemId, rec.TmdbCollectionId), rec.TmdbCollectionName, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(rec.ProductionCountries, preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(rec.InheritedTags, preferredInheritedTags),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, rec.SeriesStatus, rec.EndDate.HasValue),
             WriterAffinity = SimilarityComputer.ComputeWriterAffinity(rec.WriterNames, preferredWriterWeights),
             BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
                 TrainingFeatureComputer.BuildBillingMapFromCache(rec.PeopleNames, rec.PeopleWeights), preferredPeopleWeights),
-            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(rec.Genres, rec.Studios, lookups.GenreStudioIdf)
+            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(rec.Genres, candidateStudios, lookups.GenreStudioIdf)
         };
 
         var (underexposure, dominanceRatio, affinityGap) =
@@ -1018,7 +1050,8 @@ internal static class TrainingDataBuilder
             ctx.OrganicFallbackTimestamp,
             ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null,
             userCtx.UserProfile.WatchedItems.FirstOrDefault(row => row.ItemId == seriesId)?.UserRating,
-            ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId));
+            ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId),
+            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts));
         return 1;
     }
 
@@ -1077,20 +1110,19 @@ internal static class TrainingDataBuilder
         var (familiarity2, genreAvgCompletion2, genreAbandonRate2) = ContentScoring.ComputeGenreEngagement(
             wGenres, userProfile, organicExclude);
         var userRatingScore2 = ContentScoring.ComputeGenreRatingScore(wGenres, userProfile, organicExclude);
-        var wGenreSet = wGenres.Count > 0
-            ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var wGenreSet = GenreNormalizer.Set(wGenres);
 
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(wGenres, genrePreferences),
+            HasGenreEvidence = GenreNormalizer.Set(wGenres).Count > 0 && genrePreferences.Count > 0,
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = w.Year is { } recY and >= 1 and <= 9999
                 ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
-            GenreCount = wGenres.Count,
+            GenreCount = GenreNormalizer.Set(wGenres).Count,
             IsSeries = isSeries,
             UserRatingScore = userRatingScore2,
             HasUserInteraction = familiarity2 > 0.0,
@@ -1116,7 +1148,7 @@ internal static class TrainingDataBuilder
             SubtitleLanguageAffinity = 0.5,
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 wGenres, w.PeopleNames, organicStudios ?? [], history.Content.WatchedGenreSets, history.Content.WatchedPeopleSets, history.Content.WatchedStudioSets),
-            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(w.ItemId, w.TmdbCollectionId), w.TmdbCollectionName, preferredFranchisesOrganic),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, w.SeriesStatus, w.EndDate.HasValue),
@@ -1331,8 +1363,8 @@ internal static class TrainingDataBuilder
             : 0.0;
 
         var negGenres = neg.Genres ?? Array.Empty<string>();
-        var negStudios = neg.Studios ?? Array.Empty<string>();
-        var negTags = neg.Tags ?? Array.Empty<string>();
+        var negStudios = lookups.ItemStudiosLookup.GetValueOrDefault(neg.ItemId) ?? neg.Studios;
+        var negTags = lookups.ItemTagsLookup.GetValueOrDefault(neg.ItemId) ?? neg.Tags;
         var negStudioMatch = negStudios.Count > 0
                              && negStudios.Any(preferredStudiosNeg.Contains);
         var negTagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(negTags, preferredTagsNeg);
@@ -1356,11 +1388,12 @@ internal static class TrainingDataBuilder
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(negGenres, genrePreferences),
+            HasGenreEvidence = GenreNormalizer.Set(negGenres).Count > 0 && genrePreferences.Count > 0,
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = negRecencyScore,
             YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
-            GenreCount = negGenres.Count,
+            GenreCount = GenreNormalizer.Set(negGenres).Count,
             IsSeries = isSeries,
             UserRatingScore = userRatingScoreNeg,
             HasUserInteraction = familiarityNeg > 0.0,
@@ -1387,16 +1420,16 @@ internal static class TrainingDataBuilder
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-            CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, contentSets.WatchedBoxSetCounts),
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(lookups.ItemBoxSetIdsLookup.GetValueOrDefault(neg.ItemId) ?? neg.BoxSetIds, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
-            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(neg.TmdbCollectionName, preferredFranchisesNeg),
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(neg.ItemId, neg.TmdbCollectionId), neg.TmdbCollectionName, preferredFranchisesNeg),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(neg.ProductionCountries, preferredCountriesNeg),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(neg.InheritedTags, preferredInheritedTagsNeg),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, neg.SeriesStatus, neg.EndDate.HasValue),
             WriterAffinity = SimilarityComputer.ComputeWriterAffinity(neg.WriterNames, preferredWriterWeightsNeg),
             BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
                 TrainingFeatureComputer.BuildBillingMapFromCache(neg.PeopleNames, neg.PeopleWeights), preferredPeopleWeightsNeg),
-            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(neg.Genres, neg.Studios, lookups.GenreStudioIdf)
+            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(neg.Genres, negStudios, lookups.GenreStudioIdf)
         };
 
         var (negUnderexp, negDomRatio, negAffGap) =
@@ -1465,7 +1498,8 @@ internal static class TrainingDataBuilder
         Dictionary<WatchedItemInfo, CachedContentSets> ContentByRow,
         Dictionary<CachedContentSets, CachedContentSets> SharedContent,
         Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata,
-        Dictionary<Guid, int> TmdbIds);
+        Dictionary<Guid, int> TmdbIds,
+        Dictionary<Guid, int> TmdbCollectionIds);
 
     /// <summary>
     ///     Groups per user watched content sets and BoxSet counts.

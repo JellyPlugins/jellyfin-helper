@@ -18,6 +18,16 @@ public sealed class DiscoveryRecommendation
     /// <summary>Gets or sets the verified Jellyfin-scale certification score; null means unknown, never child-safe.</summary>
     public int? CertificationScore { get; set; }
 
+    /// <summary>Gets or sets the country-policy context that verified the cached rating; null means legacy/unverified.</summary>
+    public string? CertificationPolicyCountry { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the score contains personal evidence rather than a metadata-only prior.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool IsPersonalized { get; set; } = true;
+
+    /// <summary>Gets or sets the stable provider collection identity used only to limit repetitive suggestions.</summary>
+    public int TmdbCollectionId { get; set; }
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
     /// </summary>
@@ -145,5 +155,8 @@ public sealed class DiscoveryRecommendation
         SourceRank = SourceRank,
         ScoringFeatures = ScoringFeatures?.Copy(),
         CertificationScore = CertificationScore,
+        CertificationPolicyCountry = CertificationPolicyCountry,
+        IsPersonalized = IsPersonalized,
+        TmdbCollectionId = TmdbCollectionId,
     };
 }

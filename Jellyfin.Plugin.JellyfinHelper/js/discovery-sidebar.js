@@ -1284,6 +1284,9 @@
     }
 
     function renderSidebarScoreHtml(r) {
+        if (r.IsPersonalized === false) {
+            return '<div class="jfh-discovery-score-text">' + esc(t('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</div>';
+        }
         var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
         var scoreClass = getDiscoveryScoreClass(scorePercent);
         // Trakt's ranking is independent of our local match percentage.
@@ -1829,7 +1832,9 @@
     // Reason keys whose localized text embeds a {0} anchor (person name, genre). Fallbacks match en.json.
     var REASON_TEMPLATES = {
         reasonPersonNamed: 'Featuring {0}',
-        reasonGenre: 'Because you enjoy {0}'
+        reasonGenre: 'Because you enjoy {0}',
+        reasonFranchiseNamed: 'More from the {0} collection',
+        reasonStudioNamed: 'From {0}'
     };
     // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json so a
     // discovery card still shows a reason when the /Translations fetch failed and _strings is empty.
@@ -1838,6 +1843,8 @@
         reasonPopular: 'Popular and highly rated',
         reasonHighlyRated: 'Highly rated',
         reasonPopularAmongViewers: 'Popular with other viewers',
+        reasonFranchise: 'From a franchise you follow',
+        reasonCollectionContinuation: "Continue a collection you've explored",
         reasonDefault: 'Recommended for you'
     };
 

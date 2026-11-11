@@ -9,20 +9,24 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// <summary>Resolves actual provider certifications through Jellyfin's own rating system, not genre heuristics.</summary>
 internal static class CertificationResolver
 {
-    /// <summary>Returns the most restrictive recognized provider certification, or null when none can be verified.</summary>
+    /// <summary>Uses the configured region's certification, retaining a conservative fallback when that region is absent.</summary>
     /// <param name="detail">The fetched provider detail payload.</param>
     /// <param name="localization">Jellyfin's authoritative rating mapper.</param>
     /// <param name="adultFlag">A latched adult flag from the original provider candidate.</param>
+    /// <param name="preferredCountry">The server's metadata country; other regions must not override an available local certification.</param>
     /// <returns>A verified rating score in the same scale as the user policy.</returns>
-    internal static int? Resolve(SeerrMediaDetailResponse detail, ILocalizationManager? localization, bool adultFlag = false)
+    internal static int? Resolve(SeerrMediaDetailResponse detail, ILocalizationManager? localization, bool adultFlag = false, string? preferredCountry = null)
     {
         if (localization is null)
         {
             return null;
         }
 
+        var certifications = ReadMovieCertifications(detail.Releases).Concat(ReadTelevisionCertifications(detail.ContentRatings)).ToArray();
+        var regional = certifications.Where(certification => string.Equals(certification.Country, preferredCountry?.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
         int? maximum = null;
-        foreach (var certification in ReadMovieCertifications(detail.Releases).Concat(ReadTelevisionCertifications(detail.ContentRatings)))
+        // An explicitly present but unrecognized local rating stays unknown; do not replace it with a foreign low rating.
+        foreach (var certification in regional.Length > 0 ? regional : certifications)
         {
             Accumulate(certification.Value, certification.Country, localization, ref maximum);
         }

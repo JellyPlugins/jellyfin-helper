@@ -75,6 +75,30 @@ internal sealed class SeerrMediaDetailResponse
     [JsonPropertyName("contentRatings")]
     public JsonElement ContentRatings { get; set; }
 
+    /// <summary>Gets or sets provider keywords, preserving their IDs and names as separate metadata.</summary>
+    [JsonPropertyName("keywords")]
+    public List<GenreRef>? Keywords { get; set; }
+
+    /// <summary>Gets or sets production companies, available independently of genre or age classifications.</summary>
+    [JsonPropertyName("productionCompanies")]
+    public List<GenreRef>? ProductionCompanies { get; set; }
+
+    /// <summary>Gets or sets the movie collection; an explicit null means the provider confirmed no collection.</summary>
+    [JsonPropertyName("collection")]
+    public GenreRef? Collection
+    {
+        get;
+        set
+        {
+            field = value;
+            HasCollectionMetadata = true;
+        }
+    }
+
+    /// <summary>Gets a value indicating whether collection metadata was actually present, not merely absent from a partial response.</summary>
+    [JsonIgnore]
+    public bool HasCollectionMetadata { get; private set; }
+
     /// <summary>
     ///     A single genre entry in a Seerr detail response.
     /// </summary>

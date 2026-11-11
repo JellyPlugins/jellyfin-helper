@@ -460,7 +460,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         var heuristicScore = _heuristic.Score(features);
         if (alpha <= 0.0)
         {
-            return heuristicScore * ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
+            return heuristicScore * ScoringHelper.ComputeGenrePenalty(features, floor);
         }
 
         var learnedScore = _learned.Score(features);
@@ -478,7 +478,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
+        var penalty = ScoringHelper.ComputeGenrePenalty(features, floor);
         return blendedScore * penalty;
     }
 
@@ -611,11 +611,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     private static ScoreExplanation ApplyExplanationPenalty(ScoreExplanation raw, CandidateFeatures features, double floor)
     {
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
+        var penalty = ScoringHelper.ComputeGenrePenalty(features, floor);
         var result = raw.WithPenalty(penalty);
         if (raw.ContributionsAreMarginalEffects)
         {
-            result.GenreContribution = result.FinalScore - ((raw.FinalScore - raw.GenreContribution) * floor);
+            var counterfactualPenalty = features.HasGenreEvidence ? floor : 1.0;
+            result.GenreContribution = result.FinalScore - ((raw.FinalScore - raw.GenreContribution) * counterfactualPenalty);
             result.DominantSignal = ResolveDominantSignal(result);
         }
 

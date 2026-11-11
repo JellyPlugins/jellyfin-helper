@@ -55,7 +55,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             // already produce scores in the desired range without a bias offset.
             var raw = ScoringHelper.ComputeRawScore(vector, WeightsArray, bias: 0.0);
             var score = Math.Clamp(raw, 0.0, 1.0);
-            return score * PenaltyMultiplier(features.GenreSimilarity);
+            return score * PenaltyMultiplier(features);
         }
         finally
         {
@@ -69,15 +69,15 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
         ArgumentNullException.ThrowIfNull(features);
 
         var explanation = ScoringHelper.BuildMarginalExplanation(features, Score, Name);
-        explanation.GenrePenaltyMultiplier = PenaltyMultiplier(features.GenreSimilarity);
+        explanation.GenrePenaltyMultiplier = PenaltyMultiplier(features);
         return explanation;
     }
 
     /// <summary>
     ///     Returns the genre-penalty multiplier for a given genre similarity value. Returns 1.0 (no penalty) when this instance was configured with GenrePenaltyFloor = 1.0, i.e.
     /// </summary>
-    private double PenaltyMultiplier(double genreSimilarity)
+    private double PenaltyMultiplier(CandidateFeatures features)
         => GenrePenaltyFloor >= 1.0
             ? 1.0
-            : ScoringHelper.ComputeSoftGenrePenalty(genreSimilarity, GenrePenaltyFloor);
+            : ScoringHelper.ComputeGenrePenalty(features, GenrePenaltyFloor);
 }

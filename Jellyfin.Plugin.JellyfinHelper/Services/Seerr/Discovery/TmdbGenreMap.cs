@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -79,10 +80,13 @@ internal static class TmdbGenreMap
         }
 
         dict.TryAdd("Science Fiction", 10765);
+        dict.TryAdd("Fantasy", 10765);
         dict.TryAdd("Sci-Fi", 10765);
         // Jellyfin stores "Action" and "Adventure" as separate genres from movies. Map them to the combined TMDb TV genre "Action & Adventure" (10759) so users with these preferences get TV discovery results.
         dict.TryAdd("Action", 10759);
         dict.TryAdd("Adventure", 10759);
+        dict.TryAdd("War", 10768);
+        dict.TryAdd("Politics", 10768);
         return dict;
     }
 
@@ -114,7 +118,7 @@ internal static class TmdbGenreMap
             return null;
         }
 
-        return ReverseMovieGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
+        return ReverseMovieGenres.TryGetValue(GenreNormalizer.Name(jellyfinGenre), out var id) ? id : null;
     }
 
     /// <summary>
@@ -129,6 +133,6 @@ internal static class TmdbGenreMap
             return null;
         }
 
-        return ReverseTvGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
+        return ReverseTvGenres.TryGetValue(GenreNormalizer.Name(jellyfinGenre), out var id) ? id : null;
     }
 }

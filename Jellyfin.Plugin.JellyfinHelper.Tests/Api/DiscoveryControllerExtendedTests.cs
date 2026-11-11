@@ -47,6 +47,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
+        _discoveryMock.Setup(service => service.FilterConsumedItems(It.IsAny<Guid>(), It.IsAny<DiscoveryResult>())).Returns((Guid _, DiscoveryResult result) => result);
         _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
     }

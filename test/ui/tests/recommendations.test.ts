@@ -155,6 +155,19 @@ describe('renderRecommendationCard clamps and escapes', () => {
 });
 
 describe('renderDiscoveryCard hardens untrusted fields', () => {
+  test('cold-start admin cards do not claim a personal match percentage', () => {
+    const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.99, IsPersonalized: false }, 0);
+    expect(html).toContain('not personalized yet');
+    expect(html).not.toContain('99%');
+    expect(html).not.toContain('recs-score-bar');
+  });
+
+  test.each([true, undefined])('personalized and legacy admin cards retain match percentages (%s)', (personalized) => {
+    const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.99, IsPersonalized: personalized }, 0);
+    expect(html).toContain('99%');
+    expect(html).toContain('recs-score-bar');
+    expect(html).not.toContain('not personalized yet');
+  });
   test('evil poster paths render no image', () => {
     const injectedMarkup = '"><img src=x onerror=y>';
     for (const poster of ['javascript:alert(1)', '/x.exe', injectedMarkup, '/a b.jpg']) {

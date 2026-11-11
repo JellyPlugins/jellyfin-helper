@@ -12,9 +12,11 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
@@ -39,10 +41,14 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private readonly Mock<MediaBrowser.Controller.Library.ILibraryManager> _libraryManager =
         TestMockFactory.CreateLibraryManager();
     private readonly Dictionary<int, string> _detailById = new();
+    private readonly object _detailDelayLock = new();
     private int _detailCalls;
     private HttpStatusCode _detailStatus = HttpStatusCode.OK;
     private Exception? _detailFailure;
     private Action? _onDetailFetch;
+    private TimeSpan _detailDelay;
+    private int _activeDelayedDetails;
+    private int _maxConcurrentDelayedDetails;
 
     // The DiscoveryCacheService created by the most recent CreateService call, so a test can seed the user's
     // own cached recommendations (the source the own-recommendation exclusion reads).
@@ -78,7 +84,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null)
+    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null)
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         // Strict handler routing Seerr detail calls by TMDb id. Unregistered ids answer 404, which the
@@ -90,9 +96,26 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                 "SendAsync",
                 ItExpr.IsAny<System.Net.Http.HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync((System.Net.Http.HttpRequestMessage request, CancellationToken _) =>
+            .Returns(async (System.Net.Http.HttpRequestMessage request, CancellationToken token) =>
             {
                 Interlocked.Increment(ref _detailCalls);
+                if (_detailDelay > TimeSpan.Zero)
+                {
+                    lock (_detailDelayLock)
+                    {
+                        _activeDelayedDetails++;
+                        _maxConcurrentDelayedDetails = Math.Max(_maxConcurrentDelayedDetails, _activeDelayedDetails);
+                    }
+
+                    try
+                    {
+                        await Task.Delay(_detailDelay, token);
+                    }
+                    finally
+                    {
+                        lock (_detailDelayLock) { _activeDelayedDetails--; }
+                    }
+                }
                 _onDetailFetch?.Invoke();
                 if (_detailFailure is not null) throw _detailFailure;
                 if (_detailStatus != HttpStatusCode.OK) return new System.Net.Http.HttpResponseMessage(_detailStatus);
@@ -147,11 +170,12 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         localization.Setup(mapper => mapper.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
         localization.Setup(mapper => mapper.GetRatingScore("18", "DE")).Returns(new ParentalRatingScore(18, null));
         localization.Setup(mapper => mapper.GetRatingScore("XXX", "US")).Returns(new ParentalRatingScore(1000, null));
+        configureLocalization?.Invoke(localization);
         return new SeerrDiscoveryService(
             factory.Object, _history.Object, arr.Object, _libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
             TestMockFactory.CreateSecretProtector(),
-            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object);
+            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object, serverConfiguration);
     }
 
     private void SetupProfile(Guid userId, int? maxParentalRating = null)
@@ -275,12 +299,216 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         SetupProfile(user);
         var maximum = (int?)null;
         _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (true, maximum));
-        var cached = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, CertificationScore = 6 }, new DiscoveryRecommendation { TmdbId = 2, CertificationScore = 18 }, new DiscoveryRecommendation { TmdbId = 3 }] };
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, CertificationScore = 6, CertificationPolicyCountry = "*" }, new DiscoveryRecommendation { TmdbId = 2, CertificationScore = 18, CertificationPolicyCountry = "*" }, new DiscoveryRecommendation { TmdbId = 3 }] };
         var service = CreateService();
         Assert.Equal(3, service.FilterConsumedItems(user, cached).Recommendations.Count);
         maximum = 6;
         Assert.Equal(1, service.FilterConsumedItems(user, cached).Recommendations.Single().TmdbId);
         Assert.Equal(3, cached.Recommendations.Count);
+    }
+
+    [Fact]
+    public async Task CachedRating_LosesAuthorityWhenMetadataCountryChanges()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        var configuration = new ServerConfiguration { MetadataCountryCode = "DE" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(configuration);
+        var service = CreateService(serverConfiguration: server.Object);
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, CertificationScore = 0, CertificationPolicyCountry = "DE" }] };
+        var cache = Assert.IsType<DiscoveryCacheService>(_lastCache);
+        Assert.True(cache.Save([cached]));
+        var loaded = Assert.Single(await cache.LoadAsync(TestContext.Current.CancellationToken));
+        Assert.Single(service.FilterConsumedItems(user, loaded).Recommendations);
+        configuration.MetadataCountryCode = "US";
+        Assert.Empty(service.FilterConsumedItems(user, loaded).Recommendations);
+        Assert.Single(loaded.Recommendations);
+        Assert.Equal("DE", loaded.Recommendations[0].CertificationPolicyCountry);
+        Assert.Equal("DE", loaded.Recommendations[0].Clone().CertificationPolicyCountry);
+    }
+
+    [Fact]
+    public void RatingAndCountryStamp_UseOneSnapshotWhenTheMapperChangesConfiguration()
+    {
+        var configuration = new ServerConfiguration { MetadataCountryCode = "DE" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(configuration);
+        var service = CreateService(serverConfiguration: server.Object, configureLocalization: mapper =>
+            mapper.Setup(value => value.GetRatingScore("0", "DE")).Callback(() => configuration.MetadataCountryCode = "US").Returns(new ParentalRatingScore(0, null)));
+        var detail = System.Text.Json.JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"id":101,"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"0"}]},{"iso_3166_1":"US","release_dates":[{"certification":"TV-Y7"}]}]}}""")!;
+        var candidate = new TmdbDiscoverItem { Id = 101 };
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True((bool)method.Invoke(service, [candidate, detail])!);
+        Assert.Equal(0, candidate.CertificationScore);
+        Assert.Equal("DE", candidate.CertificationPolicyCountry);
+        Assert.Equal("US", configuration.MetadataCountryCode);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RequestVerification_RejectsAChangedCountryDuringMappingOrFinalPolicyRead(bool changeDuringMapping)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        var configuration = new ServerConfiguration { MetadataCountryCode = "DE" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(configuration);
+        var policyReads = 0;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() =>
+        {
+            if (++policyReads > 1 && !changeDuringMapping) configuration.MetadataCountryCode = "US";
+            return (true, (int?)6);
+        });
+        _detailById[101] = """{"id":101,"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"0"}]}]}}""";
+        var service = CreateService(serverConfiguration: server.Object, configureLocalization: mapper =>
+            mapper.Setup(value => value.GetRatingScore("0", "DE")).Callback(() =>
+            {
+                if (changeDuringMapping) configuration.MetadataCountryCode = "US";
+            }).Returns(new ParentalRatingScore(0, null)));
+        Assert.Equal((false, false), await service.VerifyRequestForUserAsync(user, 101, "movie", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void LegacyCachedRatingWithoutCountryEvidence_FailsClosedForRestrictedUsers()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, CertificationScore = 0 }] };
+        Assert.Empty(CreateService().FilterConsumedItems(user, cached).Recommendations);
+    }
+
+    [Fact]
+    public void CountryPolicyChangeDuringCachedFiltering_FailsClosedForRestrictedUsers()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupSequence(manager => manager.Configuration).Returns(new ServerConfiguration { MetadataCountryCode = "DE" }).Returns(new ServerConfiguration { MetadataCountryCode = "US" });
+        var service = CreateService(serverConfiguration: server.Object);
+        var result = service.FilterConsumedItems(user, new DiscoveryResult
+        {
+            UserId = user,
+            Recommendations = [new DiscoveryRecommendation { TmdbId = 101, CertificationScore = 6, CertificationPolicyCountry = "DE" }]
+        });
+        Assert.Empty(result.Recommendations);
+    }
+
+    [Theory]
+    [InlineData("franchise", "reasonFranchiseNamed")]
+    [InlineData("studio", "reasonStudioNamed")]
+    [InlineData("tag", null)]
+    [InlineData("person", "reasonPersonNamed")]
+    public async Task PersonalMetadataWithoutGenres_UsesTheEnsembleRatherThanAColdStartPrior(string signal, string? reason)
+    {
+        var user = Guid.NewGuid();
+        var row = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [row] };
+        if (signal == "franchise") { row.TmdbCollectionId = 123; }
+        if (signal == "studio") { row.Studios = ["Studio A"]; }
+        if (signal == "tag") { row.Tags = ["own tag"]; }
+        if (signal == "person") { profile.PeopleProfile["Director A"] = 5; }
+        _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        _detailById[101] = """{"id":101,"collection":{"id":123,"name":"Actual saga"},"keywords":[{"name":"own tag"}],"productionCompanies":[{"name":"Studio A"}],"credits":{"crew":[{"name":"Director A","job":"Director"}]}}""";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var recommendation = Assert.Single(result!.Recommendations);
+        Assert.True(recommendation.IsPersonalized);
+        var features = recommendation.ScoringFeatures!;
+        Assert.NotEqual(EngineConstants.ComputeColdStartPrior(features.CombinedCriticScore, features.RecencyScore, features.PopularityScore), recommendation.Score);
+        if (reason is not null) Assert.Equal(reason, recommendation.ReasonKey);
+        if (signal == "tag") Assert.Equal(1, features.TagSimilarity);
+    }
+
+    [Fact]
+    public async Task ProviderLearnedAlias_RebuildsExposureAndEngagementBeforeFinalScoring()
+    {
+        var user = Guid.NewGuid();
+        var alias = "Provider-only genre " + Guid.NewGuid().ToString("N");
+        var profile = new UserWatchProfile { UserId = user, GenreDistribution = new Dictionary<string, int> { [alias] = 1, ["Science Fiction"] = 100 } };
+        for (var i = 0; i < 101; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = [i == 0 ? alias : "Science Fiction"] });
+        _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        _detailById[101] = $$"""{"id":101,"genres":[{"id":878,"name":"{{alias}}"}]}""";
+        var before = PreferenceBuilder.BuildGenreExposureAnalysis(PreferenceBuilder.BuildGenrePreferenceVector(profile), profile);
+        Assert.Contains(alias, before.UnderexposedGenres);
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var features = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.Equal(0, features.GenreUnderexposure);
+        Assert.Equal(1, features.GenreDominanceRatio);
+        Assert.Equal(0, features.GenreAffinityGap);
+        Assert.Equal(1, features.GenreSimilarity);
+    }
+
+    [Fact]
+    public async Task SlowUnrestrictedTraktDetails_UseOnlyTheSharedTop20Deadline()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _detailDelay = TimeSpan.FromMinutes(1);
+        var candidates = Enumerable.Range(1000, 40).Select((id, rank) => RankedCandidate(id, rank)).ToList();
+        for (var i = 20; i < candidates.Count; i++) candidates[i].MediaType = "tv";
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
+        timer.Stop();
+        Assert.Equal(20, result!.Recommendations.Count);
+        Assert.Equal(Enumerable.Range(1000, 20), result.Recommendations.Select(recommendation => recommendation.TmdbId));
+        Assert.InRange(_maxConcurrentDelayedDetails, 1, 3);
+        Assert.InRange(_detailCalls, 1, 20);
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Unrestricted Trakt details must not run a forty-candidate pre-enrichment pass.");
+    }
+
+    [Fact]
+    public async Task SlowRestrictedTraktDetails_UseASeparateBoundedBudgetAndFailClosed()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        _detailDelay = TimeSpan.FromMinutes(1);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, Enumerable.Range(1000, 40).Select((id, rank) => RankedCandidate(id, rank)).ToList(), TestContext.Current.CancellationToken);
+        timer.Stop();
+        Assert.Null(result);
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(45), "Mandatory certifications need one bounded deadline, not forty individual timeouts.");
+        Assert.InRange(_detailCalls, 1, 15);
+    }
+
+    [Fact]
+    public async Task CompleteProviderMetadata_ReachesSnapshotsWithoutDependingOnBoxsets()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow.AddDays(-1), Genres = ["Action"], TmdbCollectionId = 123, Tags = ["based on manga"], Studios = ["Studio A"] }] };
+        _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        _detailById[101] = """{"id":101,"genres":[{"id":28,"name":"Action"}],"collection":{"id":123,"name":"Localized Collection"},"keywords":[{"id":210024,"name":"based on manga"}],"productionCompanies":[{"id":1,"name":"Studio A"}]}""";
+        var configuration = new ServerConfiguration { MetadataCountryCode = "DE", PreferredMetadataLanguage = "de" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(configuration);
+        var result = await CreateService(serverConfiguration: server.Object).ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var recommendation = Assert.Single(result!.Recommendations);
+        Assert.Equal(123, recommendation.TmdbCollectionId);
+        Assert.Equal(1, recommendation.ScoringFeatures!.FranchiseAffinity);
+        Assert.Equal(1, recommendation.ScoringFeatures.TagSimilarity);
+        Assert.True(recommendation.ScoringFeatures.StudioMatch);
+        Assert.Equal(0, recommendation.ScoringFeatures.CollectionProgressionBoost);
+        Assert.Equal("reasonFranchiseNamed", recommendation.ReasonKey);
+        Assert.Equal("Localized Collection", recommendation.RelatedInfo);
+        Assert.Equal(1, _detailCalls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedCollectionRoster_PreservesUnknownProgressInsteadOfAnObservedZero(bool absent)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _detailById[101] = """{"id":101,"collection":{"id":123,"name":"Collection"}}""";
+        var service = CreateService();
+        var roster = _libraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet))));
+        if (absent) roster.Returns((IReadOnlyList<BaseItem>)null!);
+        else roster.Throws(new InvalidOperationException("roster unavailable"));
+        var result = await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var features = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.False(features.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
     }
 
     [Fact]
@@ -372,7 +600,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     public async Task ProviderDetails_CacheRemainsBoundedAndRefreshingExistingKeyDoesNotEvictAnother()
     {
         var user = Guid.NewGuid();
-        SetupProfile(user);
+        SetupProfile(user, maxParentalRating: 6);
         var candidates = Enumerable.Range(1, 520).Select(Candidate).ToArray();
         foreach (var candidate in candidates) _detailById[candidate.TmdbId] = CertifiedDetail(candidate.TmdbId, 6);
         var service = CreateService();
@@ -769,7 +997,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
 
         // The library scan backing the shared exclusion set runs once; the second scoring reuses the cache.
-        _libraryManager.Verify(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Once);
+        _libraryManager.Verify(lm => lm.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Movie) && query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Series))), Times.Once);
     }
 
     // A candidate carrying an explicit source rank, for the rank-ordering tests.

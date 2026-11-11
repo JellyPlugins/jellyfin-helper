@@ -222,6 +222,12 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether unavailable external metadata requires model-specific imputation.</summary>
     public bool IsExternalCandidate { get; set; }
 
+    /// <summary>Gets or sets the bitmask of external features backed by real metadata, including known zero values.</summary>
+    public ulong KnownExternalFeatures { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether both candidate genres and personal genre preferences are available. Missing evidence is not a mismatch; legacy snapshots retain their original penalty behaviour.</summary>
+    public bool HasGenreEvidence { get; set; } = true;
+
     /// <summary>Gets or sets the genre similarity score (0-1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
     {
@@ -566,6 +572,23 @@ public sealed class CandidateFeatures
     /// <returns>An independent copy.</returns>
     public CandidateFeatures Copy() => (CandidateFeatures)MemberwiseClone();
 
+    /// <summary>Marks an external feature as observed so model-specific imputation cannot erase it.</summary>
+    /// <param name="index">The actual computed feature slot.</param>
+    internal void MarkExternalFeatureKnown(FeatureIndex index)
+    {
+        if ((int)index < 0 || (int)index >= FeatureCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
+
+        KnownExternalFeatures |= 1UL << (int)index;
+    }
+
+    /// <summary>Tests whether an external feature has genuine provider metadata.</summary>
+    /// <param name="index">The feature slot.</param>
+    /// <returns>Whether the observed value must be preserved, including zero.</returns>
+    internal bool IsExternalFeatureKnown(FeatureIndex index) => (KnownExternalFeatures & (1UL << (int)index)) != 0;
+
     /// <summary>Builds a feature-space counterfactual without a named signal, recomputing derived interactions normally.</summary>
     /// <param name="signal">A named signal or the minor-signal group represented by GenreCountNormalized.</param>
     /// <returns>An independent counterfactual; external unknowns retain their model imputation.</returns>
@@ -652,6 +675,11 @@ public sealed class CandidateFeatures
 
         foreach (var index in ExternalMissingIndices)
         {
+            if (IsExternalFeatureKnown(index))
+            {
+                continue;
+            }
+
             var i = (int)index;
             buffer[i] = means is { Count: FeatureCount } ? Clamp01(means[i]) : ExternalPrior(index);
         }

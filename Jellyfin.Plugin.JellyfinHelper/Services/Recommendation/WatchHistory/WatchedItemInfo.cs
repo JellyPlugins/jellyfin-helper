@@ -15,6 +15,8 @@ public sealed class WatchedItemInfo
     private IReadOnlyList<string> _writerNames = [];
     private IReadOnlyList<string> _peopleNames = [];
     private IReadOnlyList<double> _peopleWeights = [];
+    private IReadOnlyList<string> _studios = [];
+    private IReadOnlyList<string> _tags = [];
 
     /// <summary>
     ///     Gets or sets the Jellyfin item ID.
@@ -120,6 +122,35 @@ public sealed class WatchedItemInfo
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
+    /// <summary>Gets or sets the stable TMDb collection identity, independent of localized collection names.</summary>
+    public int TmdbCollectionId { get; set; }
+
+    /// <summary>Gets or sets captured studio names used by external and local content-affinity scoring.</summary>
+    public IReadOnlyList<string> Studios
+    {
+        get => _studios;
+        set => _studios = value ?? [];
+    }
+
+    /// <summary>Gets or sets own item/series tags, kept separate from folder-inherited tags.</summary>
+    public IReadOnlyList<string> Tags
+    {
+        get => _tags;
+        set => _tags = value ?? [];
+    }
+
+    /// <summary>Gets or sets the item's own studios; null denotes legacy metadata with unknown provenance.</summary>
+    public IReadOnlyList<string>? OwnStudios { get; set; }
+
+    /// <summary>Gets or sets the item's own tags; null denotes legacy metadata with unknown provenance.</summary>
+    public IReadOnlyList<string>? OwnTags { get; set; }
+
+    /// <summary>Gets or sets detached parent-series studios, separate from the item's own metadata.</summary>
+    public IReadOnlyList<string>? SeriesStudios { get; set; }
+
+    /// <summary>Gets or sets detached parent-series tags, separate from the item's own metadata.</summary>
+    public IReadOnlyList<string>? SeriesTags { get; set; }
+
     /// <summary>
     ///     Gets or sets the production countries.
     /// </summary>
@@ -203,6 +234,12 @@ public sealed class WatchedItemInfo
         copy.WriterNames = WriterNames.ToArray();
         copy.ProductionCountries = ProductionCountries.ToArray();
         copy.InheritedTags = InheritedTags.ToArray();
+        copy.Studios = Studios.ToArray();
+        copy.Tags = Tags.ToArray();
+        copy.OwnStudios = OwnStudios?.ToArray();
+        copy.OwnTags = OwnTags?.ToArray();
+        copy.SeriesStudios = SeriesStudios?.ToArray();
+        copy.SeriesTags = SeriesTags?.ToArray();
         return copy;
     }
 }

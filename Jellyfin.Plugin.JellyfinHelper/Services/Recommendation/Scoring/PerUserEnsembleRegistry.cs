@@ -104,7 +104,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Already materialized this session.
         if (_perUser.TryGetValue(userId, out var existing))
         {
-            return existing.Value;
+            var ensemble = existing.Value;
+            return ensemble.LearnedStrategy.HasOwnWeights ? ensemble : _globalEnsemble;
         }
 
         // Cold-start: only adopt a per-user model when its weights file is actually present on disk. A user
@@ -132,7 +133,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return _globalEnsemble;
         }
 
-        return perUser;
+        return perUser.LearnedStrategy.HasOwnWeights ? perUser : _globalEnsemble;
     }
 
     /// <inheritdoc />
@@ -199,8 +200,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        return _perUser.ContainsKey(userId)
-            || (_dataPath is not null && _fileSystem.File.Exists(GetLearnedWeightsPath(userId)));
+        return !ReferenceEquals(GetEnsembleForUser(userId), _globalEnsemble);
     }
 
     /// <inheritdoc />
@@ -380,7 +380,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         var statePath = GetEnsembleStatePath(userId);
 
         var learned = new LearnedScoringStrategy(learnedPath, _logger);
-        if (learnedPath is null || !_fileSystem.File.Exists(learnedPath))
+        if (!learned.HasOwnWeights)
         {
             // No persisted per-user weights: start from the global fit rather than cold defaults.
             learned.SeedFrom(_globalEnsemble.LearnedStrategy);

@@ -275,6 +275,7 @@ internal static class ContentScoring
         // Parallel-array invariant: all three lists MUST be the same length (populated in the same loop in Engine.GenerateForUser and the training-data builders).
         ReportParallelArrayMismatch(watchedGenreSets, watchedPeopleSets, watchedStudioSets);
 
+        candidateGenres = GenreNormalizer.CanonicalSet(candidateGenres);
         var maxComposite = 0.0;
 
         for (var i = 0; i < watchedGenreSets.Count; i++)
@@ -283,7 +284,7 @@ internal static class ContentScoring
                 candidateGenres,
                 candidatePeople,
                 candidateStudios,
-                watchedGenreSets[i],
+                GenreNormalizer.CanonicalSet(watchedGenreSets[i]),
                 i < watchedPeopleSets.Count ? watchedPeopleSets[i] : null,
                 i < watchedStudioSets.Count ? watchedStudioSets[i] : null);
             if (composite > maxComposite)
@@ -418,11 +419,11 @@ internal static class ContentScoring
             return (0.0, 0.5, 0.0);
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var matching = profile.WatchedItems
             .Where(w => w.HasMeaningfulInteraction()
                      && w.Genres is not null
-                     && w.Genres.Any(candidateSet.Contains)
+                      && GenreNormalizer.Overlaps(candidateSet, w.Genres)
                      && (excludeItemIds is null || !excludeItemIds.Contains(w.ItemId)))
             .ToList();
 
@@ -475,14 +476,14 @@ internal static class ContentScoring
             return (0.0, 0.5, 0.0);
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var matchCount = 0;
         var withCompletionCount = 0;
         var completionSum = 0.0;
         var abandonCount = 0;
         foreach (var w in context.MeaningfulWatches)
         {
-            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains))
+            if (w.Genres is null || !GenreNormalizer.Overlaps(candidateSet, w.Genres))
             {
                 continue;
             }
@@ -537,7 +538,7 @@ internal static class ContentScoring
             }
 
             var genreSet = w.Genres is { Count: > 0 }
-                ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                ? GenreNormalizer.Set(w.Genres)
                 : null;
             var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
             var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
@@ -568,14 +569,14 @@ internal static class ContentScoring
             return 0.5;
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var ratingSum = 0.0;
         var ratingCount = 0;
         foreach (var w in profile.WatchedItems)
         {
             if (!w.HasMeaningfulInteraction()
                 || w.Genres is null
-                || !w.Genres.Any(candidateSet.Contains)
+                || !GenreNormalizer.Overlaps(candidateSet, w.Genres)
                 || (excludeItemIds is not null && excludeItemIds.Contains(w.ItemId)))
             {
                 continue;
@@ -612,12 +613,12 @@ internal static class ContentScoring
             return 0.5;
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var ratingSum = 0.0;
         var ratingCount = 0;
         foreach (var w in context.MeaningfulWatches)
         {
-            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains) || w.NormalizedRating is null)
+            if (w.Genres is null || !GenreNormalizer.Overlaps(candidateSet, w.Genres) || w.NormalizedRating is null)
             {
                 continue;
             }
@@ -684,15 +685,7 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var candidateGenreSet = new HashSet<string>(
-            candidate.Genres ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
-        var candidatePeopleSet = candidatePeople is not null
-            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
-            : null;
-
-        return ComputeBestSeriesJaccard(
-            context.ProgressingSeriesIds, context.WatchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
+        return ComputeSeriesAffinity(true, candidate.Id, candidate.Genres ?? [], context, peopleLookup);
     }
 
     /// <summary>
@@ -719,9 +712,7 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var candidateGenreSet = candidateGenres.Count > 0
-            ? new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
         peopleLookup.TryGetValue(candidateId, out var candidatePeople);
         var candidatePeopleSet = candidatePeople is not null
             ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
@@ -822,10 +813,7 @@ internal static class ContentScoring
         {
             if (w.Genres is not null)
             {
-                foreach (var g in w.Genres)
-                {
-                    genres.Add(g);
-                }
+                genres.UnionWith(GenreNormalizer.Set(w.Genres));
             }
 
             AddPeopleFromLookup(w.ItemId, peopleLookup, people);

@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Persistence;
 using Moq;
 using Xunit;
 
@@ -72,6 +73,90 @@ public sealed class EngineFullPipelineTests
             .Setup(lm => lm.GetItemList(It.Is<InternalItemsQuery>(q =>
                 q.IncludeItemTypes.Length == 1 && q.IncludeItemTypes[0] == BaseItemKind.Episode)))
             .Returns([]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AuthoritativeMembership_CorroboratesSelfValuedIdInTheLiveSnapshot(bool coldStart)
+    {
+        var linked = new Mock<ILinkedChildrenService>();
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        var user = Guid.NewGuid();
+        var watched = MakeMovie("Completed franchise entry", genres: ["Adventure"]);
+        var unseen = MakeMovie("Next franchise entry", genres: ["Adventure"]);
+        unseen.ProviderIds["Tmdb"] = "123";
+        unseen.ProviderIds["TmdbCollection"] = "123";
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([unseen.Id]);
+        var profile = MakeWarmProfile(user, "anonymous", watched.Id);
+        profile.WatchedItems[0].TmdbCollectionId = 123;
+        if (coldStart) profile.WatchedItems.Clear();
+        WireLibrary(harness, [watched, unseen]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([collection]);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        var recommendation = Assert.Single(harness.Engine.GetRecommendations(user, cancellationToken: TestContext.Current.CancellationToken)!.Recommendations, item => item.ItemId == unseen.Id);
+        Assert.Equal(123, recommendation.TmdbCollectionId);
+        if (!coldStart) Assert.Equal(1, recommendation.ScoringFeatures!.FranchiseAffinity);
+        Assert.Equal([collection.Id], recommendation.BoxSetIds);
+        Assert.Empty(collection.LinkedChildren);
+        linked.Verify(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual), Times.Once);
+    }
+
+    [Fact]
+    public void FranchiseIdentity_ReachesLibraryFeaturesWithoutNamesOrAnOptionalBoxsetLibrary()
+    {
+        var harness = EngineTestFactory.Create();
+        var user = Guid.NewGuid();
+        var watched = MakeMovie("Completed franchise entry", genres: ["Adventure"]);
+        watched.ProviderIds["Tmdb"] = "45";
+        watched.ProviderIds["TmdbCollection"] = "123";
+        var unseen = MakeMovie("Next franchise entry", genres: ["Adventure"]);
+        unseen.ProviderIds["Tmdb"] = "46";
+        unseen.ProviderIds["TmdbCollection"] = "123";
+        var profile = MakeWarmProfile(user, "anonymous", watched.Id);
+        profile.WatchedItems[0].Genres = ["Adventure"];
+        profile.WatchedItems[0].TmdbCollectionId = 123;
+        WireLibrary(harness, [watched, unseen]);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        var result = harness.Engine.GetRecommendations(user, cancellationToken: TestContext.Current.CancellationToken);
+        var recommendation = Assert.Single(result!.Recommendations);
+        Assert.Equal(123, recommendation.TmdbCollectionId);
+        Assert.NotNull(recommendation.ScoringFeatures);
+        Assert.Equal(1, recommendation.ScoringFeatures.FranchiseAffinity);
+        Assert.Equal(0, recommendation.ScoringFeatures.CollectionProgressionBoost);
+    }
+
+    [Fact]
+    public void FailedCollectionQuery_DoesNotEraseUnrelatedLibraryRecommendations()
+    {
+        var harness = EngineTestFactory.Create();
+        var user = Guid.NewGuid();
+        var watched = MakeMovie("Watched", genres: ["Adventure"]);
+        var unseen = MakeMovie("Unseen", genres: ["Adventure"]);
+        WireLibrary(harness, [watched, unseen]);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(MakeWarmProfile(user, "anonymous", watched.Id));
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Throws(new InvalidOperationException("unavailable"));
+        var result = harness.Engine.GetRecommendations(user, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(unseen.Id, Assert.Single(result!.Recommendations).ItemId);
+    }
+
+    [Fact]
+    public void LinkedCollections_ReachLiveRecommendationsWithoutChangingFilesystemParents()
+    {
+        var harness = EngineTestFactory.Create();
+        var user = Guid.NewGuid();
+        var watched = MakeMovie("Completed entry", genres: ["Abenteuer"]);
+        var unseen = MakeMovie("Next entry", genres: ["Adventure"]);
+        var boxset = new BoxSet { Id = Guid.NewGuid(), LinkedChildren = [LinkedChild.Create(watched), LinkedChild.Create(unseen)] };
+        WireLibrary(harness, [watched, unseen]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([boxset]);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(MakeWarmProfile(user, "anonymous", watched.Id));
+        var result = harness.Engine.GetRecommendations(user, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.NotNull(result);
+        var recommendation = Assert.Single(result.Recommendations);
+        Assert.Equal(unseen.Id, recommendation.ItemId);
+        Assert.Contains(boxset.Id, recommendation.BoxSetIds);
     }
 
     [Fact]

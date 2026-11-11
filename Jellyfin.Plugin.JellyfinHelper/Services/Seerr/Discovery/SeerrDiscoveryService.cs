@@ -18,8 +18,10 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Security;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
@@ -85,6 +87,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Per-request timeout for metadata enrichment calls, in milliseconds.
     /// </summary>
     private const int MetadataEnrichmentTimeoutMs = 8_000;
+
+    /// <summary>One separate deadline for mandatory certification metadata; partial results stay fail-closed.</summary>
+    private const int RequiredMetadataBudgetMs = 30_000;
 
     /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
@@ -161,6 +166,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly ISecretProtector _secretProtector;
     private readonly ILogger<SeerrDiscoveryService> _logger;
     private readonly ILocalizationManager? _localization;
+    private readonly IServerConfigurationManager? _serverConfiguration;
+    private readonly ILinkedChildrenService? _linkedChildren;
 
     /// <summary>
     ///     Cached Seerr user list to avoid re-fetching the full paginated roster on every ResolveSeerrUserIdAsync call (e.g., every frontend request).
@@ -199,6 +206,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="virtualItemDetector">Excludes virtual stub library entries from ownership checks.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="localization">Jellyfin's rating mapper; missing certification data fails closed for restricted accounts.</param>
+    /// <param name="serverConfiguration">Supplies the same metadata country Jellyfin uses for parental ratings.</param>
+    /// <param name="linkedChildren">Supplies actual BoxSet memberships rather than inferring them from collection names.</param>
     public SeerrDiscoveryService(
         IHttpClientFactory httpClientFactory,
         IWatchHistoryService watchHistoryService,
@@ -211,7 +220,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ISecretProtector secretProtector,
         VirtualItemDetector virtualItemDetector,
         ILogger<SeerrDiscoveryService> logger,
-        ILocalizationManager? localization = null)
+        ILocalizationManager? localization = null,
+        IServerConfigurationManager? serverConfiguration = null,
+        ILinkedChildrenService? linkedChildren = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(watchHistoryService);
@@ -237,6 +248,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _virtualItemDetector = virtualItemDetector;
         _logger = logger;
         _localization = localization;
+        _serverConfiguration = serverConfiguration;
+        _linkedChildren = linkedChildren;
     }
 
     /// <summary>
@@ -1729,6 +1742,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Fold in any requests the user made outside discovery before building the exclusion set, so the fresh signal both excludes those items from this run and reaches training.
         await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
 
+        var genreCatalogVersion = GenreNormalizer.CatalogVersion;
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
 
         var topGenres = genrePreferences
@@ -1787,7 +1801,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 throw new InvalidOperationException("Jellyfin certification mapping is unavailable.");
             }
 
-            var fetched = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, uniqueCandidates, cancellationToken).ConfigureAwait(false);
+            var fetched = await EnrichRequiredMetadataAsync(client, baseUri, apiKey, uniqueCandidates, cancellationToken).ConfigureAwait(false);
             if (uniqueCandidates.Count > 0 && fetched.Count == 0)
             {
                 throw new HttpRequestException("No provider certification metadata could be fetched.");
@@ -1817,9 +1831,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 Candidates = uniqueCandidates,
                 TopGenres = topGenres,
                 GenrePreferences = genrePreferences,
+                GenreCatalogVersion = genreCatalogVersion,
                 PreferredPeople = preferredPeople,
                 AvgYear = avgYear,
                 GenreExposure = genreExposure,
+                SeriesEpisodeCounts = seriesEpisodeCounts,
                 Client = client,
                 BaseUri = baseUri,
                 ApiKey = apiKey,
@@ -1863,12 +1879,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
+        var genreCatalogVersion = GenreNormalizer.CatalogVersion;
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
-        if (genrePreferences.Count == 0)
-        {
-            _pluginLog.LogDebug(LogCategory, $"External scoring uses a metadata-only cold-start prior for {profile.UserName}.", _logger);
-        }
-
         var topGenres = genrePreferences
             .OrderByDescending(kv => kv.Value)
             .Take(3)
@@ -1897,9 +1909,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var mapped = candidates.Select(ToTmdbItem).ToList();
         var mappedCount = mapped.Count;
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
-        var enrichedKeys = await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
+        var enrichedKeys = new HashSet<(int TmdbId, string MediaType)>();
         if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
         {
+            enrichedKeys = await EnrichRequiredMetadataAsync(client, baseUri, apiKey, mapped, cancellationToken).ConfigureAwait(false);
             // Fail closed for restricted profiles: without enriched genres the parental blacklist cannot
             // judge, so drop items the enrichment could not reach rather than risk restricted titles.
             mapped.RemoveAll(c => !enrichedKeys.Contains((c.Id, c.MediaType)));
@@ -1945,9 +1958,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 Candidates = uniqueCandidates,
                 TopGenres = topGenres,
                 GenrePreferences = genrePreferences,
+                GenreCatalogVersion = genreCatalogVersion,
                 PreferredPeople = preferredPeople,
                 AvgYear = avgYear,
                 GenreExposure = genreExposure,
+                SeriesEpisodeCounts = seriesEpisodeCounts,
                 Client = client,
                 BaseUri = baseUri,
                 ApiKey = apiKey,
@@ -1957,6 +1972,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 RankBasedOrdering = true,
             },
             cancellationToken).ConfigureAwait(false);
+
+        if (recommendations.Count == 0)
+        {
+            return null;
+        }
 
         // Keep the per-item feature reason that BuildRecommendation computed (e.g. "reasonGenre: Sci-Fi") so the
         // card explains WHY this title fits the user. The Trakt tab itself signals the source, so no generic
@@ -1976,6 +1996,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         ArgumentNullException.ThrowIfNull(result);
         var policy = CurrentParentalPolicy(jellyfinUserId);
+        var certificationCountry = CurrentCertificationCountry();
         if (!policy.Available)
         {
             return new DiscoveryResult { UserId = jellyfinUserId, GeneratedAt = result.GeneratedAt };
@@ -2008,7 +2029,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
         }
 
-        return new DiscoveryResult
+        var filtered = new DiscoveryResult
         {
             UserId = result.UserId,
             UserName = result.UserName,
@@ -2017,12 +2038,26 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     {
                         var mediaType = string.IsNullOrWhiteSpace(r.MediaType) ? MediaTypeMovie : r.MediaType.Trim().ToLowerInvariant();
                         var allowed = !policy.MaximumRating.HasValue || policy.MaximumRating.Value >= ParentalRatingHelper.UnrestrictedThreshold
-                            || (r.CertificationScore.HasValue && r.CertificationScore.Value >= 0 && r.CertificationScore.Value <= policy.MaximumRating.Value);
+                             || (r.CertificationPolicyCountry == certificationCountry
+                                 && r.CertificationScore.HasValue && r.CertificationScore.Value >= 0 && r.CertificationScore.Value <= policy.MaximumRating.Value);
                         return allowed && !r.AlreadyRequested && (excluded is null || !excluded.Contains((r.TmdbId, mediaType)));
                     })
                     .ToList(),
             GeneratedAt = result.GeneratedAt,
         };
+        if (policy.MaximumRating.HasValue && policy.MaximumRating.Value < ParentalRatingHelper.UnrestrictedThreshold
+            && certificationCountry != CurrentCertificationCountry())
+        {
+            filtered.Recommendations = [];
+        }
+
+        return filtered;
+    }
+
+    private string CurrentCertificationCountry()
+    {
+        var country = _serverConfiguration?.Configuration?.MetadataCountryCode;
+        return string.IsNullOrWhiteSpace(country) ? "*" : country.Trim().ToUpperInvariant();
     }
 
     private (bool Available, int? MaximumRating) CurrentParentalPolicy(Guid userId)
@@ -2083,7 +2118,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return (true, true);
             }
 
-            return (fetched && !ParentalRatingHelper.ShouldExclude(candidate, policy.MaximumRating), fetched && candidate.CertificationScore.HasValue);
+            var currentCountry = candidate.CertificationPolicyCountry == CurrentCertificationCountry();
+            return (fetched && currentCountry && !ParentalRatingHelper.ShouldExclude(candidate, policy.MaximumRating), fetched && currentCountry && candidate.CertificationScore.HasValue);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -2134,15 +2170,30 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
         // once per user and read the feature means from the SAME instance that scores, so a per-user model
         // materializing mid-run cannot leave scoring and feature means on two different models.
-        var userStrategy = context.GenrePreferences.Count > 0 ? _perUserRegistry.GetEnsembleForUser(context.Profile.UserId) : null;
+        var catalogVersion = GenreNormalizer.CatalogVersion;
+        var userContext = ExternalCandidateFeatureBuilder.PrepareUserContext(context.Profile);
+        var isPersonalized = context.GenrePreferences.Count > 0 || context.PreferredPeople.Count > 0
+            || userContext.Franchises.Count > 0 || userContext.Tags.Count > 0 || userContext.Studios.Count > 0;
+        if (!isPersonalized)
+        {
+            _pluginLog.LogDebug(LogCategory, $"External scoring uses a metadata-only cold-start prior for {context.Profile.UserName}.", _logger);
+        }
+
+        var userStrategy = isPersonalized ? _perUserRegistry.GetEnsembleForUser(context.Profile.UserId) : null;
         var featureMeans = userStrategy?.LearnedStrategy.GetFeatureMeans();
+
+        var genrePreferences = context.GenreCatalogVersion == catalogVersion
+            ? GenreNormalizer.Preferences(context.GenrePreferences)
+            : PreferenceBuilder.BuildGenrePreferenceVector(context.Profile, context.SeriesEpisodeCounts);
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, context.Profile);
+        var watchedCollections = GetWatchedCollections(context.Profile);
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
         foreach (var candidate in context.Candidates)
         {
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
+                candidate, genrePreferences, context.PreferredPeople, context.AvgYear, genreExposure, context.Profile, featureMeans, watchedCollections, userContext);
             var score = ScoreExternalCandidate(features, userStrategy);
             preScored.Add((candidate, score));
         }
@@ -2164,12 +2215,27 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             .Select(s => s.Item)
             .ToList();
 
-        // Phase 2: ENRICH top candidates with credits data (actors/directors)
-        // Only performed when the user has people preferences to match against.
-        if (context.PreferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
+        // Phase 2: one bounded shared detail pass for top candidates. Credits, collection, keywords,
+        // studios and certifications come from the same response; failed required fetches are not retried here.
+        using (var enrichmentBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            await EnrichTopCandidatesWithCreditsAsync(
-                context.Client, context.BaseUri, context.ApiKey, enrichmentCandidates.Where(candidate => candidate.KnownPeople is null).ToList(), cancellationToken).ConfigureAwait(false);
+            enrichmentBudget.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+            try
+            {
+                var pending = enrichmentCandidates.Where(candidate => !candidate.MetadataFetchAttempted).ToList();
+                if (context.PreferredPeople.Count > 0)
+                {
+                    await EnrichTopCandidatesWithCreditsAsync(context.Client, context.BaseUri, context.ApiKey, pending, enrichmentBudget.Token).ConfigureAwait(false);
+                }
+                else
+                {
+                    await EnrichCandidatesWithMetadataAsync(context.Client, context.BaseUri, context.ApiKey, pending, enrichmentBudget.Token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Optional metadata times out as one pass, not one timeout per batch/user candidate.
+            }
 
             var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
             _pluginLog.LogDebug(
@@ -2178,9 +2244,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
         }
 
-        // Phase 3: FINAL SCORE the enriched candidates (now with PeopleSimilarity)
-        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(enrichmentCandidates.Count);
-        foreach (var candidate in enrichmentCandidates)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (GenreNormalizer.CatalogVersion != catalogVersion)
+        {
+            // Detail responses can teach aliases. Rebuild all dependent inputs together so merged
+            // preferences, dominance, underexposure, averages and engagement describe the same catalog.
+            genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(context.Profile, context.SeriesEpisodeCounts);
+            genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, context.Profile);
+            userContext = userContext with { Engagement = ContentScoring.BuildGenreEngagementContext(context.Profile) };
+        }
+
+        // Phase 3: FINAL SCORE every candidate, including candidates outside the enrichment budget.
+        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(context.Candidates.Count);
+        foreach (var candidate in context.Candidates)
         {
             if (candidate.IsAlreadyAvailable || ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating))
             {
@@ -2188,7 +2265,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var features = ExternalCandidateFeatureBuilder.Build(
-                candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
+                candidate, genrePreferences, context.PreferredPeople, context.AvgYear, genreExposure, context.Profile, featureMeans, watchedCollections, userContext);
             var score = ScoreExternalCandidate(features, userStrategy);
             scored.Add((candidate, features, score));
         }
@@ -2203,17 +2280,45 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
         }
 
-        var topN = scored.Take(MaxPoolPerUser).ToList();
+        var topN = scored;
 
         // Build recommendations
         var recommendations = new List<DiscoveryRecommendation>(topN.Count);
         var reasonPeople = userStrategy is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : context.PreferredPeople;
         foreach (var (item, features, score) in topN)
         {
-            recommendations.Add(BuildRecommendation(item, features, score, context.TopGenres, reasonPeople));
+            var recommendation = BuildRecommendation(item, features, score, context.TopGenres, reasonPeople, genrePreferences, isPersonalized ? userContext : null);
+            recommendation.IsPersonalized = isPersonalized;
+            recommendation.TmdbCollectionId = item.CollectionId;
+            if (recommendation.ReasonKey == "reasonGenre" && recommendation.RelatedInfo is { } genre)
+            {
+                recommendation.RelatedInfo = GenreNormalizer.DisplayName(genre, context.Profile.GenreDistribution.Keys);
+            }
+
+            recommendations.Add(recommendation);
         }
 
-        return recommendations;
+        return DiscoverySelection.Select(recommendations, MaxPoolPerUser, context.RankBasedOrdering);
+    }
+
+    private Dictionary<int, int>? GetWatchedCollections(UserWatchProfile profile)
+    {
+        try
+        {
+            var queried = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Recursive = true });
+            if (queried is null)
+            {
+                return null;
+            }
+
+            var collections = queried.OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>();
+            return CollectionMembershipResolver.ExternalCounts(profile.WatchedItems, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(LogCategory, "External collection lookup unavailable; retaining unknown-metadata priors.", _logger);
+            return null;
+        }
     }
 
     private static double ScoreExternalCandidate(CandidateFeatures features, EnsembleScoringStrategy? strategy)
@@ -2271,10 +2376,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         CandidateFeatures features,
         double score,
         List<string> topGenres,
-        HashSet<string> preferredPeople)
+        HashSet<string> preferredPeople,
+        Dictionary<string, double>? genrePreferences = null,
+        ExternalCandidateFeatureBuilder.UserContext? userContext = null)
     {
         var genres = TmdbGenreMap.ToJellyfinGenres(item.GenreIds);
-        var (reasonKey, relatedInfo) = DetermineReason(features, item, topGenres, preferredPeople);
+        var (reasonKey, relatedInfo) = genrePreferences is null
+            ? DetermineReason(features, item, topGenres, preferredPeople)
+            : DetermineReasonFromPreferences(features, item, genrePreferences, preferredPeople);
+
+        if (userContext is not null && reasonKey != "reasonPersonNamed")
+        {
+            var metadataReason = DetermineMetadataReason(features, item, userContext);
+            if (metadataReason.HasValue)
+            {
+                (reasonKey, relatedInfo) = metadataReason.Value;
+            }
+        }
 
         return new DiscoveryRecommendation
         {
@@ -2287,6 +2405,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Score = score,
             ScoringFeatures = features.Copy(),
             CertificationScore = item.CertificationScore,
+            CertificationPolicyCountry = item.CertificationPolicyCountry,
             ReasonKey = reasonKey,
             Reason = relatedInfo != null ? $"{reasonKey}: {relatedInfo}" : reasonKey,
             RelatedInfo = relatedInfo,
@@ -2368,6 +2487,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var tvGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToTvTmdbId);
+        if (movieGenreIds.Count == 0 && tvGenreIds.Count == 0 && string.IsNullOrEmpty(primaryLanguage))
+        {
+            // Custom or newly localized genres must not leave retrieval empty; metadata can resolve new aliases before scoring.
+            await GatherColdStartCandidatesAsync(client, baseUri, apiKey, allCandidates, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         foreach (var genreId in tvGenreIds)
         {
             var items = await ExecuteDiscoverQueryAsync(
@@ -2936,6 +3062,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             .Select(mapper)
             .Where(id => id.HasValue)
             .Select(id => id!.Value.ToString(CultureInfo.InvariantCulture))
+            .Distinct(StringComparer.Ordinal)
             .ToList();
     }
 
@@ -3030,26 +3157,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
 
-        var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
-            ? $"api/v1/tv/{candidate.Id}"
-            : $"api/v1/movie/{candidate.Id}";
         try
         {
-            using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
-            using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                return;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-            var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
-
-            if (detail is null || !ApplyFetchedDetail(candidate, detail))
-            {
-                return;
-            }
+            await EnrichCandidateWithMetadataAsync(client, baseUri, apiKey, candidate, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3071,6 +3181,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     keys that were successfully enriched; failures leave the item untouched for the caller to fail
     ///     closed on. Source-provided values are never overwritten, only missing ones are filled.
     /// </summary>
+    private async Task<HashSet<(int TmdbId, string MediaType)>> EnrichRequiredMetadataAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<TmdbDiscoverItem> candidates,
+        CancellationToken cancellationToken)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromMilliseconds(RequiredMetadataBudgetMs));
+        try
+        {
+            return await EnrichCandidatesWithMetadataAsync(client, baseUri, apiKey, candidates, budget.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return candidates.Where(candidate => candidate.MetadataFetchSucceeded).Select(candidate => (candidate.Id, candidate.MediaType)).ToHashSet();
+        }
+    }
+
     private async Task<HashSet<(int TmdbId, string MediaType)>> EnrichCandidatesWithMetadataAsync(
         HttpClient client,
         Uri baseUri,
@@ -3119,12 +3248,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         bool forceRefresh = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!forceRefresh && candidate.MetadataFetchAttempted)
+        {
+            return candidate.MetadataFetchSucceeded;
+        }
+
+        candidate.MetadataFetchAttempted = true;
+        candidate.MetadataFetchSucceeded = false;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
 
         var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
             ? $"api/v1/tv/{candidate.Id}"
             : $"api/v1/movie/{candidate.Id}";
+
+        var metadataLanguage = _serverConfiguration?.Configuration?.PreferredMetadataLanguage;
+        if (!string.IsNullOrWhiteSpace(metadataLanguage))
+        {
+            mediaPath += "?language=" + Uri.EscapeDataString(metadataLanguage);
+        }
 
         var keyDigest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)));
         var cacheKey = baseUri.AbsoluteUri + mediaPath + ":" + keyDigest;
@@ -3141,7 +3283,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             if (cachedDetail is not null)
             {
-                return ApplyFetchedDetail(candidate, cachedDetail);
+                candidate.MetadataFetchSucceeded = ApplyFetchedDetail(candidate, cachedDetail);
+                return candidate.MetadataFetchSucceeded;
             }
         }
 
@@ -3173,6 +3316,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _metadataCache[cacheKey] = new CachedMediaDetail(detail, DateTime.UtcNow.Add(SeerrUserCacheTtl));
             }
 
+            candidate.MetadataFetchSucceeded = true;
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -3197,7 +3341,34 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         ApplyEnrichedMetadata(candidate, detail);
-        candidate.CertificationScore = CertificationResolver.Resolve(detail, _localization, candidate.Adult);
+        if (detail.Genres is not null)
+        {
+            foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())
+            {
+                GenreNormalizer.RegisterProviderGenre(genre.Id, genre.Name);
+            }
+        }
+
+        if (detail.HasCollectionMetadata)
+        {
+            candidate.HasCollectionMetadata = true;
+            candidate.CollectionId = detail.Collection?.Id > 0 ? detail.Collection.Id : 0;
+            candidate.CollectionName = detail.Collection?.Name;
+        }
+
+        if (detail.Keywords is not null)
+        {
+            candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+        }
+
+        if (detail.ProductionCompanies is not null)
+        {
+            candidate.KnownStudios = detail.ProductionCompanies.OfType<SeerrMediaDetailResponse.GenreRef>().Select(studio => studio.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+        }
+
+        var certificationCountry = CurrentCertificationCountry();
+        candidate.CertificationScore = CertificationResolver.Resolve(detail, _localization, candidate.Adult, certificationCountry == "*" ? null : certificationCountry);
+        candidate.CertificationPolicyCountry = candidate.CertificationScore.HasValue ? certificationCountry : null;
         if (detail.Credits is not null)
         {
             candidate.KnownPeople = ExtractTopPeople(detail.Credits);
@@ -3292,13 +3463,65 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Determines the primary recommendation reason for an external (TMDb) candidate from the signals that are
-    ///     genuinely available for it (franchise/collection/writer are not, so they are never claimed here).
+    ///     genuinely available for it. Verified collection/franchise/studio reasons are added at projection time.
     ///     Priority: person > genre > trending (new + highly rated) > popular with viewers > highly rated.
     /// </summary>
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(
         CandidateFeatures features,
         TmdbDiscoverItem candidate,
         List<string> topGenres,
+        HashSet<string> preferredPeople)
+    {
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < topGenres.Count; i++)
+        {
+            preferences[topGenres[i]] = topGenres.Count - i;
+        }
+
+        var result = DetermineReasonFromPreferences(features, candidate, preferences, preferredPeople);
+        return result.ReasonKey == "reasonGenre" && result.RelatedInfo is { } genre
+            ? (result.ReasonKey, GenreNormalizer.DisplayName(genre, topGenres))
+            : result;
+    }
+
+    /// <summary>Explains only observed personal metadata, never positive values produced by mean imputation.</summary>
+    /// <param name="features">The final candidate features.</param>
+    /// <param name="candidate">The actual provider metadata.</param>
+    /// <param name="userContext">Prepared preferences for the current user.</param>
+    /// <returns>A truthful metadata reason, or null if no observed match exists.</returns>
+    internal static (string ReasonKey, string? RelatedInfo)? DetermineMetadataReason(
+        CandidateFeatures features,
+        TmdbDiscoverItem candidate,
+        ExternalCandidateFeatureBuilder.UserContext userContext)
+    {
+        if (features.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost) && features.CollectionProgressionBoost > 0 && candidate.CollectionId > 0)
+        {
+            return ("reasonCollectionContinuation", null);
+        }
+
+        if (features.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity) && features.FranchiseAffinity > 0.5)
+        {
+            return string.IsNullOrWhiteSpace(candidate.CollectionName)
+                ? ("reasonFranchise", null)
+                : ("reasonFranchiseNamed", candidate.CollectionName);
+        }
+
+        if (features.IsExternalFeatureKnown(FeatureIndex.StudioMatch) && features.StudioMatch)
+        {
+            var studio = candidate.KnownStudios?.FirstOrDefault(userContext.Studios.Contains);
+            if (!string.IsNullOrWhiteSpace(studio))
+            {
+                return ("reasonStudioNamed", studio);
+            }
+        }
+
+        return null;
+    }
+
+    private static (string ReasonKey, string? RelatedInfo) DetermineReasonFromPreferences(
+        CandidateFeatures features,
+        TmdbDiscoverItem candidate,
+        Dictionary<string, double> genrePreferences,
         HashSet<string> preferredPeople)
     {
         if (features.PeopleSimilarity > ReasonPeopleThreshold && candidate.KnownPeople is { Count: > 0 })
@@ -3310,9 +3533,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        if (features.GenreSimilarity > ReasonGenreThreshold && topGenres.Count > 0)
+        var matchedGenre = GenreNormalizer.BestMatch(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds), genrePreferences);
+        if (features.GenreSimilarity > ReasonGenreThreshold && matchedGenre is not null)
         {
-            return ("reasonGenre", topGenres[0]);
+            return ("reasonGenre", matchedGenre);
         }
 
         if (features.RecencyScore > ReasonRecencyThreshold && features.CombinedCriticScore > ReasonCriticThreshold)
@@ -3448,11 +3672,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         public required Dictionary<string, double> GenrePreferences { get; init; }
 
+        /// <summary>Gets the provider-alias version used to prepare retrieval preferences.</summary>
+        public required int GenreCatalogVersion { get; init; }
+
         public required HashSet<string> PreferredPeople { get; init; }
 
         public required double AvgYear { get; init; }
 
         public required PreferenceBuilder.GenreExposureAnalysis GenreExposure { get; init; }
+
+        /// <summary>Gets the same series totals used to rebuild genre preferences after provider alias updates.</summary>
+        public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
 
         public required HttpClient Client { get; init; }
 

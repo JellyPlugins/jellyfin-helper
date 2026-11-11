@@ -159,13 +159,13 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_HighGenreSimilarity_WithTopGenres_ReturnsGenre()
     {
         var features = new CandidateFeatures { GenreSimilarity = 0.85 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { GenreIds = [878] };
         var topGenres = new List<string> { "Sci-Fi", "Thriller" };
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
 
         Assert.Equal("reasonGenre", reasonKey);
-        // Only the FIRST top-genre is surfaced - this must be the user's dominant preference.
+        // The display label belongs to a genre actually present on the candidate.
         Assert.Equal("Sci-Fi", relatedInfo);
     }
 
@@ -187,13 +187,26 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_GenreSimilarityJustAbove0Point7_UsesGenre()
     {
         var features = new CandidateFeatures { GenreSimilarity = 0.7001 };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { GenreIds = [35] };
         var topGenres = new List<string> { "Comedy" };
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
 
         Assert.Equal("reasonGenre", reasonKey);
         Assert.Equal("Comedy", relatedInfo);
+    }
+
+    [Fact]
+    public void DetermineReason_DoesNotClaimTheUsersTopGenreWhenOnlyAnotherGenreMatches()
+    {
+        var candidate = new TmdbDiscoverItem { GenreIds = [80] };
+        var features = new CandidateFeatures { GenreSimilarity = 0.9 };
+        var (key, related) = InvokeDetermineReason(features, candidate, ["Action", "Krimi"], []);
+        Assert.Equal("reasonGenre", key);
+        Assert.Equal("Krimi", related);
+        (key, related) = InvokeDetermineReason(features, candidate, ["Action"], []);
+        Assert.NotEqual("reasonGenre", key);
+        Assert.Null(related);
     }
 
     [Fact]
@@ -293,7 +306,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
             RecencyScore = 0.95,
             CombinedCriticScore = 0.9
         };
-        var candidate = new TmdbDiscoverItem();
+        var candidate = new TmdbDiscoverItem { GenreIds = [27] };
         var topGenres = new List<string> { "Horror" };
 
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());

@@ -18,6 +18,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
@@ -39,6 +40,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private const double NeutralLanguageAffinity = 0.5;
 
     private readonly ILibraryManager _libraryManager;
+    private readonly ILinkedChildrenService? _linkedChildren;
     private readonly IPluginConfigurationService _configService;
     private readonly ILogger<Engine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -74,6 +76,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="strategySelector">The strategy selector for A/B testing.</param>
     /// <param name="perUserRegistry">The per-user ensemble registry (per-user models + global fallback).</param>
     /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
+    /// <param name="linkedChildren">Jellyfin's authoritative collection relationship service.</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
@@ -83,10 +86,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IScoringStrategy strategy,
         IStrategySelector strategySelector,
         IPerUserEnsembleRegistry perUserRegistry,
-        IDiscoveryFeedbackStore discoveryFeedbackStore)
+        IDiscoveryFeedbackStore discoveryFeedbackStore,
+        ILinkedChildrenService? linkedChildren = null)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
+        _linkedChildren = linkedChildren;
         _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
@@ -131,6 +136,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
+                snapshot.ContentAffinityLookup,
+                snapshot.CandidateBoxSetLookup,
                 userProfile.UserName,
                 snapshot.Candidates,
                 userProfile.MaxParentalRating,
@@ -207,7 +214,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // serve-time candidateLookup, or StudioMatch/TagSimilarity (and the ContentNearestNeighbor /
         // CollectionProgression signals that read the same metadata) differ between train and serve for any
         // watched item that was never previously recommended.
-        var libraryItemMetadata = BuildLibraryItemMetadata(allMovies, allSeries);
+        var libraryItemMetadata = BuildTrainingLibraryMetadata(allMovies, allSeries);
 
         // Train the global model (learned + neural + global blend) once, then a per-user learned model for
         // every user above the example threshold, warm-started from the global fit.
@@ -299,7 +306,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
-        var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
+        var candidateBoxSetLookup = BuildCollectionLookup(candidates, out var collectionIds, out _);
+        var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates, collectionIds);
 
         // Refresh the library-wide genre/studio IDF rarity table once per batch (shared across users).
         // Kept as a local and handed to the snapshot ctor so the table travels atomically with the
@@ -308,16 +316,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Pre-compute BoxSet membership for all candidates once (shared across users), avoiding
         // redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
-        var candidateBoxSetLookup = new Dictionary<Guid, List<Guid>>();
-        foreach (var c in candidates)
-        {
-            var boxSets = ResolveBoxSetIds(c);
-            if (boxSets.Count > 0)
-            {
-                candidateBoxSetLookup[c.Id] = boxSets;
-            }
-        }
-
         // Pre-compute all user watched-item sets ONCE for collaborative filtering (O(U²×M) -> O(U×M)).
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
 
@@ -367,6 +365,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
                             maxResultsPerUser,
+                            contentAffinityLookup,
+                            candidateBoxSetLookup,
                             profile.UserName,
                             candidates,
                             profile.MaxParentalRating,
@@ -420,6 +420,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     /// <param name="userId">The user's ID.</param>
     /// <param name="maxResults">Maximum recommendations to return.</param>
+    /// <param name="contentAffinityLookup">Shared snapshot metadata, including corroborated collection IDs.</param>
+    /// <param name="candidateBoxSetLookup">Shared authoritative collection memberships captured for later training.</param>
     /// <param name="userName">Optional user display name for the result metadata.</param>
     /// <param name="preloadedCandidates">
     ///     Optional pre-loaded candidate list from the batch path.
@@ -449,6 +451,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private RecommendationResult GenerateColdStartRecommendations(
         Guid userId,
         int maxResults,
+        Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         string? userName = null,
         List<BaseItem>? preloadedCandidates = null,
         int? maxParentalRating = null,
@@ -515,9 +519,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 Tags = s.Item.Tags ?? [],
                 AudioLanguages = ResolveAudioLanguages(s.Item),
                 SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
-                BoxSetIds = ResolveBoxSetIds(s.Item),
+                BoxSetIds = candidateBoxSetLookup.GetValueOrDefault(s.Item.Id) ?? [],
                 DateCreated = s.Item.DateCreated,
                 TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(s.Item),
+                TmdbCollectionId = contentAffinityLookup[s.Item.Id].TmdbCollectionId,
                 ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(s.Item),
                 InheritedTags = ContentAffinityResolver.ResolveInheritedTags(s.Item),
                 SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(s.Item),
@@ -747,8 +752,28 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return new Training.LibraryItemMetadata(studios, tags, boxSetIds, tmdbIds);
     }
 
+    /// <summary>Captures known live metadata, distinguishing removed memberships from failed membership queries.</summary>
+    /// <param name="movies">Already-loaded library movies.</param>
+    /// <param name="series">Already-loaded library series.</param>
+    /// <returns>Training overlays with explicit empty values only for metadata that was successfully observed.</returns>
+    internal Training.LibraryItemMetadata BuildTrainingLibraryMetadata(IReadOnlyList<BaseItem> movies, IReadOnlyList<BaseItem> series)
+    {
+        var metadata = BuildLibraryItemMetadata(movies, series);
+        var items = movies.Concat(series).ToList();
+        var linkedCollections = BuildCollectionLookup(items, out var collectionIds, out var membershipsComplete);
+        return metadata with
+        {
+            BoxSetIds = membershipsComplete
+                ? items.ToDictionary(item => item.Id, item => (IReadOnlyList<Guid>)(linkedCollections.GetValueOrDefault(item.Id) ?? []))
+                : new Dictionary<Guid, IReadOnlyList<Guid>>(),
+            TmdbCollectionIds = items
+                .Where(item => membershipsComplete || !ContentAffinityResolver.NeedsCollectionCorroboration(item) || collectionIds.GetValueOrDefault(item.Id) > 0)
+                .ToDictionary(item => item.Id, item => collectionIds.GetValueOrDefault(item.Id))
+        };
+    }
+
     /// <summary>
-    ///     Extracts a single library item's non-empty studios, tags and BoxSet ids into the shared maps.
+    ///     Extracts known library metadata, retaining explicit empty studios/tags to clear stale cached values.
     /// </summary>
     private static void AddLibraryItemMetadata(
         BaseItem item,
@@ -756,23 +781,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         Dictionary<Guid, IReadOnlyList<string>> tags,
         Dictionary<Guid, IReadOnlyList<Guid>> boxSetIds)
     {
-        if (item.Studios is { Length: > 0 })
-        {
-            var itemStudios = item.Studios.Where(static s => !string.IsNullOrWhiteSpace(s)).ToList();
-            if (itemStudios.Count > 0)
-            {
-                studios[item.Id] = itemStudios;
-            }
-        }
-
-        if (item.Tags is { Length: > 0 })
-        {
-            var itemTags = item.Tags.Where(static t => !string.IsNullOrWhiteSpace(t)).ToList();
-            if (itemTags.Count > 0)
-            {
-                tags[item.Id] = itemTags;
-            }
-        }
+        studios[item.Id] = (item.Studios ?? []).Where(static value => !string.IsNullOrWhiteSpace(value)).ToArray();
+        tags[item.Id] = (item.Tags ?? []).Where(static value => !string.IsNullOrWhiteSpace(value)).ToArray();
 
         // Same parent-hierarchy resolution the serve path uses to build candidateBoxSetLookup, so BoxSet
         // membership matches between train and serve.
@@ -1123,6 +1133,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             DateCreated = s.Item.DateCreated,
             // Content-affinity fields for the top-N result DTO come from the per-snapshot precompute (resolved once into `content` above) rather than a fresh GetInheritedTags()/GetPeople per top-N item per user.
             TmdbCollectionName = content.TmdbCollectionName,
+            TmdbCollectionId = content.TmdbCollectionId,
             ProductionCountries = content.ProductionCountries,
             InheritedTags = content.InheritedTags,
             SeriesStatus = content.SeriesStatus,
@@ -1246,7 +1257,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             watchedGenreSets.Add(
                 w.Genres is { Count: > 0 }
-                    ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                    ? GenreNormalizer.Set(w.Genres)
                     : []);
 
             // People: resolve from peopleLookup (which maps item IDs to person name sets)
@@ -1326,7 +1337,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // New content-affinity signals. All seven read their candidate-side source from the per-snapshot `content` precompute (built once per candidate), so this hot path does no GetInheritedTags() traversal and no GetPeople round-trip.
         var franchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(
-            content.TmdbCollectionName, context.PreferredFranchises);
+            content.TmdbCollectionId, content.TmdbCollectionName, context.PreferredFranchises);
         var productionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(
             content.ProductionCountries, context.PreferredCountries);
         var inheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(
@@ -1344,11 +1355,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = genreScore,
+            HasGenreEvidence = content.GenreSet.Count > 0 && context.GenrePreferences.Count > 0,
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = yearScore,
-            GenreCount = candidate.Genres?.Length ?? 0,
+            GenreCount = GenreNormalizer.Set(candidate.Genres).Count,
             IsSeries = candidate is Series,
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
@@ -1687,8 +1699,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Pre-computes, once per candidate snapshot, ALL candidate-invariant content-affinity source data for every candidate: five metadata fields (TMDb collection, production countries, inherited tags, series status, series end date) plus writer names and the.
     /// </summary>
     /// <param name="candidates">The candidate items in the snapshot.</param>
+    /// <param name="collectionIds">Collection identities corroborated by the same query used for progression.</param>
     /// <returns>Per-item content-affinity source data keyed by item id (dense over readable candidates).</returns>
-    private Dictionary<Guid, CandidateContentAffinity> BuildCandidateContentAffinityLookup(List<BaseItem> candidates)
+    private Dictionary<Guid, CandidateContentAffinity> BuildCandidateContentAffinityLookup(List<BaseItem> candidates, Dictionary<Guid, int> collectionIds)
     {
         var lookup = new Dictionary<Guid, CandidateContentAffinity>(candidates.Count);
 
@@ -1713,7 +1726,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ContentAffinityResolver.ExtractWriterNames(people),
                 ExtractBillingWeightMap(people),
                 BuildGenreSet(candidate),
-                BuildStudioSet(candidate));
+                BuildStudioSet(candidate))
+            {
+                TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id)
+            };
         }
 
         return lookup;
@@ -1726,7 +1742,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A case-insensitive set of the candidate's genres (never null; possibly empty).</returns>
     private static HashSet<string> BuildGenreSet(BaseItem candidate)
-        => new(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);
+        => GenreNormalizer.Set(candidate.Genres);
 
     /// <summary>
     ///     Builds the case-insensitive studio set for a candidate, or null when it has no studios.
@@ -1764,7 +1780,30 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ContentAffinityResolver.ExtractWriterNames(people),
             ExtractBillingWeightMap(people),
             BuildGenreSet(candidate),
-            BuildStudioSet(candidate));
+            BuildStudioSet(candidate))
+        {
+            TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id)
+        };
+    }
+
+    private Dictionary<Guid, int> LoadCollectionIds(IEnumerable<BaseItem> candidates)
+    {
+        var items = candidates.ToArray();
+        if (!items.Any(ContentAffinityResolver.NeedsCollectionCorroboration))
+        {
+            return items.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item));
+        }
+
+        try
+        {
+            var collections = (_libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Recursive = true }) ?? [])
+                .OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>().ToArray();
+            return CollectionMembershipResolver.CollectionIds(items, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return items.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item));
+        }
     }
 
     /// <summary>
@@ -1810,7 +1849,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             // Fold each facet's per-term IDF into the shared table. Keep the higher IDF when a term appears in
             // both facets (defensive; keys rarely collide) and track the running maximum for normalization.
-            foreach (var facet in new[] { ComputeFacetIdf(items, static item => item.Genres), ComputeFacetIdf(items, static item => item.Studios) })
+            foreach (var facet in new[] { ComputeFacetIdf(items, static item => GenreNormalizer.Set(item.Genres).ToArray()), ComputeFacetIdf(items, static item => item.Studios) })
             {
                 foreach (var (name, idf) in facet)
                 {
@@ -2034,6 +2073,45 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return lookup;
     }
 
+    private Dictionary<Guid, List<Guid>> BuildCollectionLookup(List<BaseItem> candidates, out Dictionary<Guid, int> collectionIds, out bool membershipsComplete)
+    {
+        var lookup = BuildCandidateBoxSetLookupFresh(candidates);
+        collectionIds = candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item));
+        membershipsComplete = candidates.Count == 0;
+        if (candidates.Count == 0)
+        {
+            return lookup;
+        }
+
+        try
+        {
+            var queried = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.BoxSet],
+                Recursive = true
+            });
+            if (queried is null)
+            {
+                return lookup;
+            }
+
+            var collections = queried.OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>().ToArray();
+            membershipsComplete = CollectionMembershipResolver.Merge(
+                lookup,
+                candidates.Select(candidate => candidate.Id).ToHashSet(),
+                collections,
+                _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual),
+                ex => _pluginLog.LogWarning(LogCategory, "Collection relationship query failed; retaining linked-item and parent fallbacks.", ex, _logger));
+            collectionIds = candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, collections, lookup));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogCategory, "Collection lookup failed; retaining parent memberships.", ex, _logger);
+        }
+
+        return lookup;
+    }
+
     /// <summary>
     ///     Returns the current candidate snapshot, refreshing it under a single-flight gate when the cache is empty or has exceeded CandidateSnapshotMaxAge.
     /// </summary>
@@ -2058,8 +2136,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
             var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
-            var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
-            var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates);
+            var boxSetLookup = BuildCollectionLookup(candidates, out var collectionIds, out _);
+            var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates, collectionIds);
 
             // Build the library-wide genre/studio IDF rarity table over these candidates and hand it to the
             // snapshot ctor so the table travels atomically with the candidate population it describes.
@@ -2739,7 +2817,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         List<string> Writers,
         Dictionary<string, double> Billing,
         HashSet<string> GenreSet,
-        HashSet<string>? StudioSet);
+        HashSet<string>? StudioSet)
+    {
+        /// <summary>Gets the language-independent collection identity used for both scoring and cached training metadata.</summary>
+        public int TmdbCollectionId { get; init; }
+    }
 
     /// <summary>
     ///     Immutable snapshot of candidate items and their people lookup. Published/read as a single reference so concurrent readers always see a consistent pair (candidates from the same batch as the people lookup).

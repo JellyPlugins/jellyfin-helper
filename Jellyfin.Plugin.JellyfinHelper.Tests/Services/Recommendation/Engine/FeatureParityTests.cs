@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using Xunit;
 
@@ -14,6 +19,184 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class FeatureParityTests
 {
     private static readonly StringComparer Ci = StringComparer.OrdinalIgnoreCase;
+
+    [Fact]
+    public void MixedLegacyFranchises_FallBackOnlyForTheMatchingUnconflictedName()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionName = "Legacy saga" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 200, TmdbCollectionName = "Other saga" }
+            ]
+        };
+        var preferences = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.Equal(1, SimilarityComputer.ComputeFranchiseAffinity(123, "legacy SAGA", preferences));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(123, "Other saga", preferences));
+        Assert.Equal(1, SimilarityComputer.ComputeFranchiseAffinity(200, "translated label", preferences));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(123, null, preferences));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(123, "Unknown", preferences));
+        Assert.Equal(1, SimilarityComputer.ComputeFranchiseAffinity(123, "Legacy saga", new Dictionary<string, double> { ["Legacy saga"] = 1 }));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(123, "Legacy saga", new Dictionary<string, double> { ["tmdb:collection:200"] = 1, ["Legacy saga"] = 1 }));
+        var candidate = new TmdbDiscoverItem { CollectionId = 123, CollectionName = "Legacy saga", HasCollectionMetadata = true };
+        var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var external = ExternalCandidateFeatureBuilder.Build(candidate, genres, [], 0, PreferenceBuilder.BuildGenreExposureAnalysis(genres, profile), profile);
+        Assert.Equal(1, external.FranchiseAffinity);
+    }
+
+    [Fact]
+    public void TranslatedNameCollisions_CannotDiluteConfirmedFranchiseIdentities()
+    {
+        var first = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 100, TmdbCollectionName = "First saga" };
+        var second = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 200, TmdbCollectionName = "Second saga" };
+        var profile = new UserWatchProfile { WatchedItems = [first, second] };
+        var distinctNames = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        first.TmdbCollectionName = "Shared translated name";
+        second.TmdbCollectionName = "Shared translated name";
+        var collidingNames = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.Equal(1, distinctNames["tmdb:collection:100"]);
+        Assert.Equal(1, collidingNames["tmdb:collection:100"]);
+        Assert.Equal(distinctNames["tmdb:collection:200"], collidingNames["tmdb:collection:200"]);
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(300, "Shared translated name", collidingNames));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ParentMetadataRemoval_ClearsInheritedValuesWithoutDroppingVerifiedOwnValues(bool provenance, bool parentUnavailable)
+    {
+        var series = Guid.NewGuid();
+        var row = new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, Played = true, Tags = ["old parent tag"], Studios = ["Old Parent Studio"] };
+        if (provenance)
+        {
+            row.OwnTags = ["episode tag"];
+            row.OwnStudios = ["Episode Studio"];
+            row.SeriesTags = ["old parent tag"];
+            row.SeriesStudios = ["Old Parent Studio"];
+            row.Tags = ["episode tag", "old parent tag"];
+            row.Studios = ["Episode Studio", "Old Parent Studio"];
+        }
+
+        var profile = new UserWatchProfile { WatchedItems = [row] };
+        var lookup = new Dictionary<Guid, BaseItem>();
+        var tags = new Dictionary<Guid, IReadOnlyList<string>>();
+        var studios = new Dictionary<Guid, IReadOnlyList<string>>();
+        if (!parentUnavailable)
+        {
+            lookup[series] = new MediaBrowser.Controller.Entities.TV.Series { Id = series, Tags = [], Studios = [] };
+            tags[series] = [];
+            studios[series] = [];
+        }
+
+        var liveTags = PreferenceBuilder.BuildTagPreferenceSet(profile, lookup);
+        var liveStudios = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+        Assert.True(liveTags.SetEquals(TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, tags)));
+        Assert.True(liveStudios.SetEquals(TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, studios)));
+        Assert.Equal(parentUnavailable, liveTags.Contains("old parent tag"));
+        Assert.Equal(parentUnavailable, liveStudios.Contains("Old Parent Studio"));
+        Assert.Equal(provenance, liveTags.Contains("episode tag"));
+        Assert.Equal(provenance, liveStudios.Contains("Episode Studio"));
+    }
+
+    [Fact]
+    public void MixedLegacyAndConfirmedRows_ConsolidateWeightsOnlyForUnambiguousNames()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = true, TmdbCollectionName = "Known saga" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 100, TmdbCollectionName = "Known saga" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = true, TmdbCollectionId = 200, TmdbCollectionName = "Unrelated saga" }
+            ]
+        };
+        var migrated = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.Equal(migrated["Known saga"], SimilarityComputer.ComputeFranchiseAffinity(100, "Translated saga", migrated));
+        Assert.Equal(0, profile.WatchedItems[0].TmdbCollectionId);
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 300, TmdbCollectionName = "Known saga" });
+        var conflicted = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.True(conflicted["tmdb:collection:100"] < conflicted["Known saga"]);
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(400, "Known saga", conflicted));
+    }
+
+    [Fact]
+    public void ConflictingLocalizedCollectionNames_CannotOverrideConfirmedIds()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = true, TmdbCollectionName = "Shared collection label" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 100, TmdbCollectionName = "Shared collection label" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionId = 200, TmdbCollectionName = "Shared collection label" }
+            ]
+        };
+        var preferences = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(300, "Shared collection label", preferences));
+        Assert.Equal(preferences["tmdb:collection:100"], SimilarityComputer.ComputeFranchiseAffinity(100, "Different translated label", preferences));
+        Assert.Equal(preferences["tmdb:collection:200"], SimilarityComputer.ComputeFranchiseAffinity(200, "Shared collection label", preferences));
+    }
+
+    [Fact]
+    public void OwnTagsAndStudios_AlignLocalTrainingAndPreparedExternalPreferences()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Tags = ["item tag", "parent tag", " "], InheritedTags = ["folder tag"], Studios = ["Episode Studio", "Parent Studio", ""] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), IsFavorite = true, Tags = ["favorite tag"], Studios = ["Favorite Studio"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), PlayCount = 1, Tags = ["replayed tag"], Studios = ["Replay Studio"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), PlaybackPositionTicks = 1, Tags = ["partial tag"], Studios = ["Partial Studio"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Tags = ["unseen tag"], Studios = ["Unseen Studio"] }
+            ]
+        };
+        var context = ExternalCandidateFeatureBuilder.PrepareUserContext(profile);
+        Assert.Equal(PreferenceBuilder.BuildTagPreferenceSet(profile, []), context.Tags);
+        Assert.Equal(TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, []), context.Tags);
+        Assert.Equal(PreferenceBuilder.BuildStudioPreferenceSet(profile, []), context.Studios);
+        Assert.Equal(TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, []), context.Studios);
+        Assert.DoesNotContain("folder tag", context.Tags);
+        Assert.DoesNotContain("partial tag", context.Tags);
+        Assert.Contains("Favorite Studio", context.Studios);
+        profile.WatchedItems.Clear();
+        var candidate = new TmdbDiscoverItem { KnownKeywords = ["item tag", "parent tag", "favorite tag", "replayed tag"], KnownStudios = ["Favorite Studio"] };
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, [], [], 0, PreferenceBuilder.BuildGenreExposureAnalysis([], profile), profile, userContext: context);
+        Assert.Equal(1, features.TagSimilarity);
+        Assert.True(features.StudioMatch);
+        var inheritedOnly = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { KnownKeywords = ["folder tag"] }, [], [], 0, PreferenceBuilder.BuildGenreExposureAnalysis([], profile), profile, userContext: context);
+        Assert.Equal(0, inheritedOnly.TagSimilarity);
+    }
+
+    [Fact]
+    public void FranchiseIds_FeedRecommendationAndOrganicTrainingAcrossLegacyNames()
+    {
+        var user = Guid.NewGuid();
+        var first = Guid.NewGuid();
+        var recommended = Guid.NewGuid();
+        var organic = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-3);
+        var profile = new UserWatchProfile
+        {
+            UserId = user,
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = first, TmdbId = 1, TmdbCollectionId = 123, TmdbCollectionName = "Known saga", ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-2), Genres = ["Adventure"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 4, TmdbCollectionName = "Known saga", ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-1), Genres = ["Adventure"] },
+                new WatchedItemInfo { ItemId = recommended, TmdbId = 2, TmdbCollectionId = 123, ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(1), Genres = ["Adventure"] },
+                new WatchedItemInfo { ItemId = organic, TmdbId = 3, TmdbCollectionId = 123, ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(2), Genres = ["Adventure"] }
+            ]
+        };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = at, Recommendations = [new RecommendedItem { ItemId = recommended, TmdbId = 2, TmdbCollectionId = 123, ItemType = "Movie", Genres = ["Adventure"] }] };
+        var result = TrainingDataBuilder.BuildExamples([previous], new Collection<UserWatchProfile> { profile }, TestContext.Current.CancellationToken);
+        var recommendedId = TrainingExample.CreateTitleObservationId(user, recommended, 2, false);
+        var organicId = TrainingExample.CreateTitleObservationId(user, organic, 3, false);
+        Assert.Contains(result.Examples, example => example.ObservationId == recommendedId && example.Features.FranchiseAffinity == 1);
+        Assert.Contains(result.Examples, example => example.ObservationId == organicId && example.Features.FranchiseAffinity == 1);
+    }
 
     [Fact]
     public void SharedHelpers_SameInputs_ProduceIdenticalValues_AcrossCallSites()
