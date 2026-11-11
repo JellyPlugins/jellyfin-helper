@@ -1300,17 +1300,24 @@
         var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
         // Slash breaks are inserted only after escaping the reason.
         var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
-        var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
-        var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
-        var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
         return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
-            '<div class="jfh-discovery-btn-row">' +
-            '<button type="button" class="' + btnClass + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
-            dismissBtnHtml + '</div></div></div>';
+            '<div class="jfh-discovery-btn-row">' + renderSidebarActionsHtml(r, mediaType) + '</div></div></div>';
+    }
+
+    function renderSidebarActionsHtml(r, mediaType) {
+        var request;
+        if (r.AlreadyRequested || r.AvailabilityVerified === true) {
+            var text = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
+            var cls = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
+            request = '<button type="button" class="' + cls + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + (r.AlreadyRequested ? ' disabled' : '') + '>' + esc(text) + '</button>';
+        } else {
+            request = '<span class="jfh-discovery-tag">' + esc(t('discoveryAvailabilityUnknown', 'Availability not checked')) + '</span>';
+        }
+        var dismiss = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+        return request + dismiss;
     }
 
     function bindSidebarCardHandlers(container) {

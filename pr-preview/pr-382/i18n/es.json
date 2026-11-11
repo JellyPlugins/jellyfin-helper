@@ -390,6 +390,7 @@
   "discoveryLoadError": "No se pudieron cargar las sugerencias de descubrimiento.",
   "discoveryGeneratedAt": "Última actualización",
   "discoveryRequest": "Solicitar",
+  "discoveryAvailabilityUnknown": "Disponibilidad sin verificar",
   "discoveryRequesting": "Solicitando…",
   "discoveryRequested": "Solicitado",
   "discoveryRequestFailed": "Error",

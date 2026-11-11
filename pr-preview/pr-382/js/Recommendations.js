@@ -574,11 +574,13 @@ function renderDiscoveryCard(rec, index) {
         html += '<button class="discovery-request-btn discovery-request-done" disabled>';
         html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
         html += '</button>';
-    } else if (mediaType) {
+    } else if (mediaType && rec.AvailabilityVerified === true) {
         html += '<button class="discovery-request-btn" ';
         html += 'data-tmdb-id="' + (Number.parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
+    } else if (mediaType) {
+        html += '<span class="recs-tag">' + escHtml(T('discoveryAvailabilityUnknown', 'Availability not checked')) + '</span>';
     }
 
     html += '</div></div>';
