@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
@@ -132,7 +133,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private readonly NeuralScoringStrategy? _neural;
     private readonly bool _ownsNeural;
     private readonly string? _statePath;
-    private readonly object _syncRoot = new();
+    private readonly Lock _syncRoot = new();
     private readonly HashSet<Guid> _observedTrainingIds = [];
     private double _alpha;
     private double _alphaMax;

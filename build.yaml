@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.1.0.1"
+version: "3.1.1.0"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -12,14 +12,15 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.1.0.1 - More accessible dashboard, reliable Discovery and safer cleanup
+  v3.1.1.0 - Recommendation Engine V5, clearer Discovery and stronger parental checks
 
-  - Navigate dashboard and Discovery tabs by keyboard; dialogs contain focus, close with Escape and restore the opener
-  - Cleaner Discovery cards: open descriptions directly from the poster by click, tap or keyboard, without a separate Details button
-  - Better touch targets, light-mode contrast and reduced-motion support; notifications pause while you read them and can be closed
-  - Discovery appears after login and disappears on logout without a refresh; fast user switching cannot show stale results
-  - Background refreshes keep open descriptions, focus and request dialogs; requested or dismissed titles do not reappear in the current session's other Discovery sources
-  - Empty-folder trash moves count correctly; folder browsing and trash checks reject links into protected paths, and failed saves restore the trash-path confirmation
-  - Recommendation retraining preserves score scaling and only promotes models using effective training examples and independent quality checks
-  - Verified by 94% backend unit test coverage, 97% UI test coverage, and 404 end-to-end Docker tests
-  - Requires Jellyfin 12.4 - if you are on Jellyfin 10.x, stay on v2.1.0.6
+  - Note: Recommendation Engine V5 replaces existing learned and neural models and trains them again over the next scheduled runs with the recommendation task in Activate mode; media, watch history and settings stay intact
+  - More relevant, varied personal Discovery lists filter weak matches and limit repeats from the same collection; Trakt keeps its source ordering
+  - Popular suggestions without personal evidence are labeled honestly instead of showing a match percentage; unchecked availability shows an explanatory status instead of a Request button
+  - Taste matching understands translated and combined genres, verified collection membership and missing metadata; recommendation reasons reflect the actual score
+  - Discovery learns from cards you actually see, keeps requests and dismissals tied to the displayed suggestions, and distinguishes favorites or partial playback from completed viewing
+  - Training uses the context from prediction time, and quality checks keep duplicate copies of the same title out of training and validation overlap
+  - Restricted profiles exclude missing or unverified age ratings; requests recheck the current parental settings and rating-country policy
+  - Playlist updates skip disabled, removed or unverifiable users; compact touch controls avoid iOS focus zoom without oversized checkboxes or forced button heights
+  - Verified by 94% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests
+  - Requires Jellyfin 12.4

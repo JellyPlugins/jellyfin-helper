@@ -435,7 +435,7 @@ $yamlScaffold = @(
     "  - TBD: summary bullet 1"
     "  - TBD: summary bullet 2"
     "  - Verified by $backendText backend unit test coverage, $frontendText UI test coverage, and $e2eText end-to-end Docker tests"
-    "  - Requires Jellyfin $jfText - if you are on Jellyfin 10.x, stay on v2.1.0.6"
+    "  - Requires Jellyfin $jfText"
 ) -join "`n"
 
 # Add a trailing newline so the next YAML key (if any) stays on its own line,
@@ -473,7 +473,7 @@ else {
         "- TBD: summary bullet 1\n" + `
         "- TBD: summary bullet 2\n" + `
         "- Verified by $backendText backend unit test coverage, $frontendText UI test coverage, and $e2eText end-to-end Docker tests\n" + `
-        "- Requires Jellyfin $jfText - if you are on Jellyfin 10.x, stay on v2.1.0.6"
+        "- Requires Jellyfin $jfText"
 
     $newEntryLines = @(
         '      {'
