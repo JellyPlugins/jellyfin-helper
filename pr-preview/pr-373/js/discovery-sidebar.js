@@ -1125,11 +1125,11 @@
     function resumeDiscoveryImpressions() {
         if (_discoveryDisabled || _hostSessionChanges !== 0 || !currentDiscoveryUserId() || !isOnHomePage()) return;
         var owners = new Set();
-        for (var grid of document.querySelectorAll('.jfh-discovery-grid')) {
-            var owner = grid.closest('.jfh-ui-surface');
+        for (const grid of document.querySelectorAll('.jfh-discovery-grid')) {
+            const owner = grid.closest('.jfh-ui-surface');
             if (owner) owners.add(owner);
         }
-        for (var owner of owners) observeVisibleDiscoveryCards(owner);
+        for (const owner of owners) observeVisibleDiscoveryCards(owner);
     }
 
     function renderEmptySidebarCards(container) {
