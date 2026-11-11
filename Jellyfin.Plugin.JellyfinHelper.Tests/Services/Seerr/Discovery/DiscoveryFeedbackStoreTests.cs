@@ -93,9 +93,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var candidate = new TmdbDiscoverItem { Id = 700, MediaType = "movie", GenreIds = [28], KnownPeople = people?.ToList() };
         var inference = ExternalCandidateFeatureBuilder.Build(candidate, preferences, ["Keanu Reeves"], 0,
             PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile), profile, means);
-        foreach (var reader in new[] { store, CreateStore() })
+        foreach (var feedback in new[] { store, CreateStore() }.Select(reader => reader.LoadAll()))
         {
-            var feedback = reader.LoadAll();
             var entry = Assert.Single(Assert.Single(feedback).Entries);
             Assert.Equal(people, entry.KnownPeople);
             Assert.True(entry.HasConfirmedPrediction);
