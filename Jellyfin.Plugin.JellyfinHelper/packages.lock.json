@@ -45,7 +45,7 @@
       },
       "System.IO.Abstractions": {
         "type": "Direct",
-        "requested": "[23.0.0, )",
+        "requested": "[23.0.0, 23.0.0]",
         "resolved": "23.0.0",
         "contentHash": "lMBdXRPdCL95QKrmhK7hthyF3CZblVcU1JBGjZyYpkGlw/Mnrw4GZeP6S4rzkm4oKpa4lUecNInKCLs8+6HI5Q==",
         "dependencies": {
