@@ -234,7 +234,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore((float?)entry.TmdbRating, null);
 
         var recencyScore = entry.Year is { } year and >= 1 and <= 9999
-            ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
+            ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1, 0, 0, 0, DateTimeKind.Utc), DateTimeNormalization.ToUtc(entry.ShownAtUtc))
             : 0.5;
 
         var yearProximityScore = ContentScoring.ComputeYearProximity(entry.Year, avgYear);

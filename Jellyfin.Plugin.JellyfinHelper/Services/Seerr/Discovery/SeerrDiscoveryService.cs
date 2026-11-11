@@ -328,6 +328,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Per-series total-episode-count map, built ONCE per discovery run and shared across all users.
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
+        var collectionMemberships = new Lazy<CollectionMembershipResolver.Snapshot?>(() => LoadCollectionMemberships(activeProfiles.SelectMany(profile => profile.WatchedItems)));
 
         // Process each user
         var allResults = new List<DiscoveryResult>(activeProfiles.Count);
@@ -346,7 +347,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             cancellationToken.ThrowIfCancellationRequested();
 
             var outcome = await TryGenerateForUserAsync(
-                profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+                profile, config, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
 
             switch (outcome.Status)
             {
@@ -702,12 +703,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         PluginConfiguration config,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
+        Lazy<CollectionMembershipResolver.Snapshot?> collectionMemberships,
         CancellationToken cancellationToken)
     {
         try
         {
             var result = await GenerateForUserAsync(
-                profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
+                profile, config, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
 
             return result != null
                 ? new UserGenerationOutcome(UserGenerationStatus.Generated, result)
@@ -1737,6 +1739,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         PluginConfiguration config,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
+        Lazy<CollectionMembershipResolver.Snapshot?> collectionMemberships,
         CancellationToken cancellationToken)
     {
         // Fold in any requests the user made outside discovery before building the exclusion set, so the fresh signal both excludes those items from this run and reaches training.
@@ -1822,6 +1825,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 AvgYear = avgYear,
                 GenreExposure = genreExposure,
                 SeriesEpisodeCounts = seriesEpisodeCounts,
+                CollectionMemberships = collectionMemberships,
                 Client = client,
                 BaseUri = baseUri,
                 ApiKey = apiKey,
@@ -2244,7 +2248,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             User = user,
             IsWeekend = TemporalFeatures.ResolveIsWeekend(context.Profile),
             FeatureMeans = means,
-            WatchedCollections = GetWatchedCollections(context.Profile)
+            WatchedCollections = GetWatchedCollections(context.Profile, context.CollectionMemberships)
         };
     }
 
@@ -2396,6 +2400,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var recommendation = BuildRecommendation(item, features, score, context.TopGenres, reasonPeople, featureContext.GenrePreferences, personalized ? featureContext.User : null);
             recommendation.IsPersonalized = personalized;
             recommendation.TmdbCollectionId = item.CollectionId;
+            recommendation.AvailabilityVerified = item.MetadataFetchSucceeded;
             if (recommendation.ReasonKey == "reasonGenre" && recommendation.RelatedInfo is { } genre)
             {
                 recommendation.RelatedInfo = GenreNormalizer.DisplayName(genre, context.Profile.GenreDistribution.Keys);
@@ -2421,7 +2426,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         => !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating)
             && (!context.RankBasedOrdering || candidate.MetadataFetchSucceeded);
 
-    private Dictionary<int, int>? GetWatchedCollections(UserWatchProfile profile)
+    private Dictionary<int, int>? GetWatchedCollections(UserWatchProfile profile, Lazy<CollectionMembershipResolver.Snapshot?>? shared)
+    {
+        if (!profile.WatchedItems.Any(item => item.HasMeaningfulInteraction()))
+        {
+            return [];
+        }
+
+        var snapshot = shared is null ? LoadCollectionMemberships(profile.WatchedItems) : shared.Value;
+        return snapshot is null ? null : CollectionMembershipResolver.ExternalCounts(profile.WatchedItems, snapshot);
+    }
+
+    private CollectionMembershipResolver.Snapshot? LoadCollectionMemberships(IEnumerable<WatchedItemInfo> history)
     {
         try
         {
@@ -2432,7 +2448,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var collections = queried.OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>();
-            return CollectionMembershipResolver.ExternalCounts(profile.WatchedItems, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
+            return CollectionMembershipResolver.CaptureMemberships(collections, CollectionMembershipResolver.EngagedItemIds(history), _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -3813,6 +3829,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         /// <summary>Gets the same series totals used to rebuild genre preferences after provider alias updates.</summary>
         public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
+
+        /// <summary>Gets one membership snapshot shared by the complete generation; null keeps live single-user reads on demand.</summary>
+        public Lazy<CollectionMembershipResolver.Snapshot?>? CollectionMemberships { get; init; }
 
         public required HttpClient Client { get; init; }
 

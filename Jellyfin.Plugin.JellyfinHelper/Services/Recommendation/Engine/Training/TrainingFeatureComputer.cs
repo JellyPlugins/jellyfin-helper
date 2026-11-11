@@ -206,6 +206,7 @@ internal static class TrainingFeatureComputer
         var mostRecent = episodes
             .OrderByDescending(e => e.LastPlayedDate)
             .FirstOrDefault();
+        var predictionTime = DateTimeNormalization.ToUtc(mostRecent?.LastPlayedDate ?? organicFallbackTimestamp);
 
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0
@@ -268,7 +269,7 @@ internal static class TrainingFeatureComputer
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = representativeYear is { } recY and >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc), predictionTime)
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
@@ -287,7 +288,7 @@ internal static class TrainingFeatureComputer
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency =
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
-                    ? ContentScoring.ComputeRecencyScore(minDate)
+                    ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
@@ -328,7 +329,7 @@ internal static class TrainingFeatureComputer
             {
                 Features = features,
                 Label = label,
-                GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
+                GeneratedAtUtc = predictionTime,
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId,
                 ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),

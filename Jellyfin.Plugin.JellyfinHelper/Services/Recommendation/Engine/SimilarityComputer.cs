@@ -529,6 +529,12 @@ internal sealed class SimilarityComputer
             }
         }
 
+        if (id <= 0 && name is not null && preferences is PreferenceBuilder.FranchisePreferenceVector legacy
+            && legacy.ConfirmedIdsByName.TryGetValue(name, out var identities) && identities.Count > 1)
+        {
+            return 0.0;
+        }
+
         return ComputeFranchiseAffinity(name, preferences);
     }
 

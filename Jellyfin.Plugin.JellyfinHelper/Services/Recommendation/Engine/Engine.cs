@@ -994,15 +994,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringAt = scoringAt
         };
         CandidateFeatureSnapshot BuildFeatures(BaseItem candidate) => BuildCandidateFeatures(candidate, scoringContext);
-        (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) Score(BaseItem candidate, CandidateFeatureSnapshot snapshot)
-            => ScoreCandidate(candidate, snapshot, scoringContext);
-        RecommendedItem CaptureSelected(BaseItem candidate)
+        RecommendedItem CaptureSelected(BaseItem candidate, bool explain)
         {
             ct.ThrowIfCancellationRequested();
             var snapshot = BuildFeatures(candidate);
             // BaseItem metadata can refresh during ranking. Score the selected snapshot itself,
             // so retained evidence always matches the final displayed score rather than a later reconstruction.
-            return BuildRecommendedItem(Score(candidate, snapshot), peopleLookup, candidateBoxSetLookup, snapshot);
+            var scoredItem = explain ? ScoreCandidate(candidate, snapshot, scoringContext) : RankCandidate(candidate, snapshot, scoringContext);
+            return BuildRecommendedItem(scoredItem, peopleLookup, candidateBoxSetLookup, snapshot);
         }
 
         var candidateIndex = 0;
@@ -1020,13 +1019,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 continue;
             }
 
-            scored.Add(Score(candidate, BuildFeatures(candidate)));
+            scored.Add(RankCandidate(candidate, BuildFeatures(candidate), scoringContext));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
         var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
-            .Select(s => CaptureSelected(s.Item))
+            .Select(s => CaptureSelected(s.Item, explain: true))
             .ToList();
 
         var selectedIds = topItems.Select(item => item.ItemId).ToHashSet();
@@ -1035,7 +1034,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var contrasts = new Collection<RecommendedItem>(scored.Where(item => !selectedIds.Contains(item.Item.Id))
             .OrderBy(item => TrainingExample.CreateObservationId(userProfile.UserId, $"contrast:{contrastSeed}:{item.Item.Id:N}"))
             .Take(EngineConstants.RandomNegativeSamplesPerUser)
-            .Select(item => CaptureSelected(item.Item)).ToList());
+            .Select(item => CaptureSelected(item.Item, explain: false)).ToList());
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -1408,6 +1407,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         features.GenreAffinityGap = affinityGap;
 
         return new CandidateFeatureSnapshot(features, content, candidateMediaLanguages.Audio, candidateMediaLanguages.Subtitles);
+    }
+
+    private static (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) RankCandidate(
+        BaseItem candidate,
+        CandidateFeatureSnapshot snapshot,
+        UserScoringContext context)
+    {
+        var score = Math.Abs(context.AlphaOffset) > 1e-10 && context.Strategy is EnsembleScoringStrategy ensemble
+            ? ensemble.ScoreWithOffset(snapshot.Features, context.AlphaOffset)
+            : context.Strategy.Score(snapshot.Features);
+        return (candidate, score, string.Empty, string.Empty, null);
     }
 
     private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(

@@ -637,6 +637,7 @@ internal static class TrainingDataBuilder
         TrainingLookups lookups)
     {
         var userProfile = userCtx.UserProfile;
+        var predictionTime = DateTimeNormalization.ToUtc(prevResult.GeneratedAt);
         var isSeries = string.Equals(rec.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase);
         var outcome = ResolveRecommendationOutcome(rec.ItemId, isSeries, prevResult, userCtx);
 
@@ -692,11 +693,11 @@ internal static class TrainingDataBuilder
         double recencyScore;
         if (rec.PremiereDate.HasValue)
         {
-            recencyScore = ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value);
+            recencyScore = ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value, predictionTime);
         }
         else if (rec.DateCreated.HasValue)
         {
-            recencyScore = ContentScoring.ComputeRecencyScore(rec.DateCreated.Value);
+            recencyScore = ContentScoring.ComputeRecencyScore(rec.DateCreated.Value, predictionTime);
         }
         else
         {
@@ -734,8 +735,8 @@ internal static class TrainingDataBuilder
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, prevResult.GeneratedAt),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = rec.DateCreated.HasValue
-                ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
-                : ContentScoring.ComputeRecencyScore(default),
+                ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value, predictionTime)
+                : ContentScoring.ComputeRecencyScore(default, predictionTime),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 rec.Genres,
                 rec.PeopleNames,
@@ -1063,7 +1064,8 @@ internal static class TrainingDataBuilder
         bool isSeries)
     {
         var excluded = isSeries ? ContentScoring.BuildSeriesExcludeSet(w.ItemId, userCtx.UserProfile) : new HashSet<Guid> { w.ItemId };
-        var history = HistoricalInputs(ctx, userCtx.UserProfile.UserId, w.LastPlayedDate ?? ctx.OrganicFallbackTimestamp, excluded);
+        var predictionTime = DateTimeNormalization.ToUtc(w.LastPlayedDate ?? ctx.OrganicFallbackTimestamp);
+        var history = HistoricalInputs(ctx, userCtx.UserProfile.UserId, predictionTime, excluded);
         var userProfile = history.Profile;
         var watchedBoxSetCountsOrganic = history.Content.WatchedBoxSetCounts;
         var lookups = ctx.Lookups;
@@ -1115,7 +1117,7 @@ internal static class TrainingDataBuilder
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = w.Year is { } recY and >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc), predictionTime)
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
             GenreCount = GenreNormalizer.Set(wGenres).Count,
@@ -1138,8 +1140,8 @@ internal static class TrainingDataBuilder
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, w.LastPlayedDate ?? organicFallbackTimestamp),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = w.DateCreated.HasValue
-                ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
-                : ContentScoring.ComputeRecencyScore(default),
+                ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value, predictionTime)
+                : ContentScoring.ComputeRecencyScore(default, predictionTime),
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
@@ -1368,11 +1370,11 @@ internal static class TrainingDataBuilder
         double negRecencyScore;
         if (neg.PremiereDate.HasValue)
         {
-            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value);
+            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value, predictionTime);
         }
         else if (neg.DateCreated.HasValue)
         {
-            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.DateCreated.Value);
+            negRecencyScore = ContentScoring.ComputeRecencyScore(neg.DateCreated.Value, predictionTime);
         }
         else
         {
@@ -1406,8 +1408,8 @@ internal static class TrainingDataBuilder
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, predictionTime),
             TagSimilarity = negTagSimilarity,
             LibraryAddedRecency = neg.DateCreated.HasValue
-                ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
-                : ContentScoring.ComputeRecencyScore(default),
+                ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value, predictionTime)
+                : ContentScoring.ComputeRecencyScore(default, predictionTime),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 negGenres,
                 neg.PeopleNames,
