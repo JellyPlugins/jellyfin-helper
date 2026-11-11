@@ -121,22 +121,13 @@ internal static class GenreNormalizer
             return false;
         }
 
-        foreach (var name in genres.Select(Name))
-        {
-            var matches = name switch
+        return genres.Select(Name).Any(name => name switch
             {
                 "Action & Adventure" => canonical.Contains("Action") || canonical.Contains("Adventure"),
                 "Sci-Fi & Fantasy" => canonical.Contains("Science Fiction") || canonical.Contains("Fantasy"),
                 "War & Politics" => canonical.Contains("War") || canonical.Contains("Politics"),
                 _ => name.Length > 0 && canonical.Contains(name)
-            };
-            if (matches)
-            {
-                return true;
-            }
-        }
-
-        return false;
+            });
     }
 
     /// <summary>Normalizes legacy preference maps, merging translations and expanding combined TV categories.</summary>

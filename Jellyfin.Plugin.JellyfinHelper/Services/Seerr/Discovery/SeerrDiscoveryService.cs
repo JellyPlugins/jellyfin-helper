@@ -1794,25 +1794,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Deduplicate and filter (includes parental rating + year + quality post-filtering)
         var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
         var uniqueCandidates = DeduplicateAndFilter(allCandidates, userExcluded, maxParentalRating: null, minVote, avgYear, isChildAccount);
-        if (profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value < ParentalRatingHelper.UnrestrictedThreshold)
-        {
-            if (_localization is null)
-            {
-                throw new InvalidOperationException("Jellyfin certification mapping is unavailable.");
-            }
-
-            var fetched = await EnrichRequiredMetadataAsync(client, baseUri, apiKey, uniqueCandidates, cancellationToken).ConfigureAwait(false);
-            if (uniqueCandidates.Count > 0 && fetched.EnrichedKeys.Count == 0)
-            {
-                throw new HttpRequestException("No provider certification metadata could be fetched.");
-            }
-
-            uniqueCandidates.RemoveAll(candidate => candidate.IsAlreadyAvailable || ParentalRatingHelper.ShouldExclude(candidate, profile.MaxParentalRating));
-            if (!fetched.Complete && uniqueCandidates.Count == 0)
-            {
-                throw new HttpRequestException("Certification enrichment was incomplete; no safe replacement pool could be verified.");
-            }
-        }
+        await EnrichAndFilterRestrictedCandidatesAsync(client, baseUri, apiKey, uniqueCandidates, profile.MaxParentalRating, cancellationToken).ConfigureAwait(false);
 
         if (uniqueCandidates.Count == 0)
         {
@@ -1853,6 +1835,37 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Recommendations = recommendations,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    private async Task EnrichAndFilterRestrictedCandidatesAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        List<TmdbDiscoverItem> candidates,
+        int? maximumRating,
+        CancellationToken cancellationToken)
+    {
+        if (!maximumRating.HasValue || maximumRating.Value >= ParentalRatingHelper.UnrestrictedThreshold)
+        {
+            return;
+        }
+
+        if (_localization is null)
+        {
+            throw new InvalidOperationException("Jellyfin certification mapping is unavailable.");
+        }
+
+        var fetched = await EnrichRequiredMetadataAsync(client, baseUri, apiKey, candidates, cancellationToken).ConfigureAwait(false);
+        if (candidates.Count > 0 && fetched.EnrichedKeys.Count == 0)
+        {
+            throw new HttpRequestException("No provider certification metadata could be fetched.");
+        }
+
+        candidates.RemoveAll(candidate => candidate.IsAlreadyAvailable || ParentalRatingHelper.ShouldExclude(candidate, maximumRating));
+        if (!fetched.Complete && candidates.Count == 0)
+        {
+            throw new HttpRequestException("Certification enrichment was incomplete; no safe replacement pool could be verified.");
+        }
     }
 
     /// <inheritdoc />
