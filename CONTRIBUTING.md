@@ -469,6 +469,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── TrainingServiceTests.cs                # Process-wide TrainGate; tests serialised via ConfigOverride collection
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
+│       │       ├── HistoricalRecencyTests.cs          # Prediction/watch-time recency, unchanged stored snapshots and separate temporal weight decay
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
