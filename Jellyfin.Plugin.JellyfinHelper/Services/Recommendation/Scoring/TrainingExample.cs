@@ -143,7 +143,15 @@ public sealed class TrainingExample
     /// <param name="isSeries">Whether the title is television rather than a movie.</param>
     /// <returns>The stable shared user/title identity.</returns>
     internal static Guid CreateTitleObservationId(Guid userId, Guid itemId, int tmdbId, bool isSeries)
-        => tmdbId > 0 ? CreateProviderObservationId(userId, tmdbId, isSeries ? "tv" : "movie") : CreateLibraryObservationId(userId, itemId);
+    {
+        if (tmdbId <= 0)
+        {
+            return CreateLibraryObservationId(userId, itemId);
+        }
+
+        var mediaType = isSeries ? "tv" : "movie";
+        return CreateProviderObservationId(userId, tmdbId, mediaType);
+    }
 
     /// <summary>Creates a canonical, culture-independent provider identity without conflating movie/TV ids.</summary>
     /// <param name="userId">The owning user.</param>

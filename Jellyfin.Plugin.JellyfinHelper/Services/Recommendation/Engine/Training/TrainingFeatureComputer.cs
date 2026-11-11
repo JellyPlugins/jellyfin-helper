@@ -370,9 +370,7 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         // Label from aggregated completion.
-        var parentRating = parentSeriesRating is > 0 && double.IsFinite(parentSeriesRating.Value)
-            ? Math.Clamp(parentSeriesRating.Value / 10.0, 0.0, 1.0)
-            : (double?)null;
+        var parentRating = NormalizeExplicitRating(parentSeriesRating);
         var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
             {
                 0 when episodes.Any(e => e.IsFavorite) => 0.65,
@@ -391,6 +389,19 @@ internal static class TrainingFeatureComputer
                 HasStableObservationId = true,
                 IsObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
             });
+    }
+
+    /// <summary>Normalizes a finite positive explicit rating; absent, invalid and unrated values retain the episode-label fallback.</summary>
+    /// <param name="rating">The current explicit outcome rating on a ten-point scale.</param>
+    /// <returns>The clamped normalized rating, or null when no valid rating exists.</returns>
+    private static double? NormalizeExplicitRating(double? rating)
+    {
+        if (rating is not { } value || value <= 0 || !double.IsFinite(value))
+        {
+            return null;
+        }
+
+        return Math.Clamp(value / 10.0, 0.0, 1.0);
     }
 
     /// <summary>Computes the explicit series feedback from finite rated episodes, ignoring unrated partial plays.</summary>

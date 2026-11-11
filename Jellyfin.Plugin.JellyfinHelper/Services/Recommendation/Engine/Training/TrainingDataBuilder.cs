@@ -27,6 +27,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training
 /// </summary>
 internal static class TrainingDataBuilder
 {
+    private const string SeriesItemType = "Series";
+
     /// <summary>
     ///     Builds all training examples from previous results and user profiles.
     /// </summary>
@@ -592,7 +594,7 @@ internal static class TrainingDataBuilder
         TrainingLookups lookups)
     {
         var userProfile = userCtx.UserProfile;
-        var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+        var isSeries = string.Equals(rec.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase);
         var outcome = ResolveRecommendationOutcome(rec.ItemId, isSeries, prevResult, userCtx);
 
         if (rec.ScoringFeatures is not null)
@@ -937,7 +939,7 @@ internal static class TrainingDataBuilder
         // Favorites without playback should not count as fully watched.
         var completionRatio = ContentScoring.ComputeCompletionRatio(w);
 
-        var isSeries = string.Equals(w.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+        var isSeries = string.Equals(w.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase);
 
         // Prefer aggregated series example when episodes exist.
         if (isSeries && seriesWithOrgEpisodes.Contains(w.ItemId))
@@ -1263,7 +1265,7 @@ internal static class TrainingDataBuilder
                 GeneratedAtUtc = result.GeneratedAt,
                 SampleWeight = 0.5,
                 UserId = result.UserId,
-                ObservationId = TrainingExample.CreateTitleObservationId(result.UserId, item.ItemId, ctx.Lookups.TmdbIds.GetValueOrDefault(item.ItemId), string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase)),
+                ObservationId = TrainingExample.CreateTitleObservationId(result.UserId, item.ItemId, ctx.Lookups.TmdbIds.GetValueOrDefault(item.ItemId), string.Equals(item.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase)),
                 HasStableObservationId = true,
                 IsObserved = false,
                 IsContrastSample = true
@@ -1306,7 +1308,7 @@ internal static class TrainingDataBuilder
             collaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(neg.CommunityRating, neg.CriticRating);
-        var isSeries = string.Equals(neg.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+        var isSeries = string.Equals(neg.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase);
 
         var negPeopleSimilarity = lookups.CachedPeopleLookup.TryGetValue(neg.ItemId, out var negPeople)
             ? SimilarityComputer.ComputePeopleSimilarity(negPeople, preferredPeopleWeightsNeg)

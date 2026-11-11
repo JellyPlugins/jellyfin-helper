@@ -8,6 +8,31 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class TrainingExampleTests
 {
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(-1, false)]
+    [InlineData(-1, true)]
+    [InlineData(555, false)]
+    [InlineData(555, true)]
+    public void TitleObservationIdentity_PreservesMovieTvNamespacesAndUnknownProviderFallback(int tmdbId, bool isSeries)
+    {
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+
+        var actual = TrainingExample.CreateTitleObservationId(user, item, tmdbId, isSeries);
+
+        if (tmdbId <= 0)
+        {
+            Assert.Equal(TrainingExample.CreateLibraryObservationId(user, item), actual);
+            return;
+        }
+
+        var mediaType = isSeries ? "tv" : "movie";
+        Assert.Equal(TrainingExample.CreateProviderObservationId(user, tmdbId, mediaType), actual);
+        Assert.Equal(actual, TrainingExample.CreateTitleObservationId(user, Guid.NewGuid(), tmdbId, isSeries));
+    }
+
     // Constants Verification
 
     [Fact]

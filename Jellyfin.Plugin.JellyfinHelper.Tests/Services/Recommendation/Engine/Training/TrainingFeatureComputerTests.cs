@@ -700,11 +700,40 @@ public class TrainingFeatureComputerTests
         Assert.Equal(0.0, ex.Features.SeriesAffinity);
     }
 
+    [Theory]
+    [InlineData(null, 0.9)]
+    [InlineData(0.0, 0.9)]
+    [InlineData(-2.0, 0.9)]
+    [InlineData(double.NaN, 0.9)]
+    [InlineData(double.PositiveInfinity, 0.9)]
+    [InlineData(double.NegativeInfinity, 0.9)]
+    [InlineData(2.0, 0.2)]
+    [InlineData(10.0, 1.0)]
+    [InlineData(12.0, 1.0)]
+    public void AddAggregatedSeriesExample_ParentRatingPrecedenceRejectsInvalidValuesAndPreservesEpisodeFallback(double? parentRating, double expected)
+    {
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        foreach (var episode in episodes)
+        {
+            episode.UserRating = 9.0;
+        }
+
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int> { [seriesId] = 2 });
+
+        var example = RunAggregatedSeriesExample(episodes, seriesId, profile, context, parentRating);
+
+        Assert.Equal(expected, example.Label);
+        Assert.True(example.IsObserved);
+        Assert.Equal(0.5, example.Features.UserRatingScore);
+        Assert.False(example.Features.HasUserInteraction);
+    }
+
     private static TrainingExample RunAggregatedSeriesExample(
         List<WatchedItemInfo> episodes,
         Guid seriesId,
         UserWatchProfile profile,
-        ContentScoring.SeriesAffinityContext context)
+        ContentScoring.SeriesAffinityContext context,
+        double? parentRating = null)
     {
         var examples = new List<TrainingExample>();
         var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
@@ -732,7 +761,8 @@ public class TrainingFeatureComputerTests
             new Dictionary<string, double>(),
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow,
-            seriesAffinityContext: context);
+            seriesAffinityContext: context,
+            parentSeriesRating: parentRating);
 
         return Assert.Single(examples);
     }

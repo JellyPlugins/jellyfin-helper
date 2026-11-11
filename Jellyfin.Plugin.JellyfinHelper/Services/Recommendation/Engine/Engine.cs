@@ -921,8 +921,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Precompute the top-K average writer weight ONCE per user (mirrors averagePreferredPeopleWeight)
         // so the O(W log W) sort inside ComputeWriterAffinity does not re-run per candidate.
         var averageWriterWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredWriterWeights);
-        var preferredBilledPeople = preferredPeopleWeights;
-
         var userGenreNormSq = ComputeUserGenreNormSq(genrePreferences);
 
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost at inference. Maps BoxSet ID -> count of watched items in that BoxSet, using the pre-resolved candidateBoxSetLookup for O(1) lookups (no parent traversal).
@@ -951,52 +949,42 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var scoringAt = DateTime.UtcNow;
-        CandidateFeatureSnapshot BuildFeatures(BaseItem candidate) => BuildCandidateFeatures(
-            candidate,
-            userProfile,
-            genrePreferences,
-            userGenreNormSq,
-            coOccurrence,
-            collaborativeMax,
-            averageYear,
-            preferredStudios,
-            preferredPeopleWeights,
-            averagePreferredPeopleWeight,
-            preferredTags,
-            peopleLookup,
-            genreExposure,
-            watchedGenreSets,
-            watchedPeopleSets,
-            watchedStudioSets,
-            watchedBoxSetCounts,
-            candidateBoxSetLookup,
-            contentAffinityLookup,
-            preferredFranchises,
-            preferredCountries,
-            preferredInheritedTags,
-            preferredWriterWeights,
-            averageWriterWeight,
-            preferredBilledPeople,
-            genreStudioIdf,
-            seriesAffinityCtx,
-            genreEngagementCtx,
-            scoringAt);
-        (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) Score(BaseItem candidate, CandidateFeatureSnapshot snapshot) => ScoreCandidate(
-            candidate,
-            userProfile,
-            strategy,
-            snapshot,
-            genrePreferences,
-            preferredStudios,
-            preferredPeople,
-            preferredPeopleWeights,
-            peopleLookup,
-            watchedBoxSetCounts,
-            candidateBoxSetLookup,
-            preferredCountries,
-            preferredWriterWeights,
-            preferredInheritedTags,
-            alphaOffset);
+        var scoringContext = new UserScoringContext
+        {
+            Profile = userProfile,
+            Strategy = strategy,
+            AlphaOffset = alphaOffset,
+            GenrePreferences = genrePreferences,
+            GenreNormSq = userGenreNormSq,
+            CoOccurrence = coOccurrence,
+            CollaborativeMax = collaborativeMax,
+            AverageYear = averageYear,
+            PreferredStudios = preferredStudios,
+            PreferredPeople = preferredPeople,
+            PreferredPeopleWeights = preferredPeopleWeights,
+            AveragePreferredPeopleWeight = averagePreferredPeopleWeight,
+            PreferredTags = preferredTags,
+            PeopleLookup = peopleLookup,
+            GenreExposure = genreExposure,
+            WatchedGenreSets = watchedGenreSets,
+            WatchedPeopleSets = watchedPeopleSets,
+            WatchedStudioSets = watchedStudioSets,
+            WatchedBoxSetCounts = watchedBoxSetCounts,
+            CandidateBoxSetLookup = candidateBoxSetLookup,
+            ContentAffinityLookup = contentAffinityLookup,
+            PreferredFranchises = preferredFranchises,
+            PreferredCountries = preferredCountries,
+            PreferredInheritedTags = preferredInheritedTags,
+            PreferredWriterWeights = preferredWriterWeights,
+            AverageWriterWeight = averageWriterWeight,
+            GenreStudioIdf = genreStudioIdf,
+            SeriesAffinity = seriesAffinityCtx,
+            GenreEngagement = genreEngagementCtx,
+            ScoringAt = scoringAt
+        };
+        CandidateFeatureSnapshot BuildFeatures(BaseItem candidate) => BuildCandidateFeatures(candidate, scoringContext);
+        (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) Score(BaseItem candidate, CandidateFeatureSnapshot snapshot)
+            => ScoreCandidate(candidate, snapshot, scoringContext);
         RecommendedItem CaptureSelected(BaseItem candidate)
         {
             ct.ThrowIfCancellationRequested();
@@ -1100,7 +1088,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="candidateBoxSetLookup">Item id -> containing BoxSet ids lookup.</param>
     /// <param name="snapshot">Signals reconstructed only for this selected item from the pinned prediction context.</param>
     /// <returns>The populated recommendation DTO.</returns>
-    private RecommendedItem BuildRecommendedItem(
+    private static RecommendedItem BuildRecommendedItem(
         (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) s,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
@@ -1289,47 +1277,20 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     private CandidateFeatureSnapshot BuildCandidateFeatures(
         BaseItem candidate,
-        UserWatchProfile userProfile,
-        Dictionary<string, double> genrePreferences,
-        double userGenreNormSq,
-        Dictionary<Guid, double> coOccurrence,
-        double collaborativeMax,
-        double averageYear,
-        HashSet<string> preferredStudios,
-        IReadOnlyDictionary<string, double> preferredPeopleWeights,
-        double averagePreferredPeopleWeight,
-        HashSet<string> preferredTags,
-        Dictionary<Guid, HashSet<string>> peopleLookup,
-        PreferenceBuilder.GenreExposureAnalysis genreExposure,
-        List<HashSet<string>> watchedGenreSets,
-        List<HashSet<string>> watchedPeopleSets,
-        List<HashSet<string>> watchedStudioSets,
-        Dictionary<Guid, int> watchedBoxSetCounts,
-        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
-        Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
-        IReadOnlyDictionary<string, double> preferredFranchises,
-        IReadOnlyDictionary<string, double> preferredCountries,
-        HashSet<string> preferredInheritedTags,
-        IReadOnlyDictionary<string, double> preferredWriterWeights,
-        double averageWriterWeight,
-        IReadOnlyDictionary<string, double> preferredBilledPeople,
-        IReadOnlyDictionary<string, double>? genreStudioIdf,
-        ContentScoring.SeriesAffinityContext seriesAffinityCtx,
-        ContentScoring.GenreEngagementContext genreEngagementCtx,
-        DateTime scoringAt)
+        UserScoringContext context)
     {
-        var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
-        var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
+        var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], context.GenrePreferences, context.GenreNormSq);
+        var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, context.CoOccurrence, context.CollaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
         var dateCreated = candidate.DateCreated;
-        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? dateCreated, scoringAt);
-        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated, scoringAt);
-        var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
+        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? dateCreated, context.ScoringAt);
+        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated, context.ScoringAt);
+        var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, context.AverageYear);
 
         // Genre level engagement package for the three interaction features.
         var candidateGenresForEngagement = candidate.Genres ?? Array.Empty<string>();
-        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, genreEngagementCtx);
+        var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, context.GenreEngagement);
         var hasUserInteraction = familiarity > 0.0;
         var completionRatio = genreAvgCompletion;
         var isAbandoned = genreAbandonRate;
@@ -1337,10 +1298,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Genre-level user rating: the user's average rating across items in the candidate's genres.
         // A scored candidate is unwatched, so a per-item rating is always absent here; the genre-level
         // aggregate is the discriminative signal, computed from the same per-user context as engagement.
-        var userRatingScore = ContentScoring.ComputeGenreRatingScore(candidateGenresForEngagement, genreEngagementCtx);
+        var userRatingScore = ContentScoring.ComputeGenreRatingScore(candidateGenresForEngagement, context.GenreEngagement);
 
         // Resolve the candidate's user-invariant content-affinity data from the per-snapshot precompute (built once per candidate, never per user).
-        var content = contentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
+        var content = context.ContentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
             ? cachedContent
             : ResolveContentAffinity(candidate);
 
@@ -1348,36 +1309,36 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var candidateGenreSet = content.GenreSet;
         var candidateStudioSet = content.StudioSet;
 
-        var studioMatch = candidateStudioSet is not null && candidateStudioSet.Any(preferredStudios.Contains);
+        var studioMatch = candidateStudioSet is not null && candidateStudioSet.Any(context.PreferredStudios.Contains);
 
         // Weighted overload so a candidate carrying the user's heavy-hitter collaborators (e.g. a director watched 8 times) drives similarity more than one-off cameos that the unweighted HashSet and the old overlap coefficient treated identically.
-        var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredPeopleWeight)
+        var peopleSimilarity = context.PeopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, context.PreferredPeopleWeights, context.AveragePreferredPeopleWeight)
             : 0.0;
 
-        var seriesAffinity = ContentScoring.ComputeSeriesAffinity(candidate, seriesAffinityCtx, peopleLookup);
+        var seriesAffinity = ContentScoring.ComputeSeriesAffinity(candidate, context.SeriesAffinity, context.PeopleLookup);
 
         // Popularity proxy from collaborative scores (centralized formula)
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
         // Language affinity: resolve media streams ONCE per candidate to avoid two GetMediaStreams() calls (audio + subtitle).
-        var languageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages);
+        var languageAffinity = ComputeLanguageAffinityFromStreams(context.Profile, candidate, out var candidateMediaLanguages);
 
         // New content-affinity signals. All seven read their candidate-side source from the per-snapshot `content` precompute (built once per candidate), so this hot path does no GetInheritedTags() traversal and no GetPeople round-trip.
         var franchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(
-            content.TmdbCollectionName, preferredFranchises);
+            content.TmdbCollectionName, context.PreferredFranchises);
         var productionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(
-            content.ProductionCountries, preferredCountries);
+            content.ProductionCountries, context.PreferredCountries);
         var inheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(
-            content.InheritedTags, preferredInheritedTags);
+            content.InheritedTags, context.PreferredInheritedTags);
         var seriesCompletability = EngineConstants.ComputeSeriesCompletability(
             candidate is Series, content.SeriesStatus, content.SeriesEndDate.HasValue);
         var writerAffinity = SimilarityComputer.ComputeWriterAffinity(
-            content.Writers, preferredWriterWeights, averageWriterWeight);
+            content.Writers, context.PreferredWriterWeights, context.AverageWriterWeight);
         var billingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
-            content.Billing, preferredBilledPeople);
+            content.Billing, context.PreferredPeopleWeights);
         var genreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(
-            candidate.Genres, candidate.Studios, genreStudioIdf);
+            candidate.Genres, candidate.Studios, context.GenreStudioIdf);
 
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
@@ -1397,25 +1358,25 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             StudioMatch = studioMatch,
             SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
-            DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile, scoringAt),
-            HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile, scoringAt),
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, scoringAt),
-            TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
+            DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, context.Profile, context.ScoringAt),
+            HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, context.Profile, context.ScoringAt),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(context.Profile, context.ScoringAt),
+            TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, context.PreferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(
                 candidateGenreSet,
                 candidatePeople,
                 candidateStudioSet,
-                watchedGenreSets,
-                watchedPeopleSets,
-                watchedStudioSets),
+                context.WatchedGenreSets,
+                context.WatchedPeopleSets,
+                context.WatchedStudioSets),
             LanguageAffinity = languageAffinity,
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
-                candidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
-                watchedBoxSetCounts),
+                context.CandidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
+                context.WatchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
-            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles),
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(context.Profile, candidateMediaLanguages.Subtitles),
             FranchiseAffinity = franchiseAffinity,
             ProductionLocationAffinity = productionLocationAffinity,
             InheritedTagSimilarity = inheritedTagSimilarity,
@@ -1428,7 +1389,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Genre exposure features: soft signals for genre distribution awareness
         // Computed once per user (genreExposure), applied per candidate (O(genres) per item)
         var (underexposure, dominanceRatio, affinityGap) =
-            PreferenceBuilder.ComputeGenreExposureFeatures(candidate.Genres ?? [], genreExposure);
+            PreferenceBuilder.ComputeGenreExposureFeatures(candidate.Genres ?? [], context.GenreExposure);
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
@@ -1438,29 +1399,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(
         BaseItem candidate,
-        UserWatchProfile userProfile,
-        IScoringStrategy strategy,
         CandidateFeatureSnapshot snapshot,
-        Dictionary<string, double> genrePreferences,
-        HashSet<string> preferredStudios,
-        HashSet<string> preferredPeople,
-        IReadOnlyDictionary<string, double> preferredPeopleWeights,
-        Dictionary<Guid, HashSet<string>> peopleLookup,
-        Dictionary<Guid, int> watchedBoxSetCounts,
-        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
-        IReadOnlyDictionary<string, double> preferredCountries,
-        IReadOnlyDictionary<string, double> preferredWriterWeights,
-        HashSet<string> preferredInheritedTags,
-        double alphaOffset)
+        UserScoringContext context)
     {
         var features = snapshot.Features;
         var content = snapshot.Content;
 
         // Apply alpha offset for cohort exploration when the strategy supports it.
         // For control cohort (offset≈0), this is a zero-cost fast path via the standard method.
-        var explanation = Math.Abs(alphaOffset) > 1e-10 && strategy is EnsembleScoringStrategy ensemble
-            ? ensemble.ScoreWithExplanationAndOffset(features, alphaOffset)
-            : strategy.ScoreWithExplanation(features);
+        var explanation = Math.Abs(context.AlphaOffset) > 1e-10 && context.Strategy is EnsembleScoringStrategy ensemble
+            ? ensemble.ScoreWithExplanationAndOffset(features, context.AlphaOffset)
+            : context.Strategy.ScoreWithExplanation(features);
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -1471,25 +1420,25 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             candidate,
             features,
             content,
-            candidateBoxSetLookup.TryGetValue(candidate.Id, out var anchorBoxSets) ? anchorBoxSets : [],
-            watchedBoxSetCounts,
+            context.CandidateBoxSetLookup.TryGetValue(candidate.Id, out var anchorBoxSets) ? anchorBoxSets : [],
+            context.WatchedBoxSetCounts,
             new ReasonAnchorSources(
-                preferredCountries,
-                preferredWriterWeights,
-                preferredInheritedTags,
+                context.PreferredCountries,
+                context.PreferredWriterWeights,
+                context.PreferredInheritedTags,
                 snapshot.AudioLanguages,
-                userProfile));
+                context.Profile));
 
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
             candidate,
             explanation,
-            genrePreferences,
+            context.GenrePreferences,
             anchors,
             new ReasonResolver.ReasonPeopleContext(
-                preferredPeople,
-                preferredStudios,
-                peopleLookup,
-                preferredPeopleWeights));
+                context.PreferredPeople,
+                context.PreferredStudios,
+                context.PeopleLookup,
+                context.PreferredPeopleWeights));
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -2661,6 +2610,103 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         _trainingService.Dispose();
+    }
+
+    /// <summary>
+    ///     Init-only prediction context shared by initial ranking and selected-snapshot scoring. Prepared
+    ///     maps are reused by reference: this context is allocated once per user, never per candidate.
+    /// </summary>
+    private sealed class UserScoringContext
+    {
+        /// <summary>Gets the current user's watch profile.</summary>
+        public required UserWatchProfile Profile { get; init; }
+
+        /// <summary>Gets the strategy used for this prediction.</summary>
+        public required IScoringStrategy Strategy { get; init; }
+
+        /// <summary>Gets the user's exploration offset.</summary>
+        public required double AlphaOffset { get; init; }
+
+        /// <summary>Gets the prepared genre preference vector.</summary>
+        public required Dictionary<string, double> GenrePreferences { get; init; }
+
+        /// <summary>Gets the squared genre-vector norm.</summary>
+        public required double GenreNormSq { get; init; }
+
+        /// <summary>Gets the user's collaborative item scores.</summary>
+        public required Dictionary<Guid, double> CoOccurrence { get; init; }
+
+        /// <summary>Gets the finite collaborative-score ceiling.</summary>
+        public required double CollaborativeMax { get; init; }
+
+        /// <summary>Gets the user's average preferred production year.</summary>
+        public required double AverageYear { get; init; }
+
+        /// <summary>Gets the preferred studios used by features and reasons.</summary>
+        public required HashSet<string> PreferredStudios { get; init; }
+
+        /// <summary>Gets the preferred people used by readable reasons.</summary>
+        public required HashSet<string> PreferredPeople { get; init; }
+
+        /// <summary>Gets the shared weighted people preferences used by similarity and billing.</summary>
+        public required IReadOnlyDictionary<string, double> PreferredPeopleWeights { get; init; }
+
+        /// <summary>Gets the prepared top-K average people weight.</summary>
+        public required double AveragePreferredPeopleWeight { get; init; }
+
+        /// <summary>Gets the preferred tags.</summary>
+        public required HashSet<string> PreferredTags { get; init; }
+
+        /// <summary>Gets the candidate snapshot's people lookup.</summary>
+        public required Dictionary<Guid, HashSet<string>> PeopleLookup { get; init; }
+
+        /// <summary>Gets the prepared genre-exposure analysis.</summary>
+        public required PreferenceBuilder.GenreExposureAnalysis GenreExposure { get; init; }
+
+        /// <summary>Gets the watched-item genre sets for neighbour similarity.</summary>
+        public required List<HashSet<string>> WatchedGenreSets { get; init; }
+
+        /// <summary>Gets the watched-item people sets for neighbour similarity.</summary>
+        public required List<HashSet<string>> WatchedPeopleSets { get; init; }
+
+        /// <summary>Gets the watched-item studio sets for neighbour similarity.</summary>
+        public required List<HashSet<string>> WatchedStudioSets { get; init; }
+
+        /// <summary>Gets the watched-item counts per BoxSet.</summary>
+        public required Dictionary<Guid, int> WatchedBoxSetCounts { get; init; }
+
+        /// <summary>Gets the candidate snapshot's BoxSet membership lookup.</summary>
+        public required Dictionary<Guid, List<Guid>> CandidateBoxSetLookup { get; init; }
+
+        /// <summary>Gets the candidate snapshot's prepared content metadata.</summary>
+        public required Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup { get; init; }
+
+        /// <summary>Gets the user's franchise preferences.</summary>
+        public required IReadOnlyDictionary<string, double> PreferredFranchises { get; init; }
+
+        /// <summary>Gets the user's production-country preferences.</summary>
+        public required IReadOnlyDictionary<string, double> PreferredCountries { get; init; }
+
+        /// <summary>Gets the user's inherited-tag preferences.</summary>
+        public required HashSet<string> PreferredInheritedTags { get; init; }
+
+        /// <summary>Gets the user's weighted writer preferences.</summary>
+        public required IReadOnlyDictionary<string, double> PreferredWriterWeights { get; init; }
+
+        /// <summary>Gets the prepared top-K average writer weight.</summary>
+        public required double AverageWriterWeight { get; init; }
+
+        /// <summary>Gets the optional library-wide genre/studio rarity table.</summary>
+        public required IReadOnlyDictionary<string, double>? GenreStudioIdf { get; init; }
+
+        /// <summary>Gets the prepared series-affinity inputs.</summary>
+        public required ContentScoring.SeriesAffinityContext SeriesAffinity { get; init; }
+
+        /// <summary>Gets the prepared genre-engagement inputs.</summary>
+        public required ContentScoring.GenreEngagementContext GenreEngagement { get; init; }
+
+        /// <summary>Gets the captured clock shared by every candidate and retained snapshot.</summary>
+        public required DateTime ScoringAt { get; init; }
     }
 
     private sealed record CandidateFeatureSnapshot(CandidateFeatures Features, CandidateContentAffinity Content, List<string> AudioLanguages, List<string> SubtitleLanguages);
