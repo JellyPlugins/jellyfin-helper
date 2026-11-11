@@ -101,6 +101,10 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public bool AlreadyRequested { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether provider details verified availability before offering a Request action. Missing legacy data remains unverified.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool AvailabilityVerified { get; set; }
+
     /// <summary>
     ///     Gets or sets the Trakt URL slug for linking to the canonical trakt.tv page. Null for non-Trakt
     ///     sources or when Trakt returned no slug; the frontend renders no Trakt link then.
@@ -149,6 +153,7 @@ public sealed class DiscoveryRecommendation
         PosterPath = PosterPath,
         Overview = Overview,
         AlreadyRequested = AlreadyRequested,
+        AvailabilityVerified = AvailabilityVerified,
         KnownPeople = KnownPeople?.ToArray(),
         Popularity = Popularity,
         TraktSlug = TraktSlug,

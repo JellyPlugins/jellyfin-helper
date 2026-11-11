@@ -390,6 +390,7 @@
   "discoveryLoadError": "Keşif önerileri yüklenemedi.",
   "discoveryGeneratedAt": "Son güncelleme",
   "discoveryRequest": "İste",
+  "discoveryAvailabilityUnknown": "Kullanılabilirlik doğrulanmadı",
   "discoveryRequesting": "İsteniyor…",
   "discoveryRequested": "İstendi",
   "discoveryRequestFailed": "Başarısız",

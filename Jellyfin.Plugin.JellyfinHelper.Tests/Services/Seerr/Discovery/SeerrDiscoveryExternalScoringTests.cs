@@ -545,6 +545,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         SetupProfile(user);
+        _history.Object.GetUserWatchProfile(user)!.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] });
         _detailById[101] = """{"id":101,"collection":{"id":123,"name":"Collection"}}""";
         var service = CreateService();
         var roster = _libraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet))));
@@ -553,6 +554,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var result = await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
         var features = Assert.Single(result!.Recommendations).ScoringFeatures!;
         Assert.False(features.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
+        _libraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet))), Times.Once);
     }
 
     [Fact]

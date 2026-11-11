@@ -103,6 +103,7 @@ internal static class ExternalCandidateFeatureBuilder
             IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
             PopularityScore = NormalizePopularity(candidate.Popularity),
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
+            HasPeopleMetadata = candidate.KnownPeople is not null,
             CollaborativeScore = 0.5,
             UserRatingScore = userRatingScore,
             HasUserInteraction = familiarity > 0.0,
@@ -147,8 +148,8 @@ internal static class ExternalCandidateFeatureBuilder
     ///     imputed; the two boolean placeholders (StudioMatch, IsWeekend) stay false because they cannot
     ///     carry a fractional mean through their bool property and false is the genuinely-correct value for
     ///     an unknown candidate (no studio-match signal; IsWeekend is request-time context, not a candidate
-    ///     property). Computed features (genre/people/popularity/critic/recency/exposure/engagement) are
-    ///     never touched. A null <paramref name="featureMeans" /> (no trained model yet) leaves the legacy
+    ///     property). Computed features (including observed people matches and non-matches) are never
+    ///     touched; absent provider credits use the people mean. A null <paramref name="featureMeans" /> leaves the legacy
     ///     neutral constants in place.
     /// </summary>
     /// <param name="features">The feature vector to impute in place.</param>
@@ -168,6 +169,11 @@ internal static class ExternalCandidateFeatureBuilder
         features.SeriesProgressionBoost = featureMeans[(int)FeatureIndex.SeriesProgressionBoost];
         features.DayOfWeekAffinity = featureMeans[(int)FeatureIndex.DayOfWeekAffinity];
         features.HourOfDayAffinity = featureMeans[(int)FeatureIndex.HourOfDayAffinity];
+        if (features.HasPeopleMetadata == false && !features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity))
+        {
+            features.PeopleSimilarity = featureMeans[(int)FeatureIndex.PeopleSimilarity];
+        }
+
         if (!features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity))
         {
             features.TagSimilarity = featureMeans[(int)FeatureIndex.TagSimilarity];
@@ -209,6 +215,11 @@ internal static class ExternalCandidateFeatureBuilder
 
     private static void ApplyAvailableMetadata(CandidateFeatures features, TmdbDiscoverItem candidate, UserContext userContext, IReadOnlyDictionary<int, int>? watchedCollections)
     {
+        if (candidate.KnownPeople is not null)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.PeopleSimilarity);
+        }
+
         if (candidate.HasCollectionMetadata)
         {
             features.FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(candidate.CollectionId, candidate.CollectionName, userContext.Franchises);

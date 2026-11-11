@@ -1422,17 +1422,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>The beta to assign, or null to keep the current beta.</returns>
     private double? RestoreNeuralBeta(EnsembleStateData data)
     {
+        // Persisted blend state cannot make a missing, corrupt or rejected MLP usable. This applies
+        // equally to the global owner and per-user ensembles borrowing the shared neural strategy.
+        if (_neural?.HasTrainedWeights != true)
+        {
+            return 0.0;
+        }
+
         if (!_ownsNeural)
         {
             // A per-user model's persisted TrainingExampleCount is the accumulated total, not this user's
             // per-run count, so it cannot gate the restore. Accept any in-range persisted beta as-is; the
             // next training run recomputes it from the real per-user example count via UpdatePerUserNeuralBeta.
             return data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction ? data.NeuralBeta : 0.0;
-        }
-
-        if (_neural is null)
-        {
-            return null;
         }
 
         if (_trainingExampleCount >= NeuralActivationThreshold

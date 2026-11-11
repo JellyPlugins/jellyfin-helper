@@ -134,6 +134,60 @@ public sealed class CollectionMembershipResolverTests
     }
 
     [Fact]
+    public void ExternalCounts_UsesParentMembershipAndPrefersKnownSeriesIdentityAcrossMixedEpisodeRows()
+    {
+        var series = Guid.NewGuid();
+        var duplicateSeries = Guid.NewGuid();
+        var rows = new[]
+        {
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, TmdbId = 801, Played = true },
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, TmdbId = 802, SeriesTmdbId = 50, Played = true },
+            new WatchedItemInfo { ItemId = duplicateSeries, ItemType = "Series", TmdbId = 50, IsFavorite = true },
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = Guid.NewGuid(), SeriesTmdbId = 51 }
+        };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var allowed = CollectionMembershipResolver.EngagedItemIds(rows);
+        Assert.True(allowed.SetEquals([series, duplicateSeries]));
+        var snapshot = CollectionMembershipResolver.CaptureMemberships([collection], allowed, _ => [series, duplicateSeries, rows[3].SeriesId!.Value]);
+        Assert.Equal(1, CollectionMembershipResolver.ExternalCounts(rows, snapshot)![123]);
+        Assert.Equal(1, CollectionMembershipResolver.ExternalCounts(rows.Reverse(), snapshot)![123]);
+        Assert.DoesNotContain(rows[0].ItemId, snapshot.Memberships.Keys);
+        Assert.DoesNotContain(rows[3].SeriesId!.Value, snapshot.Memberships.Keys);
+        // Episode membership alone is not parent-series membership.
+        Assert.Empty(CollectionMembershipResolver.ExternalCounts(rows, [collection], _ => [rows[0].ItemId, rows[1].ItemId])!);
+    }
+
+    [Fact]
+    public void CapturedMemberships_AreReadOnceButCountsRemainScopedToEachUsersHistory()
+    {
+        var first = new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 1, Played = true };
+        var second = new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 2, Played = true };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var reads = 0;
+        var snapshot = CollectionMembershipResolver.CaptureMemberships([collection], [first.ItemId, second.ItemId], _ => { reads++; return [first.ItemId, second.ItemId]; });
+        Assert.Equal(1, CollectionMembershipResolver.ExternalCounts([first], snapshot)![123]);
+        Assert.Equal(1, CollectionMembershipResolver.ExternalCounts([second], snapshot)![123]);
+        Assert.Empty(CollectionMembershipResolver.ExternalCounts([], snapshot)!);
+        Assert.Equal(1, reads);
+        Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.ExternalCounts(null!, snapshot));
+        Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.ExternalCounts([], (CollectionMembershipResolver.Snapshot)null!));
+        Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.ExternalCounts([], (IEnumerable<BoxSet>)null!));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CapturedMemberships_FailedReadRemainsUnknownEvenWhenLegacyLinksContainPositiveEvidence(bool throws)
+    {
+        var item = new Movie { Id = Guid.NewGuid() };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" }, LinkedChildren = [LinkedChild.Create(item)] };
+        var snapshot = CollectionMembershipResolver.CaptureMemberships([collection], [item.Id], _ => throws ? throw new InvalidOperationException("offline") : null);
+        Assert.False(snapshot.Complete);
+        Assert.Equal([collection.Id], snapshot.Memberships[item.Id]);
+        Assert.Null(CollectionMembershipResolver.ExternalCounts([new WatchedItemInfo { ItemId = item.Id, Played = true }], snapshot));
+    }
+
+    [Fact]
     public void Merge_ValidatesArguments()
     {
         Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.Merge(null!, [], []));

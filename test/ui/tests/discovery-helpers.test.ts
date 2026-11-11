@@ -55,6 +55,7 @@ function rec(over: Record<string, unknown> = {}) {
     RelatedInfo: 'Action',
     Overview: 'A hacker learns the truth.',
     AlreadyRequested: false,
+    AvailabilityVerified: true,
     ...over,
   };
 }
@@ -393,6 +394,29 @@ describe('renderCards', () => {
     expect(btn.disabled).toBe(true);
     expect(btn.classList.contains('jfh-discovery-btn-done')).toBe(true);
     expect(el.querySelector('.jfh-discovery-btn-dismiss')).toBeNull();
+  });
+
+  test.each([false, undefined, null, 'true', 1])('unverified availability has no Request action (%j)', async (verified) => {
+    const calls = ajaxRouter();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    ui.renderCards(el, { Recommendations: [rec({ AvailabilityVerified: verified })] });
+    expect(el.querySelector('[data-jfh-action="request"]')).toBeNull();
+    expect(el.textContent).toContain('Availability not checked');
+    const dismiss = el.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
+    expect(dismiss.disabled).toBe(false);
+    dismiss.click();
+    expect(document.getElementById('jfhDiscoveryPopup')!.textContent).toContain('The Matrix');
+    await flush();
+    expect(calls.some((call) => call.url.includes('RequestPermissions') || call.url.includes('/Request'))).toBe(false);
+  });
+
+  test('legacy requested cards retain their disabled state even without availability evidence', () => {
+    const el = document.createElement('div');
+    ui.renderCards(el, { Recommendations: [rec({ AlreadyRequested: true, AvailabilityVerified: undefined })] });
+    expect((el.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(el.querySelector('[data-jfh-action="dismiss"]')).toBeNull();
+    expect(el.textContent).not.toContain('Availability not checked');
   });
 
   test('a missing poster falls back to the no-poster placeholder', () => {

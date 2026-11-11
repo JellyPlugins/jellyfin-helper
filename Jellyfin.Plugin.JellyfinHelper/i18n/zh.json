@@ -390,6 +390,7 @@
   "discoveryLoadError": "无法加载发现建议。",
   "discoveryGeneratedAt": "最后更新",
   "discoveryRequest": "请求",
+  "discoveryAvailabilityUnknown": "可用性未确认",
   "discoveryRequesting": "请求中…",
   "discoveryRequested": "已请求",
   "discoveryRequestFailed": "失败",

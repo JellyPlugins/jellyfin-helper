@@ -20,8 +20,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <summary>Candidate examples per user in the small population (mix of liked + disliked).</summary>
     private const int SmallExamplesPerUser = 40;
 
-    /// <summary>Fixed generation timestamp so temporal-decay weighting is identical across arms.</summary>
-    private static readonly DateTime FixedGeneratedAt = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    /// <summary>
+    /// One recent timestamp shared by every cohort/arm. An absolute historical date would increasingly
+    /// decay all optimizer gradients relative to L2 regularization, eventually disabling the MLP and
+    /// turning an engagement-feature ablation into an accidental stale-data/regularization experiment.
+    /// Population vectors, labels and identities remain deterministic from the seeds below.
+    /// </summary>
+    private static readonly DateTime SharedGeneratedAt = DateTime.UtcNow;
 
     /// <summary>
     ///     Tier 1 - the fixed-weight heuristic ranker. The new engagement/affinity signals must
@@ -95,8 +100,8 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
         Assert.All(validation.Concat(evaluation), example => Assert.DoesNotContain(example.ObservationId, trainingIds));
         Assert.All(evaluation, example => Assert.DoesNotContain(example.UserId, validation.Select(item => item.UserId)));
 
-        using var realEnsemble = BuildNeuralEnsemble();
-        using var ablatedEnsemble = BuildNeuralEnsemble();
+        using var realEnsemble = BuildNeuralEnsemble(out var realNeural);
+        using var ablatedEnsemble = BuildNeuralEnsemble(out var ablatedNeural);
 
         // Maturity comes from stable distinct observations, not replaying the same rows. Validation
         // users gate training quality; a third, independently generated cohort measures ranking.
@@ -104,8 +109,8 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
         Assert.True(ablatedEnsemble.Train(ablated, Ablate(validation)));
         Assert.True(realEnsemble.TrainingExampleCount > EnsembleScoringStrategy.NeuralActivationThreshold);
         Assert.True(ablatedEnsemble.TrainingExampleCount > EnsembleScoringStrategy.NeuralActivationThreshold);
-        Assert.True(realEnsemble.CurrentNeuralBeta > 0, "The real arm must actually mix the trained MLP into its scores.");
-        Assert.True(ablatedEnsemble.CurrentNeuralBeta > 0, "The ablated arm must actually mix the trained MLP into its scores.");
+        Assert.True(realEnsemble.CurrentNeuralBeta > 0, FormattableString.Invariant($"The real arm must actually mix the trained MLP into its scores. Neural loss={realNeural.LastValidationLoss:F6}, baseline={realNeural.LastBaselineValidationLoss:F6}."));
+        Assert.True(ablatedEnsemble.CurrentNeuralBeta > 0, FormattableString.Invariant($"The ablated arm must actually mix the trained MLP into its scores. Neural loss={ablatedNeural.LastValidationLoss:F6}, baseline={ablatedNeural.LastBaselineValidationLoss:F6}."));
 
         var real = RankingMetrics.ComputeAll(evaluation, realEnsemble);
         var neutral = RankingMetrics.ComputeAll(Ablate(evaluation), ablatedEnsemble);
@@ -125,12 +130,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     ///     all sub-strategies disk-less. The heuristic sub-strategy must disable its own genre penalty
     ///     (floor 1.0) because the ensemble applies the penalty centrally.
     /// </summary>
-    private static EnsembleScoringStrategy BuildNeuralEnsemble()
+    private static EnsembleScoringStrategy BuildNeuralEnsemble(out NeuralScoringStrategy neural)
     {
+        neural = new NeuralScoringStrategy(weightsPath: null, logger: null);
         return new EnsembleScoringStrategy(
             new LearnedScoringStrategy(weightsPath: null),
             new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
-            new NeuralScoringStrategy(weightsPath: null, logger: null),
+            neural,
             statePath: null);
     }
 
@@ -229,7 +235,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                     Label = label,
                     UserId = userId,
                     SampleWeight = 1.0,
-                    GeneratedAtUtc = FixedGeneratedAt,
+                    GeneratedAtUtc = SharedGeneratedAt,
                     ObservationId = TrainingExample.CreateProviderObservationId(userId, e + 1, features.IsSeries ? "tv" : "movie"),
                     HasStableObservationId = true
                 });

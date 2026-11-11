@@ -324,6 +324,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         strategy.Dispose();
         var score = strategy.Score(new CandidateFeatures());
         Assert.Equal(0.5, score, 10);
+        Assert.False(strategy.HasTrainedWeights);
     }
 
     // ScoreWithExplanation Tests

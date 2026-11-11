@@ -188,8 +188,26 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     expect(html).not.toContain('data-tmdb-id="7"');
   });
 
+  test('verified availability offers the Request action', () => {
+    const el = document.createElement('div');
+    el.innerHTML = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, AvailabilityVerified: true, MediaType: 'movie', TmdbId: 7 }, 0);
+    const button = el.querySelector('.discovery-request-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.tmdbId).toBe('7');
+    expect(button.dataset.mediaType).toBe('movie');
+    expect(el.textContent).not.toContain('Availability not checked');
+  });
+
+  test.each([false, undefined, null, 'true', 1])('unverified and legacy availability omit the Request action (%j)', (verified) => {
+    const el = document.createElement('div');
+    el.innerHTML = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, AvailabilityVerified: verified, MediaType: 'movie', TmdbId: 7 }, 0);
+    expect(el.querySelector('.discovery-request-btn')).toBeNull();
+    expect(el.querySelector('[data-tmdb-id]')).toBeNull();
+    expect(el.textContent).toContain('Availability not checked');
+  });
+
   test('unparseable tmdb ids zero out', () => {
-    expect(ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, MediaType: 'movie', TmdbId: 'abc' }, 0))
+    expect(ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, AvailabilityVerified: true, MediaType: 'movie', TmdbId: 'abc' }, 0))
       .toContain('data-tmdb-id="0"');
   });
 

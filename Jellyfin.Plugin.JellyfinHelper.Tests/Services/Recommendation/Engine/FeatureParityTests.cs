@@ -59,6 +59,9 @@ public sealed class FeatureParityTests
         Assert.Equal(1, collidingNames["tmdb:collection:100"]);
         Assert.Equal(distinctNames["tmdb:collection:200"], collidingNames["tmdb:collection:200"]);
         Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(300, "Shared translated name", collidingNames));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(0, "Shared translated name", collidingNames));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity("Shared translated name", collidingNames));
+        Assert.Equal(1, SimilarityComputer.ComputeFranchiseAffinity(0, "First saga", distinctNames));
     }
 
     [Theory]
@@ -136,6 +139,7 @@ public sealed class FeatureParityTests
         };
         var preferences = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
         Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(300, "Shared collection label", preferences));
+        Assert.Equal(0, SimilarityComputer.ComputeFranchiseAffinity(0, "Shared collection label", preferences));
         Assert.Equal(preferences["tmdb:collection:100"], SimilarityComputer.ComputeFranchiseAffinity(100, "Different translated label", preferences));
         Assert.Equal(preferences["tmdb:collection:200"], SimilarityComputer.ComputeFranchiseAffinity(200, "Shared collection label", preferences));
     }

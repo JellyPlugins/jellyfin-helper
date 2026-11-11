@@ -181,7 +181,7 @@ public sealed class CandidateFeatures
 
     private static readonly FeatureIndex[] ExternalMissingIndices =
     [
-        FeatureIndex.CollaborativeScore, FeatureIndex.StudioMatch, FeatureIndex.SeriesAffinity,
+        FeatureIndex.CollaborativeScore, FeatureIndex.PeopleSimilarity, FeatureIndex.StudioMatch, FeatureIndex.SeriesAffinity,
         FeatureIndex.DayOfWeekAffinity, FeatureIndex.HourOfDayAffinity, FeatureIndex.TagSimilarity,
         FeatureIndex.LibraryAddedRecency, FeatureIndex.ContentNearestNeighborScore, FeatureIndex.LanguageAffinity,
         FeatureIndex.CollectionProgressionBoost, FeatureIndex.SubtitleLanguageAffinity, FeatureIndex.FranchiseAffinity,
@@ -224,6 +224,12 @@ public sealed class CandidateFeatures
 
     /// <summary>Gets or sets the bitmask of external features backed by real metadata, including known zero values.</summary>
     public ulong KnownExternalFeatures { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether provider credits were observed. False distinguishes missing cast from a
+    /// known non-match; null preserves the raw people signal in legacy prediction snapshots.
+    /// </summary>
+    public bool? HasPeopleMetadata { get; set; }
 
     /// <summary>Gets or sets a value indicating whether both candidate genres and personal genre preferences are available. Missing evidence is not a mismatch; legacy snapshots retain their original penalty behaviour.</summary>
     public bool HasGenreEvidence { get; set; } = true;
@@ -675,7 +681,7 @@ public sealed class CandidateFeatures
 
         foreach (var index in ExternalMissingIndices)
         {
-            if (IsExternalFeatureKnown(index))
+            if (IsExternalFeatureKnown(index) || (index == FeatureIndex.PeopleSimilarity && HasPeopleMetadata != false))
             {
                 continue;
             }
@@ -685,6 +691,7 @@ public sealed class CandidateFeatures
         }
 
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CollaborativeScore];
+        buffer[(int)FeatureIndex.PeopleGenreInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.PeopleSimilarity];
     }
 
     /// <summary>Builds a raw model vector without mutating recorded features.</summary>

@@ -262,6 +262,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             GenreCount = genreSet.Count,
             IsSeries = isSeries,
             PeopleSimilarity = peopleSimilarity,
+            HasPeopleMetadata = entry.KnownPeople is not null,
             PopularityScore = popularityScore,
 
             CollaborativeScore = 0.5,
@@ -294,6 +295,11 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         // Impute the uncomputable placeholders to the training-set means, identically to discovery
         // inference (ExternalCandidateFeatureBuilder.Build), so discovery train/serve stay in parity.
+        if (entry.KnownPeople is not null)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.PeopleSimilarity);
+        }
+
         ExternalCandidateFeatureBuilder.ApplyMeanImputation(features, featureMeans);
 
         return features;

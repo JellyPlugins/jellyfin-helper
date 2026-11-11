@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -17,7 +18,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
@@ -42,6 +45,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly Mock<IArrIntegrationService> _arr;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStore;
     private readonly Mock<ILibraryManager> _libraryManager;
+    private readonly Mock<ILinkedChildrenService> _linkedChildren = new();
     private readonly DiscoveryCacheService _cache;
     private readonly string _cacheFilePath;
     private readonly PerUserEnsembleRegistry _perUserRegistry;
@@ -126,7 +130,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             TestFixtures.TestMockFactory.CreateSecretProtector(),
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object,
-            localization.Object);
+            localization.Object,
+            linkedChildren: _linkedChildren.Object);
     }
 
     public void Dispose()
@@ -614,6 +619,70 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Fact]
+    public async Task CollectionMemberships_AreSharedAcrossUsersWithoutSharingTheirCounts()
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        var titleA = Guid.NewGuid();
+        var titleB = Guid.NewGuid();
+        var titleC = Guid.NewGuid();
+        first.WatchedItems.Add(new WatchedItemInfo { ItemId = titleA, ItemType = "Movie", Played = true, Genres = ["Action"] });
+        second.WatchedItems.Add(new WatchedItemInfo { ItemId = titleB, ItemType = "Movie", Played = true, Genres = ["Action"] });
+        second.WatchedItems.Add(new WatchedItemInfo { ItemId = titleC, ItemType = "Movie", Played = true, Genres = ["Action"] });
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _libraryManager.Setup(library => library.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes != null && query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([collection]);
+        _linkedChildren.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([titleA, titleB, titleC]);
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        RegisterGenreMovieResults(28, [Candidate(9800, 9)]);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9800", HttpStatusCode.OK, """{"id":9800,"collection":{"id":123,"name":"Actual saga"}}""");
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+
+        var pools = await _cache.LoadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, pools.Count);
+        Assert.Equal(EngineConstants.ComputeCollectionProgressionBoost(1), Assert.Single(pools.Single(pool => pool.UserId == first.UserId).Recommendations).ScoringFeatures!.CollectionProgressionBoost);
+        Assert.Equal(EngineConstants.ComputeCollectionProgressionBoost(2), Assert.Single(pools.Single(pool => pool.UserId == second.UserId).Recommendations).ScoringFeatures!.CollectionProgressionBoost);
+        _linkedChildren.Verify(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual), Times.Once);
+        _libraryManager.Verify(library => library.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes != null && query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))), Times.Once);
+    }
+
+    [Fact]
+    public async Task EmptyOrNonEngagedHistory_DoesNotReadCollectionMemberships()
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        second.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie" });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        RegisterGenreMovieResults(28, [Candidate(9800, 9)]);
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, (await _cache.LoadAsync(TestContext.Current.CancellationToken)).Count);
+        _libraryManager.Verify(library => library.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes != null && query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))), Times.Never);
+        _linkedChildren.Verify(service => service.GetLinkedChildrenIds(It.IsAny<Guid>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CollectionLookupFailure_KeepsProgressionUnknownRatherThanObservingZero(bool throws)
+    {
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _libraryManager.Setup(library => library.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes != null && query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))))
+            .Returns(() => throws ? throw new InvalidOperationException("offline") : null!);
+        RegisterGenreMovieResults(28, [Candidate(9800, 9)]);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9800", HttpStatusCode.OK, """{"id":9800,"collection":{"id":123,"name":"Actual saga"}}""");
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+
+        var recommendation = Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations);
+        Assert.False(recommendation.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
+        Assert.True(recommendation.AvailabilityVerified);
+    }
+
+    [Fact]
     public async Task FinalScoring_RetainsCandidatesOutsideTheDetailEnrichmentBudget()
     {
         var profile = NewProfile();
@@ -629,6 +698,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         var pool = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
         Assert.Equal(20, pool.Recommendations.Count);
         Assert.All(pool.Recommendations, recommendation => Assert.InRange(recommendation.TmdbId, 8120, 8139));
+        Assert.All(pool.Recommendations, recommendation => Assert.False(recommendation.AvailabilityVerified));
         Assert.Equal(20, _handler.Requests.Count(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)));
     }
 

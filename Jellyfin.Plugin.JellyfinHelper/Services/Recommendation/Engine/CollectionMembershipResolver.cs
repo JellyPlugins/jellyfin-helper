@@ -57,7 +57,11 @@ internal static class CollectionMembershipResolver
     /// <param name="snapshot">Memberships read once for the generation run.</param>
     /// <returns>Distinct counts, or null when the authoritative snapshot was incomplete.</returns>
     internal static Dictionary<int, int>? ExternalCounts(IEnumerable<WatchedItemInfo> history, Snapshot snapshot)
-        => ExternalCounts(EngagedTitles(history), snapshot);
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return ExternalCounts(EngagedTitles(history), snapshot);
+    }
 
     /// <summary>Gets allowed parent/title IDs without counting episodes as independent series.</summary>
     /// <param name="history">Allowed watch rows across the generation population.</param>

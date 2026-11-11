@@ -390,6 +390,7 @@
   "discoveryLoadError": "Could not load discovery suggestions.",
   "discoveryGeneratedAt": "Last updated",
   "discoveryRequest": "Request",
+  "discoveryAvailabilityUnknown": "Availability not checked",
   "discoveryRequesting": "Requesting…",
   "discoveryRequested": "Requested",
   "discoveryRequestFailed": "Failed",
