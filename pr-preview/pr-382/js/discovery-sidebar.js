@@ -1844,7 +1844,7 @@
         reasonHighlyRated: 'Highly rated',
         reasonPopularAmongViewers: 'Popular with other viewers',
         reasonFranchise: 'From a franchise you follow',
-        reasonCollectionContinuation: "Continue a collection you've explored",
+        reasonCollectionContinuation: 'Because you like this collection',
         reasonDefault: 'Recommended for you'
     };
 
