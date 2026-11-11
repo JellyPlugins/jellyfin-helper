@@ -4,7 +4,7 @@
     "net10.0": {
       "Jellyfin.Controller": {
         "type": "Direct",
-        "requested": "[12.4.0, )",
+        "requested": "[12.4.0, 12.4.0]",
         "resolved": "12.4.0",
         "contentHash": "wiLaaSqanTu8jXXtnLX9l5QHe7UXr8hZ1braL34PwieA3vtQY/oFeBP0k7NTADHAwnwb531Nwt/QZkf40JiPXg==",
         "dependencies": {
@@ -17,7 +17,7 @@
       },
       "Jellyfin.Model": {
         "type": "Direct",
-        "requested": "[12.4.0, )",
+        "requested": "[12.4.0, 12.4.0]",
         "resolved": "12.4.0",
         "contentHash": "8cJAMYpMeXkpmxfILVwU+KUr+960tXZyDN+Y5I3ACCAJna0366bjGmWAV4xqB5XlGA8ZIGTi4K9t3hl2/o+Cgg==",
         "dependencies": {
