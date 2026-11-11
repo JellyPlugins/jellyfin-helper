@@ -10,9 +10,9 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
   .map(match => match[1])
   .map(name => source('PluginPages/css/' + name)).join('\n');
 
-const availabilityLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
+const discoveryLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
   const translations = JSON.parse(source('i18n/' + language + '.json'));
-  return { language, strings: Object.fromEntries(['discoveryAvailabilityUnknown', 'discoveryAvailabilityUnknownHint', 'discoveryDismiss']
+  return { language, strings: Object.fromEntries(['discoveryAvailabilityUnknown', 'discoveryAvailabilityUnknownHint', 'discoveryDismiss', 'discoveryColdStart']
     .map(key => [key, translations[key]])) };
 });
 
@@ -122,6 +122,35 @@ test('fixture bootstrap accepts formatting and rejects missing or duplicated ini
   expect(() => discoveryFixtureScript('function unrelated() {}')).toThrow('initialization anchor');
   expect(() => discoveryFixtureScript('initDiscoveryLifecycle();\ninitDiscoveryLifecycle();')).toThrow('initialization anchor');
 });
+
+for (const width of [320, 1280]) {
+  test(`dashboard ${width}px: cold-start Discovery labels do not block recommendation toggles`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await dashboard(page);
+    await page.locator('.tab-btn[data-tab="recommendations"]').click();
+    const gridToggle = page.locator('#recsGridToggle');
+    await expect(gridToggle).toBeVisible();
+    for (const locale of discoveryLocales) {
+      await page.evaluate(strings => {
+        document.getElementById('discoverySection')!.innerHTML = (window as any).fixtureAdmin.renderLocalizedDiscoveryCard(
+          { Title: 'Popular suggestion', IsPersonalized: false }, strings);
+      }, locale.strings);
+      const label = page.locator('#discoverySection .recs-score-text');
+      await expect(label).toHaveText(locale.strings.discoveryColdStart);
+      await expect(label).toHaveCSS('position', 'static');
+      const labelBox = await label.boundingBox();
+      const cardBox = await page.locator('#discoverySection .discovery-card').boundingBox();
+      expect(labelBox!.y).toBeGreaterThanOrEqual(cardBox!.y);
+      expect(labelBox!.y + labelBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height);
+      await gridToggle.click();
+      await expect(gridToggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('#recsGridBody')).toBeVisible();
+      await gridToggle.click();
+      await expect(gridToggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('#recsGridBody')).toBeHidden();
+    }
+  });
+}
 
 for (const width of [320, 1280]) {
   for (const colorScheme of ['dark', 'light'] as const) {
@@ -284,7 +313,7 @@ for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await discovery(page);
-      for (const locale of availabilityLocales) {
+      for (const locale of discoveryLocales) {
         for (const verified of [false, undefined]) {
           await page.evaluate(({ recommendations, locale, verified }) => {
             document.documentElement.lang = locale.language;
@@ -330,7 +359,7 @@ for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await dashboard(page);
-      for (const locale of availabilityLocales) {
+      for (const locale of discoveryLocales) {
         await page.evaluate(({ candidate, locale }) => {
           document.documentElement.lang = locale.language;
           let host = document.getElementById('fixtureAvailabilityCards');

@@ -11,7 +11,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Added
 
-- **Discovery distinguishes popular suggestions from personal matches.** Cards without enough personal evidence now say "Popular suggestions — not personalized yet" instead of showing a misleading match percentage.
+- **Discovery distinguishes popular suggestions from personal matches.** Cards without enough personal evidence now say "Not personalized" instead of showing a misleading match percentage.
 - **Discovery tells you when availability is unchecked.** A title whose availability could not be verified shows "Unchecked" with an explanatory hint instead of offering a Request button.
 
 ### Changed

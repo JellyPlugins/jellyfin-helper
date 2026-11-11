@@ -205,16 +205,30 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
 
   test('cold-start admin cards do not claim a personal match percentage', () => {
     const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.99, IsPersonalized: false }, 0);
-    expect(html).toContain('not personalized yet');
+    expect(html).toContain('Not personalized');
     expect(html).not.toContain('99%');
     expect(html).not.toContain('recs-score-bar');
+  });
+
+  test('cold-start labels stay in card flow while personal match labels overlay their score bars', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper', 'PluginPages', 'css', 'Recommendations.css'), 'utf8');
+    document.head.appendChild(style);
+    try {
+      document.body.innerHTML = ui.renderDiscoveryCard({ Title: 'Cold start', IsPersonalized: false }, 0)
+        + ui.renderDiscoveryCard({ Title: 'Personalized', Score: 0.99, IsPersonalized: true }, 1);
+      expect(window.getComputedStyle(document.querySelector('.discovery-card-body > .recs-score-text')!).position).toBe('static');
+      expect(window.getComputedStyle(document.querySelector('.recs-item-score > .recs-score-text')!).position).toBe('absolute');
+    } finally {
+      style.remove();
+    }
   });
 
   test.each([true, undefined])('personalized and legacy admin cards retain match percentages (%s)', (personalized) => {
     const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.99, IsPersonalized: personalized }, 0);
     expect(html).toContain('99%');
     expect(html).toContain('recs-score-bar');
-    expect(html).not.toContain('not personalized yet');
+    expect(html).not.toContain('Not personalized');
   });
   test('evil poster paths render no image', () => {
     const injectedMarkup = '"><img src=x onerror=y>';

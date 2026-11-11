@@ -360,7 +360,7 @@
   "strategyColdStart": "Soğuk Başlangıç (Popüler + Yeni)",
   "recsMatch": "eşleşme",
   "discoveryLocalScore": "Yerel puan",
-  "discoveryColdStart": "Popüler öneriler — henüz kişiselleştirilmedi",
+  "discoveryColdStart": "Kişiselleştirilmedi",
   "recsWatchProfiles": "İzleme Profilleri",
   "recsProfilesError": "Profiller yüklenemedi.",
   "recsNoProfiles": "Profil mevcut değil.",

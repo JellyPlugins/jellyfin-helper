@@ -360,7 +360,7 @@
   "strategyColdStart": "Kaltstart (Beliebt + Neu)",
   "recsMatch": "Übereinstimmung",
   "discoveryLocalScore": "Lokale Bewertung",
-  "discoveryColdStart": "Beliebte Vorschläge — noch nicht personalisiert",
+  "discoveryColdStart": "Nicht personalisiert",
   "recsWatchProfiles": "Sehprofil-Übersicht",
   "recsProfilesError": "Sehprofile konnten nicht geladen werden.",
   "recsNoProfiles": "Keine Sehprofile verfügbar.",

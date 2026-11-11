@@ -1297,7 +1297,7 @@
 
     function renderSidebarScoreHtml(r) {
         if (r.IsPersonalized === false) {
-            return '<div class="jfh-discovery-score-text">' + esc(t('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</div>';
+            return '<div class="jfh-discovery-score-text">' + esc(t('discoveryColdStart', 'Not personalized')) + '</div>';
         }
         var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
         var scoreClass = getDiscoveryScoreClass(scorePercent);
