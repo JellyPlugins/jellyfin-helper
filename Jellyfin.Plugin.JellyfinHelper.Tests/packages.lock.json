@@ -80,11 +80,11 @@
       },
       "System.IO.Abstractions.TestingHelpers": {
         "type": "Direct",
-        "requested": "[22.3.0, )",
-        "resolved": "22.3.0",
-        "contentHash": "18NddvxRHmpwirzjhMOZ2u0oCdlxUvNQV2hQXPIygEnbAoo0sYOzWY4Jf5WQs/QSOIOBYSFpvq3A003d7HFmTQ==",
+        "requested": "[23.0.0, )",
+        "resolved": "23.0.0",
+        "contentHash": "aT0WLnyILjtULMS5tubS3pwKfTYu/70ytV1rfYhKEjOJZLoRjFXcvrGo9PIcm9l5N4xhvQeaEkcpQ0Ts24XbLQ==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions.TestingHelpers": "22.3.0"
+          "TestableIO.System.IO.Abstractions.TestingHelpers": "23.0.0"
         }
       },
       "xunit.runner.visualstudio": {
@@ -380,25 +380,25 @@
       },
       "TestableIO.System.IO.Abstractions.TestingHelpers": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "kJsKJjXcjSvh0H89afGlsngJHj8n7f1q7juNiLUCbtJr+m208TG6z2RfjCVlGosfgaHBnNhgs0zFy2Z0V1XnZA==",
+        "resolved": "23.0.0",
+        "contentHash": "8ezFNBOIkdenxLd1C8tgoZPDEgqJ1rC3PRgaMdRnfoOGP2dcvTAM9vs94UW/b6KBAdoEtJMRN8A82/MtLCIruw==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions.Wrappers": "22.3.0",
-          "Testably.Abstractions.FileSystem.Interface": "10.4.0"
+          "TestableIO.System.IO.Abstractions.Wrappers": "23.0.0",
+          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
         }
       },
       "TestableIO.System.IO.Abstractions.Wrappers": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "9TsOEcwIGJXHjkZ/lIpg6KnoRjxpZZ/LpMvNddcXEvmcxWKZdbhSy2UWMpy3oN8klbQ3dcpxbp9AddQk0zE+Kg==",
+        "resolved": "23.0.0",
+        "contentHash": "WfbIVmdi/Yh3eKLDzprsctUXziXVP60lPfPRrAFxR+YPT++yGpsgBsen0vC5N3HeXANCHP7xRukgn/kZcUqusg==",
         "dependencies": {
-          "Testably.Abstractions.FileSystem.Interface": "10.4.0"
+          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
         }
       },
       "Testably.Abstractions.FileSystem.Interface": {
         "type": "Transitive",
-        "resolved": "10.4.0",
-        "contentHash": "7G5NzIjs7544Dit0uuvYOOAzD8E4alQS2ENPGT3HV1Ks/1r55O7X4d9g6L273n70IDkgqNdBCmrkWxJLn0xCZA=="
+        "resolved": "11.0.0",
+        "contentHash": "bHE3UgieMizRsrzHYsWOLGMVjDmy0yx1PTv4QMgoAi3GU+vw2tJZ/jR5woIZ6Et6H0Hvhwriv6XSgwoZV9bU0A=="
       },
       "xunit.analyzers": {
         "type": "Transitive",
