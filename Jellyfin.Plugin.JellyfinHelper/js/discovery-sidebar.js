@@ -1057,6 +1057,8 @@
         container._jfhImpressionObserver?.disconnect();
         if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
         container._jfhImpressionTimer = null;
+        var grid = container.querySelector('.jfh-discovery-grid');
+        if (!grid || grid.closest('.jfh-ui-surface') !== container) return;
         var request = captureDiscoveryRequest();
         var pending = new Map();
         var observer = new window.IntersectionObserver(function (entries) {
@@ -1120,6 +1122,16 @@
         for (var card of container.querySelectorAll('.jfh-discovery-card')) observer.observe(card);
     }
 
+    function resumeDiscoveryImpressions() {
+        if (_discoveryDisabled || _hostSessionChanges !== 0 || !currentDiscoveryUserId() || !isOnHomePage()) return;
+        var owners = new Set();
+        for (var grid of document.querySelectorAll('.jfh-discovery-grid')) {
+            var owner = grid.closest('.jfh-ui-surface');
+            if (owner) owners.add(owner);
+        }
+        for (var owner of owners) observeVisibleDiscoveryCards(owner);
+    }
+
     function renderEmptySidebarCards(container) {
         if (Array.from(container.querySelectorAll('.jfh-discovery-card')).some(function (card) {
             return card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card);
@@ -1146,6 +1158,7 @@
         if (card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
             || card.querySelector('button:disabled:not(.jfh-discovery-btn-done), .jfh-discovery-btn-failed')) return;
         card._jfhDeliveryId = deliveryId;
+        if (card._jfhInvalidDeliveryId !== deliveryId) card._jfhInvalidDeliveryId = null;
         card._jfhDeliveryExpiresAt = expiresAt ? Date.parse(expiresAt) : 0;
         if (card._jfhMarkup === markup) return;
         var focused = card.contains(document.activeElement) ? document.activeElement.dataset.jfhAction : null;
@@ -1157,7 +1170,8 @@
     }
 
     function deliveryExpired(card) {
-        return card?._jfhDeliveryExpiresAt > 0 && card._jfhDeliveryExpiresAt <= Date.now();
+        return !!(card?._jfhInvalidDeliveryId && card._jfhInvalidDeliveryId === card._jfhDeliveryId)
+            || (card?._jfhDeliveryExpiresAt > 0 && card._jfhDeliveryExpiresAt <= Date.now());
     }
 
     // Refresh the visible server response, never re-sign stale client features under a new delivery id.
@@ -1221,9 +1235,7 @@
         };
         // Mutations invalidate the captured generation. Fresh observers receive an initial
         // visibility check from the browser for remaining cards without weakening session guards.
-        document.querySelectorAll('.jfh-ui-surface').forEach(function (container) {
-            if (container.querySelector('.jfh-discovery-card')) observeVisibleDiscoveryCards(container);
-        });
+        resumeDiscoveryImpressions();
     }
 
     function renderSidebarExternalLinksHtml(r, mediaType) {
@@ -1571,6 +1583,7 @@
         if (el) window.JellyfinHelperUi.closeDialog(el);
         if (cancelled !== false && triggerBtn) setDismissSiblingHidden(triggerBtn, false);
         if (triggerBtn?.focus) triggerBtn.focus();
+        resumeDiscoveryImpressions();
     }
 
     function isCurrentDiscoveryPopup(overlay, request) {
@@ -1645,6 +1658,7 @@
             }
         }).catch(function (err) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (recoverActionDelivery(btn, err, request)) return;
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
@@ -1768,8 +1782,9 @@
                     checkEmptyDiscoveryState(scopeEl);
                 });
             }
-        }).catch(function () {
+        }).catch(function (error) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (recoverActionDelivery(btn, error, request)) return;
             btn.disabled = false;
             btn.textContent = t('discoveryDismiss', 'Not interested');
             showToast(t('discoveryDismissError', 'Could not dismiss this item. Please try again.'));
@@ -1781,6 +1796,25 @@
         if (!deliveryExpired(card)) return false;
         var container = card.closest('.jfh-ui-surface');
         if (container) refreshDiscoveryDelivery(container, captureDiscoveryRequest());
+        return true;
+    }
+
+    // An acknowledged card can lose its delivery before its timestamp expires (another tab may evict it).
+    // Refresh evidence after that specific rejection, but never automatically repeat a media request or dismissal.
+    function recoverActionDelivery(button, error, request) {
+        if (error?.status !== 400 || extractErrorMessage(error) !== 'No matching recent discovery delivery for this action.'
+            || !isSameDiscoverySession(request) || _discoveryDisabled) return false;
+        var card = button.closest('.jfh-discovery-card');
+        var container = card?.closest('.jfh-ui-surface');
+        if (!container?.isConnected || !card._jfhDeliveryId) return false;
+        card._jfhInvalidDeliveryId = card._jfhDeliveryId;
+        button.disabled = false;
+        button.classList.remove('jfh-discovery-btn-failed');
+        var requesting = button.dataset.jfhAction === 'request';
+        button.textContent = requesting ? t('discoveryRequest', 'Request') : t('discoveryDismiss', 'Not interested');
+        if (requesting) setDismissSiblingHidden(button, false);
+        // An unrelated successful action may have advanced the generation while this rejected request was away.
+        refreshDiscoveryDelivery(container, captureDiscoveryRequest());
         return true;
     }
 

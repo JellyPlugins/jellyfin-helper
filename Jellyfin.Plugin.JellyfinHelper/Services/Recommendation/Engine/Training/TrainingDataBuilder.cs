@@ -138,7 +138,8 @@ internal static class TrainingDataBuilder
                 profile.WatchedItems.Any(row => !string.IsNullOrWhiteSpace(row.TmdbCollectionName)),
                 profile.WatchedItems.Any(row => row.ProductionCountries.Count > 0),
                 profile.WatchedItems.Any(row => row.InheritedTags.Count > 0),
-                profile.WatchedItems.Any(row => row.WriterNames.Count > 0))));
+                profile.WatchedItems.Any(row => row.WriterNames.Count > 0))),
+            BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata));
 
         var examples = new List<TrainingExample>();
 
@@ -193,6 +194,41 @@ internal static class TrainingDataBuilder
         }
 
         return (examples, organicCount, randomNegativeCount, discoveryCount);
+    }
+
+    private static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
+    {
+        var ids = new Dictionary<Guid, int>();
+        foreach (var item in previous.SelectMany(result => result.Recommendations.Concat(result.TrainingContrasts ?? [])))
+        {
+            if (item.TmdbId > 0)
+            {
+                ids[item.ItemId] = item.TmdbId;
+            }
+        }
+
+        foreach (var row in profiles.SelectMany(profile => profile.WatchedItems))
+        {
+            if (row.TmdbId > 0)
+            {
+                ids[row.ItemId] = row.TmdbId;
+            }
+
+            if (row.SeriesId is { } seriesId && row.SeriesTmdbId > 0)
+            {
+                ids[seriesId] = row.SeriesTmdbId;
+            }
+        }
+
+        if (library?.TmdbIds is { } liveIds)
+        {
+            foreach (var pair in liveIds.Where(pair => pair.Value > 0))
+            {
+                ids[pair.Key] = pair.Value;
+            }
+        }
+
+        return ids;
     }
 
     /// <summary>
@@ -570,7 +606,7 @@ internal static class TrainingDataBuilder
                 Label = outcome.Label,
                 GeneratedAtUtc = prevResult.GeneratedAt,
                 UserId = prevResult.UserId,
-                ObservationId = TrainingExample.CreateLibraryObservationId(prevResult.UserId, rec.ItemId),
+                ObservationId = TrainingExample.CreateTitleObservationId(prevResult.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries),
                 HasStableObservationId = true,
                 IsObserved = outcome.IsObserved,
                 IsContrastSample = outcome.IsContrast
@@ -689,7 +725,7 @@ internal static class TrainingDataBuilder
             Label = outcome.Label,
             GeneratedAtUtc = prevResult.GeneratedAt,
             UserId = userProfile.UserId,
-            ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, rec.ItemId),
+            ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries),
             HasStableObservationId = true,
             IsObserved = outcome.IsObserved,
             IsContrastSample = outcome.IsContrast
@@ -965,7 +1001,9 @@ internal static class TrainingDataBuilder
             artifacts.PreferredWriterWeights,
             ctx.Lookups.GenreStudioIdf,
             ctx.OrganicFallbackTimestamp,
-            ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null);
+            ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null,
+            userCtx.UserProfile.WatchedItems.FirstOrDefault(row => row.ItemId == seriesId)?.UserRating,
+            ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId));
         return 1;
     }
 
@@ -1089,7 +1127,7 @@ internal static class TrainingDataBuilder
             GeneratedAtUtc = w.LastPlayedDate ?? organicFallbackTimestamp,
             SampleWeight = 0.7,
             UserId = userProfile.UserId,
-            ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, w.ItemId),
+            ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, w.ItemId, lookups.TmdbIds.GetValueOrDefault(w.ItemId), isSeries),
             HasStableObservationId = true,
             IsObserved = HasReliableOutcome(w, isSeries)
         };
@@ -1228,7 +1266,7 @@ internal static class TrainingDataBuilder
                 GeneratedAtUtc = result.GeneratedAt,
                 SampleWeight = 0.5,
                 UserId = result.UserId,
-                ObservationId = TrainingExample.CreateLibraryObservationId(result.UserId, item.ItemId),
+                ObservationId = TrainingExample.CreateTitleObservationId(result.UserId, item.ItemId, ctx.Lookups.TmdbIds.GetValueOrDefault(item.ItemId), string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase)),
                 HasStableObservationId = true,
                 IsObserved = false,
                 IsContrastSample = true
@@ -1359,7 +1397,7 @@ internal static class TrainingDataBuilder
             GeneratedAtUtc = predictionTime,
             SampleWeight = 0.5,
             UserId = userProfile.UserId,
-            ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, neg.ItemId),
+            ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, neg.ItemId, lookups.TmdbIds.GetValueOrDefault(neg.ItemId), isSeries),
             HasStableObservationId = true,
             IsObserved = false,
             IsContrastSample = true
@@ -1411,7 +1449,8 @@ internal static class TrainingDataBuilder
         IReadOnlyDictionary<string, double>? GenreStudioIdf,
         Dictionary<WatchedItemInfo, CachedContentSets> ContentByRow,
         Dictionary<CachedContentSets, CachedContentSets> SharedContent,
-        Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata);
+        Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata,
+        Dictionary<Guid, int> TmdbIds);
 
     /// <summary>
     ///     Groups per user watched content sets and BoxSet counts.

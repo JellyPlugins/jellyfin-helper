@@ -490,6 +490,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 ScoringFeatures = e.ScoringFeatures?.Copy(),
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
+                PredictionInputsCompacted = e.PredictionInputsCompacted,
                 KnownPeople = e.KnownPeople?.ToList() ?? [],
                 ShownAtUtc = e.ShownAtUtc,
                 DismissedAtUtc = e.DismissedAtUtc,
@@ -672,6 +673,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var previousSize = JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions).LongLength;
+            entry.PredictionInputsCompacted = true;
             entry.ScoringFeatures = null;
             entry.Title = string.Empty;
             entry.Year = null;

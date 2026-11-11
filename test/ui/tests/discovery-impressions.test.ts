@@ -107,6 +107,36 @@ describe('Discovery delivery-bound impressions', () => {
     expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 2, MediaType: 'movie' }] }]);
   });
 
+  test('closing a popup rechecks stationary cards whose pending impressions were suppressed', async () => {
+    render(FIRST, [1, 2]);
+    const button = host.querySelector('[data-jfh-action="dismiss"]')!;
+    ui.showDismissConfirmation(1, 'movie', 'Movie 1', button);
+    await show();
+    expect(posts()).toHaveLength(0);
+    const suppressed = VisibilityObserver.instances.at(-1)!;
+    ui.closeDiscoveryPopup(button, true);
+    expect(suppressed.active).toBe(false);
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 1, MediaType: 'movie' }, { TmdbId: 2, MediaType: 'movie' }] }]);
+  });
+
+  test('nested shell surfaces never own a grid observer or replace a Trakt grid with an own-tab refresh', async () => {
+    const root = '/JellyfinHelper/Discovery/My';
+    calls = ajaxRouter({ [root + '/Trakt']: { Linked: true, Result: freshDelivery() } });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'user-1';
+    const shell = document.createElement('div');
+    shell.className = 'jfh-ui-surface';
+    document.body.appendChild(shell);
+    shell.appendChild(host);
+    render(FIRST, [1, 2], new Date(Date.now() - 1).toISOString());
+    (host as any)._jfhDiscoverySource = 'trakt';
+    ui.consumeDiscoveryItem(2, 'movie');
+    expect((shell as any)._jfhImpressionObserver).toBeUndefined();
+    expect(VisibilityObserver.instances.filter(observer => observer.active)).toHaveLength(1);
+    await show();
+    expect(calls.filter(call => call.method === 'GET').map(call => call.url)).toEqual([root + '/Trakt']);
+  });
+
   test('protected old cards and refreshed siblings are sent in separate delivery batches', async () => {
     render(FIRST, [1, 2]);
     const firstCard = host.querySelector('.jfh-discovery-card')!;
@@ -188,6 +218,75 @@ describe('Discovery delivery-bound impressions', () => {
     await show();
     expect(posts().map(call => (call.body as any).DeliveryId)).toEqual([FIRST, SECOND]);
     expect((host.querySelector('.jfh-discovery-card') as any)?._jfhDeliveryId).toBe(SECOND);
+  });
+
+  test.each(['request', 'dismiss'])('an acknowledged card renews its evicted delivery after a rejected %s without automatically retrying the action', async action => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const endpoint = action === 'request' ? root + '/Request' : root + '/Dismiss';
+    calls = ajaxRouter({ [root]: freshDelivery(), [root + '/Impressions']: undefined, [endpoint]: { Success: true } });
+    const client = (globalThis as any).ApiClient;
+    client.getCurrentUserId = () => 'user-1';
+    const ajax = client.ajax;
+    client.ajax = (options: any) => {
+      const result = ajax(options);
+      return options.url === endpoint && JSON.parse(options.data).DeliveryId === FIRST
+        ? Promise.reject({ status: 400, responseJSON: { Message: 'No matching recent discovery delivery for this action.' } }) : result;
+    };
+    render(FIRST, [1], new Date(Date.now() + 300_000).toISOString());
+    await show();
+    expect(posts()).toHaveLength(1); // The impression cannot drive recovery now: this card was already acknowledged.
+    let button = host.querySelector(`[data-jfh-action="${action}"]`)!;
+    if (action === 'request') ui.submitRequest(1, 'movie', null, null, null, button);
+    else ui.executeDismiss(1, 'movie', button);
+    await flush();
+    expect(calls.filter(call => call.url === endpoint)).toHaveLength(1);
+    expect(calls.filter(call => call.method === 'GET' && call.url === root)).toHaveLength(1);
+    expect((host.querySelector('.jfh-discovery-card') as any)._jfhDeliveryId).toBe(SECOND);
+    button = host.querySelector(`[data-jfh-action="${action}"]`)!;
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    if (action === 'request') ui.submitRequest(1, 'movie', null, null, null, button);
+    else ui.executeDismiss(1, 'movie', button);
+    await flush();
+    expect(calls.filter(call => call.url === endpoint).map(call => (call.body as any).DeliveryId)).toEqual([FIRST, SECOND]);
+  });
+
+  test('a delivery rejection after an unrelated mutation refreshes under the current generation', async () => {
+    const root = '/JellyfinHelper/Discovery/My';
+    calls = ajaxRouter({ [root]: freshDelivery(), [root + '/Request']: { Success: true } });
+    const client = (globalThis as any).ApiClient;
+    client.getCurrentUserId = () => 'user-1';
+    const ajax = client.ajax;
+    let reject!: (error: unknown) => void;
+    client.ajax = (options: any) => {
+      const result = ajax(options);
+      return options.url.endsWith('/Request') ? new Promise((_, fail) => { reject = fail; }) : result;
+    };
+    render(FIRST, [1, 2]);
+    ui.submitRequest(1, 'movie', null, null, null, host.querySelector('[data-jfh-action="request"]'));
+    ui.consumeDiscoveryItem(2, 'movie');
+    reject({ status: 400, responseJSON: { Message: 'No matching recent discovery delivery for this action.' } });
+    await flush();
+    expect((host.querySelector('.jfh-discovery-card') as any)._jfhDeliveryId).toBe(SECOND);
+  });
+
+  test('a failed renewal leaves the old token invalid even when a cache-first render repeats it', async () => {
+    const root = '/JellyfinHelper/Discovery/My';
+    calls = ajaxRouter({ [root + '/Request']: { Success: true } });
+    const client = (globalThis as any).ApiClient;
+    client.getCurrentUserId = () => 'user-1';
+    const ajax = client.ajax;
+    client.ajax = (options: any) => {
+      ajax(options);
+      return Promise.reject(options.type === 'GET' ? { status: 503 } : { status: 400, responseJSON: { Message: 'No matching recent discovery delivery for this action.' } });
+    };
+    render(FIRST);
+    ui.submitRequest(1, 'movie', null, null, null, host.querySelector('[data-jfh-action="request"]'));
+    await flush();
+    render(FIRST);
+    ui.handleRequest({ currentTarget: host.querySelector('[data-jfh-action="request"]') });
+    await flush();
+    expect(calls.filter(call => call.url.endsWith('/Request'))).toHaveLength(1);
+    expect(calls.filter(call => call.method === 'GET' && call.url === root)).toHaveLength(2);
   });
 
   test('delivery refresh cannot commit across an account change', async () => {

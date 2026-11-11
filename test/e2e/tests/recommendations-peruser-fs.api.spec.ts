@@ -111,22 +111,31 @@ async function putConfig(body: Record<string, unknown>) {
 }
 
 /** All Movie item ids in the scanned library. */
-interface SeedMovie { id: string; name: string; path: string; played: boolean; favorite: boolean }
+interface SeedMovie { id: string; name: string; path: string; played: boolean; favorite: boolean; tmdbId: number }
 
 async function movieItems(): Promise<SeedMovie[]> {
-  const res = await ctx.get(`/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Path&IsMissing=false&userId=${auth.userId}`);
+  const res = await ctx.get(`/Items?IncludeItemTypes=Movie&Recursive=true&Fields=Path,ProviderIds&IsMissing=false&userId=${auth.userId}`);
   expect(res.ok(), `/Items status ${res.status()}`).toBeTruthy();
-  const body = (await res.json()) as { Items?: Array<{ Id: string; Name: string; Path?: string; IsVirtualItem?: boolean; UserData?: { Played?: boolean; IsFavorite?: boolean } }> };
+  const body = (await res.json()) as { Items?: Array<{ Id: string; Name: string; Path?: string; IsVirtualItem?: boolean; ProviderIds?: { Tmdb?: string }; UserData?: { Played?: boolean; IsFavorite?: boolean } }> };
   return (body.Items ?? [])
     .filter(item => !item.IsVirtualItem && /\.(mkv|mp4|avi|mov|webm)$/i.test(item.Path ?? ''))
-    .map(item => ({ id: item.Id, name: item.Name, path: item.Path!, played: item.UserData?.Played === true, favorite: item.UserData?.IsFavorite === true }));
+    .map(item => {
+      const provider = item.ProviderIds?.Tmdb ?? '';
+      const tmdbId = /^\s*\+?\d+\s*$/.test(provider) ? Number(provider) : 0;
+      return { id: item.Id, name: item.Name, path: item.Path!, played: item.UserData?.Played === true, favorite: item.UserData?.IsFavorite === true,
+        tmdbId: Number.isSafeInteger(tmdbId) && tmdbId > 0 && tmdbId <= 2_147_483_647 ? tmdbId : 0 };
+    });
 }
 
 function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
   const user = auth.userId.replaceAll('-', '').toLowerCase();
+  const seen = new Set<string>();
   return movies.filter(movie => {
     const item = movie.id.replaceAll('-', '').toLowerCase();
-    return createHash('sha256').update(`${user}:library:${item}`).digest().readUInt32LE(0) % 10 !== 0;
+    const key = movie.tmdbId > 0 ? `tmdb:movie:${movie.tmdbId}` : `library:${item}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return createHash('sha256').update(`${user}:${key}`).digest().readUInt32LE(0) % 10 !== 0;
   });
 }
 

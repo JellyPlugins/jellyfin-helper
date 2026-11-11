@@ -1,4 +1,6 @@
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -28,6 +30,31 @@ public class StrategySelectorTests
 
         Assert.Equal(0.0, selector.GetAlphaOffset(Guid.Empty));
         Assert.Equal("control", selector.GetCohortName(Guid.Empty));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Exploration_UsesTheActualScoringGateButRetainsGlobalMaturityThresholds(bool globalFrozen, bool personalFrozen)
+    {
+        using var global = new EnsembleScoringStrategy();
+        using var personal = new EnsembleScoringStrategy();
+        var examples = BuildTrainingExamples(60);
+        Assert.True(global.Train(examples));
+        Assert.True(global.Train(examples));
+        var freeze = typeof(EnsembleScoringStrategy).GetField("_qualityGateFrozen", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        freeze.SetValue(global, globalFrozen);
+        freeze.SetValue(personal, personalFrozen);
+        var registry = new Mock<IPerUserEnsembleRegistry>();
+        registry.Setup(value => value.GetEnsembleForUser(Guid.Empty)).Returns(personal);
+        var selector = new StrategySelector(global, registry.Object);
+        Assert.Equal(personalFrozen ? 0 : StrategySelector.ExploreHighOffset, selector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal(personalFrozen ? "control" : "explore-high", selector.GetCohortName(Guid.Empty));
+        using var immature = new EnsembleScoringStrategy();
+        var immatureSelector = new StrategySelector(immature, registry.Object);
+        Assert.Equal(0.0, immatureSelector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal("control", immatureSelector.GetCohortName(Guid.Empty));
     }
 
     [Fact]

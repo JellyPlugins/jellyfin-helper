@@ -43,21 +43,24 @@ internal sealed class StrategySelector : IStrategySelector
     private const int ExploreLowThreshold = 20;
 
     private readonly EnsembleScoringStrategy _ensemble;
+    private readonly IPerUserEnsembleRegistry? _registry;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="StrategySelector"/> class.
     /// </summary>
     /// <param name="ensemble">The ensemble strategy used to check activation conditions.</param>
-    public StrategySelector(EnsembleScoringStrategy ensemble)
+    /// <param name="registry">Resolves the actual scoring ensemble's gate; null retains global-only callers.</param>
+    public StrategySelector(EnsembleScoringStrategy ensemble, IPerUserEnsembleRegistry? registry = null)
     {
         ArgumentNullException.ThrowIfNull(ensemble);
         _ensemble = ensemble;
+        _registry = registry;
     }
 
     /// <inheritdoc />
     public double GetAlphaOffset(Guid userId)
     {
-        if (!IsExplorationActive())
+        if (!IsExplorationActive(userId))
         {
             return 0.0;
         }
@@ -80,7 +83,7 @@ internal sealed class StrategySelector : IStrategySelector
     /// <inheritdoc />
     public string GetCohortName(Guid userId)
     {
-        if (!IsExplorationActive())
+        if (!IsExplorationActive(userId))
         {
             return "control";
         }
@@ -103,10 +106,11 @@ internal sealed class StrategySelector : IStrategySelector
     /// <summary>
     ///     Determines whether exploration is active based on the ensemble's training maturity.
     /// </summary>
-    private bool IsExplorationActive()
+    private bool IsExplorationActive(Guid userId)
     {
         var diagnostics = _ensemble.GetDiagnosticsSnapshot();
-        return !diagnostics.QualityGateFrozen
+        var scoringEnsemble = _registry?.GetEnsembleForUser(userId) ?? _ensemble;
+        return !scoringEnsemble.IsQualityGateFrozen
                && diagnostics.TrainingExampleCount >= MinExamplesForExploration
                && diagnostics.MetricsHistoryCount >= MinMetricsHistoryForExploration;
     }

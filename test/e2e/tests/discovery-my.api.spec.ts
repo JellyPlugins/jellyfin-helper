@@ -1,6 +1,7 @@
 /** * User-facing Discovery (Discovery/My/*) - the non-admin sidebar flow. * * These endpoints require an authenticated NON-admin user AND the * DiscoveryUserAccessEnabled config toggle. */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask, API_KEY_MASK } from '../setup/api-client.ts';
+import { randomUUID } from 'node:crypto';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask, authHeader, API_KEY_MASK } from '../setup/api-client.ts';
 
 // MaxVisiblePerUser cap enforced by GetMyDiscoveryResults (SeerrDiscoveryService).
 const MAX_VISIBLE_PER_USER = 10;
@@ -109,6 +110,47 @@ async function setDiscoveryAccess(enabled: boolean) {
 }
 
 test.describe.serial('Discovery/My access gating', () => {
+  test('a genuinely new user receives library recommendations and Discovery without a watch-history seed', async () => {
+    await setDiscoveryAccess(true);
+    const name = `jfh-cold-${randomUUID().slice(0, 8)}`;
+    const password = `Jfh-${randomUUID()}`;
+    const created = await admin.post('/Users/New', { data: { Name: name, Password: password } });
+    expect(created.ok(), `new cold-start account failed: ${created.status()}`).toBeTruthy();
+    const account = await created.json() as { Id: string };
+    let fresh: APIRequestContext | undefined;
+    const anonymous = await pwRequest.newContext({ baseURL: auth.baseUrl });
+    try {
+      const login = await anonymous.post('/Users/AuthenticateByName', { headers: { Authorization: authHeader() }, data: { Username: name, Pw: password } });
+      expect(login.ok(), `cold-start login failed: ${login.status()}`).toBeTruthy();
+      const session = await login.json() as { AccessToken: string; User: { Id: string } };
+      expect(session.User.Id).toBe(account.Id);
+      fresh = await pwRequest.newContext({ baseURL: auth.baseUrl, extraHTTPHeaders: { Authorization: authHeader(session.AccessToken), Accept: 'application/json' } });
+      const before = await admin.get(p(`Recommendations/WatchProfile/${account.Id}`));
+      expect(before.ok()).toBeTruthy();
+      const profile = await before.json() as { WatchedMovieCount: number; WatchedEpisodeCount: number; FavoriteCount: number };
+      expect(profile.WatchedMovieCount).toBe(0);
+      expect(profile.WatchedEpisodeCount).toBe(0);
+      expect(profile.FavoriteCount).toBe(0);
+      expect((await runCleanupTask(admin)).LastExecutionResult?.Status).toBe('Completed');
+      const library = await admin.get(p(`Recommendations/${account.Id}`));
+      expect(library.ok()).toBeTruthy();
+      expect((await library.json()).Recommendations.length).toBeGreaterThan(0);
+      const response = await fresh.get(p('Discovery/My'));
+      expect(response.ok(), `new user Discovery failed: ${response.status()}`).toBeTruthy();
+      const discovery = await response.json() as { UserId: string; DeliveryId?: string; Recommendations: Array<{ TmdbId: number; ReasonKey?: string }> };
+      expect(discovery.UserId).toBe(account.Id);
+      expect(discovery.DeliveryId).toBeTruthy();
+      expect(discovery.Recommendations.length).toBeGreaterThan(0);
+      expect(discovery.Recommendations.length).toBeLessThanOrEqual(MAX_VISIBLE_PER_USER);
+      expect(discovery.Recommendations.some(item => item.TmdbId === 97501 || item.TmdbId === 97502)).toBe(true);
+      expect(discovery.Recommendations.every(item => item.ReasonKey !== 'reasonGenre' && item.ReasonKey !== 'reasonPersonNamed')).toBe(true);
+    } finally {
+      await fresh?.dispose();
+      await anonymous.dispose();
+      expect((await admin.delete(`/Users/${account.Id}`)).ok(), 'cold-start account cleanup failed').toBeTruthy();
+    }
+  });
+
   test('all /My endpoints return 403 when access is disabled', async () => {
     requireNormalUser(user);
     await setDiscoveryAccess(false);

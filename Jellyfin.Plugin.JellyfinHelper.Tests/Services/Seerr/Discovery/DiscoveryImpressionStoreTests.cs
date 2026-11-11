@@ -204,6 +204,9 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         Assert.DoesNotContain(store.LoadForUser(requestedUser)!.Entries, entry => entry.TmdbId == 2);
         Assert.Contains((1, "movie"), Store().GetRequestedItems(requestedUser));
         Assert.Contains((3, "movie"), Store().GetDismissedItems(dismissedUser));
+        var compacted = Store().LoadAll();
+        Assert.All(compacted.SelectMany(result => result.Entries), entry => Assert.True(entry.PredictionInputsCompacted));
+        Assert.Empty(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(compacted, new Dictionary<Guid, UserWatchProfile>(), null, null, CancellationToken.None).Examples);
     }
 
     [Fact]

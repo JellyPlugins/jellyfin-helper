@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -544,10 +545,9 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
-    public async Task NoGenrePreferences_SkipsWithDebugReason()
+    public async Task NoGenrePreferences_UsesMetadataOnlyColdStartWithoutInventingPersonalAffinity()
     {
-        // A profile with no genre history yields an empty preference vector; scoring cannot proceed and the
-        // skip is recorded with its reason rather than returning silently.
+        // Trakt recommendations/trending already supply the candidates; a new user still receives them.
         var userId = Guid.NewGuid();
         _history.Setup(h => h.GetUserWatchProfile(userId)).Returns(new UserWatchProfile
         {
@@ -560,11 +560,17 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService();
         var result = await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.NotNull(result);
+        var recommendation = Assert.Single(result.Recommendations);
+        var features = Assert.IsType<CandidateFeatures>(recommendation.ScoringFeatures);
+        Assert.Equal(0.0, features.GenreSimilarity);
+        Assert.False(features.HasUserInteraction);
+        Assert.Equal(EngineConstants.ComputeColdStartPrior(features.CombinedCriticScore, features.RecencyScore, features.PopularityScore), recommendation.Score);
+        Assert.DoesNotContain(recommendation.ReasonKey, new[] { "reasonGenre", "reasonPersonNamed" });
         _lastPluginLog!.Verify(
             l => l.LogDebug(
                 It.IsAny<string>(),
-                It.Is<string>(m => m.Contains("no genre preferences", StringComparison.Ordinal)),
+                It.Is<string>(m => m.Contains("cold-start", StringComparison.Ordinal)),
                 It.IsAny<ILogger>()),
             Times.Once);
     }

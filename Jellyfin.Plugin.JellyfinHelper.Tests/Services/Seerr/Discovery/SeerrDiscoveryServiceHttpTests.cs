@@ -931,6 +931,8 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 
     public string? LastRequestBody { get; private set; }
 
+    public List<(HttpMethod Method, string Path)> Requests { get; } = [];
+
     public Exception? ThrowNext { get; set; }
 
     /// <summary>
@@ -965,6 +967,8 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        Requests.Add((request.Method, request.RequestUri?.PathAndQuery ?? string.Empty));
 
         if (ThrowNext is not null)
         {

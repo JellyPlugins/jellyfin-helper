@@ -135,4 +135,21 @@ public sealed class TrainingExample
     /// <returns>The unchanged stable library observation identifier.</returns>
     internal static Guid CreateLibraryObservationId(Guid userId, Guid itemId)
         => CreateObservationId(userId, "library:" + itemId.ToString("N"));
+
+    /// <summary>Creates the same provider-based identity for library and external observations, with a library fallback only when the provider id is unknown.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="itemId">The library title id used only as a fallback.</param>
+    /// <param name="tmdbId">The known provider title id, or zero.</param>
+    /// <param name="isSeries">Whether the title is television rather than a movie.</param>
+    /// <returns>The stable shared user/title identity.</returns>
+    internal static Guid CreateTitleObservationId(Guid userId, Guid itemId, int tmdbId, bool isSeries)
+        => tmdbId > 0 ? CreateProviderObservationId(userId, tmdbId, isSeries ? "tv" : "movie") : CreateLibraryObservationId(userId, itemId);
+
+    /// <summary>Creates a canonical, culture-independent provider identity without conflating movie/TV ids.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="tmdbId">The provider title id.</param>
+    /// <param name="mediaType">The normalized movie/TV namespace.</param>
+    /// <returns>The stable user/provider/title identity.</returns>
+    internal static Guid CreateProviderObservationId(Guid userId, int tmdbId, string mediaType)
+        => CreateObservationId(userId, "tmdb:" + mediaType.Trim().ToLowerInvariant() + ":" + tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 }

@@ -58,9 +58,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    // V4 adds prediction-time training inputs and model-specific imputation coordinates.
-    // Feature indices stay unchanged, so shape validation alone cannot reject older fits.
-    internal const int CurrentWeightsVersion = 4;
+    // V5 unifies provider-title holdouts across library and discovery. Older fits may have
+    // learned an alias of a now-held-out title; discard weights, never media or watch history.
+    internal const int CurrentWeightsVersion = 5;
 
     /// <summary>
     ///     Cached JSON serializer options for weight persistence. Compact (non-indented) output - the file is machine-read only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.

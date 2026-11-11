@@ -83,7 +83,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                 GeneratedAtUtc = GetLatestInteractionUtc(entry),
                 SampleWeight = hasLegacyPopularity ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5 : EngineConstants.DiscoveryFeedbackSampleWeight,
                 UserId = userFeedback.UserId,
-                ObservationId = TrainingExample.CreateObservationId(userFeedback.UserId, "tmdb:" + entry.MediaType + ":" + entry.TmdbId),
+                ObservationId = TrainingExample.CreateProviderObservationId(userFeedback.UserId, entry.TmdbId, entry.MediaType),
                 HasStableObservationId = true,
                 IsObserved = status != DiscoveryInteractionStatus.Shown || entry.ImpressionAtUtc.HasValue
             });
@@ -91,7 +91,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     }
 
     private static bool IsCensored(DiscoveryFeedbackEntry entry, DiscoveryInteractionStatus status)
-        => status == DiscoveryInteractionStatus.Generated
+        => entry.PredictionInputsCompacted || status == DiscoveryInteractionStatus.Generated
             || (status == DiscoveryInteractionStatus.Shown && entry.ImpressionAtUtc.HasValue
                 && (DateTime.UtcNow - entry.ImpressionAtUtc.Value).TotalDays < EngineConstants.RecommendationInfluenceWindowDays);
 

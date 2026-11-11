@@ -230,6 +230,8 @@ internal static class TrainingFeatureComputer
     /// <param name="genreStudioIdf">Optional genre studio IDF weights.</param>
     /// <param name="organicFallbackTimestamp">Fallback timestamp when no watch date exists.</param>
     /// <param name="seriesAffinityContext">Optional series affinity context.</param>
+    /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
+    /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -252,7 +254,9 @@ internal static class TrainingFeatureComputer
         IReadOnlyDictionary<string, double> preferredWriterWeights,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         DateTime organicFallbackTimestamp,
-        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null)
+        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null,
+        double? parentSeriesRating = null,
+        int seriesTmdbId = 0)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -366,7 +370,10 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         // Label from aggregated completion.
-        var label = AverageExplicitRatings(episodes) ?? playedEps switch
+        var parentRating = parentSeriesRating is > 0 && double.IsFinite(parentSeriesRating.Value)
+            ? Math.Clamp(parentSeriesRating.Value / 10.0, 0.0, 1.0)
+            : (double?)null;
+        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
             {
                 0 when episodes.Any(e => e.IsFavorite) => 0.65,
                 _ => ContentScoring.ComputeEngagementLabel(completionRatio)
@@ -380,9 +387,9 @@ internal static class TrainingFeatureComputer
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId,
-                ObservationId = TrainingExample.CreateLibraryObservationId(userProfile.UserId, seriesId),
+                ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),
                 HasStableObservationId = true,
-                IsObserved = episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
+                IsObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
             });
     }
 

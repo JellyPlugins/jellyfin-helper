@@ -296,15 +296,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
-        // Load user profiles. Include users who have either played content OR have enough favorites to build genre preferences from.
-        var profiles = _watchHistoryService.GetAllUserWatchProfiles();
-        var activeProfiles = profiles
-            .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0 || p.FavoriteCount >= 3)
-            .ToList();
+        // The live provider excludes deleted/disabled accounts. Enabled users without history
+        // still need a metadata-only cold-start pool, not fabricated personal preferences.
+        var activeProfiles = _watchHistoryService.GetAllUserWatchProfiles().ToList();
 
         if (activeProfiles.Count == 0)
         {
-            _pluginLog.LogInfo(LogCategory, "No users with watch history or sufficient favorites found. Skipping.", _logger);
+            _pluginLog.LogInfo(LogCategory, "No enabled user profiles found. Skipping.", _logger);
             return;
         }
 
@@ -1732,10 +1730,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
 
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
-        if (genrePreferences.Count == 0)
-        {
-            return null;
-        }
 
         var topGenres = genrePreferences
             .OrderByDescending(kv => kv.Value)
@@ -1765,19 +1759,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
 
-        // Query A: Top genres (use all top-3 genres for movies + TV)
-        if (topGenres.Count > 0)
+        // Children retain the age-appropriate retrieval routes; certifications remain authoritative.
+        if (isChildAccount)
         {
-            if (isChildAccount)
-            {
-                await GatherChildCandidatesAsync(
-                    client, baseUri, apiKey, allCandidates, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await GatherNormalCandidatesAsync(
-                    client, baseUri, apiKey, topGenres, primaryLanguage, allCandidates, cancellationToken).ConfigureAwait(false);
-            }
+            await GatherChildCandidatesAsync(client, baseUri, apiKey, allCandidates, cancellationToken, requireSuccess: topGenres.Count == 0).ConfigureAwait(false);
+        }
+        else if (topGenres.Count > 0)
+        {
+            await GatherNormalCandidatesAsync(client, baseUri, apiKey, topGenres, primaryLanguage, allCandidates, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await GatherColdStartCandidatesAsync(client, baseUri, apiKey, allCandidates, cancellationToken).ConfigureAwait(false);
         }
 
         // Add user-specific dismissed and previously requested items to the exclusion set.
@@ -1800,7 +1793,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 throw new HttpRequestException("No provider certification metadata could be fetched.");
             }
 
-            uniqueCandidates.RemoveAll(candidate => ParentalRatingHelper.ShouldExclude(candidate, profile.MaxParentalRating));
+            uniqueCandidates.RemoveAll(candidate => candidate.IsAlreadyAvailable || ParentalRatingHelper.ShouldExclude(candidate, profile.MaxParentalRating));
         }
 
         if (uniqueCandidates.Count == 0)
@@ -1873,8 +1866,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
         if (genrePreferences.Count == 0)
         {
-            _pluginLog.LogDebug(LogCategory, $"External scoring skipped: {profile.UserName} has no genre preferences.", _logger);
-            return null;
+            _pluginLog.LogDebug(LogCategory, $"External scoring uses a metadata-only cold-start prior for {profile.UserName}.", _logger);
         }
 
         var topGenres = genrePreferences
@@ -2142,8 +2134,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // so discovery scores a candidate exactly as the recommendations tab would for this user. Resolve it
         // once per user and read the feature means from the SAME instance that scores, so a per-user model
         // materializing mid-run cannot leave scoring and feature means on two different models.
-        var userStrategy = _perUserRegistry.GetEnsembleForUser(context.Profile.UserId);
-        var featureMeans = userStrategy.LearnedStrategy.GetFeatureMeans();
+        var userStrategy = context.GenrePreferences.Count > 0 ? _perUserRegistry.GetEnsembleForUser(context.Profile.UserId) : null;
+        var featureMeans = userStrategy?.LearnedStrategy.GetFeatureMeans();
 
         // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb) This uses genre similarity, rating, recency, year proximity, and popularity but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
@@ -2151,7 +2143,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
-            var score = userStrategy.Score(features);
+            var score = ScoreExternalCandidate(features, userStrategy);
             preScored.Add((candidate, score));
         }
 
@@ -2190,14 +2182,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(enrichmentCandidates.Count);
         foreach (var candidate in enrichmentCandidates)
         {
-            if (ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating))
+            if (candidate.IsAlreadyAvailable || ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating))
             {
                 continue;
             }
 
             var features = ExternalCandidateFeatureBuilder.Build(
                 candidate, context.GenrePreferences, context.PreferredPeople, context.AvgYear, context.GenreExposure, context.Profile, featureMeans);
-            var score = userStrategy.Score(features);
+            var score = ScoreExternalCandidate(features, userStrategy);
             scored.Add((candidate, features, score));
         }
 
@@ -2215,12 +2207,37 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Build recommendations
         var recommendations = new List<DiscoveryRecommendation>(topN.Count);
+        var reasonPeople = userStrategy is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : context.PreferredPeople;
         foreach (var (item, features, score) in topN)
         {
-            recommendations.Add(BuildRecommendation(item, features, score, context.TopGenres, context.PreferredPeople));
+            recommendations.Add(BuildRecommendation(item, features, score, context.TopGenres, reasonPeople));
         }
 
         return recommendations;
+    }
+
+    private static double ScoreExternalCandidate(CandidateFeatures features, EnsembleScoringStrategy? strategy)
+        => strategy is not null ? strategy.Score(features) : EngineConstants.ComputeColdStartPrior(features.CombinedCriticScore, features.RecencyScore, features.PopularityScore);
+
+    /// <summary>Retrieves public popular/trending titles without requiring personal history or changing account filters.</summary>
+    private async Task GatherColdStartCandidatesAsync(HttpClient client, Uri baseUri, string apiKey, List<TmdbDiscoverItem> candidates, CancellationToken cancellationToken)
+    {
+        var queries = new[]
+        {
+            (Path: "api/v1/discover/movies?page=1", MediaType: (string?)MediaTypeMovie),
+            (Path: "api/v1/discover/tv?page=1", MediaType: (string?)"tv"),
+            (Path: "api/v1/discover/trending?mediaType=all&timeWindow=week&page=1", MediaType: (string?)null)
+        };
+        foreach (var query in queries)
+        {
+            var items = await ExecuteDiscoverQueryAsync(client, baseUri, apiKey, query.Path, cancellationToken, requireSuccess: true).ConfigureAwait(false);
+            if (query.MediaType is not null)
+            {
+                StampMediaType(items, query.MediaType);
+            }
+
+            candidates.AddRange(items);
+        }
     }
 
     // Orders by source rank ascending (lower rank = better), with null ranks sorted last so a candidate the
@@ -2294,36 +2311,37 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Uri baseUri,
         string apiKey,
         List<TmdbDiscoverItem> allCandidates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireSuccess = false)
     {
         // For child accounts: query Family genre for movies, Kids for TV
         var familyItems = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken, requireSuccess).ConfigureAwait(false);
         allCandidates.AddRange(familyItems);
 
         var familyItems2 = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken, requireSuccess).ConfigureAwait(false);
         allCandidates.AddRange(familyItems2);
 
         // Animation + Family for movies (children's animation)
         var animItems = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken, requireSuccess).ConfigureAwait(false);
         allCandidates.AddRange(animItems);
 
         // Kids TV genre
         var kidsItems = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken, requireSuccess).ConfigureAwait(false);
         StampMediaType(kidsItems, "tv");
         allCandidates.AddRange(kidsItems);
 
         var kidsItems2 = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken, requireSuccess).ConfigureAwait(false);
         StampMediaType(kidsItems2, "tv");
         allCandidates.AddRange(kidsItems2);
 
         // Family TV genre
         var familyTvItems = await ExecuteDiscoverQueryAsync(
-            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken, requireSuccess).ConfigureAwait(false);
         StampMediaType(familyTvItems, "tv");
         allCandidates.AddRange(familyTvItems);
     }
@@ -2453,7 +2471,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         Uri baseUri,
         string apiKey,
         string queryPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireSuccess = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -2469,11 +2488,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     LogCategory,
                     $"Query returned HTTP {(int)response.StatusCode}: {queryPath}",
                     _logger);
+                if (requireSuccess)
+                {
+                    response.EnsureSuccessStatusCode();
+                }
+
                 return [];
             }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var page = JsonSerializer.Deserialize<TmdbDiscoverResponse>(json, JsonOptions);
+            if (requireSuccess && page is null)
+            {
+                throw new JsonException("Provider discovery response was null.");
+            }
+
             delayAfter = true;
             return page?.Results ?? [];
         }
@@ -2484,11 +2513,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
             _pluginLog.LogWarning(LogCategory, $"Query timed out: {queryPath}", ex, _logger);
+            if (requireSuccess)
+            {
+                throw;
+            }
+
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
         {
             _pluginLog.LogWarning(LogCategory, $"Query failed: {queryPath} - {ex.Message}", ex, _logger);
+            if (requireSuccess)
+            {
+                throw;
+            }
+
             return [];
         }
         finally
@@ -3007,17 +3046,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
             var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
 
-            if (detail?.Id != candidate.Id || detail.Credits is null)
+            if (detail is null || !ApplyFetchedDetail(candidate, detail))
             {
                 return;
-            }
-
-            var people = ExtractTopPeople(detail.Credits);
-            candidate.CertificationScore = CertificationResolver.Resolve(detail, _localization, candidate.Adult);
-
-            if (people.Count > 0)
-            {
-                candidate.KnownPeople = people;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

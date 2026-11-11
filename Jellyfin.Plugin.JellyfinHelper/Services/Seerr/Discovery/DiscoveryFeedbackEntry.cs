@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -20,6 +21,10 @@ public sealed class DiscoveryFeedbackEntry
 
     /// <summary>Gets or sets when the first delivery-bound action or impression confirmed the prediction's provenance.</summary>
     public DateTime? PredictionEvidenceAtUtc { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether size compaction erased prediction inputs; outcomes remain exclusion history, not training evidence.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PredictionInputsCompacted { get; set; }
 
     /// <summary>Gets a value indicating whether features belong to a confirmed delivery rather than an unseen generation.</summary>
     internal bool HasConfirmedPrediction => ImpressionAtUtc.HasValue || PredictionEvidenceAtUtc.HasValue;

@@ -269,6 +269,16 @@ internal static class EngineConstants
         PersonKind.Actor, PersonKind.Director
     ]);
 
+    /// <summary>Computes the existing cold-start quality/freshness prior, optionally including public popularity.</summary>
+    /// <param name="rating">The normalized critic/community rating.</param>
+    /// <param name="recency">The normalized freshness signal.</param>
+    /// <param name="popularity">The normalized popularity signal, or null when unavailable.</param>
+    /// <returns>The metadata-only cold-start score; no personal preference is inferred.</returns>
+    internal static double ComputeColdStartPrior(double rating, double recency, double? popularity = null)
+        => popularity.HasValue
+            ? (0.4 * rating) + (0.3 * recency) + (0.3 * popularity.Value)
+            : (0.6 * rating) + (0.4 * recency);
+
     /// <summary>
     ///     Collection progression boost used by both inference and training.
     /// </summary>

@@ -97,9 +97,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>
     ///     Schema version for persisted weights. A set whose array lengths no longer match the current layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns and resets to defaults so the next training run rebuilds from scratch.
     /// </summary>
-    // V4 adds prediction-time training inputs and model-specific imputation coordinates.
-    // Feature count and layer sizes stay unchanged, so shape validation alone cannot reject older fits.
-    internal const int CurrentWeightsVersion = 4;
+    // V5 unifies provider-title holdouts across library and discovery. Older fits may have
+    // learned an alias of a now-held-out title; array shape alone cannot reject that leakage.
+    internal const int CurrentWeightsVersion = 5;
 
     /// <summary>
     ///     JSON options for weight persistence. Compact (non-indented) output cuts the file to ~a third with no information loss; weights are machine-read only.

@@ -164,13 +164,14 @@ internal sealed class TrainingService : IDisposable
 
             // Build the full pooled example set once. The global pass may subsample it for efficiency, but
             // the per-user passes must see each user's real example count, so they train on this full set.
-            var pooled = BuildTrainingExamples(
+            var batch = BuildTrainingExamples(
                 globalEnsemble, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+            var pooled = batch.Examples;
 
             SplitHeldOut(pooled, out var globalExamples, out var globalHoldout);
             if (incremental && globalExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
             {
-                globalExamples = ApplyIncrementalSampling(globalExamples, previousResults);
+                globalExamples = ApplyIncrementalSampling(globalExamples, batch.PreviousResults);
             }
 
             // Global pass: trains the learned model, the neural MLP (once), and the global blend state.
@@ -287,11 +288,12 @@ internal sealed class TrainingService : IDisposable
         LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
     {
-        var trainingExamples = BuildTrainingExamples(
+        var batch = BuildTrainingExamples(
             strategy, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+        var trainingExamples = batch.Examples;
 
         var sampled = incremental && trainingExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold
-            ? ApplyIncrementalSampling(trainingExamples, previousResults)
+            ? ApplyIncrementalSampling(trainingExamples, batch.PreviousResults)
             : trainingExamples;
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -310,8 +312,8 @@ internal sealed class TrainingService : IDisposable
     /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table.</param>
     /// <param name="libraryItemMetadata">Item metadata map from the live library.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The full pooled training examples.</returns>
-    private List<TrainingExample> BuildTrainingExamples(
+    /// <returns>The pooled examples and the same live-account recommendation partition used to build them.</returns>
+    private TrainingBatch BuildTrainingExamples(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
@@ -355,7 +357,7 @@ internal sealed class TrainingService : IDisposable
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
-        return examples;
+        return new TrainingBatch(examples, previousResults);
     }
 
     /// <summary>
@@ -475,7 +477,9 @@ internal sealed class TrainingService : IDisposable
         List<TrainingExample> examples,
         IReadOnlyList<RecommendationResult> previousResults)
     {
-        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
+        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt)
+            ?? examples.Max(example => (DateTime?)example.GeneratedAtUtc)
+            ?? DateTime.UtcNow;
         var cutoff = latestGeneratedAt.AddDays(-1);
 
         var newExamples = new List<TrainingExample>();
@@ -579,4 +583,6 @@ internal sealed class TrainingService : IDisposable
             heldOutSplit = [];
         }
     }
+
+    private sealed record TrainingBatch(List<TrainingExample> Examples, IReadOnlyList<RecommendationResult> PreviousResults);
 }

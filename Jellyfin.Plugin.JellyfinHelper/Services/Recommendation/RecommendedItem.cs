@@ -26,6 +26,9 @@ public sealed class RecommendedItem
     /// </summary>
     public Guid ItemId { get; set; }
 
+    /// <summary>Gets or sets the canonical TMDb title id captured from library metadata; zero means unknown.</summary>
+    public int TmdbId { get; set; }
+
     /// <summary>
     ///     Gets or sets the item name/title.
     /// </summary>

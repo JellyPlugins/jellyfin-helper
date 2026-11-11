@@ -414,6 +414,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
 │       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
+│       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment

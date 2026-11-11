@@ -104,6 +104,49 @@ public sealed class TrainingPipelineIntegrityTests
         parent.UserRating = 2;
         profile.WatchedItems.Add(parent);
         Assert.Equal(0.2, Assert.Single(TrainingDataBuilder.BuildExamples([cached], [profile], CancellationToken.None).Examples).Label);
+        Assert.Equal(0.2, Assert.Single(TrainingDataBuilder.BuildExamples([], [profile], CancellationToken.None).Examples).Label);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void LibraryAndDiscoveryAliases_ShareCanonicalTitleIdentityAndPermanentPartition(bool series, bool heldout)
+    {
+        var user = Guid.NewGuid();
+        var mediaType = series ? "tv" : "movie";
+        var tmdb = Enumerable.Range(1, 500).First(id => new TrainingExample { Features = new CandidateFeatures(), HasStableObservationId = true, ObservationId = TrainingExample.CreateProviderObservationId(user, id, mediaType) }.IsPermanentHoldout == heldout);
+        var libraryTitle = Guid.NewGuid();
+        var row = Watch(series ? Guid.NewGuid() : libraryTitle, Prediction.AddDays(1), ["Drama"]);
+        row.ItemType = series ? "Episode" : "Movie";
+        row.SeriesId = series ? libraryTitle : null;
+        row.TmdbId = series ? 999999 : tmdb;
+        row.SeriesTmdbId = series ? tmdb : 0;
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [row] };
+        var feedback = new DiscoveryFeedbackResult { UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = tmdb, MediaType = mediaType, ShownAtUtc = Prediction, RequestedAtUtc = Prediction.AddDays(1), PredictionEvidenceAtUtc = Prediction, ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true } }] };
+        var built = TrainingDataBuilder.BuildExamples([], [profile], [feedback], CancellationToken.None).Examples;
+        var expected = TrainingExample.CreateProviderObservationId(user, tmdb, mediaType);
+        Assert.Collection(built, example => Assert.Equal(expected, example.ObservationId), example => Assert.Equal(expected, example.ObservationId));
+        Assert.All(built, example => Assert.Equal(heldout, example.IsPermanentHoldout));
+        var split = Split(built);
+        Assert.Empty(heldout ? split.Fit : split.Holdout);
+        Assert.Collection(heldout ? split.Holdout : split.Fit, example => Assert.Equal(expected, example.ObservationId), example => Assert.Equal(expected, example.ObservationId));
+        Assert.NotEqual(expected, TrainingExample.CreateProviderObservationId(user, tmdb, series ? "movie" : "tv"));
+        Assert.Equal(TrainingExample.CreateLibraryObservationId(user, libraryTitle), TrainingExample.CreateTitleObservationId(user, libraryTitle, 0, series));
+    }
+
+    [Fact]
+    public void LegacyCachedLibraryPrediction_UsesLiveProviderIdentityForItsContrastPartition()
+    {
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = item, ItemType = "Movie", ScoringFeatures = new CandidateFeatures() }] };
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>(), new Dictionary<Guid, int> { [item] = 555 });
+        var result = TrainingDataBuilder.BuildExamples([cached], [new UserWatchProfile { UserId = user }], null, null, null, metadata, null, CancellationToken.None);
+        var contrast = Assert.Single(result.Examples);
+        Assert.Equal(TrainingExample.CreateProviderObservationId(user, 555, "movie"), contrast.ObservationId);
+        Assert.True(contrast.IsContrastSample);
     }
 
     [Fact]

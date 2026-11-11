@@ -1618,7 +1618,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal sealed class EnsembleStateData
     {
         /// <summary>Increment this constant whenever the persisted schema changes.</summary>
-        internal const int CurrentSchemaVersion = 2;
+        internal const int CurrentSchemaVersion = 3;
 
         private List<MetricsSnapshot> _metricsHistory = [];
 

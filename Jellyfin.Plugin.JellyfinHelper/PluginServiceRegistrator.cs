@@ -210,7 +210,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IStrategySelector>(sp =>
         {
             var ensemble = sp.GetRequiredService<EnsembleScoringStrategy>();
-            return new StrategySelector(ensemble);
+            return new StrategySelector(ensemble, sp.GetRequiredService<IPerUserEnsembleRegistry>());
         });
         serviceCollection.AddSingleton<IPerUserEnsembleRegistry>(sp =>
         {

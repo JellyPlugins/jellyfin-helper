@@ -49,6 +49,42 @@ public class TrainingServiceTests
         Assert.DoesNotContain(recorder.LastReceivedTrainSet!, row => row.IsContrastSample);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IncrementalReplay_UnavailableUsersCannotChangeActiveObservationSelection(bool perUserPipeline)
+    {
+        var user = new Guid(2026, 0, 0, new byte[8]);
+        var at = DateTime.UtcNow.AddMinutes(-1);
+        var profile = new UserWatchProfile { UserId = user };
+        for (var i = 0; i < 200; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = new Guid(i + 1, 1, 0, new byte[8]), ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-2), Genres = ["Drama"] });
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var active = new RecommendationResult { UserId = user, GeneratedAt = at, Recommendations = [new RecommendedItem { ItemId = new Guid(9999, 1, 0, new byte[8]), ItemType = "Movie", Genres = ["Drama"] }] };
+        var unavailable = new RecommendationResult { UserId = new Guid(2027, 0, 0, new byte[8]), GeneratedAt = at.AddSeconds(1) };
+
+        Guid[] Run(IReadOnlyList<RecommendationResult> previous)
+        {
+            using var service = CreateSut();
+            if (perUserPipeline)
+            {
+                using var global = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), neural: null);
+                using var registry = new PerUserEnsembleRegistry(global, null, null, new EnsembleBlendBounds(0.15, 0.85, 0.15), _pluginLogMock.Object);
+                Assert.True(service.TrainPerUser(registry, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken));
+                var observed = Assert.IsType<HashSet<Guid>>(typeof(EnsembleScoringStrategy).GetField("_observedTrainingIds", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(global));
+                return observed.Order().ToArray();
+            }
+
+            var recorder = new RecordingStrategy();
+            Assert.True(service.Train(recorder, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken));
+            Assert.All(recorder.LastReceivedTrainSet!, example => Assert.Equal(user, example.UserId));
+            return recorder.LastReceivedTrainSet!.Select(example => example.ObservationId).Order().ToArray();
+        }
+
+        var expected = Run([active]);
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, Run([active, unavailable]));
+    }
+
     /// <summary>
     ///     Minimal recording strategy that captures the last received training set so tests can assert against it.
     /// </summary>

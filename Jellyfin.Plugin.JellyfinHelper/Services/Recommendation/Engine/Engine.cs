@@ -497,6 +497,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
+                TmdbId = ResolveTitleTmdbId(s.Item),
                 Name = s.Item.Name ?? string.Empty,
                 ItemType = s.Item.GetType().Name,
                 Score = Math.Round(s.Score, 4),
@@ -574,11 +575,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 communityScore = Math.Clamp(Math.Log(1.0 + watchCount) / maxLogPopularity, 0.0, 1.0);
             }
 
-            return (0.4 * ratingScore) + (0.3 * recencyScore) + (0.3 * communityScore);
+            return EngineConstants.ComputeColdStartPrior(ratingScore, recencyScore, communityScore);
         }
 
         // Classic formula (single-user deployments or on-demand path).
-        return (0.6 * ratingScore) + (0.4 * recencyScore);
+        return EngineConstants.ComputeColdStartPrior(ratingScore, recencyScore);
     }
 
     /// <summary>
@@ -731,13 +732,19 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var studios = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
         var tags = new Dictionary<Guid, IReadOnlyList<string>>(movies.Count + series.Count);
         var boxSetIds = new Dictionary<Guid, IReadOnlyList<Guid>>();
+        var tmdbIds = new Dictionary<Guid, int>();
 
         foreach (var item in movies.Concat(series))
         {
             AddLibraryItemMetadata(item, studios, tags, boxSetIds);
+            var tmdbId = ResolveTitleTmdbId(item);
+            if (tmdbId > 0)
+            {
+                tmdbIds[item.Id] = tmdbId;
+            }
         }
 
-        return new Training.LibraryItemMetadata(studios, tags, boxSetIds);
+        return new Training.LibraryItemMetadata(studios, tags, boxSetIds, tmdbIds);
     }
 
     /// <summary>
@@ -775,6 +782,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             boxSetIds[item.Id] = itemBoxSets;
         }
     }
+
+    private static int ResolveTitleTmdbId(BaseItem item)
+        => int.TryParse(item.ProviderIds.GetValueOrDefault("Tmdb"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id : 0;
 
     /// <summary>
     ///     Collapses a flat episode list into a per-series playable-episode count. Only episodes with a non-empty Path and a valid SeriesId are counted, matching the candidate-filtering rule so the progression ratio (watched / total) stays meaningful.
@@ -940,7 +950,62 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
-        var featureSnapshots = new Dictionary<Guid, CandidateFeatures>();
+        var scoringAt = DateTime.UtcNow;
+        CandidateFeatureSnapshot BuildFeatures(BaseItem candidate) => BuildCandidateFeatures(
+            candidate,
+            userProfile,
+            genrePreferences,
+            userGenreNormSq,
+            coOccurrence,
+            collaborativeMax,
+            averageYear,
+            preferredStudios,
+            preferredPeopleWeights,
+            averagePreferredPeopleWeight,
+            preferredTags,
+            peopleLookup,
+            genreExposure,
+            watchedGenreSets,
+            watchedPeopleSets,
+            watchedStudioSets,
+            watchedBoxSetCounts,
+            candidateBoxSetLookup,
+            contentAffinityLookup,
+            preferredFranchises,
+            preferredCountries,
+            preferredInheritedTags,
+            preferredWriterWeights,
+            averageWriterWeight,
+            preferredBilledPeople,
+            genreStudioIdf,
+            seriesAffinityCtx,
+            genreEngagementCtx,
+            scoringAt);
+        (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) Score(BaseItem candidate, CandidateFeatureSnapshot snapshot) => ScoreCandidate(
+            candidate,
+            userProfile,
+            strategy,
+            snapshot,
+            genrePreferences,
+            preferredStudios,
+            preferredPeople,
+            preferredPeopleWeights,
+            peopleLookup,
+            watchedBoxSetCounts,
+            candidateBoxSetLookup,
+            preferredCountries,
+            preferredWriterWeights,
+            preferredInheritedTags,
+            alphaOffset);
+        RecommendedItem CaptureSelected(BaseItem candidate)
+        {
+            ct.ThrowIfCancellationRequested();
+            var snapshot = BuildFeatures(candidate);
+            // BaseItem metadata can refresh during ranking. Score the selected snapshot itself,
+            // so retained evidence always matches the final displayed score rather than a later reconstruction.
+            return BuildRecommendedItem(Score(candidate, snapshot), peopleLookup, candidateBoxSetLookup, snapshot);
+        }
+
         var candidateIndex = 0;
         var userMaxRating = userProfile.MaxParentalRating;
         foreach (var candidate in allCandidates)
@@ -956,46 +1021,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 continue;
             }
 
-            scored.Add(
-                ScoreCandidate(
-                    candidate,
-                    userProfile,
-                    strategy,
-                    genrePreferences,
-                    userGenreNormSq,
-                    coOccurrence,
-                    collaborativeMax,
-                    averageYear,
-                    preferredStudios,
-                    preferredPeople,
-                    preferredPeopleWeights,
-                    averagePreferredPeopleWeight,
-                    preferredTags,
-                    peopleLookup,
-                    genreExposure,
-                    watchedGenreSets,
-                    watchedPeopleSets,
-                    watchedStudioSets,
-                    watchedBoxSetCounts,
-                    candidateBoxSetLookup,
-                    contentAffinityLookup,
-                    preferredFranchises,
-                    preferredCountries,
-                    preferredInheritedTags,
-                    preferredWriterWeights,
-                    averageWriterWeight,
-                    preferredBilledPeople,
-                    genreStudioIdf,
-                    seriesAffinityCtx,
-                    genreEngagementCtx,
-                    alphaOffset,
-                    featureSnapshots));
+            scored.Add(Score(candidate, BuildFeatures(candidate)));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
         var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
-            .Select(s => BuildRecommendedItem(s, contentAffinityLookup, peopleLookup, candidateBoxSetLookup, featureSnapshots))
+            .Select(s => CaptureSelected(s.Item))
             .ToList();
 
         var selectedIds = topItems.Select(item => item.ItemId).ToHashSet();
@@ -1004,7 +1036,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var contrasts = new Collection<RecommendedItem>(scored.Where(item => !selectedIds.Contains(item.Item.Id))
             .OrderBy(item => TrainingExample.CreateObservationId(userProfile.UserId, $"contrast:{contrastSeed}:{item.Item.Id:N}"))
             .Take(EngineConstants.RandomNegativeSamplesPerUser)
-            .Select(item => BuildRecommendedItem(item, contentAffinityLookup, peopleLookup, candidateBoxSetLookup, featureSnapshots)).ToList());
+            .Select(item => CaptureSelected(item.Item)).ToList());
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -1018,7 +1050,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             Profile = ReasonResolver.StripWatchedItemsForResponse(userProfile),
             Recommendations = new Collection<RecommendedItem>(topItems),
             TrainingContrasts = contrasts,
-            GeneratedAt = DateTime.UtcNow,
+            GeneratedAt = scoringAt,
             ScoringStrategy = strategy.Name,
             ScoringStrategyKey = strategy.NameKey,
             Cohort = _strategySelector.GetCohortName(userProfile.UserId)
@@ -1064,29 +1096,26 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Projects a scored candidate tuple into a RecommendedItem DTO. Extracted verbatim from the top-N projection in GenerateForUser; field resolution and the content-affinity fallback are unchanged.
     /// </summary>
     /// <param name="s">The scored candidate tuple.</param>
-    /// <param name="contentAffinityLookup">Per-snapshot content-affinity precompute.</param>
     /// <param name="peopleLookup">Item id -> person name set lookup.</param>
     /// <param name="candidateBoxSetLookup">Item id -> containing BoxSet ids lookup.</param>
-    /// <param name="featureSnapshots">Raw signals captured before feedback for the selected candidates.</param>
+    /// <param name="snapshot">Signals reconstructed only for this selected item from the pinned prediction context.</param>
     /// <returns>The populated recommendation DTO.</returns>
     private RecommendedItem BuildRecommendedItem(
         (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) s,
-        Dictionary<Guid, CandidateContentAffinity> contentAffinityLookup,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
-        Dictionary<Guid, CandidateFeatures> featureSnapshots)
+        CandidateFeatureSnapshot snapshot)
     {
         // Resolve the candidate's content-affinity source data ONCE from the per-snapshot precompute (fallback to a live resolve only for a just-added candidate), then reuse it for all seven cached DTO fields below - no per-field GetPeople/GetInheritedTags.
-        var content = contentAffinityLookup.TryGetValue(s.Item.Id, out var cachedContent)
-            ? cachedContent
-            : ResolveContentAffinity(s.Item);
+        var content = snapshot.Content;
         return new RecommendedItem
         {
             ItemId = s.Item.Id,
+            TmdbId = ResolveTitleTmdbId(s.Item),
             Name = s.Item.Name ?? string.Empty,
             ItemType = s.Item.GetType().Name,
             Score = Math.Round(s.Score, 4),
-            ScoringFeatures = featureSnapshots.TryGetValue(s.Item.Id, out var features) ? features.Copy() : null,
+            ScoringFeatures = snapshot.Features.Copy(),
             Reason = s.Reason,
             ReasonKey = s.ReasonKey,
             RelatedItemName = s.RelatedItem,
@@ -1100,8 +1129,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             PeopleNames = peopleLookup.TryGetValue(s.Item.Id, out var people) ? [.. people] : [],
             Studios = s.Item.Studios ?? [],
             Tags = s.Item.Tags ?? [],
-            AudioLanguages = ResolveAudioLanguages(s.Item),
-            SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+            AudioLanguages = snapshot.AudioLanguages,
+            SubtitleLanguages = snapshot.SubtitleLanguages,
             BoxSetIds = candidateBoxSetLookup.TryGetValue(s.Item.Id, out var bsIds) ? bsIds : [],
             DateCreated = s.Item.DateCreated,
             // Content-affinity fields for the top-N result DTO come from the per-snapshot precompute (resolved once into `content` above) rather than a fresh GetInheritedTags()/GetPeople per top-N item per user.
@@ -1256,19 +1285,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Scores a single candidate item against the user's preferences. Computes all feature signals and delegates to the scoring strategy.
+    ///     Builds candidate signals against one prediction-time context without retaining every candidate's feature object.
     /// </summary>
-    private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(
+    private CandidateFeatureSnapshot BuildCandidateFeatures(
         BaseItem candidate,
         UserWatchProfile userProfile,
-        IScoringStrategy strategy,
         Dictionary<string, double> genrePreferences,
         double userGenreNormSq,
         Dictionary<Guid, double> coOccurrence,
         double collaborativeMax,
         double averageYear,
         HashSet<string> preferredStudios,
-        HashSet<string> preferredPeople,
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
         double averagePreferredPeopleWeight,
         HashSet<string> preferredTags,
@@ -1289,16 +1316,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         ContentScoring.SeriesAffinityContext seriesAffinityCtx,
         ContentScoring.GenreEngagementContext genreEngagementCtx,
-        double alphaOffset = 0.0,
-        Dictionary<Guid, CandidateFeatures>? featureSnapshots = null)
+        DateTime scoringAt)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
         var dateCreated = candidate.DateCreated;
-        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? dateCreated);
-        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated);
+        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? dateCreated, scoringAt);
+        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated, scoringAt);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
 
         // Genre level engagement package for the three interaction features.
@@ -1371,9 +1397,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             StudioMatch = studioMatch,
             SeriesAffinity = seriesAffinity,
             PopularityScore = popularityScore,
-            DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
-            HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
+            DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile, scoringAt),
+            HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile, scoringAt),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, scoringAt),
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(
@@ -1407,10 +1433,28 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        if (featureSnapshots is not null)
-        {
-            featureSnapshots[candidate.Id] = features.Copy();
-        }
+        return new CandidateFeatureSnapshot(features, content, candidateMediaLanguages.Audio, candidateMediaLanguages.Subtitles);
+    }
+
+    private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(
+        BaseItem candidate,
+        UserWatchProfile userProfile,
+        IScoringStrategy strategy,
+        CandidateFeatureSnapshot snapshot,
+        Dictionary<string, double> genrePreferences,
+        HashSet<string> preferredStudios,
+        HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        Dictionary<Guid, int> watchedBoxSetCounts,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        IReadOnlyDictionary<string, double> preferredCountries,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        HashSet<string> preferredInheritedTags,
+        double alphaOffset)
+    {
+        var features = snapshot.Features;
+        var content = snapshot.Content;
 
         // Apply alpha offset for cohort exploration when the strategy supports it.
         // For control cohort (offset≈0), this is a zero-cost fast path via the standard method.
@@ -1433,7 +1477,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 preferredCountries,
                 preferredWriterWeights,
                 preferredInheritedTags,
-                candidateMediaLanguages.Audio,
+                snapshot.AudioLanguages,
                 userProfile));
 
         var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
@@ -2618,6 +2662,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         _trainingService.Dispose();
     }
+
+    private sealed record CandidateFeatureSnapshot(CandidateFeatures Features, CandidateContentAffinity Content, List<string> AudioLanguages, List<string> SubtitleLanguages);
 
     /// <summary>
     ///     Per-candidate, user-invariant content-affinity source data, pre-computed once per snapshot by BuildCandidateContentAffinityLookup.
