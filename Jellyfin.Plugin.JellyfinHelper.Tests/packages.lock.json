@@ -358,11 +358,11 @@
       },
       "System.IO.Abstractions": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "dHMHwd6rl1CFJvdD9jnahy3ZjU67huvUCNhitH+7mzg8ZfLocc5ZQyKmUQMUJiQdElARWJBw0XQQzP6BCKsglA==",
+        "resolved": "23.0.0",
+        "contentHash": "lMBdXRPdCL95QKrmhK7hthyF3CZblVcU1JBGjZyYpkGlw/Mnrw4GZeP6S4rzkm4oKpa4lUecNInKCLs8+6HI5Q==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions": "22.3.0",
-          "TestableIO.System.IO.Abstractions.Wrappers": "22.3.0"
+          "TestableIO.System.IO.Abstractions": "23.0.0",
+          "TestableIO.System.IO.Abstractions.Wrappers": "23.0.0"
         }
       },
       "System.Security.AccessControl": {
@@ -372,10 +372,10 @@
       },
       "TestableIO.System.IO.Abstractions": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "2dqQ5AEE61NkQ/0F31mhOXYhgzZOtC+RUuJajwYa7gPgZBqJVe9Mc/hnqXEbBSDOxGZ7hYsmULjzK3yqewB3FA==",
+        "resolved": "23.0.0",
+        "contentHash": "xodhCNREe8aUgwqeN372r/CF6uOowyHfC5hgBIvs7Taax9p5v/z6PC8fA/weEDxZyJzzjxcpT8vf4xQdcq+2ug==",
         "dependencies": {
-          "Testably.Abstractions.FileSystem.Interface": "10.4.0"
+          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
         }
       },
       "TestableIO.System.IO.Abstractions.TestingHelpers": {
@@ -459,7 +459,7 @@
         "dependencies": {
           "Jellyfin.Controller": "[12.4.0, )",
           "Jellyfin.Model": "[12.4.0, )",
-          "System.IO.Abstractions": "[22.3.0, )"
+          "System.IO.Abstractions": "[23.0.0, )"
         }
       }
     }
