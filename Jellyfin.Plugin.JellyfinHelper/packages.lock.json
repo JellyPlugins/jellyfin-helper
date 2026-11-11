@@ -4,7 +4,7 @@
     "net10.0": {
       "Jellyfin.Controller": {
         "type": "Direct",
-        "requested": "[12.4.0, )",
+        "requested": "[12.4.0, 12.4.0]",
         "resolved": "12.4.0",
         "contentHash": "wiLaaSqanTu8jXXtnLX9l5QHe7UXr8hZ1braL34PwieA3vtQY/oFeBP0k7NTADHAwnwb531Nwt/QZkf40JiPXg==",
         "dependencies": {
@@ -17,7 +17,7 @@
       },
       "Jellyfin.Model": {
         "type": "Direct",
-        "requested": "[12.4.0, )",
+        "requested": "[12.4.0, 12.4.0]",
         "resolved": "12.4.0",
         "contentHash": "8cJAMYpMeXkpmxfILVwU+KUr+960tXZyDN+Y5I3ACCAJna0366bjGmWAV4xqB5XlGA8ZIGTi4K9t3hl2/o+Cgg==",
         "dependencies": {
@@ -27,25 +27,25 @@
       },
       "SerilogAnalyzer": {
         "type": "Direct",
-        "requested": "[0.15.0, )",
+        "requested": "[0.15.0, 0.15.0]",
         "resolved": "0.15.0",
         "contentHash": "sVpwfls4MfNnwIXLSGCgaUnV+c9kgJ8ia6GsyRcpd4Vs3gLogSDtSYBYrre2K2u/PNMo8GgG09RehwVnze70Tw=="
       },
       "SmartAnalyzers.MultithreadingAnalyzer": {
         "type": "Direct",
-        "requested": "[1.1.31, )",
+        "requested": "[1.1.31, 1.1.31]",
         "resolved": "1.1.31",
         "contentHash": "2f2k7bbhDd132ArglCKpzKoWBcp3uzbIFcb4aosnlqIKlfYKDE2HevBVRNVa+LkWFnjXFFWs47Bo96fu8iS//Q=="
       },
       "StyleCop.Analyzers": {
         "type": "Direct",
-        "requested": "[1.3.180, )",
+        "requested": "[1.3.180, 1.3.180]",
         "resolved": "1.3.180",
         "contentHash": "/TDyrO3tUJOsnyTazvaX+qwwBt4aixQLNLtxmkyWQZE94IOZ9PnClHrwKUVn/NSXdXUUWrKMHTtlxUkZ1F8JWg=="
       },
       "System.IO.Abstractions": {
         "type": "Direct",
-        "requested": "[23.0.0, )",
+        "requested": "[23.0.0, 23.0.0]",
         "resolved": "23.0.0",
         "contentHash": "lMBdXRPdCL95QKrmhK7hthyF3CZblVcU1JBGjZyYpkGlw/Mnrw4GZeP6S4rzkm4oKpa4lUecNInKCLs8+6HI5Q==",
         "dependencies": {

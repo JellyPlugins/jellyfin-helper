@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Microsoft.Extensions.Logging;
@@ -430,6 +431,30 @@ public sealed class EnsembleScoringStrategyAdvancedTests
 
         Assert.InRange(scoreBefore, 0.0, 1.0);
         Assert.InRange(scoreAfter, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Reconfigure_ConcurrentScoringAndDiagnosticsObserveOnlyCompleteConfigurations()
+    {
+        using var first = new EnsembleScoringStrategy(alphaMin: 0.2, alphaMax: 0.2, genrePenaltyFloor: 0.2);
+        using var second = new EnsembleScoringStrategy(alphaMin: 0.8, alphaMax: 0.8, genrePenaltyFloor: 0.8);
+        using var ensemble = new EnsembleScoringStrategy(alphaMin: 0.2, alphaMax: 0.2, genrePenaltyFloor: 0.2);
+        var features = new CandidateFeatures { GenreSimilarity = 0.1, CombinedCriticScore = 0.8, CollaborativeScore = 0.7, RecencyScore = 0.3 };
+        var expectedScores = new[] { first.Score(features), second.Score(features) };
+        var expectedExplanations = new[] { first.ScoreWithExplanation(features).FinalScore, second.ScoreWithExplanation(features).FinalScore };
+        Assert.NotEqual(expectedScores[0], expectedScores[1]);
+
+        Parallel.For(0, 256, index =>
+        {
+            var bound = index % 2 == 0 ? 0.2 : 0.8;
+            ensemble.Reconfigure(bound, bound, bound);
+            var snapshot = ensemble.GetDiagnosticsSnapshot();
+            Assert.Contains(snapshot.Alpha, new[] { 0.2, 0.8 });
+            Assert.Equal(snapshot.Alpha, snapshot.AlphaMin);
+            Assert.Equal(snapshot.Alpha, snapshot.AlphaMax);
+            Assert.Contains(ensemble.Score(features), expectedScores);
+            Assert.Contains(ensemble.ScoreWithExplanation(features).FinalScore, expectedExplanations);
+        });
     }
 
     [Fact]

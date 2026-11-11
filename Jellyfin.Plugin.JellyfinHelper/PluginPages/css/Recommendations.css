@@ -645,6 +645,11 @@
     gap: 0.35em;
 }
 
+/* Cold-start labels have no positioned score bar and must not overlay other controls. */
+.discovery-card-body > .recs-score-text {
+    position: static;
+}
+
 .discovery-card-title {
     font-size: 1.05em;
     font-weight: 600;

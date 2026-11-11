@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.1.1.0] - 2026-11-12
+
+**Note: Recommendation Engine V5 retrains your models.** Existing learned and neural models are replaced and trained again for the updated scoring and training rules. Keep the recommendation task in Activate mode to rebuild them over the next scheduled runs; your media, watch history and settings stay intact.
+
+### Added
+
+- **Discovery distinguishes popular suggestions from personal matches.** Cards without enough personal evidence now say "Not personalized" instead of showing a misleading match percentage.
+- **Discovery tells you when availability is unchecked.** A title whose availability could not be verified shows "Unchecked" with an explanatory hint instead of offering a Request button.
+
+### Changed
+
+- **More relevant, varied personal Discovery lists.** Weak personal matches are filtered out, genres are balanced and no more than two titles from a verified collection fill the list. Trakt suggestions keep their source's ordering.
+- **Taste matching works across metadata languages.** Translated genre names and combined TV genres now match the same tastes consistently. Missing metadata is treated as unknown rather than a negative preference, while displayed genre names stay familiar.
+- **Collection suggestions follow your actual collections.** Linked Jellyfin collections and verified TMDb collection identities now drive continuation suggestions, without mistaking folder placement or similar names for membership or counting each episode as a separate series.
+- **Discovery learns from cards you actually see.** Visible cards are confirmed, and requests or dismissals remain tied to the suggestions that were displayed. Unseen suggestions do not become training evidence just because they were generated.
+- **Recommendation explanations follow the score.** The "Why" signal now reflects what actually changes the final score, including learned and neural scoring, rather than an approximate contribution that can point to the wrong reason.
+
+### Fixed
+
+- **Parental limits stay enforced through requesting.** Restricted profiles no longer receive titles with missing or unverified age ratings, and requests are checked against the current parental settings and rating-country policy before submission.
+- **Favorites and partial playback are not mistaken for completed viewing.** Discovery distinguishes real playback from a favorite-only entry and does not treat a partially played title as finished, while those interactions can still inform your tastes.
+- **Training cannot learn the answer before predicting it.** Recommendation learning uses the context recorded when a suggestion was made, and quality checks keep the same title out of training even when it appears as a duplicate library item or a Discovery candidate.
+- **Playlist updates verify the user is still active.** A user who has been disabled, removed or cannot be checked is no longer given an updated recommendation playlist from stale results.
+- **Touch controls keep a compact, readable layout.** Settings selectors and folder-name inputs avoid iOS focus zoom without oversized checkboxes or forced button heights crowding Discovery and Arr controls; larger text preferences remain respected.
+
+### Tests
+
+- Verified by 94% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests.
+- Regression coverage exercises visible-card feedback, parental checks at request time, unchecked availability, cold-start labels, localized genres, linked collections, missing metadata, independent title validation and inactive-user playlist safety.
+
 ## [3.1.0.1] - 2026-11-09
 
 ### Added

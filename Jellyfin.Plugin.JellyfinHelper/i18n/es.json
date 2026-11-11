@@ -360,7 +360,7 @@
   "strategyColdStart": "Inicio frío (Popular + Reciente)",
   "recsMatch": "coincidencia",
   "discoveryLocalScore": "Puntuación local",
-  "discoveryColdStart": "Sugerencias populares — aún no personalizadas",
+  "discoveryColdStart": "No personalizadas",
   "recsWatchProfiles": "Perfiles de visualización",
   "recsProfilesError": "No se pudieron cargar los perfiles.",
   "recsNoProfiles": "No hay perfiles disponibles.",

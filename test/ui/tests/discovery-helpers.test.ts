@@ -374,7 +374,7 @@ describe('renderCards', () => {
     const el = document.createElement('div');
     ui.renderCards(el, { Recommendations: [rec({ IsPersonalized: false, Score: 0.99 })] });
     expect(el.querySelector('.jfh-discovery-score-bar')).toBeNull();
-    expect(el.textContent).toContain('not personalized yet');
+    expect(el.textContent).toContain('Not personalized');
     expect(el.textContent).not.toContain('99%');
   });
 
