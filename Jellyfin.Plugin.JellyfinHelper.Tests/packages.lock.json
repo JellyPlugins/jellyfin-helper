@@ -80,7 +80,7 @@
       },
       "System.IO.Abstractions.TestingHelpers": {
         "type": "Direct",
-        "requested": "[23.0.0, )",
+        "requested": "[23.0.0, 23.0.0]",
         "resolved": "23.0.0",
         "contentHash": "aT0WLnyILjtULMS5tubS3pwKfTYu/70ytV1rfYhKEjOJZLoRjFXcvrGo9PIcm9l5N4xhvQeaEkcpQ0Ts24XbLQ==",
         "dependencies": {
@@ -459,7 +459,7 @@
         "dependencies": {
           "Jellyfin.Controller": "[12.4.0, )",
           "Jellyfin.Model": "[12.4.0, )",
-          "System.IO.Abstractions": "[23.0.0, )"
+          "System.IO.Abstractions": "[23.0.0, 23.0.0]"
         }
       }
     }
