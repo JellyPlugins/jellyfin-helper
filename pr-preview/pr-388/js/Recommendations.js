@@ -597,7 +597,7 @@ function renderDiscoveryActions(rec, mediaType) {
 
 function renderDiscoveryScore(rec) {
     if (rec.IsPersonalized === false) {
-        return '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</span>';
+        return '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Not personalized')) + '</span>';
     }
     var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');

@@ -360,7 +360,7 @@
   "strategyColdStart": "Kallstart (populärt + nytt)",
   "recsMatch": "matchning",
   "discoveryLocalScore": "Lokal poäng",
-  "discoveryColdStart": "Populära förslag — ännu inte personliga",
+  "discoveryColdStart": "Inte personanpassade",
   "recsWatchProfiles": "Tittarprofilöversikt",
   "recsProfilesError": "Kunde inte ladda tittarprofiler.",
   "recsNoProfiles": "Inga tittarprofiler tillgängliga.",

@@ -360,7 +360,7 @@
   "strategyColdStart": "Cold Start (Popular + Recent)",
   "recsMatch": "match",
   "discoveryLocalScore": "Local score",
-  "discoveryColdStart": "Popular suggestions — not personalized yet",
+  "discoveryColdStart": "Not personalized",
   "recsWatchProfiles": "Watch Profiles Overview",
   "recsProfilesError": "Could not load watch profiles.",
   "recsNoProfiles": "No watch profiles available.",
