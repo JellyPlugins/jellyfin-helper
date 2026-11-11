@@ -470,7 +470,8 @@ internal static class ContentScoring
         IReadOnlyList<string> candidateGenres,
         GenreEngagementContext context)
     {
-        var totalMeaningful = context.MeaningfulWatches.Count;
+        var watches = context.CanonicalWatches();
+        var totalMeaningful = watches.Count;
         if (candidateGenres.Count == 0 || totalMeaningful == 0)
         {
             return (0.0, 0.5, 0.0);
@@ -481,9 +482,9 @@ internal static class ContentScoring
         var withCompletionCount = 0;
         var completionSum = 0.0;
         var abandonCount = 0;
-        foreach (var w in context.MeaningfulWatches)
+        foreach (var w in watches)
         {
-            if (w.Genres is null || !GenreNormalizer.Overlaps(candidateSet, w.Genres))
+            if (w.Genres is null || !candidateSet.Overlaps(w.Genres))
             {
                 continue;
             }
@@ -529,6 +530,7 @@ internal static class ContentScoring
     /// <returns>The per-user genre-engagement context.</returns>
     internal static GenreEngagementContext BuildGenreEngagementContext(UserWatchProfile profile)
     {
+        var catalogVersion = GenreNormalizer.CatalogVersion;
         var meaningful = new List<MeaningfulWatch>();
         foreach (var w in profile.WatchedItems)
         {
@@ -546,7 +548,7 @@ internal static class ContentScoring
             meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
         }
 
-        return new GenreEngagementContext(meaningful);
+        return new GenreEngagementContext(meaningful, catalogVersion);
     }
 
     /// <summary>
@@ -608,7 +610,8 @@ internal static class ContentScoring
         IReadOnlyList<string> candidateGenres,
         GenreEngagementContext context)
     {
-        if (candidateGenres.Count == 0 || context.MeaningfulWatches.Count == 0)
+        var watches = context.CanonicalWatches();
+        if (candidateGenres.Count == 0 || watches.Count == 0)
         {
             return 0.5;
         }
@@ -616,9 +619,9 @@ internal static class ContentScoring
         var candidateSet = GenreNormalizer.Set(candidateGenres);
         var ratingSum = 0.0;
         var ratingCount = 0;
-        foreach (var w in context.MeaningfulWatches)
+        foreach (var w in watches)
         {
-            if (w.Genres is null || !GenreNormalizer.Overlaps(candidateSet, w.Genres) || w.NormalizedRating is null)
+            if (w.Genres is null || !candidateSet.Overlaps(w.Genres) || w.NormalizedRating is null)
             {
                 continue;
             }
@@ -864,6 +867,37 @@ internal static class ContentScoring
     ///     reproduces the direct method's arithmetic exactly.
     /// </summary>
     /// <param name="MeaningfulWatches">Meaningful watched items, in profile order.</param>
+    /// <param name="CatalogVersion">The alias version used when these genres were normalized.</param>
     internal sealed record GenreEngagementContext(
-        List<MeaningfulWatch> MeaningfulWatches);
+        List<MeaningfulWatch> MeaningfulWatches,
+        int CatalogVersion)
+    {
+        private readonly object _genreCacheLock = new();
+        private int _refreshedVersion = -1;
+        private List<MeaningfulWatch>? _refreshedWatches;
+
+        /// <summary>Reuses canonical sets; a changed provider catalog re-normalizes the detached snapshot once.</summary>
+        /// <returns>The current canonical genre sets in the original arithmetic order.</returns>
+        internal List<MeaningfulWatch> CanonicalWatches()
+        {
+            var version = GenreNormalizer.CatalogVersion;
+            if (version == CatalogVersion)
+            {
+                return MeaningfulWatches;
+            }
+
+            lock (_genreCacheLock)
+            {
+                if (_refreshedWatches is null || _refreshedVersion != version)
+                {
+                    _refreshedWatches = MeaningfulWatches.Select(watch => watch.Genres is null
+                        ? watch
+                        : watch with { Genres = GenreNormalizer.Set(watch.Genres) }).ToList();
+                    _refreshedVersion = version;
+                }
+
+                return _refreshedWatches;
+            }
+        }
+    }
 }

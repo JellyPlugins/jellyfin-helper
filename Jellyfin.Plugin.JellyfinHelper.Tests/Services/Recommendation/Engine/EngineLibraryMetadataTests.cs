@@ -93,6 +93,39 @@ public sealed class EngineLibraryMetadataTests : IDisposable
         ];
     }
 
+    [Fact]
+    public void PartialMembershipFailure_MergesResolvedPositivesWithoutLosingCachedMemberships()
+    {
+        var linked = new Mock<ILinkedChildrenService>();
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        var watched = MakeMovie("Watched sibling");
+        var oldProbe = MakeMovie("Cached collection probe");
+        var newProbe = MakeMovie("Newly resolved collection probe");
+        var oldCollection = new BoxSet { Id = Guid.NewGuid() };
+        var currentCollection = new BoxSet { Id = Guid.NewGuid() };
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([oldCollection, currentCollection]);
+        linked.Setup(service => service.GetLinkedChildrenIds(oldCollection.Id, (int)LinkedChildType.Manual)).Throws(new InvalidOperationException("one collection unavailable"));
+        linked.Setup(service => service.GetLinkedChildrenIds(currentCollection.Id, (int)LinkedChildType.Manual)).Returns([watched.Id, newProbe.Id]);
+        var metadata = harness.Engine.BuildTrainingLibraryMetadata([watched, oldProbe, newProbe], []);
+        Assert.False(metadata.BoxSetMembershipsComplete);
+        Assert.Equal([currentCollection.Id], metadata.BoxSetIds[watched.Id]);
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-2);
+        var profiles = new Collection<UserWatchProfile> { new() { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = watched.Id, ItemType = "Movie", Played = true, LastPlayedDate = at.AddDays(-1) }] } };
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = at, Recommendations =
+        [
+            new RecommendedItem { ItemId = watched.Id, BoxSetIds = [oldCollection.Id] },
+            new RecommendedItem { ItemId = oldProbe.Id, BoxSetIds = [oldCollection.Id] },
+            new RecommendedItem { ItemId = newProbe.Id }
+        ] };
+        var examples = TrainingDataBuilder.BuildExamples([previous], profiles, null, null, null, metadata, null, TestContext.Current.CancellationToken).Examples;
+        foreach (var id in new[] { oldProbe.Id, newProbe.Id })
+        {
+            var example = Assert.Single(examples, item => item.ObservationId == TrainingExample.CreateTitleObservationId(user, id, 0, false));
+            Assert.Equal(0.3, example.Features.CollectionProgressionBoost, 12);
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

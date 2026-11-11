@@ -103,13 +103,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // rather than rebuilding it inside BuildProfile on each iteration.
         var seriesGenresById = BuildSeriesGenresLookup(allSeries);
         var seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
+        var collectionIds = LoadCollectionIds(allItems);
 
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -309,13 +310,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
+    /// <param name="collectionIds">Pre-resolved collection identities shared by the batch; null performs the single-profile lookup on demand.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
         IReadOnlyList<BaseItem>? allSeries = null,
         Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
-        Dictionary<Guid, int>? seriesTmdbById = null)
+        Dictionary<Guid, int>? seriesTmdbById = null,
+        Dictionary<Guid, int>? collectionIds = null)
     {
         var profile = new UserWatchProfile
         {
@@ -350,7 +353,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Studios?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Tags?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
-            LoadCollectionIds(allItems));
+            collectionIds ?? LoadCollectionIds(allItems));
 
         var ratingSum = 0.0;
         var ratingCount = 0;

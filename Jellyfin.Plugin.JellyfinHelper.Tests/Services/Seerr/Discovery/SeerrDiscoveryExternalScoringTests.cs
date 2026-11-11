@@ -501,6 +501,21 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public async Task CompleteStandaloneMovie_WithOmittedCollection_PreservesKnownZeroFeatures()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _detailById[101] = """{"id":101,"title":"Standalone movie","releaseDate":"2024-01-01","originalTitle":"Standalone movie","originalLanguage":"en","adult":false,"budget":0,"revenue":0,"runtime":90,"genres":[{"id":28,"name":"Action"}],"productionCompanies":[],"productionCountries":[],"spokenLanguages":[],"status":"Released","video":false,"voteCount":10,"voteAverage":8,"popularity":50,"credits":{"cast":[],"crew":[]},"releases":{"results":[]},"keywords":[],"externalIds":{}}""";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var features = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.True(features.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity));
+        Assert.True(features.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
+        var means = Enumerable.Repeat(0.37, CandidateFeatures.FeatureCount).ToArray();
+        Assert.Equal(0, features.ToModelVector(means)[(int)FeatureIndex.FranchiseAffinity]);
+        Assert.Equal(0, features.ToModelVector(means)[(int)FeatureIndex.CollectionProgressionBoost]);
+    }
+
+    [Fact]
     public async Task CompleteProviderMetadata_ReachesSnapshotsWithoutDependingOnBoxsets()
     {
         var user = Guid.NewGuid();

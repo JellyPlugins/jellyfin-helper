@@ -141,6 +141,8 @@ public sealed class ExternalAvailableMetadataTests
         Assert.True(known.HasCollectionMetadata);
         Assert.Equal(123, known.Collection!.Id);
         Assert.Equal(210024, Assert.Single(known.Keywords!).Id);
+        var partialMovie = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"id":101,"title":"Partial movie","releaseDate":"2024-01-01","adult":false,"genres":[],"credits":{"cast":[],"crew":[]},"productionCompanies":[]}""")!;
+        Assert.False(partialMovie.HasCollectionMetadata);
     }
 
     [Fact]

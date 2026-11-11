@@ -11,11 +11,21 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 internal sealed class SeerrMediaDetailResponse
 {
+    private bool _collectionPropertyPresent;
+
     /// <summary>
     ///     Gets or sets the TMDb ID.
     /// </summary>
     [JsonPropertyName("id")]
     public int Id { get; set; }
+
+    /// <summary>Gets or sets the movie title, distinguishing movie details from partial/search or TV payloads.</summary>
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    /// <summary>Gets or sets the required movie release-date field; an empty value is valid for an unreleased movie.</summary>
+    [JsonPropertyName("releaseDate")]
+    public string? ReleaseDate { get; set; }
 
     /// <summary>
     ///     Gets or sets the credits information containing cast and crew.
@@ -91,13 +101,17 @@ internal sealed class SeerrMediaDetailResponse
         set
         {
             field = value;
-            HasCollectionMetadata = true;
+            _collectionPropertyPresent = true;
         }
     }
 
-    /// <summary>Gets a value indicating whether collection metadata was actually present, not merely absent from a partial response.</summary>
+    /// <summary>Gets a value indicating whether collection membership was stated or its absence confirmed by complete movie details. Seerr omits the field for standalone movies; partial responses stay unknown.</summary>
     [JsonIgnore]
-    public bool HasCollectionMetadata { get; private set; }
+    public bool HasCollectionMetadata => _collectionPropertyPresent || HasCompleteMovieDetails;
+
+    private bool HasCompleteMovieDetails => Id > 0 && !string.IsNullOrWhiteSpace(Title) && ReleaseDate is not null
+        && Adult.HasValue && Genres is not null && Credits is not null && Keywords is not null
+        && ProductionCompanies is not null && Releases.ValueKind == JsonValueKind.Object;
 
     /// <summary>
     ///     A single genre entry in a Seerr detail response.

@@ -15,9 +15,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training
 /// <param name="BoxSetIds">Item id -> known memberships, including explicit empty lists only after a successful authoritative query.</param>
 /// <param name="TmdbIds">Optional item id -> canonical provider title id map, also available for legacy cached predictions.</param>
 /// <param name="TmdbCollectionIds">Optional corroborated collection identities; zero explicitly invalidates untrusted cached IDs.</param>
+/// <param name="BoxSetMembershipsComplete">False preserves cached memberships while adding resolved positive evidence; true also permits explicit empty values to clear stale data.</param>
 internal readonly record struct LibraryItemMetadata(
     IReadOnlyDictionary<Guid, IReadOnlyList<string>> Studios,
     IReadOnlyDictionary<Guid, IReadOnlyList<string>> Tags,
     IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> BoxSetIds,
     IReadOnlyDictionary<Guid, int>? TmdbIds = null,
-    IReadOnlyDictionary<Guid, int>? TmdbCollectionIds = null);
+    IReadOnlyDictionary<Guid, int>? TmdbCollectionIds = null,
+    bool BoxSetMembershipsComplete = true);

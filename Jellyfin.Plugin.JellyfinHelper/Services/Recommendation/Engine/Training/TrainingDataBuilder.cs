@@ -398,7 +398,9 @@ internal static class TrainingDataBuilder
 
         foreach (var (itemId, boxSetIds) in metadata.BoxSetIds)
         {
-            itemBoxSetIdsLookup[itemId] = boxSetIds;
+            itemBoxSetIdsLookup[itemId] = metadata.BoxSetMembershipsComplete
+                ? boxSetIds
+                : itemBoxSetIdsLookup.GetValueOrDefault(itemId, []).Concat(boxSetIds).Distinct().ToArray();
         }
     }
 

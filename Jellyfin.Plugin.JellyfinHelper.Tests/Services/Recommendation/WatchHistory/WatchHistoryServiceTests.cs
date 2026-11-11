@@ -162,6 +162,26 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void GetAllUserWatchProfiles_ResolvesAmbiguousCollectionMembershipOnceForTheBatch()
+    {
+        var first = CreateTestUser("first");
+        var second = CreateTestUser("second");
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns(new[] { first, second });
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _mockLibraryManager.SetupSequence(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]).Returns([]).Returns([collection]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), movie)).Returns(new UserItemData { Key = "played", Played = true });
+        var linked = new Mock<ILinkedChildrenService>();
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)MediaBrowser.Controller.Entities.LinkedChildType.Manual)).Returns([movie.Id]);
+        var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object, _mockPluginLog.Object, _mockLogger.Object, linked.Object);
+        var profiles = service.GetAllUserWatchProfiles();
+        Assert.Equal(2, profiles.Count);
+        Assert.All(profiles, profile => Assert.Equal(123, Assert.Single(profile.WatchedItems).TmdbCollectionId));
+        linked.Verify(provider => provider.GetLinkedChildrenIds(collection.Id, (int)MediaBrowser.Controller.Entities.LinkedChildType.Manual), Times.Once);
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))), Times.Once);
+    }
+
+    [Fact]
     public void GetAllUserWatchProfiles_ReturnsProfilesForAllValidUsers()
     {
         var user1 = CreateTestUser("alice");

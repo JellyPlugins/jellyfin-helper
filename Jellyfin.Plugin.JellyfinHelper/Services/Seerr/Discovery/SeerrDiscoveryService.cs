@@ -2200,16 +2200,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // materializing mid-run cannot leave scoring and feature means on two different models.
         var catalogVersion = GenreNormalizer.CatalogVersion;
         var userContext = ExternalCandidateFeatureBuilder.PrepareUserContext(context.Profile);
-        var isPersonalized = HasPersonalPreferences(context, userContext);
+        var featureContext = PrepareFeatureContext(context, userContext, null, catalogVersion);
+        var isPersonalized = HasPersonalPreferences(context, userContext) || featureContext.WatchedCollections is { Count: > 0 };
         if (!isPersonalized)
         {
             _pluginLog.LogDebug(LogCategory, $"External scoring uses a metadata-only cold-start prior for {context.Profile.UserName}.", _logger);
         }
 
         var userStrategy = isPersonalized ? _perUserRegistry.GetEnsembleForUser(context.Profile.UserId) : null;
-        var featureMeans = userStrategy?.LearnedStrategy.GetFeatureMeans();
-
-        var featureContext = PrepareFeatureContext(context, userContext, featureMeans, catalogVersion);
+        featureContext = featureContext with { FeatureMeans = userStrategy?.LearnedStrategy.GetFeatureMeans() };
         var preScored = PreScoreCandidates(context, featureContext, userStrategy);
         await EnrichOptionalCandidatesAsync(context, preScored, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
@@ -2224,7 +2223,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        return FinalScoreCandidates(context, featureContext, userStrategy, isPersonalized);
+        return FinalScoreCandidates(context, featureContext, userStrategy);
     }
 
     private static bool HasPersonalPreferences(CandidateScoringContext context, ExternalCandidateFeatureBuilder.UserContext user)
@@ -2268,7 +2267,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
         foreach (var candidate in context.Candidates)
         {
-            var score = ScoreExternalCandidate(ExternalCandidateFeatureBuilder.Build(candidate, features), strategy);
+            var vector = ExternalCandidateFeatureBuilder.Build(candidate, features);
+            var score = ScoreExternalCandidate(vector, HasCandidatePersonalEvidence(candidate, vector, features) ? strategy : null);
             preScored.Add((candidate, score));
         }
 
@@ -2358,11 +2358,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static bool IsVerifiedRankedCandidate(TmdbDiscoverItem candidate, int? maximumRating)
         => candidate.MetadataFetchSucceeded && !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, maximumRating);
 
-    private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, EnsembleScoringStrategy? userStrategy, bool isPersonalized)
+    private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, EnsembleScoringStrategy? userStrategy)
     {
         // Phase 3: score eligible candidates; personal-library discovery retains candidates outside the
         // enrichment budget, while ranked external sources require a successful availability check.
-        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(context.Candidates.Count);
+        var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score, bool Personalized)>(context.Candidates.Count);
         foreach (var candidate in context.Candidates)
         {
             if (!CanFinalScore(context, candidate))
@@ -2371,8 +2371,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var features = ExternalCandidateFeatureBuilder.Build(candidate, featureContext);
-            var score = ScoreExternalCandidate(features, userStrategy);
-            scored.Add((candidate, features, score));
+            var personalized = userStrategy is not null && HasCandidatePersonalEvidence(candidate, features, featureContext);
+            var score = ScoreExternalCandidate(features, personalized ? userStrategy : null);
+            scored.Add((candidate, features, score, personalized));
         }
 
         // Final ordering: honor the source rank for a rank-based source, else rank by score.
@@ -2390,10 +2391,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Build recommendations
         var recommendations = new List<DiscoveryRecommendation>(topN.Count);
         var reasonPeople = userStrategy is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : context.PreferredPeople;
-        foreach (var (item, features, score) in topN)
+        foreach (var (item, features, score, personalized) in topN)
         {
-            var recommendation = BuildRecommendation(item, features, score, context.TopGenres, reasonPeople, featureContext.GenrePreferences, isPersonalized ? featureContext.User : null);
-            recommendation.IsPersonalized = isPersonalized;
+            var recommendation = BuildRecommendation(item, features, score, context.TopGenres, reasonPeople, featureContext.GenrePreferences, personalized ? featureContext.User : null);
+            recommendation.IsPersonalized = personalized;
             recommendation.TmdbCollectionId = item.CollectionId;
             if (recommendation.ReasonKey == "reasonGenre" && recommendation.RelatedInfo is { } genre)
             {
@@ -2405,6 +2406,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         return DiscoverySelection.Select(recommendations, MaxPoolPerUser, context.RankBasedOrdering);
     }
+
+    private static bool HasCandidatePersonalEvidence(TmdbDiscoverItem candidate, CandidateFeatures features, ExternalCandidateFeatureBuilder.Context context)
+        => features.HasGenreEvidence
+            || (context.PreferredPeople.Count > 0 && candidate.KnownPeople is not null)
+            || (context.User.Tags.Count > 0 && features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity))
+            || (context.User.Studios.Count > 0 && features.IsExternalFeatureKnown(FeatureIndex.StudioMatch))
+            || (HasCollectionPreference(context) && features.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity));
+
+    private static bool HasCollectionPreference(ExternalCandidateFeatureBuilder.Context context)
+        => context.User.Franchises.Count > 0 || context.WatchedCollections is { Count: > 0 };
 
     private static bool CanFinalScore(CandidateScoringContext context, TmdbDiscoverItem candidate)
         => !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating)

@@ -765,7 +765,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             BoxSetIds = membershipsComplete
                 ? items.ToDictionary(item => item.Id, item => (IReadOnlyList<Guid>)(linkedCollections.GetValueOrDefault(item.Id) ?? []))
-                : new Dictionary<Guid, IReadOnlyList<Guid>>(),
+                : linkedCollections.Where(entry => entry.Value.Count > 0).ToDictionary(entry => entry.Key, entry => (IReadOnlyList<Guid>)entry.Value),
+            BoxSetMembershipsComplete = membershipsComplete,
             TmdbCollectionIds = items
                 .Where(item => membershipsComplete || !ContentAffinityResolver.NeedsCollectionCorroboration(item) || collectionIds.GetValueOrDefault(item.Id) > 0)
                 .ToDictionary(item => item.Id, item => collectionIds.GetValueOrDefault(item.Id))

@@ -219,7 +219,7 @@ describe('formatReason / formatRawReasonFallback', () => {
     expect(fallback.formatReason('reasonFranchiseNamed', null, 'Actual saga')).toBe('More from the Actual saga collection');
     expect(fallback.formatReason('reasonStudioNamed', null, 'Studio A')).toBe('From Studio A');
     expect(fallback.formatReason('reasonFranchise')).toBe('From a franchise you follow');
-    expect(fallback.formatReason('reasonCollectionContinuation')).toBe("Continue a collection you've explored");
+    expect(fallback.formatReason('reasonCollectionContinuation')).toBe('Because you like this collection');
     expect(fallback.formatRawReasonFallback('reasonFranchiseNamed: Actual saga')).toBe('More from the Actual saga collection');
   });
 

@@ -502,6 +502,34 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task StudioOnlyHistory_LabelsUnenrichedCardsAsMetadataOnlyInsteadOfPersonalMatches()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution.Clear();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Studios = ["Studio A"] });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var candidates = Enumerable.Range(9800, 25).Select(id => Candidate(id, id < 9820 ? 9 : 8.5)).ToArray();
+        RegisterMovieRoute("/api/v1/discover/movies?page=1", candidates);
+        foreach (var id in Enumerable.Range(9800, 20))
+        {
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}},"productionCompanies":[{"name":"Studio A"}]}""");
+        }
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var result = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        var missingMetadata = result.Recommendations.Where(recommendation => recommendation.TmdbId >= 9820).ToList();
+        Assert.Equal(5, missingMetadata.Count);
+        Assert.All(missingMetadata, recommendation =>
+        {
+            Assert.False(recommendation.IsPersonalized);
+            var features = recommendation.ScoringFeatures!;
+            Assert.Equal(EngineConstants.ComputeColdStartPrior(features.CombinedCriticScore, features.RecencyScore, features.PopularityScore), recommendation.Score, 12);
+            Assert.NotEqual("reasonStudioNamed", recommendation.ReasonKey);
+        });
+        Assert.Contains(result.Recommendations, recommendation => recommendation.IsPersonalized && recommendation.ReasonKey == "reasonStudioNamed");
+    }
+
     [Theory]
     [InlineData("studio", "reasonStudioNamed")]
     [InlineData("franchise", "reasonFranchiseNamed")]

@@ -134,7 +134,7 @@ public sealed class GenreNormalizerTests
     [Fact]
     public void LanguageCatalog_NewTranslationsAndAliasesNeedNoCSharpLanguageList()
     {
-        using var language = JsonDocument.Parse("""{"genre.12":"new localized adventure","genre.12.aliases":"second spelling | new localized adventure","genre.12.description":"not an alias","genre.bad":"ignored","genre.999999":"custom unknown","genre.35":null,"ordinaryUiKey":"text"}""");
+        using var language = JsonDocument.Parse("""{"genre.12":"new localized adventure | second spelling","genre.12.description":"not an alias","genre.bad":"ignored","genre.999999":"custom unknown","genre.35":null,"ordinaryUiKey":"text"}""");
         var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         GenreNormalizer.AddLanguageCatalog(aliases, language.RootElement);
         Assert.Equal("Adventure", aliases["new localized adventure"]);
@@ -151,7 +151,7 @@ public sealed class GenreNormalizerTests
     }
 
     [Fact]
-    public void EveryEmbeddedLanguageGenreAndAlias_UsesItsDeclaredProviderIdentity()
+    public void EveryEmbeddedGenreSpelling_UsesOneKeyPerProviderIdentity()
     {
         var assembly = typeof(GenreNormalizer).Assembly;
         var count = 0;
@@ -159,8 +159,10 @@ public sealed class GenreNormalizerTests
         {
             using var stream = assembly.GetManifestResourceStream(resource)!;
             using var document = JsonDocument.Parse(stream);
-            var entries = document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal))
-                .Select(entry => (Id: int.Parse(entry.Name.Split('.')[1], System.Globalization.CultureInfo.InvariantCulture), Labels: entry.Value.GetString()!.Split('|')));
+            var genreEntries = document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal)).ToArray();
+            Assert.Equal(27, genreEntries.Length);
+            Assert.All(genreEntries, entry => Assert.Matches(@"^genre\.\d+$", entry.Name));
+            var entries = genreEntries.Select(entry => (Id: int.Parse(entry.Name.Split('.')[1], System.Globalization.CultureInfo.InvariantCulture), Labels: entry.Value.GetString()!.Split('|')));
             foreach (var entry in entries)
             {
                 var expected = Assert.Single(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres([entry.Id]));
@@ -172,6 +174,6 @@ public sealed class GenreNormalizerTests
             }
         }
 
-        Assert.True(count >= 8 * 27 * 2);
+        Assert.True(count >= 8 * 27);
     }
 }

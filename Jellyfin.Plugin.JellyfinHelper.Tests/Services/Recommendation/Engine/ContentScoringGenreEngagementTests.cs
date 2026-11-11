@@ -7,6 +7,30 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class ContentScoringGenreEngagementTests
 {
     [Fact]
+    public void CachedGenreSets_AreReusedAndRefreshedWhenProviderAliasesChange()
+    {
+        var alias = "cached-provider-genre-" + Guid.NewGuid().ToString("N");
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Genres = [alias], Played = true, UserRating = 9 },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Genres = ["Horror"], PlaybackPositionTicks = 100, RuntimeTicks = 1000, UserRating = 2 }
+            ]
+        };
+        var cached = ContentScoring.BuildGenreEngagementContext(profile);
+        Assert.Same(cached.MeaningfulWatches, cached.CanonicalWatches());
+        Assert.Equal(0, ContentScoring.ComputeGenreEngagement(["Science Fiction"], cached).Familiarity);
+        Assert.True(GenreNormalizer.RegisterProviderGenre(878, alias));
+        Assert.Equal(ContentScoring.ComputeGenreEngagement(["Science Fiction"], profile), ContentScoring.ComputeGenreEngagement(["Science Fiction"], cached));
+        Assert.Equal(ContentScoring.ComputeGenreRatingScore(["Science Fiction"], profile), ContentScoring.ComputeGenreRatingScore(["Science Fiction"], cached), 12);
+        var refreshed = cached.CanonicalWatches();
+        Assert.NotSame(cached.MeaningfulWatches, refreshed);
+        Assert.Same(refreshed, cached.CanonicalWatches());
+        Assert.Contains(alias, profile.WatchedItems[0].Genres);
+    }
+
+    [Fact]
     public void ComputeGenreEngagement_EmptyCandidateGenres_ReturnsNeutral()
     {
         var profile = new UserWatchProfile();

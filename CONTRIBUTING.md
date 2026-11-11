@@ -81,14 +81,14 @@ See [Configuration Page Build System](#configuration-page-build-system) for how 
 
 ### Multilingual Genre Metadata
 
-Genre names live in `Jellyfin.Plugin.JellyfinHelper/i18n/<language>.json`, not in C# language tables:
+Genre names and spelling variants live in `Jellyfin.Plugin.JellyfinHelper/i18n/<language>.json`, not in C# language tables:
 
 ```json
 "genre.12": "Adventure",
-"genre.12.aliases": "Adventure"
+"genre.878": "Science Fiction|Sci-Fi|SciFi|Science-Fiction"
 ```
 
-Use `genre.<TMDb-ID>` for the display name and `genre.<TMDb-ID>.aliases` for `|`-separated metadata variants.
+Use one `genre.<TMDb-ID>` key per genre. Separate alternative metadata spellings with `|`; no additional alias key is needed.
 The normalizer loads every embedded language file automatically; adding a language needs no normalizer language list.
 Keep translation keys consistent with `en.json`. Unknown custom genres remain available, and compound TV genres share movie semantics without changing the original display metadata.
 
@@ -676,7 +676,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
-│   │   │   ├── GenreNormalizer.cs # Loads genre.<TMDb-ID> / genre.<TMDb-ID>.aliases from all embedded i18n JSON files; shared movie/TV semantic coordinates
+│   │   │   ├── GenreNormalizer.cs # Loads genre.<TMDb-ID> with pipe-separated spelling variants from all embedded i18n JSON files; shared movie/TV semantic coordinates
 │   │   │   ├── CollectionMembershipResolver.cs # Modern linked BoxSets with scoped parent fallback
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations

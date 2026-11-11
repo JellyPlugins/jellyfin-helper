@@ -227,6 +227,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         out bool hasLegacyPopularity)
     {
         var genres = entry.Genres ?? Array.Empty<string>();
+        var genreSet = GenreNormalizer.Set(genres);
 
         var genreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences);
 
@@ -253,11 +254,12 @@ internal static class DiscoveryFeedbackExampleBuilder
         var features = new CandidateFeatures
         {
             IsExternalCandidate = true,
+            HasGenreEvidence = genreSet.Count > 0 && genrePreferences.Count > 0,
             GenreSimilarity = genreSimilarity,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = yearProximityScore,
-            GenreCount = GenreNormalizer.Set(genres).Count,
+            GenreCount = genreSet.Count,
             IsSeries = isSeries,
             PeopleSimilarity = peopleSimilarity,
             PopularityScore = popularityScore,

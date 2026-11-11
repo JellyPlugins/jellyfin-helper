@@ -238,11 +238,6 @@ internal static class GenreNormalizer
     private static string? CatalogGenre(string key)
     {
         var idText = key["genre.".Length..];
-        if (idText.EndsWith(".aliases", StringComparison.Ordinal))
-        {
-            idText = idText[..^".aliases".Length];
-        }
-
         return int.TryParse(idText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id)
             ? TmdbGenreMap.ToJellyfinGenres([id]).FirstOrDefault()
             : null;
