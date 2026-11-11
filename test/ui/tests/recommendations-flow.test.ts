@@ -134,7 +134,7 @@ describe('discovery request through the profile popup', () => {
     const card = document.querySelector('#discoveryGrid .discovery-card') as HTMLElement;
     expect(card).not.toBeNull();
     expect(card.querySelector('.discovery-request-btn')).toBeNull();
-    expect(card.textContent).toContain('Availability not checked');
+    expect(card.querySelector('.discovery-availability')!.textContent).toBe('Unchecked');
     card.click();
     await flush();
     expect(document.getElementById('seerrUserPopup')).toBeNull();

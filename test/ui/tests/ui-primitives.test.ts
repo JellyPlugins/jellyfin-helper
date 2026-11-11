@@ -231,7 +231,7 @@ describe('Discovery rendering', () => {
     discoveryUi.renderCards(host, { Recommendations: [second, first] });
     expect(host.querySelector('.jfh-discovery-card')).toBe(card);
     expect(document.activeElement).toBe(action);
-    expect(card.textContent).toContain('Availability not checked');
+    expect(card.querySelector('.jfh-discovery-availability')!.textContent).toBe('Unchecked');
   });
 
   test('an unavailable Trakt source retires its tab controls', () => {

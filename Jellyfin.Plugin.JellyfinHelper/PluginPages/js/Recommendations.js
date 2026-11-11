@@ -588,7 +588,8 @@ function renderDiscoveryActions(rec, mediaType) {
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
     } else if (mediaType) {
-        html += '<span class="recs-tag">' + escHtml(T('discoveryAvailabilityUnknown', 'Availability not checked')) + '</span>';
+        var hint = T('discoveryAvailabilityUnknownHint', 'Availability not checked');
+        html += '<span class="discovery-availability" role="note" title="' + escHtml(hint) + '" aria-label="' + escHtml(hint) + '">' + escHtml(T('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
     }
 
     return html;

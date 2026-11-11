@@ -10,6 +10,12 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
   .map(match => match[1])
   .map(name => source('PluginPages/css/' + name)).join('\n');
 
+const availabilityLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
+  const translations = JSON.parse(source('i18n/' + language + '.json'));
+  return { language, strings: Object.fromEntries(['discoveryAvailabilityUnknown', 'discoveryAvailabilityUnknownHint', 'discoveryDismiss']
+    .map(key => [key, translations[key]])) };
+});
+
 const discoveryRecommendations = [
   {
     TmdbId: 1,
@@ -21,8 +27,9 @@ const discoveryRecommendations = [
       + 'An unexpected invitation gives them a place to rest and a chance to address the disagreements they have avoided. '
       + 'By the time they reach their destination, the journey has become more important than the meeting itself.',
     Score: 0.8,
+    AvailabilityVerified: true,
   },
-  { TmdbId: 2, MediaType: 'movie', Title: 'Another title', Overview: 'Another description.', Score: 0.5 },
+  { TmdbId: 2, MediaType: 'movie', Title: 'Another title', Overview: 'Another description.', Score: 0.5, AvailabilityVerified: true },
 ];
 
 function discoveryFixtureScript(script: string): string {
@@ -30,7 +37,11 @@ function discoveryFixtureScript(script: string): string {
   const matches = script.match(anchor);
   if (matches?.length !== 1) throw new Error('Expected exactly one Discovery lifecycle initialization anchor');
   return script.replace(anchor, () => `    window.fixtureDiscovery = {
-        renderCards, injectStyles, consumeDiscoveryItem,
+         renderCards, injectStyles, consumeDiscoveryItem,
+         renderLocalizedCards: function (container, recommendations, strings) {
+             _strings = strings;
+             renderCards(container, { Recommendations: recommendations });
+         },
         renderTabs: function (container) {
             _traktEnabled = true;
             _traktLinked = true;
@@ -80,7 +91,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons };\n})();');
+      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -267,6 +278,81 @@ for (const width of [320, 1280]) {
       const external = await popup;
       await external.close();
       await expect(button).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    test(`Discovery ${width}px ${colorScheme}: unverified availability wraps without squeezing dismiss controls`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+      await discovery(page);
+      for (const locale of availabilityLocales) {
+        for (const verified of [false, undefined]) {
+          await page.evaluate(({ recommendations, locale, verified }) => {
+            document.documentElement.lang = locale.language;
+            (window as any).fixtureDiscovery.renderLocalizedCards(document.getElementById('cards'),
+              recommendations.map(candidate => ({ ...candidate, AvailabilityVerified: verified })), locale.strings);
+          }, { recommendations: discoveryRecommendations, locale, verified });
+          const card = page.locator('.jfh-discovery-card').first();
+          const status = card.locator('.jfh-discovery-availability');
+          const dismiss = card.locator('[data-jfh-action="dismiss"]');
+          await expect(status).toBeVisible();
+          await expect(status).toHaveText(locale.strings.discoveryAvailabilityUnknown);
+          await expect(status).toHaveAttribute('title', locale.strings.discoveryAvailabilityUnknownHint);
+          await expect(dismiss).toBeEnabled();
+          await expect(card.locator('[data-jfh-action="request"]')).toHaveCount(0);
+          const layout = await card.evaluate(element => {
+            const row = element.querySelector('.jfh-discovery-btn-row')!;
+            const status = row.querySelector('.jfh-discovery-availability')!;
+            const dismiss = row.querySelector('[data-jfh-action="dismiss"]')!;
+            const rowBox = row.getBoundingClientRect();
+            const statusBox = status.getBoundingClientRect();
+            const dismissBox = dismiss.getBoundingClientRect();
+            return { cardOverflow: element.scrollWidth - element.clientWidth, rowOverflow: row.scrollWidth - row.clientWidth,
+              statusOverflow: status.scrollWidth - status.clientWidth, dismissOverflow: dismiss.scrollWidth - dismiss.clientWidth,
+              statusBottom: statusBox.bottom, dismissTop: dismissBox.top, rowWidth: rowBox.width, dismissWidth: dismissBox.width };
+          });
+          expect(layout.cardOverflow).toBeLessThanOrEqual(1);
+          expect(layout.rowOverflow).toBeLessThanOrEqual(1);
+          expect(layout.statusOverflow).toBeLessThanOrEqual(1);
+          expect(layout.dismissOverflow).toBeLessThanOrEqual(1);
+          expect(layout.statusBottom).toBeLessThanOrEqual(layout.dismissTop);
+          expect(layout.dismissWidth).toBeCloseTo(layout.rowWidth, 1);
+          await dismiss.focus();
+          await page.keyboard.press('Enter');
+          await expect(page.locator('#jfhDiscoveryPopup')).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(page.locator('#jfhDiscoveryPopup')).toHaveCount(0);
+          await expect(dismiss).toBeFocused();
+        }
+      }
+    });
+
+    test(`dashboard ${width}px ${colorScheme}: compact unknown availability stays inside admin cards`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+      await dashboard(page);
+      for (const locale of availabilityLocales) {
+        await page.evaluate(({ candidate, locale }) => {
+          document.documentElement.lang = locale.language;
+          let host = document.getElementById('fixtureAvailabilityCards');
+          if (!host) {
+            host = document.createElement('div');
+            host.id = 'fixtureAvailabilityCards';
+            document.getElementById('JellyfinHelperConfigPage')!.prepend(host);
+          }
+          host.innerHTML = (window as any).fixtureAdmin.renderLocalizedDiscoveryCard({ ...candidate, AvailabilityVerified: false }, locale.strings);
+        }, { candidate: discoveryRecommendations[0], locale });
+        const card = page.locator('#fixtureAvailabilityCards .discovery-card');
+        const status = card.locator('.discovery-availability');
+        await expect(status).toBeVisible();
+        await expect(status).toHaveText(locale.strings.discoveryAvailabilityUnknown);
+        await expect(status).toHaveAttribute('title', locale.strings.discoveryAvailabilityUnknownHint);
+        await expect(card.locator('.discovery-request-btn')).toHaveCount(0);
+        expect(await status.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+        expect(await card.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+        const box = await card.boundingBox();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      }
     });
   }
 }

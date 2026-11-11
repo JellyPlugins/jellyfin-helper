@@ -263,6 +263,8 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
+            // A quiet full-width status line must not squeeze the remaining dismiss button.
+            '.jfh-discovery-availability { flex: 1 1 100%; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 0.15em 0; font-size: 0.75em; line-height: 1.3; color: var(--color-text-muted, #ccc); text-align: center; white-space: normal; overflow-wrap: anywhere; }' +
             // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
             // Failed) exactly the same size, so swapping the label never changes the button's height or width
             // and the state transition doesn't flicker. The request button spans the full row (its dismiss
@@ -272,7 +274,7 @@
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
-            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
+            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; overflow-wrap: anywhere; }' +
             '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: var(--color-danger); } }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
@@ -1324,7 +1326,8 @@
             var cls = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             request = '<button type="button" class="' + cls + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + (r.AlreadyRequested ? ' disabled' : '') + '>' + esc(text) + '</button>';
         } else {
-            request = '<span class="jfh-discovery-tag">' + esc(t('discoveryAvailabilityUnknown', 'Availability not checked')) + '</span>';
+            var hint = t('discoveryAvailabilityUnknownHint', 'Availability not checked');
+            request = '<span class="jfh-discovery-availability" role="note" title="' + esc(hint) + '" aria-label="' + esc(hint) + '">' + esc(t('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
         }
         var dismiss = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
         return request + dismiss;

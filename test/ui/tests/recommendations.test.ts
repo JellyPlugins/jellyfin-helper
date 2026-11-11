@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ajaxRouter, flush } from '../src/apiStub.js';
-import { freshConfigPage, REPO_ROOT, saveCoverage, UiBridge } from '../src/loader.js';
+import { freshConfigPage, freshDiscoveryHelpers, REPO_ROOT, saveCoverage, UiBridge } from '../src/loader.js';
 
 let ui: UiBridge;
 beforeEach(() => {
@@ -155,6 +155,54 @@ describe('renderRecommendationCard clamps and escapes', () => {
 });
 
 describe('renderDiscoveryCard hardens untrusted fields', () => {
+  test.each(['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'])('compact availability labels retain their full explanation in both views (%s)', async language => {
+    const strings = JSON.parse(readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/i18n', language + '.json'), 'utf8'));
+    ajaxRouter({ Translations: strings });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'u1';
+    ui.loadTranslations(() => {});
+    const sidebar = freshDiscoveryHelpers();
+    await sidebar.loadStrings(() => {});
+    await flush();
+    const candidate = { Title: 'T', Score: 0.5, MediaType: 'movie', TmdbId: 7, AvailabilityVerified: false };
+    const admin = document.createElement('div');
+    admin.innerHTML = ui.renderDiscoveryCard(candidate, 0);
+    const user = document.createElement('div');
+    sidebar.renderCards(user, { Recommendations: [candidate] });
+    expect(strings.discoveryAvailabilityUnknown.length).toBeLessThan(strings.discoveryAvailabilityUnknownHint.length);
+    for (const [container, selector] of [[admin, '.discovery-availability'], [user, '.jfh-discovery-availability']] as const) {
+      const status = container.querySelector(selector)!;
+      expect(status.textContent).toBe(strings.discoveryAvailabilityUnknown);
+      expect(status.getAttribute('title')).toBe(strings.discoveryAvailabilityUnknownHint);
+      expect(status.getAttribute('aria-label')).toBe(strings.discoveryAvailabilityUnknownHint);
+      expect(container.querySelector('.discovery-request-btn, [data-jfh-action="request"]')).toBeNull();
+    }
+    expect((user.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('compact availability labels and tooltip explanations escape hostile translations in both views', async () => {
+    const label = '<img src=x onerror=alert(1)>';
+    const hint = '\"><img src=x onerror=alert(2)>';
+    ajaxRouter({ Translations: { discoveryAvailabilityUnknown: label, discoveryAvailabilityUnknownHint: hint } });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'u1';
+    ui.loadTranslations(() => {});
+    const sidebar = freshDiscoveryHelpers();
+    await sidebar.loadStrings(() => {});
+    await flush();
+    const candidate = { Title: 'T', MediaType: 'movie', TmdbId: 7, AvailabilityVerified: false };
+    const admin = document.createElement('div');
+    admin.innerHTML = ui.renderDiscoveryCard(candidate, 0);
+    const user = document.createElement('div');
+    sidebar.renderCards(user, { Recommendations: [candidate] });
+    for (const [container, selector] of [[admin, '.discovery-availability'], [user, '.jfh-discovery-availability']] as const) {
+      const status = container.querySelector(selector)!;
+      expect(status.textContent).toBe(label);
+      expect(status.getAttribute('title')).toBe(hint);
+      expect(status.getAttribute('aria-label')).toBe(hint);
+      expect(container.querySelector('[onerror]')).toBeNull();
+      expect(container.querySelector('img')).toBeNull();
+    }
+  });
+
   test('cold-start admin cards do not claim a personal match percentage', () => {
     const html = ui.renderDiscoveryCard({ Title: 'T', Score: 0.99, IsPersonalized: false }, 0);
     expect(html).toContain('not personalized yet');
@@ -195,7 +243,7 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     expect(button.disabled).toBe(false);
     expect(button.dataset.tmdbId).toBe('7');
     expect(button.dataset.mediaType).toBe('movie');
-    expect(el.textContent).not.toContain('Availability not checked');
+    expect(el.querySelector('.discovery-availability')).toBeNull();
   });
 
   test.each([false, undefined, null, 'true', 1])('unverified and legacy availability omit the Request action (%j)', (verified) => {
@@ -203,7 +251,11 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     el.innerHTML = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, AvailabilityVerified: verified, MediaType: 'movie', TmdbId: 7 }, 0);
     expect(el.querySelector('.discovery-request-btn')).toBeNull();
     expect(el.querySelector('[data-tmdb-id]')).toBeNull();
-    expect(el.textContent).toContain('Availability not checked');
+    const status = el.querySelector('.discovery-availability')!;
+    expect(status.textContent).toBe('Unchecked');
+    expect(status.getAttribute('title')).toBe('Availability not checked');
+    expect(status.getAttribute('aria-label')).toBe('Availability not checked');
+    expect(status.getAttribute('role')).toBe('note');
   });
 
   test('unparseable tmdb ids zero out', () => {

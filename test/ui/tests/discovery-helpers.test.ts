@@ -402,7 +402,11 @@ describe('renderCards', () => {
     document.body.appendChild(el);
     ui.renderCards(el, { Recommendations: [rec({ AvailabilityVerified: verified })] });
     expect(el.querySelector('[data-jfh-action="request"]')).toBeNull();
-    expect(el.textContent).toContain('Availability not checked');
+    const status = el.querySelector('.jfh-discovery-availability')!;
+    expect(status.textContent).toBe('Unchecked');
+    expect(status.getAttribute('title')).toBe('Availability not checked');
+    expect(status.getAttribute('aria-label')).toBe('Availability not checked');
+    expect(status.getAttribute('role')).toBe('note');
     const dismiss = el.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
     expect(dismiss.disabled).toBe(false);
     dismiss.click();
@@ -416,7 +420,7 @@ describe('renderCards', () => {
     ui.renderCards(el, { Recommendations: [rec({ AlreadyRequested: true, AvailabilityVerified: undefined })] });
     expect((el.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(true);
     expect(el.querySelector('[data-jfh-action="dismiss"]')).toBeNull();
-    expect(el.textContent).not.toContain('Availability not checked');
+    expect(el.querySelector('.jfh-discovery-availability')).toBeNull();
   });
 
   test('a missing poster falls back to the no-poster placeholder', () => {
