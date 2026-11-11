@@ -413,6 +413,56 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.True(TemporalFeatures.ResolveIsWeekend(profile, new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc)));
     }
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void UndatedOrganicWeekends_UseStableSourceCutoffsRatherThanTheTrainingClock(bool series, bool datedPlayback, bool cachedPrediction)
+    {
+        var user = Guid.NewGuid();
+        var title = Guid.NewGuid();
+        var undated = Watch(series ? Guid.NewGuid() : title, null, ["Drama"]);
+        undated.ItemType = series ? "Episode" : "Movie";
+        undated.SeriesId = series ? title : null;
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [undated] };
+        var priorPlayback = Prediction.AddDays(-2); // Sunday, while the cached prediction is Tuesday.
+        if (datedPlayback)
+        {
+            profile.WatchedItems.Add(Watch(Guid.NewGuid(), priorPlayback, ["Drama"]));
+        }
+
+        var previous = new List<RecommendationResult>();
+        if (cachedPrediction)
+        {
+            previous.Add(new RecommendationResult { UserId = user, GeneratedAt = Prediction });
+        }
+
+        var expected = datedPlayback ? priorPlayback : DateTime.UnixEpoch;
+        if (cachedPrediction)
+        {
+            expected = Prediction;
+        }
+
+        var observation = TrainingExample.CreateLibraryObservationId(user, title);
+        var first = Assert.Single(TrainingDataBuilder.BuildExamples(previous, [profile], CancellationToken.None).Examples, example => example.ObservationId == observation);
+        var repeated = Assert.Single(TrainingDataBuilder.BuildExamples(previous, [profile], CancellationToken.None).Examples, example => example.ObservationId == observation);
+
+        Assert.Equal(expected, first.GeneratedAtUtc);
+        Assert.Equal(expected.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday, first.Features.IsWeekend);
+        Assert.Equal(first.GeneratedAtUtc, repeated.GeneratedAtUtc);
+        Assert.Equal(first.Features.IsWeekend, repeated.Features.IsWeekend);
+        Assert.Null(undated.LastPlayedDate);
+        if (!cachedPrediction && !datedPlayback)
+        {
+            Assert.Empty(TrainingMath.FilterEffectiveExamples([first], Prediction, LearnedScoringStrategy.MinSampleWeight));
+        }
+    }
+
     private static List<TrainingExample> Balanced(int count) => Enumerable.Range(0, count).Select(i => new TrainingExample
     {
         Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1

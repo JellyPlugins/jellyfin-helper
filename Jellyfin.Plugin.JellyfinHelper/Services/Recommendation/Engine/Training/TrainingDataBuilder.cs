@@ -149,10 +149,7 @@ internal static class TrainingDataBuilder
 
         var recommendedItemIdsByUser = BuildRecommendedItemIdsByUser(previousResults);
 
-        // Stable fallback for organic items without a date. Use earliest GeneratedAt so the value is deterministic.
-        var organicFallbackTimestamp = previousResults.Count > 0
-            ? previousResults.Min(r => r.GeneratedAt)
-            : DateTime.UtcNow.AddDays(-90);
+        var organicFallbackTimestamp = ResolveOrganicFallbackTimestamp(previousResults, allProfiles);
 
         // Bundle shared context so each phase needs only one argument.
         var ctx = new TrainingContext
@@ -196,6 +193,25 @@ internal static class TrainingDataBuilder
         }
 
         return (examples, organicCount, randomNegativeCount, discoveryCount);
+    }
+
+    /// <summary>Uses the earliest known source instant, never the training clock, for undated organic outcomes.</summary>
+    /// <param name="previous">The available prediction timestamps.</param>
+    /// <param name="profiles">The source playback histories.</param>
+    /// <returns>A stable conservative cutoff; the epoch marks unknown age and prevents fabricated recent training weight.</returns>
+    private static DateTime ResolveOrganicFallbackTimestamp(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles)
+    {
+        if (previous.Count > 0)
+        {
+            return previous.Min(result => DateTimeNormalization.ToUtc(result.GeneratedAt));
+        }
+
+        return profiles.SelectMany(profile => profile.WatchedItems)
+            .Select(row => row.LastPlayedDate)
+            .OfType<DateTime>()
+            .Select(DateTimeNormalization.ToUtc)
+            .DefaultIfEmpty(DateTime.UnixEpoch)
+            .Min();
     }
 
     private static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
