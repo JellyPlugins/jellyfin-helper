@@ -199,12 +199,9 @@ internal static class TrainingDataBuilder
     private static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
     {
         var ids = new Dictionary<Guid, int>();
-        foreach (var item in previous.SelectMany(result => result.Recommendations.Concat(result.TrainingContrasts ?? [])))
+        foreach (var item in previous.SelectMany(result => result.Recommendations.Concat(result.TrainingContrasts ?? [])).Where(item => item.TmdbId > 0))
         {
-            if (item.TmdbId > 0)
-            {
-                ids[item.ItemId] = item.TmdbId;
-            }
+            ids[item.ItemId] = item.TmdbId;
         }
 
         foreach (var row in profiles.SelectMany(profile => profile.WatchedItems))

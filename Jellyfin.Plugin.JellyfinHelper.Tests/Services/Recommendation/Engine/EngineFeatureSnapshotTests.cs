@@ -50,8 +50,8 @@ public sealed class EngineFeatureSnapshotTests
             var features = Assert.IsType<CandidateFeatures>(recommendation.ScoringFeatures);
             Assert.Equal(scoredInputs[features.CombinedCriticScore], features.ToVector());
             Assert.Equal(Math.Round(features.CombinedCriticScore, 4), recommendation.Score);
-            Assert.NotNull(recommendation.DateCreated);
-            Assert.Equal(ContentScoring.ComputeRecencyScore(recommendation.DateCreated.Value, result.GeneratedAt), features.LibraryAddedRecency);
+            var dateCreated = Assert.IsType<DateTime>(recommendation.DateCreated);
+            Assert.Equal(ContentScoring.ComputeRecencyScore(dateCreated, result.GeneratedAt), features.LibraryAddedRecency);
         }
 
         Assert.Collection(result.Recommendations, AssertSnapshot, AssertSnapshot, AssertSnapshot);
