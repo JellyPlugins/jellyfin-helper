@@ -114,6 +114,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal const double TrendImprovementBoost = 1.15;
 
+    /// <summary>The trust curve is saturated before this bound; persisted identities stay bounded.</summary>
+    internal const int MaxTrackedObservations = 1000;
+
     /// <summary>
     ///     Cached JSON serializer options for ensemble state persistence. Compact (non-indented) output - the ensemble state file is small (~400 bytes with defaults) and machine-read only, so indentation adds no operational value.
     /// </summary>
@@ -130,6 +133,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private readonly bool _ownsNeural;
     private readonly string? _statePath;
     private readonly object _syncRoot = new();
+    private readonly HashSet<Guid> _observedTrainingIds = [];
     private double _alpha;
     private double _alphaMax;
     private double _alphaMin;
@@ -266,7 +270,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
-    ///     Gets the total number of training examples seen so far (for testing/debugging).
+    ///     Gets the bounded number of distinct observed training identities (replay and contrasts do not add maturity).
     /// </summary>
     internal int TrainingExampleCount
     {
@@ -430,7 +434,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            alpha = _alpha;
+            alpha = _qualityGateFrozen ? 0.0 : _alpha;
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
@@ -453,8 +457,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
     {
-        var learnedScore = _learned.Score(features);
         var heuristicScore = _heuristic.Score(features);
+        if (alpha <= 0.0)
+        {
+            return heuristicScore * ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
+        }
+
+        var learnedScore = _learned.Score(features);
 
         double mlScore;
         if (_neural is not null && beta > 0)
@@ -492,7 +501,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
+            alpha = ResolveOffsetAlpha(alphaOffset);
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
@@ -519,13 +528,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
+            alpha = ResolveOffsetAlpha(alphaOffset);
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
 
         return ComputeBlendedExplanation(features, alpha, beta, floor);
     }
+
+    /// <summary>Resolves exploration under the caller's state lock; frozen fits ignore all offsets.</summary>
+    /// <param name="offset">The requested exploration adjustment.</param>
+    /// <returns>The effective ML blend.</returns>
+    private double ResolveOffsetAlpha(double offset)
+        => _qualityGateFrozen ? 0.0 : Math.Clamp(_alpha + offset, _alphaMin, _alphaMax);
 
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
@@ -538,7 +553,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double floor;
         lock (_syncRoot)
         {
-            alpha = _alpha;
+            alpha = _qualityGateFrozen ? 0.0 : _alpha;
             beta = _neuralBeta;
             floor = _genrePenaltyFloor;
         }
@@ -560,6 +575,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
     {
+        if (alpha <= 0.0)
+        {
+            var raw = _heuristic.ScoreWithExplanation(features);
+            var fallback = ApplyExplanationPenalty(raw, features, floor);
+            fallback.StrategyName = Name;
+            return fallback;
+        }
+
         var learnedExplanation = _learned.ScoreWithExplanation(features);
         var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
 
@@ -578,26 +601,41 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Blend heuristic + ML: result = (1-α) × heuristic + α × ML
         var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
-        var result = blended.WithPenalty(penalty);
+        var result = ApplyExplanationPenalty(blended, features, floor);
 
         result.StrategyName = Name;
-        result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
-            result.GenreContribution,
-            result.CollaborativeContribution,
-            result.RatingContribution,
-            result.UserRatingContribution,
-            result.RecencyContribution,
-            result.YearProximityContribution,
-            result.InteractionContribution,
-            result.PeopleContribution,
-            result.StudioContribution,
-            result.FranchiseContribution,
-            result.CollectionProgressionContribution,
-            result.PopularityContribution);
+        result.DominantSignal = ResolveDominantSignal(result);
 
         return result;
     }
+
+    private static ScoreExplanation ApplyExplanationPenalty(ScoreExplanation raw, CandidateFeatures features, double floor)
+    {
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
+        var result = raw.WithPenalty(penalty);
+        if (raw.ContributionsAreMarginalEffects)
+        {
+            result.GenreContribution = result.FinalScore - ((raw.FinalScore - raw.GenreContribution) * floor);
+            result.DominantSignal = ResolveDominantSignal(result);
+        }
+
+        return result;
+    }
+
+    private static string ResolveDominantSignal(ScoreExplanation explanation)
+        => ScoreExplanation.DetermineDominantSignal(
+            explanation.GenreContribution,
+            explanation.CollaborativeContribution,
+            explanation.RatingContribution,
+            explanation.UserRatingContribution,
+            explanation.RecencyContribution,
+            explanation.YearProximityContribution,
+            explanation.InteractionContribution,
+            explanation.PeopleContribution,
+            explanation.StudioContribution,
+            explanation.FranchiseContribution,
+            explanation.CollectionProgressionContribution,
+            explanation.PopularityContribution);
 
     /// <summary>
     ///     Delegates training to the learned strategy and updates the blending factor.
@@ -648,21 +686,24 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         {
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
-            var qualityGatePassed = double.IsFinite(validationLoss) && validationLoss <= ValidationLossThreshold;
+            var qualityFactor = TrainingMath.QualityFactor(validationLoss, _learned.LastBaselineValidationLoss);
+            var qualityGatePassed = qualityFactor > 0.0;
+            var observedIds = examples.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().ToArray();
+            var stableObservedIds = examples.Where(example => example.IsObserved && example.HasStableObservationId && example.ObservationId != Guid.Empty)
+                .Select(example => example.ObservationId).Distinct().ToArray();
             MetricsTrend trend;
             lock (_syncRoot)
             {
-                // Track examples seen across training rounds.
-                _trainingExampleCount += examples.Count;
+                UpdateObservedMaturity(stableObservedIds);
 
                 // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
                 // The midpoint offset is adjusted by ApplyCohortFeedback based on cohort watch-rates.
                 var effectiveMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset;
                 var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, effectiveMidpoint, _alphaMin, _alphaMax);
 
-                var qualityFactor = UpdateAlphaFromQualityGate(qualityGatePassed, validationLoss, sigmoidAlpha);
+                UpdateAlphaFromQualityGate(qualityFactor, sigmoidAlpha);
 
-                UpdateNeuralBeta(neuralTrained, examples.Count);
+                UpdateNeuralBeta(neuralTrained, observedIds.Length);
 
                 RecordMetricsSnapshot(validationLoss, examples.Count);
 
@@ -720,32 +761,30 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         return result;
     }
 
+    /// <summary>Updates bounded unique-observation maturity. The caller holds <c>_syncRoot</c>.</summary>
+    /// <param name="observedIds">Distinct observed identities in first-occurrence order.</param>
+    private void UpdateObservedMaturity(Guid[] observedIds)
+    {
+        foreach (var id in observedIds)
+        {
+            if (_observedTrainingIds.Count >= MaxTrackedObservations)
+            {
+                break;
+            }
+
+            _observedTrainingIds.Add(id);
+        }
+
+        _trainingExampleCount = _observedTrainingIds.Count;
+    }
+
     /// <summary>
     ///     Updates _alpha and the quality-gate freeze flag from the sigmoid target. Caller must hold _syncRoot.
     /// </summary>
-    /// <returns>The quality factor applied (1.0 when the gate passed), reused by trend adjustments.</returns>
-    private double UpdateAlphaFromQualityGate(bool qualityGatePassed, double validationLoss, double sigmoidAlpha)
+    private void UpdateAlphaFromQualityGate(double qualityFactor, double sigmoidAlpha)
     {
-        if (qualityGatePassed)
-        {
-            // Good generalization - let alpha progress at full sigmoid rate
-            _alpha = sigmoidAlpha;
-            _qualityGateFrozen = false;
-            return 1.0;
-        }
-
-        // Soft damping: alpha still advances but is proportionally dampened based on how far the validation loss exceeds the threshold.
-        var qualityFactor = double.IsNaN(validationLoss)
-            ? 0.5 // NaN (no validation split) -> use half progression
-            : Math.Clamp(
-                1.0 - ((validationLoss - ValidationLossThreshold)
-                       / (ValidationLossCeiling - ValidationLossThreshold)),
-                0.0,
-                1.0);
-
         _alpha = _alphaMin + ((sigmoidAlpha - _alphaMin) * qualityFactor);
-        _qualityGateFrozen = qualityFactor < 0.01;
-        return qualityFactor;
+        _qualityGateFrozen = qualityFactor <= 0.0;
     }
 
     /// <summary>
@@ -769,8 +808,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         if (_neural is not null && neuralTrained && _trainingExampleCount >= NeuralActivationThreshold)
         {
             var neuralValidationLoss = _neural.LastValidationLoss;
-            var neuralQualityOk = double.IsFinite(neuralValidationLoss)
-                                  && neuralValidationLoss <= ValidationLossThreshold;
+            var neuralQualityOk = TrainingMath.QualityFactor(neuralValidationLoss, _neural.LastBaselineValidationLoss) > 0.0;
 
             if (neuralQualityOk)
             {
@@ -817,7 +855,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     does not blank out a user's neural say only to snap it back next run. Gated on the GLOBAL MLP's
     ///     validation quality, since the per-user model never trains the MLP itself. Caller must hold _syncRoot.
     /// </summary>
-    /// <param name="userExampleCount">This user's own example count for the current run (n_u), not the accumulated total.</param>
+    /// <param name="userExampleCount">Distinct observed identities in this user's current run (n_u), excluding contrasts and replay duplicates.</param>
     private void UpdatePerUserNeuralBeta(int userExampleCount)
     {
         if (_neural is null)
@@ -826,23 +864,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             return;
         }
 
-        if (userExampleCount < NeuralActivationThreshold)
-        {
-            // A user who has never crossed the activation threshold stays fully off: the MLP would add noise,
-            // not signal. But once a richer earlier round has established a beta, a later lean round holds it
-            // rather than snapping neural off, matching the documented climb-only behavior and the quality-fail
-            // branch below, which dampens instead of erasing.
-            if (_neuralBeta <= 0.0)
-            {
-                _neuralBeta = 0.0;
-            }
-
-            return;
-        }
-
         var neuralValidationLoss = _neural.LastValidationLoss;
-        var globalNeuralQualityOk = double.IsFinite(neuralValidationLoss)
-                                    && neuralValidationLoss <= ValidationLossThreshold;
+        var globalNeuralQualityOk = TrainingMath.QualityFactor(neuralValidationLoss, _neural.LastBaselineValidationLoss) > 0.0;
 
         if (!globalNeuralQualityOk)
         {
@@ -857,6 +880,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 _neuralBeta = 0.0;
             }
 
+            return;
+        }
+
+        // A lean round may retain a previously earned beta, but never bypass failed shared-model quality.
+        if (userExampleCount < NeuralActivationThreshold)
+        {
             return;
         }
 
@@ -887,7 +916,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 ValidationLoss = validationLoss,
                 PrecisionAtK = _learned.LastPrecisionAtK,
                 RecallAtK = _learned.LastRecallAtK,
-                NdcgAtK = _learned.LastNdcgAtK,
+                NdcgAtK = double.IsFinite(_learned.LastBaselineValidationLoss) ? _learned.LastNdcgAtK : double.NaN,
                 ExampleCount = exampleCount
             });
         const int maxHistory = 10;
@@ -1352,7 +1381,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     {
         lock (_syncRoot)
         {
-            _trainingExampleCount = data.TrainingExampleCount;
+            _observedTrainingIds.UnionWith((data.ObservedTrainingIds ?? []).Where(id => id != Guid.Empty).Take(MaxTrackedObservations));
+            _trainingExampleCount = _observedTrainingIds.Count;
             _qualityGateFrozen = data.QualityGateFrozen;
 
             // Restore persisted alpha directly instead of recomputing via sigmoid, so that the quality-gate freeze state is preserved across restarts.
@@ -1404,11 +1434,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             return null;
         }
 
-        if (data.TrainingExampleCount >= NeuralActivationThreshold
+        if (_trainingExampleCount >= NeuralActivationThreshold
             && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
         {
             var rampCeiling = NeuralMaxBetaFraction * Math.Clamp(
-                (data.TrainingExampleCount - NeuralActivationThreshold) / 100.0,
+                (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
                 0.0,
                 1.0);
             return Math.Min(data.NeuralBeta, rampCeiling);
@@ -1457,6 +1487,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 var data = new EnsembleStateData
                 {
                     TrainingExampleCount = _trainingExampleCount,
+                    ObservedTrainingIds = _observedTrainingIds.ToArray(),
                     Alpha = _alpha,
                     NeuralBeta = _neuralBeta,
                     QualityGateFrozen = _qualityGateFrozen,
@@ -1497,7 +1528,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
         // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the trailing window. A mixed history (e.g.
-        var realRows = history.Where(snapshot => double.IsFinite(snapshot.ValidationLoss)).ToList();
+        var realRows = history.Where(snapshot => double.IsFinite(snapshot.ValidationLoss) && double.IsFinite(snapshot.NdcgAtK)).ToList();
 
         if (realRows.Count < TrendMinSnapshots)
         {
@@ -1587,12 +1618,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal sealed class EnsembleStateData
     {
         /// <summary>Increment this constant whenever the persisted schema changes.</summary>
-        internal const int CurrentSchemaVersion = 1;
+        internal const int CurrentSchemaVersion = 3;
 
         private List<MetricsSnapshot> _metricsHistory = [];
 
         /// <summary>Gets or sets the schema version written when this state was last saved.</summary>
         public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+        /// <summary>Gets or sets the bounded set of unique observed user/title identities.</summary>
+        public Guid[]? ObservedTrainingIds { get; set; }
 
         /// <summary>Gets or sets the cumulative number of training examples seen.</summary>
         public int TrainingExampleCount { get; set; }
@@ -1607,7 +1641,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         public bool QualityGateFrozen { get; set; }
 
         /// <summary>Gets or sets the adaptive sigmoid midpoint offset.
-        /// Positive = ML trusted sooner, negative = more conservative.</summary>
+        /// Negative = ML trusted sooner, positive = more conservative.</summary>
         public double SigmoidMidpointOffset { get; set; }
 
         /// <summary>Gets or sets the ISO 8601 timestamp of the last update.</summary>

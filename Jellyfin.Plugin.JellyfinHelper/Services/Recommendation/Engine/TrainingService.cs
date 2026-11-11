@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -162,15 +164,18 @@ internal sealed class TrainingService : IDisposable
 
             // Build the full pooled example set once. The global pass may subsample it for efficiency, but
             // the per-user passes must see each user's real example count, so they train on this full set.
-            var pooled = BuildTrainingExamples(
+            var batch = BuildTrainingExamples(
                 globalEnsemble, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+            var pooled = batch.Examples;
 
-            var globalExamples = incremental && pooled.Count >= EngineConstants.IncrementalMinExamplesThreshold
-                ? ApplyIncrementalSampling(pooled, previousResults)
-                : pooled;
+            SplitHeldOut(pooled, out var globalExamples, out var globalHoldout);
+            if (incremental && globalExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
+            {
+                globalExamples = ApplyIncrementalSampling(globalExamples, batch.PreviousResults);
+            }
 
             // Global pass: trains the learned model, the neural MLP (once), and the global blend state.
-            var globalTrained = TrainStrategyOnExamples(globalEnsemble, globalExamples, trainNeural: true, cancellationToken);
+            var globalTrained = TrainStrategyOnExamples(globalEnsemble, globalExamples, trainNeural: true, cancellationToken, globalHoldout);
 
             // Per-user passes train on the full per-user slices so incremental subsampling of the pooled set
             // never drops a user below the threshold or starves their model of their own recent history.
@@ -239,7 +244,8 @@ internal sealed class TrainingService : IDisposable
             }
 
             var userExamples = group.ToList();
-            if (userExamples.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
+            SplitHeldOut(userExamples, out var userFit, out var userHoldout);
+            if (userFit.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
             {
                 // Below threshold: no per-user model. Evict any model this user built on a previous, richer run
                 // so they fall back to the global model rather than keep scoring on a stale personal fit; a user
@@ -255,7 +261,7 @@ internal sealed class TrainingService : IDisposable
             }
 
             var ensemble = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
-            if (TrainStrategyOnExamples(ensemble, userExamples, trainNeural: false, cancellationToken))
+            if (TrainStrategyOnExamples(ensemble, userFit, trainNeural: false, cancellationToken, userHoldout))
             {
                 trainedUsers++;
             }
@@ -282,11 +288,12 @@ internal sealed class TrainingService : IDisposable
         LibraryItemMetadata? libraryItemMetadata,
         CancellationToken cancellationToken)
     {
-        var trainingExamples = BuildTrainingExamples(
+        var batch = BuildTrainingExamples(
             strategy, previousResults, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, cancellationToken);
+        var trainingExamples = batch.Examples;
 
         var sampled = incremental && trainingExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold
-            ? ApplyIncrementalSampling(trainingExamples, previousResults)
+            ? ApplyIncrementalSampling(trainingExamples, batch.PreviousResults)
             : trainingExamples;
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -305,8 +312,8 @@ internal sealed class TrainingService : IDisposable
     /// <param name="genreStudioIdf">Library-wide genre/studio IDF rarity table.</param>
     /// <param name="libraryItemMetadata">Item metadata map from the live library.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The full pooled training examples.</returns>
-    private List<TrainingExample> BuildTrainingExamples(
+    /// <returns>The pooled examples and the same live-account recommendation partition used to build them.</returns>
+    private TrainingBatch BuildTrainingExamples(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
@@ -316,10 +323,14 @@ internal sealed class TrainingService : IDisposable
     {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         cancellationToken.ThrowIfCancellationRequested();
+        // The live profile provider excludes deleted/disabled accounts. Cached feedback and
+        // recommendation pools must not reintroduce those users into fitting or contrasts.
+        var activeUserIds = allProfiles.Select(profile => profile.UserId).ToHashSet();
+        previousResults = previousResults.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
 
         // Load discovery feedback if available (Phase 4 data source).
         // Best-effort: if the store is unavailable or throws, training continues without it.
-        var discoveryFeedback = LoadDiscoveryFeedback();
+        var discoveryFeedback = LoadDiscoveryFeedback()?.Where(result => activeUserIds.Contains(result.UserId)).ToArray();
 
         // Discovery training imputes the uncomputable external-candidate features to the model's persisted
         // training-set means, so it must use the SAME means discovery inference reads (from the learned
@@ -335,6 +346,8 @@ internal sealed class TrainingService : IDisposable
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
 
+        examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight).ToList();
+
         var positiveCount = examples.Count(e => e.Label > 0.5);
         // Separate discovery from organic in the log so operators can see whether positive signal comes from actual watched consumption or external Seerr requests.
         _pluginLog.LogInfo(
@@ -344,7 +357,7 @@ internal sealed class TrainingService : IDisposable
             $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
-        return examples;
+        return new TrainingBatch(examples, previousResults);
     }
 
     /// <summary>
@@ -359,17 +372,30 @@ internal sealed class TrainingService : IDisposable
     ///     is fit only once, globally.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="protectedHoldout">The pre-reserved evaluation partition, or null to split locally.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
     private bool TrainStrategyOnExamples(
         IScoringStrategy strategy,
         List<TrainingExample> trainingExamples,
         bool trainNeural,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<TrainingExample>? protectedHoldout = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as held-out validation, train on the remaining 90%, for honest generalization metrics instead of optimistic training-set fit.
-        SplitHeldOut(trainingExamples, out var trainSplit, out var heldOutSplit);
+        // Reuse the permanent user/title holdout reserved before replay and global/personal fitting.
+        // Ad-hoc examples without stable identities use the legacy local split.
+        List<TrainingExample> trainSplit;
+        List<TrainingExample> heldOutSplit;
+        if (protectedHoldout is not null)
+        {
+            trainSplit = trainingExamples;
+            heldOutSplit = protectedHoldout;
+        }
+        else
+        {
+            SplitHeldOut(trainingExamples, out trainSplit, out heldOutSplit);
+        }
 
         // Pass the held-out slice into the strategy so the metrics it publishes (used by the ensemble's quality gate + trend analyser) come from the same out-of-sample set the log line below reports.
         var heldOutForMetrics = heldOutSplit.Count >= 2 ? heldOutSplit : null;
@@ -442,7 +468,7 @@ internal sealed class TrainingService : IDisposable
     }
 
     /// <summary>
-    ///     Applies incremental-training example selection: keeps recent examples and reservoir-samples a fraction of the older ones.
+    ///     Keeps recent examples and deterministically selects a fraction of older ones using cryptographic hash priorities.
     /// </summary>
     /// <param name="examples">All built training examples.</param>
     /// <param name="previousResults">The previous-run recommendation results (for the recency cutoff).</param>
@@ -451,7 +477,9 @@ internal sealed class TrainingService : IDisposable
         List<TrainingExample> examples,
         IReadOnlyList<RecommendationResult> previousResults)
     {
-        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
+        var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt)
+            ?? examples.Max(example => (DateTime?)example.GeneratedAtUtc)
+            ?? DateTime.UtcNow;
         var cutoff = latestGeneratedAt.AddDays(-1);
 
         var newExamples = new List<TrainingExample>();
@@ -474,19 +502,13 @@ internal sealed class TrainingService : IDisposable
             return newExamples;
         }
 
-        var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
+        var batchSeed = unchecked((int)latestGeneratedAt.Ticks ^ (int)(latestGeneratedAt.Ticks >> 32) ^ examples.Count);
         var sampleCount = Math.Clamp(
             (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
             1,
             oldExamples.Count);
 
-        for (var i = 0; i < sampleCount; i++)
-        {
-            var j = rng.Next(i, oldExamples.Count);
-            (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
-        }
-
-        var sampledOld = oldExamples.GetRange(0, sampleCount);
+        var sampledOld = SelectReplayExamples(oldExamples, sampleCount, Engine.ComputeStableSeed(Guid.Empty, batchSeed));
         var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
         combined.AddRange(newExamples);
         combined.AddRange(sampledOld);
@@ -498,6 +520,29 @@ internal sealed class TrainingService : IDisposable
             _logger);
 
         return combined;
+    }
+
+    /// <summary>Assigns reproducible SHA-256 priorities without using a security-sensitive random generator.</summary>
+    /// <param name="examples">Older observations in their existing order.</param>
+    /// <param name="sampleCount">Number of distinct rows to retain.</param>
+    /// <param name="batchSeed">The established deterministic batch context.</param>
+    /// <returns>Selected rows without replacement; input ordering is unchanged.</returns>
+    private static List<TrainingExample> SelectReplayExamples(List<TrainingExample> examples, int sampleCount, int batchSeed)
+    {
+        var priorities = new (ulong Priority, int Index)[examples.Count];
+        Span<byte> input = stackalloc byte[24];
+        Span<byte> digest = stackalloc byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(input, batchSeed);
+        for (var i = 0; i < examples.Count; i++)
+        {
+            examples[i].ObservationId.TryWriteBytes(input.Slice(4, 16));
+            BinaryPrimitives.WriteInt32LittleEndian(input[20..], i);
+            SHA256.HashData(input, digest);
+            priorities[i] = (BinaryPrimitives.ReadUInt64LittleEndian(digest), i);
+        }
+
+        Array.Sort(priorities);
+        return priorities.Take(sampleCount).Select(row => examples[row.Index]).ToList();
     }
 
     /// <summary>
@@ -514,6 +559,16 @@ internal sealed class TrainingService : IDisposable
         const int minExamplesForHeldOut = 20;
         const double heldOutFraction = 0.10;
 
+        if (trainingExamples.Any(example => example.HasStableObservationId))
+        {
+            // The same user/title partition is reserved before global fitting, personal warm starts and replay.
+            // A later watch/request changes the outcome, not membership; validation titles are never fit as contrasts either.
+            trainSplit = trainingExamples.Where(example => !example.IsPermanentHoldout).ToList();
+            heldOutSplit = trainingExamples.Where(example => example.IsPermanentHoldout && example.IsObserved)
+                .OrderByDescending(example => example.GeneratedAtUtc).ToList();
+            return;
+        }
+
         if (trainingExamples.Count >= minExamplesForHeldOut)
         {
             // Sort by GeneratedAtUtc descending to pick the most recent as held-out
@@ -528,4 +583,6 @@ internal sealed class TrainingService : IDisposable
             heldOutSplit = [];
         }
     }
+
+    private sealed record TrainingBatch(List<TrainingExample> Examples, IReadOnlyList<RecommendationResult> PreviousResults);
 }

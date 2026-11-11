@@ -158,6 +158,25 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         Assert.Equal(baseline, ensemble.ScoreWithOffset(features, -1e-11), 12);
     }
 
+    [Theory]
+    [InlineData(0.12)]
+    [InlineData(100.0)]
+    public void FrozenQualityGate_PositiveOffsetsCannotIncreaseMlInfluence(double offset)
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures { GenreSimilarity = 0.7 };
+        var train = Enumerable.Range(0, 30).Select(_ => new TrainingExample { Features = features, Label = 1.0 }).ToArray();
+        var holdout = Enumerable.Range(0, 10).Select(_ => new TrainingExample { Features = features, Label = 0.0 }).ToArray();
+        Assert.True(ensemble.Train(train, holdout));
+        Assert.True(ensemble.IsQualityGateFrozen);
+
+        Assert.Equal(ensemble.Score(features), ensemble.ScoreWithOffset(features, offset));
+        var baseline = ensemble.ScoreWithExplanation(features);
+        var actual = ensemble.ScoreWithExplanationAndOffset(features, offset);
+        Assert.Equal(baseline.FinalScore, actual.FinalScore);
+        Assert.Equal(baseline.GenreContribution, actual.GenreContribution);
+    }
+
     [Fact]
     public void ScoreWithOffset_MassivePositiveOffset_ClampedInRange()
     {
@@ -375,9 +394,9 @@ public sealed class EnsembleScoringStrategyAdvancedTests
             RecencyScore = 0.6
         };
         var examples = Enumerable.Range(0, 100)
-            .Select(_ => new TrainingExample { Features = positiveFeatures, Label = 1.0 })
+            .Select(index => new TrainingExample { Features = index % 2 == 0 ? positiveFeatures : new CandidateFeatures { GenreSimilarity = 0.05, CombinedCriticScore = 0.1 }, Label = index % 2 == 0 ? 1.0 : 0.0 })
             .ToList();
-        ensemble.Train(examples);
+        ensemble.Train(examples, examples.Select(example => new TrainingExample { Features = example.Features.Copy(), Label = example.Label }).ToArray());
 
         var alphaBefore = ensemble.CurrentAlpha;
         Assert.True(alphaBefore > 0.1, "Alpha should have advanced past αMin after training");
@@ -433,6 +452,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,

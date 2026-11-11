@@ -76,7 +76,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         // unavailable, which must stay distinct from "no disabled users" so stale results
         // cannot create playlists for users who are disabled at sync time.
         var disabledUserIds = GetDisabledUserIds(cancellationToken);
-        var rosterUnavailable = disabledUserIds is null;
         var handledDisabledUserIds = new HashSet<Guid>();
 
         foreach (var result in results)
@@ -89,7 +88,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 continue;
             }
 
-            if (rosterUnavailable && !IsVerifiedEnabledUser(result, handledDisabledUserIds, syncResult, cancellationToken))
+            if (!IsVerifiedEnabledUser(result, handledDisabledUserIds, syncResult, cancellationToken))
             {
                 continue;
             }
@@ -360,7 +359,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
-    ///     Resolves a single result against the live user record when the roster was unavailable.
+    ///     Resolves every result against the live user record, even when an earlier roster was available.
     ///     A resolved disabled user is routed through disabled-user cleanup, a resolved enabled
     ///     user returns true for syncing, and a missing/failed lookup returns false to skip.
     /// </summary>

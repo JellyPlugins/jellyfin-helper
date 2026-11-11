@@ -18,6 +18,9 @@ public sealed class ScoreExplanation
     /// <summary>Gets or sets the final blended score (0-1).</summary>
     public double FinalScore { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether effects are score-removal deltas rather than additive summands.</summary>
+    public bool ContributionsAreMarginalEffects { get; set; }
+
     /// <summary>Gets or sets the score contribution from genre similarity.</summary>
     public double GenreContribution { get; set; }
 
@@ -92,6 +95,7 @@ public sealed class ScoreExplanation
         return new ScoreExplanation
         {
             FinalScore = (oneMinusAlpha * FinalScore) + (alpha * other.FinalScore),
+            ContributionsAreMarginalEffects = ContributionsAreMarginalEffects || other.ContributionsAreMarginalEffects,
             GenreContribution = blendedGenre,
             CollaborativeContribution = blendedCollab,
             RatingContribution = blendedRating,
@@ -134,6 +138,7 @@ public sealed class ScoreExplanation
         return new ScoreExplanation
         {
             FinalScore = Math.Clamp(FinalScore * penaltyMultiplier, 0.0, 1.0),
+            ContributionsAreMarginalEffects = ContributionsAreMarginalEffects,
             GenreContribution = GenreContribution * penaltyMultiplier,
             CollaborativeContribution = CollaborativeContribution * penaltyMultiplier,
             RatingContribution = RatingContribution * penaltyMultiplier,

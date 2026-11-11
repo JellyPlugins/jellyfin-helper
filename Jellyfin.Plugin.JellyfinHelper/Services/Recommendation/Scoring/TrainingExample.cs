@@ -1,4 +1,6 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -55,6 +57,34 @@ public sealed class TrainingExample
     /// <summary>Gets or sets the owning user. Used to compute per-user ranking metrics.</summary>
     public Guid UserId { get; set; }
 
+    /// <summary>Gets or initializes the observation identity; builders assign a stable user/title key.</summary>
+    public Guid ObservationId { get; init; } = Guid.NewGuid();
+
+    /// <summary>Gets or initializes a value indicating whether the identity remains stable across builds and restarts.</summary>
+    public bool HasStableObservationId { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether this label is observed feedback rather than an unlabeled contrast sample.</summary>
+    public bool IsObserved { get; init; } = true;
+
+    /// <summary>Gets or initializes a value indicating whether an unobserved title is intentionally sampled as an implicit contrast.</summary>
+    public bool IsContrastSample { get; init; }
+
+    /// <summary>Gets a value indicating whether this stable observation belongs to the permanent held-out partition.</summary>
+    internal bool IsPermanentHoldout
+    {
+        get
+        {
+            if (!HasStableObservationId)
+            {
+                return false;
+            }
+
+            Span<byte> bytes = stackalloc byte[16];
+            ObservationId.TryWriteBytes(bytes);
+            return System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes) % 10 == 0;
+        }
+    }
+
     /// <summary>
     ///     Computes a temporal decay weight based on the age of this example.
     ///     Newer examples get weight closer to 1.0, older examples decay exponentially.
@@ -91,4 +121,43 @@ public sealed class TrainingExample
     {
         return SampleWeight * ComputeTemporalWeight(referenceTimeUtc);
     }
+
+    /// <summary>Creates a stable, name-free observation key for one user's interaction with a title.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="titleKey">The namespaced library or TMDb title key.</param>
+    /// <returns>A stable observation identifier.</returns>
+    internal static Guid CreateObservationId(Guid userId, string titleKey)
+        => new(SHA256.HashData(Encoding.UTF8.GetBytes(userId.ToString("N") + ":" + titleKey)).AsSpan(0, 16));
+
+    /// <summary>Creates the canonical library observation key without duplicating the namespace at call sites.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="itemId">The library title or aggregated series id.</param>
+    /// <returns>The unchanged stable library observation identifier.</returns>
+    internal static Guid CreateLibraryObservationId(Guid userId, Guid itemId)
+        => CreateObservationId(userId, "library:" + itemId.ToString("N"));
+
+    /// <summary>Creates the same provider-based identity for library and external observations, with a library fallback only when the provider id is unknown.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="itemId">The library title id used only as a fallback.</param>
+    /// <param name="tmdbId">The known provider title id, or zero.</param>
+    /// <param name="isSeries">Whether the title is television rather than a movie.</param>
+    /// <returns>The stable shared user/title identity.</returns>
+    internal static Guid CreateTitleObservationId(Guid userId, Guid itemId, int tmdbId, bool isSeries)
+    {
+        if (tmdbId <= 0)
+        {
+            return CreateLibraryObservationId(userId, itemId);
+        }
+
+        var mediaType = isSeries ? "tv" : "movie";
+        return CreateProviderObservationId(userId, tmdbId, mediaType);
+    }
+
+    /// <summary>Creates a canonical, culture-independent provider identity without conflating movie/TV ids.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <param name="tmdbId">The provider title id.</param>
+    /// <param name="mediaType">The normalized movie/TV namespace.</param>
+    /// <returns>The stable user/provider/title identity.</returns>
+    internal static Guid CreateProviderObservationId(Guid userId, int tmdbId, string mediaType)
+        => CreateObservationId(userId, "tmdb:" + mediaType.Trim().ToLowerInvariant() + ":" + tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 }

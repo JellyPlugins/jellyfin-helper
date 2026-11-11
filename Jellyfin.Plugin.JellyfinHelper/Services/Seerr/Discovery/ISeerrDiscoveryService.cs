@@ -16,6 +16,14 @@ public interface ISeerrDiscoveryService
     /// </summary>
     int MaxVisiblePerUser { get; }
 
+    /// <summary>Verifies current Jellyfin parental policy before a user submits an external media request.</summary>
+    /// <param name="userId">The authenticated Jellyfin user.</param>
+    /// <param name="tmdbId">The requested provider title.</param>
+    /// <param name="mediaType">Movie or TV.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether requesting is allowed and whether the certification check was conclusive.</returns>
+    Task<(bool Allowed, bool Verified)> VerifyRequestForUserAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken);
+
     /// <summary>
     ///     Scores an externally-supplied candidate set for a single user through the same per-user ensemble
     ///     pipeline the local discovery uses (exclusions, parental filter, pre-score, credits enrichment, final

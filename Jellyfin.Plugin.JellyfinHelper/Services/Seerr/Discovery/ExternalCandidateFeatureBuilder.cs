@@ -66,6 +66,7 @@ internal static class ExternalCandidateFeatureBuilder
 
         var features = new CandidateFeatures
         {
+            IsExternalCandidate = true,
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
             CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
             RecencyScore =
@@ -89,7 +90,7 @@ internal static class ExternalCandidateFeatureBuilder
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,
             HourOfDayAffinity = 0.5,
-            IsWeekend = false,
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(profile ?? new UserWatchProfile()),
             TagSimilarity = 0.0,
             LibraryAddedRecency = 0.5,
             ContentNearestNeighborScore = 0.0,

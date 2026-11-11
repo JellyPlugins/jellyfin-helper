@@ -1068,11 +1068,10 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void CurrentWeightsVersion_IsV3()
+    public void CurrentWeightsVersion_IsV5()
     {
-        // Version bump 2 -> 3 signals to persistence-loaders that the
-        // stored array shapes no longer match; a v2 file will be discarded on load.
-        Assert.Equal(3, NeuralScoringStrategy.CurrentWeightsVersion);
+        // V5 rejects pre-canonical-title fits without changing feature count or layer sizes.
+        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

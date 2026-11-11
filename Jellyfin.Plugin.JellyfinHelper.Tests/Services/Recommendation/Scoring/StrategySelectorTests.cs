@@ -1,4 +1,6 @@
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -12,6 +14,47 @@ public class StrategySelectorTests
     public void Constructor_NullEnsemble_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new StrategySelector(null!));
+    }
+
+    [Fact]
+    public void FrozenQualityGate_DisablesCohortsEvenWithEnoughDataAndHistory()
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var train = Enumerable.Range(0, 60).Select(_ => new TrainingExample { HasStableObservationId = true, Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 1.0 }).ToArray();
+        var holdout = Enumerable.Range(0, 10).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.7 }, Label = 0.0 }).ToArray();
+        Assert.True(ensemble.Train(train, holdout));
+        Assert.True(ensemble.Train(train, holdout));
+        Assert.True(ensemble.IsQualityGateFrozen);
+        Assert.True(ensemble.TrainingExampleCount >= StrategySelector.MinExamplesForExploration);
+        var selector = new StrategySelector(ensemble);
+
+        Assert.Equal(0.0, selector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal("control", selector.GetCohortName(Guid.Empty));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Exploration_UsesTheActualScoringGateButRetainsGlobalMaturityThresholds(bool globalFrozen, bool personalFrozen)
+    {
+        using var global = new EnsembleScoringStrategy();
+        using var personal = new EnsembleScoringStrategy();
+        var examples = BuildTrainingExamples(60);
+        Assert.True(global.Train(examples));
+        Assert.True(global.Train(examples));
+        var freeze = typeof(EnsembleScoringStrategy).GetField("_qualityGateFrozen", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        freeze.SetValue(global, globalFrozen);
+        freeze.SetValue(personal, personalFrozen);
+        var registry = new Mock<IPerUserEnsembleRegistry>();
+        registry.Setup(value => value.GetEnsembleForUser(Guid.Empty)).Returns(personal);
+        var selector = new StrategySelector(global, registry.Object);
+        Assert.Equal(personalFrozen ? 0 : StrategySelector.ExploreHighOffset, selector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal(personalFrozen ? "control" : "explore-high", selector.GetCohortName(Guid.Empty));
+        using var immature = new EnsembleScoringStrategy();
+        var immatureSelector = new StrategySelector(immature, registry.Object);
+        Assert.Equal(0.0, immatureSelector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal("control", immatureSelector.GetCohortName(Guid.Empty));
     }
 
     [Fact]
@@ -286,6 +329,7 @@ public class StrategySelectorTests
             var t = (double)i / Math.Max(1, count - 1);
             list.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = t,

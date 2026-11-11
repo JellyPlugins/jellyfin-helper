@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -74,6 +75,7 @@ public sealed class RecommendationCacheServiceTests : IDisposable
                 ScoringStrategy = "Ensemble",
                 ScoringStrategyKey = "strategyEnsemble",
                 GeneratedAt = new DateTime(2025, 1, 15, 10, 30, 0, DateTimeKind.Utc),
+                TrainingContrasts = [new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", ScoringFeatures = new CandidateFeatures { LanguageAffinity = 0.8, SubtitleLanguageAffinity = 0.3 } }],
                 Recommendations = new Collection<RecommendedItem>
                 {
                     new RecommendedItem
@@ -86,7 +88,8 @@ public sealed class RecommendationCacheServiceTests : IDisposable
                         ReasonKey = "reasonGenre",
                         Genres = new[] { "Action", "Thriller" },
                         Year = 2024,
-                        CommunityRating = 7.5f
+                        CommunityRating = 7.5f,
+                        ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 2.0, CollaborativeScore = double.NaN, LanguageAffinity = 0.7 }
                     }
                 }
             }
@@ -104,6 +107,17 @@ public sealed class RecommendationCacheServiceTests : IDisposable
         Assert.Equal("Test Movie", recommendation.Name);
         Assert.Equal(0.85, recommendation.Score);
         Assert.Equal(new[] { "Action", "Thriller" }, recommendation.Genres);
+        Assert.NotNull(recommendation.ScoringFeatures);
+        Assert.True(recommendation.ScoringFeatures.IsExternalCandidate);
+        Assert.Equal(1.0, recommendation.ScoringFeatures.GenreSimilarity);
+        Assert.Equal(0.0, recommendation.ScoringFeatures.CollaborativeScore);
+        Assert.Equal(0.7, recommendation.ScoringFeatures.LanguageAffinity);
+        Assert.NotSame(results[0].Recommendations[0].ScoringFeatures, recommendation.ScoringFeatures);
+        Assert.NotNull(result.TrainingContrasts);
+        var contrast = Assert.Single(result.TrainingContrasts);
+        Assert.Equal(0.8, contrast.ScoringFeatures!.LanguageAffinity);
+        Assert.Equal(0.3, contrast.ScoringFeatures.SubtitleLanguageAffinity);
+        Assert.NotSame(results[0].TrainingContrasts![0].ScoringFeatures, contrast.ScoringFeatures);
     }
 
     [Fact]

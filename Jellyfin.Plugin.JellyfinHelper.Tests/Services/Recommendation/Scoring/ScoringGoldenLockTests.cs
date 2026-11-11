@@ -32,7 +32,7 @@ public class ScoringGoldenLockTests
 
         var settableDoubles = Array.FindAll(
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
-            static p => p.CanWrite);
+            static p => p.CanWrite && p.Name != nameof(CandidateFeatures.IsExternalCandidate));
 
         // Reflection does NOT guarantee a stable GetProperties() order across runtimes/platforms, so sort by name to make the seed-to-feature assignment (and thus the digest) identical on Windows and the Linux CI runner.
         Array.Sort(settableDoubles, static (a, b) => string.CompareOrdinal(a.Name, b.Name));

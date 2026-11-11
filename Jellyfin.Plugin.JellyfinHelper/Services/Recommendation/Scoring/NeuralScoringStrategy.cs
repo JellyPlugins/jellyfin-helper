@@ -97,9 +97,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>
     ///     Schema version for persisted weights. A set whose array lengths no longer match the current layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns and resets to defaults so the next training run rebuilds from scratch.
     /// </summary>
-    // The recommendation-review feature-value changes do not alter feature count or layer
-    // sizes, so array-length validation alone would accept pre-change weights. They ride on the v3 bump
-    internal const int CurrentWeightsVersion = 3;
+    // V5 unifies provider-title holdouts across library and discovery. Older fits may have
+    // learned an alias of a now-held-out title; array shape alone cannot reject that leakage.
+    internal const int CurrentWeightsVersion = 5;
 
     /// <summary>
     ///     JSON options for weight persistence. Compact (non-indented) output cuts the file to ~a third with no information loss; weights are machine-read only.
@@ -144,7 +144,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private volatile bool _disposed;
     private double[]? _featureMeans;
     private double[]? _featureStdDevs;
+    private double[]? _imputationMeans;
     private double _lastValidationLoss = double.NaN;
+    private double _lastBaselineValidationLoss = double.NaN;
     private double _lastPrecisionAtK = double.NaN;
     private double _lastRecallAtK = double.NaN;
     private double _lastNdcgAtK = double.NaN;
@@ -205,6 +207,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <inheritdoc />
     public string Name => "Neural (Adaptive MLP)";
+
+    /// <summary>Gets the independent constant-predictor validation baseline.</summary>
+    internal double LastBaselineValidationLoss
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _lastBaselineValidationLoss;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public string NameKey => "strategyNeural";
@@ -378,6 +392,34 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
+    /// <summary>Gets a defensive copy of the model's fixed external imputation coordinates.</summary>
+    /// <returns>The raw imputation means, or null for initial priors.</returns>
+    internal double[]? GetImputationMeans()
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _imputationMeans is null ? null : (double[])_imputationMeans.Clone();
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
@@ -391,9 +433,25 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // Reuse a thread-local input buffer to avoid a heap allocation per candidate. WriteToVector
         // fully overwrites every element, so no stale data leaks between calls.
         var vector = GetThreadLocalInputBuffer();
-        features.WriteToVector(vector);
+        PrepareThreadLocalHiddenBuffers();
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return 0.5;
+        }
 
-        return ScoreVector(vector);
+        try
+        {
+            features.WriteForModel(vector, _imputationMeans);
+            return ComputeLockedVectorScore(vector);
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
     }
 
     /// <summary>
@@ -424,12 +482,23 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         try
         {
-            if (_featureMeans is not null && _featureStdDevs is not null)
-            {
-                LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
-            }
+            return ComputeLockedVectorScore(vector);
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
 
-            var result = ForwardPass(
+    private double ComputeLockedVectorScore(double[] vector)
+    {
+        PrepareThreadLocalHiddenBuffers();
+        if (_featureMeans is not null && _featureStdDevs is not null)
+        {
+            LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
+        }
+
+        var result = ForwardPass(
                 vector,
                 _weightsIH,
                 _biasH1,
@@ -450,12 +519,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _tlsH4Pre,
                 _tlsH4Act);
 
-            return ScoringHelper.GuardScore(result);
-        }
-        finally
-        {
-            _rwLock.ExitReadLock();
-        }
+        return ScoringHelper.GuardScore(result);
     }
 
     /// <summary>
@@ -503,7 +567,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Full input-gradient attribution through all four hidden layers, O(H4·H3·H2·H1·InputSize).
+    ///     Named signal effects are actual sigmoid-score removal deltas under one pinned model state.
     /// </remarks>
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
@@ -515,7 +579,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         var vector = new double[CandidateFeatures.FeatureCount];
-        features.WriteToVector(vector);
 
         try
         {
@@ -528,11 +591,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 return new ScoreExplanation { FinalScore = 0.5, StrategyName = Name };
             }
 
-            if (_featureMeans is not null && _featureStdDevs is not null)
-            {
-                LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
-            }
-
             var h1Pre = new double[Hidden1Size];
             var h1Act = new double[Hidden1Size];
             var h2Pre = new double[Hidden2Size];
@@ -541,36 +599,37 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h3Act = new double[Hidden3Size];
             var h4Pre = new double[Hidden4Size];
             var h4Act = new double[Hidden4Size];
-            var rawScore = ForwardPass(
-                vector,
-                _weightsIH,
-                _biasH1,
-                _weightsH1H2,
-                _biasH2,
-                _weightsH2H3,
-                _biasH3,
-                _weightsH3H4,
-                _biasH4,
-                _weightsH4O,
-                _biasOutput,
-                h1Pre,
-                h1Act,
-                h2Pre,
-                h2Act,
-                h3Pre,
-                h3Act,
-                h4Pre,
-                h4Act);
+            double ScorePinned(CandidateFeatures candidate)
+            {
+                candidate.WriteForModel(vector, _imputationMeans);
+                if (_featureMeans is not null && _featureStdDevs is not null)
+                {
+                    LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
+                }
 
-            var score = ScoringHelper.GuardScore(rawScore);
+                return ScoringHelper.GuardScore(ForwardPass(
+                    vector,
+                    _weightsIH,
+                    _biasH1,
+                    _weightsH1H2,
+                    _biasH2,
+                    _weightsH2H3,
+                    _biasH3,
+                    _weightsH3H4,
+                    _biasH4,
+                    _weightsH4O,
+                    _biasOutput,
+                    h1Pre,
+                    h1Act,
+                    h2Pre,
+                    h2Act,
+                    h3Pre,
+                    h3Act,
+                    h4Pre,
+                    h4Act));
+            }
 
-            // Input-gradient attribution through all four hidden layers
-            var inputSize = CandidateFeatures.FeatureCount;
-            var attr = ComputeInputAttribution(inputSize, h1Pre, h2Pre, h3Pre, h4Pre);
-
-            var interactionContrib = ComputeInteractionContribution(attr);
-
-            return BuildScoreExplanation(score, attr, interactionContrib, features);
+            return ScoringHelper.BuildMarginalExplanation(features, ScorePinned, Name);
         }
         finally
         {
@@ -588,206 +647,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 }
             }
         }
-    }
-
-    /// <summary>
-    ///     Computes the input-gradient attribution vector through all four hidden layers. Extracted verbatim from ScoreWithExplanation; the ReLU gating, weight indexing, and accumulation order are unchanged.
-    /// </summary>
-    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
-    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
-    /// <param name="h2Pre">Hidden2 pre-activation values.</param>
-    /// <param name="h3Pre">Hidden3 pre-activation values.</param>
-    /// <param name="h4Pre">Hidden4 pre-activation values.</param>
-    /// <returns>Per-input attribution vector [inputSize].</returns>
-    private double[] ComputeInputAttribution(
-        int inputSize,
-        double[] h1Pre,
-        double[] h2Pre,
-        double[] h3Pre,
-        double[] h4Pre)
-    {
-        var attr = new double[inputSize];
-
-        for (var m = 0; m < Hidden4Size; m++)
-        {
-            if (h4Pre[m] <= 0)
-            {
-                continue;
-            }
-
-            var outW = _weightsH4O[m];
-            for (var l = 0; l < Hidden3Size; l++)
-            {
-                if (h3Pre[l] <= 0)
-                {
-                    continue;
-                }
-
-                var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
-                var combinedH4H3 = outW * h3h4W;
-                AccumulateHidden2Attribution(attr, inputSize, combinedH4H3, l, h1Pre, h2Pre);
-            }
-        }
-
-        return attr;
-    }
-
-    /// <summary>
-    ///     Accumulates the hidden2-level attribution for one active (ReLU-open) hidden3 neuron.
-    /// </summary>
-    /// <param name="attr">Per-input attribution accumulator [inputSize].</param>
-    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
-    /// <param name="combinedH4H3">Pre-multiplied output×h3h4 weight product for the active path.</param>
-    /// <param name="l">Active hidden3 neuron index.</param>
-    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
-    /// <param name="h2Pre">Hidden2 pre-activation values.</param>
-    private void AccumulateHidden2Attribution(
-        double[] attr,
-        int inputSize,
-        double combinedH4H3,
-        int l,
-        double[] h1Pre,
-        double[] h2Pre)
-    {
-        for (var k = 0; k < Hidden2Size; k++)
-        {
-            if (h2Pre[k] <= 0)
-            {
-                continue;
-            }
-
-            var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
-            var combinedOuter = combinedH4H3 * h2h3W;
-            AccumulateHidden1Attribution(attr, inputSize, combinedOuter, k, h1Pre);
-        }
-    }
-
-    /// <summary>
-    ///     Accumulates the hidden1-level attribution for one active (ReLU-open) hidden2 neuron.
-    /// </summary>
-    /// <param name="attr">Per-input attribution accumulator [inputSize].</param>
-    /// <param name="inputSize">Number of input features (row stride for the input weights).</param>
-    /// <param name="combinedOuter">Pre-multiplied product for the active path down to hidden2.</param>
-    /// <param name="k">Active hidden2 neuron index.</param>
-    /// <param name="h1Pre">Hidden1 pre-activation values.</param>
-    private void AccumulateHidden1Attribution(
-        double[] attr,
-        int inputSize,
-        double combinedOuter,
-        int k,
-        double[] h1Pre)
-    {
-        for (var j = 0; j < Hidden1Size; j++)
-        {
-            if (h1Pre[j] <= 0)
-            {
-                continue;
-            }
-
-            var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
-            var combined = combinedOuter * h1h2W;
-            var baseIdx = j * inputSize;
-            for (var i = 0; i < inputSize; i++)
-            {
-                attr[i] += combined * _weightsIH[baseIdx + i];
-            }
-        }
-    }
-
-    /// <summary>
-    ///     Sums the interaction-feature attribution contributions. Extracted verbatim from ScoreWithExplanation; the summed terms and order are unchanged.
-    /// </summary>
-    /// <param name="attr">Per-input attribution vector.</param>
-    /// <returns>The combined interaction contribution.</returns>
-    private static double ComputeInteractionContribution(double[] attr) =>
-        attr[(int)FeatureIndex.GenreCountNormalized] +
-        attr[(int)FeatureIndex.IsSeries] +
-        attr[(int)FeatureIndex.GenreCriticInteraction] +
-        attr[(int)FeatureIndex.GenreCollabInteraction] +
-        attr[(int)FeatureIndex.CompletionRatio] +
-        attr[(int)FeatureIndex.IsAbandoned] +
-        attr[(int)FeatureIndex.HasInteraction] +
-        attr[(int)FeatureIndex.SeriesProgressionBoost] +
-        attr[(int)FeatureIndex.DayOfWeekAffinity] +
-        attr[(int)FeatureIndex.HourOfDayAffinity] +
-        attr[(int)FeatureIndex.IsWeekend] +
-        attr[(int)FeatureIndex.TagSimilarity] +
-        attr[(int)FeatureIndex.PeopleGenreInteraction] +
-        attr[(int)FeatureIndex.RecencyCriticInteraction] +
-        attr[(int)FeatureIndex.GenreUnderexposure] +
-        attr[(int)FeatureIndex.GenreDominanceRatio] +
-        attr[(int)FeatureIndex.GenreAffinityGap] +
-        attr[(int)FeatureIndex.LibraryAddedRecency] +
-        attr[(int)FeatureIndex.ContentNearestNeighborScore] +
-        attr[(int)FeatureIndex.LanguageAffinity] +
-        attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
-        attr[(int)FeatureIndex.ProductionLocationAffinity] +
-        attr[(int)FeatureIndex.InheritedTagSimilarity] +
-        attr[(int)FeatureIndex.SeriesCompletability] +
-        attr[(int)FeatureIndex.WriterAffinity] +
-        attr[(int)FeatureIndex.BillingWeightedPeople] +
-        attr[(int)FeatureIndex.GenreStudioIdfPrior];
-
-    /// <summary>
-    ///     Builds the ScoreExplanation from the computed score and attribution. Franchise and collection
-    ///     attributions are surfaced as named signals (not folded into the interaction bucket) so they can be
-    ///     the dominant signal; the MLP score itself is independent of this split.
-    /// </summary>
-    /// <param name="score">The guarded final score.</param>
-    /// <param name="attr">Per-input attribution vector.</param>
-    /// <param name="interactionContrib">The combined interaction contribution.</param>
-    /// <param name="features">The raw candidate feature values, used to gate the named attributions.</param>
-    /// <returns>The populated score explanation.</returns>
-    private ScoreExplanation BuildScoreExplanation(
-        double score,
-        double[] attr,
-        double interactionContrib,
-        CandidateFeatures features)
-    {
-        // Attribution is an input gradient, not a weighted contribution, so a zero-valued feature can still carry
-        // a positive attribution. Gate the three named signals on their raw value so an absent franchise, collection,
-        // or popularity signal can never become dominant and surface a reason for a feature that did not fire.
-        var franchiseContribution = features.FranchiseAffinity > 0.0
-            ? attr[(int)FeatureIndex.FranchiseAffinity]
-            : 0.0;
-        var collectionContribution = features.CollectionProgressionBoost > 0.0
-            ? attr[(int)FeatureIndex.CollectionProgressionBoost]
-            : 0.0;
-        var popularityContribution = features.PopularityScore > 0.0
-            ? attr[(int)FeatureIndex.PopularityScore]
-            : 0.0;
-
-        return new ScoreExplanation
-        {
-            FinalScore = score,
-            GenreContribution = attr[(int)FeatureIndex.GenreSimilarity],
-            CollaborativeContribution = attr[(int)FeatureIndex.CollaborativeScore],
-            RatingContribution = attr[(int)FeatureIndex.CombinedCriticScore],
-            RecencyContribution = attr[(int)FeatureIndex.RecencyScore],
-            YearProximityContribution = attr[(int)FeatureIndex.YearProximityScore],
-            UserRatingContribution = attr[(int)FeatureIndex.UserRatingScore],
-            PeopleContribution = attr[(int)FeatureIndex.PeopleSimilarity],
-            StudioContribution = attr[(int)FeatureIndex.StudioMatch],
-            InteractionContribution = interactionContrib,
-            FranchiseContribution = franchiseContribution,
-            CollectionProgressionContribution = collectionContribution,
-            PopularityContribution = popularityContribution,
-            GenrePenaltyMultiplier = 1.0,
-            DominantSignal = ScoreExplanation.DetermineDominantSignal(
-                attr[(int)FeatureIndex.GenreSimilarity],
-                attr[(int)FeatureIndex.CollaborativeScore],
-                attr[(int)FeatureIndex.CombinedCriticScore],
-                attr[(int)FeatureIndex.UserRatingScore],
-                attr[(int)FeatureIndex.RecencyScore],
-                attr[(int)FeatureIndex.YearProximityScore],
-                interactionContrib,
-                attr[(int)FeatureIndex.PeopleSimilarity],
-                attr[(int)FeatureIndex.StudioMatch],
-                franchiseContribution,
-                collectionContribution,
-                popularityContribution),
-            StrategyName = Name
-        };
     }
 
     /// <summary>
@@ -815,10 +674,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // deferred until after the train/val split so stats come from the training split only (no leakage).
         var rawVectors = new double[examples.Count][];
         var weights = new double[examples.Count];
+        if (!TryCaptureTrainingImputationMeans(out var imputationMeans))
+        {
+            return false;
+        }
 
         for (var i = 0; i < examples.Count; i++)
         {
-            rawVectors[i] = examples[i].Features.ToVector();
+            rawVectors[i] = examples[i].Features.ToModelVector(imputationMeans);
             weights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
@@ -828,6 +691,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         // _lastValidationLoss outside the lock (avoids nested _syncRoot-inside-write-lock).
         bool canUseInternalValidation;
         double capturedBestLoss;
+        double capturedBaselineLoss;
 
         try
         {
@@ -841,6 +705,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             // The fixed seed stabilizes ML validation membership and does not generate security-sensitive values.
             var (trainIdx, valIdx, useEarlyStopping) = BuildTrainValSplit(examples.Count, new Random(42));
+            RestrictValidationToObservedExamples(examples, ref trainIdx, ref valIdx, ref useEarlyStopping);
+
+            capturedBaselineLoss = TrainingMath.BaselineValidationLoss(
+                trainIdx.Select(index => examples[index]).ToArray(),
+                valIdx.Select(index => examples[index]).ToArray(),
+                referenceTime,
+                MinSampleWeight);
 
             // Clone raw vectors into working copies so standardization doesn't mutate originals.
             // Compute stats from TRAINING split only to prevent validation data leakage.
@@ -856,13 +727,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
             }
 
-            if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(
-                    _weightsIH, _biasH1, _featureMeans, _featureStdDevs, featureMeans, featureStdDevs))
-            {
-                // Adam moments belong to the previous parameter coordinates and cannot be reused after rebasing.
-                _mWIH = null;
-                EnsureAdamState(inputSize);
-            }
+            RebaseWarmInputNormalization(featureMeans, featureStdDevs, inputSize);
 
             var bestWIH = (double[])_weightsIH.Clone();
             var bestBH1 = (double[])_biasH1.Clone();
@@ -955,6 +820,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
+            _imputationMeans = imputationMeans;
 
             // A warm-started model may already have seen the internal validation members in an earlier round.
             canUseInternalValidation = useEarlyStopping && !_hasTrainedWeights;
@@ -978,19 +844,78 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         var validationLoss = ResolveValidationLoss(
             heldOutForMetrics, referenceTime, canUseInternalValidation, capturedBestLoss);
+        var baselineLoss = heldOutForMetrics is null && canUseInternalValidation
+            ? capturedBaselineLoss
+            : TrainingMath.BaselineValidationLoss(examples, heldOutForMetrics, referenceTime, MinSampleWeight);
         PublishTrainingMetrics(validationLoss, pAtK, rAtK, nAtK);
-
-        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
-        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        lock (_syncRoot)
         {
-            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples);
-            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
-            _logger.LogDebug(
-                "NeuralScoringStrategy permutation importance: {Importance}",
-                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
+            _lastBaselineValidationLoss = baselineLoss;
         }
 
+        LogPermutationImportance(metricsSource, referenceTime);
+
         return true;
+    }
+
+    private bool TryCaptureTrainingImputationMeans(out double[]? means)
+    {
+        means = null;
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+
+        try
+        {
+            means = _featureMeans is null ? null : (double[])_featureMeans.Clone();
+            return true;
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
+
+    private static void RestrictValidationToObservedExamples(IReadOnlyList<TrainingExample> examples, ref int[] training, ref int[] validation, ref bool useEarlyStopping)
+    {
+        training = training.Concat(validation.Where(index => !examples[index].IsObserved)).ToArray();
+        validation = validation.Where(index => examples[index].IsObserved).ToArray();
+        useEarlyStopping = useEarlyStopping && validation.Length >= MinValidationExamples;
+        if (!useEarlyStopping)
+        {
+            training = training.Concat(validation).ToArray();
+            validation = [];
+        }
+    }
+
+    /// <summary>Rebases a fitted input layer and resets its optimizer coordinates. The caller holds the write lock.</summary>
+    /// <param name="means">The next training-split means.</param>
+    /// <param name="stdDevs">The next training-split standard deviations.</param>
+    /// <param name="inputSize">The unchanged feature count.</param>
+    private void RebaseWarmInputNormalization(double[]? means, double[]? stdDevs, int inputSize)
+    {
+        if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(_weightsIH, _biasH1, _featureMeans, _featureStdDevs, means, stdDevs))
+        {
+            // Adam moments belong to the previous parameter coordinates.
+            _mWIH = null;
+            EnsureAdamState(inputSize);
+        }
+    }
+
+    private void LogPermutationImportance(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
+    {
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples, referenceTimeUtc: referenceTime);
+            var sorted = importance.OrderByDescending(pair => Math.Abs(pair.Value));
+            var message = string.Join(", ", sorted.Select(pair => $"{pair.Key}={pair.Value:F4}"));
+            _logger.LogDebug("NeuralScoringStrategy permutation importance: {Importance}", message);
+        }
     }
 
     /// <summary>Resolves independent quality evidence without promoting unavailable validation to a successful fit.</summary>
@@ -1974,6 +1899,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                                       };
 
         return hasValidStandardization
+            && (data.ImputationMeans is null || data.ImputationMeans.Length == CandidateFeatures.FeatureCount)
             && data is
             {
                 Version: CurrentWeightsVersion, WeightsIH.Length: Hidden1Size * CandidateFeatures.FeatureCount,
@@ -1997,7 +1923,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             || !AllFinite(data.WeightsH3H4) || !AllFinite(data.BiasH4)
             || !AllFinite(data.WeightsH4O) || !double.IsFinite(data.BiasOutput)
             || (data.FeatureMeans is not null && !AllFinite(data.FeatureMeans))
-            || (data.FeatureStdDevs is not null && !AllFinite(data.FeatureStdDevs));
+            || (data.FeatureStdDevs is not null && !AllFinite(data.FeatureStdDevs))
+            || (data.ImputationMeans is not null && !AllFinite(data.ImputationMeans));
     }
 
     /// <summary>
@@ -2018,6 +1945,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _biasOutput = data.BiasOutput;
         _featureMeans = data.FeatureMeans;
         _featureStdDevs = data.FeatureStdDevs;
+        _imputationMeans = data.ImputationMeans;
         _trainingGeneration = data.TrainingGeneration;
         _adamTimestep = 0;
         _hasTrainedWeights = true;
@@ -2076,6 +2004,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     BiasOutput = _biasOutput,
                     FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
                     FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
+                    ImputationMeans = _imputationMeans is not null ? (double[])_imputationMeans.Clone() : null,
                     TrainingGeneration = _trainingGeneration,
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                     Version = CurrentWeightsVersion
@@ -2138,7 +2067,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return;
         }
 
-        var featureNames = Enum.GetNames<FeatureIndex>();
         var importances = new double[inputSize];
 
         for (var f = 0; f < inputSize; f++)
@@ -2156,7 +2084,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var ranked = new (string Name, double Importance)[inputSize];
         for (var i = 0; i < inputSize; i++)
         {
-            ranked[i] = (i < featureNames.Length ? featureNames[i] : $"Feature{i}", importances[i]);
+            ranked[i] = (ScoringHelper.GetFeatureName((FeatureIndex)i), importances[i]);
         }
 
         Array.Sort(ranked, (a, b) => b.Importance.CompareTo(a.Importance));
@@ -2350,6 +2278,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         /// <summary>Gets or sets the per-feature standard deviations for Z-score standardization.</summary>
         public double[]? FeatureStdDevs { get; set; }
+
+        /// <summary>Gets or sets the fixed raw means used for external missing metadata during fitting.</summary>
+        public double[]? ImputationMeans { get; set; }
 
         /// <summary>Gets or sets the training generation counter.</summary>
         public int TrainingGeneration { get; set; }

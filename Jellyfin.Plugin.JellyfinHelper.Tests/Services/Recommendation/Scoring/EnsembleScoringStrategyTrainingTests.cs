@@ -13,6 +13,23 @@ public sealed class EnsembleScoringStrategyTrainingTests
     private const double AlphaMin = EnsembleScoringStrategy.DefaultAlphaMin;
     private const double AlphaMax = EnsembleScoringStrategy.DefaultAlphaMax;
 
+    [Fact]
+    public void ColdKFoldBaseline_UniformFoldDoesNotPoisonOtherObservedEvidence()
+    {
+        var examples = Enumerable.Range(0, 60).Select(i => new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = i < 2 ? 0.1 : 0.9 },
+            Label = i < 2 ? 0.1 : 0.9
+        }).ToArray();
+        var learned = new LearnedScoringStrategy();
+        Assert.True(learned.Train(examples));
+        Assert.True(double.IsFinite(learned.LastBaselineValidationLoss));
+        Assert.True(double.IsFinite(learned.LastValidationLoss));
+        var uniform = new LearnedScoringStrategy();
+        Assert.True(uniform.Train(examples.Select(example => new TrainingExample { Features = example.Features.Copy(), Label = 0.9 }).ToArray()));
+        Assert.True(double.IsNaN(uniform.LastBaselineValidationLoss));
+    }
+
     // Cleanly separable data -> low validation loss (passes the quality gate).
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {
@@ -23,6 +40,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,
@@ -64,49 +82,20 @@ public sealed class EnsembleScoringStrategyTrainingTests
         return examples;
     }
 
-    private static double ExpectedQualityFactor(double validationLoss)
-    {
-        if (double.IsNaN(validationLoss))
-        {
-            return 0.5;
-        }
-
-        return Math.Clamp(
-            1.0 - ((validationLoss - EnsembleScoringStrategy.ValidationLossThreshold)
-                   / (EnsembleScoringStrategy.ValidationLossCeiling - EnsembleScoringStrategy.ValidationLossThreshold)),
-            0.0,
-            1.0);
-    }
-
     [Fact]
-    public void Train_ValidationLossAboveThreshold_SoftDampensAlphaProportionally()
+    public void Train_PartialImprovementOverIndependentBaseline_DampensAlphaProportionally()
     {
-        // Seek a deterministic noisy dataset whose learned validation loss lands in the soft-dampening band (threshold, ceiling).
-        for (var seed = 1; seed <= 60; seed++)
-        {
-            var ensemble = new EnsembleScoringStrategy();
-            Assert.True(ensemble.Train(NoisyExamples(60, seed)));
-            var loss = ensemble.LearnedStrategy.LastValidationLoss;
-
-            if (double.IsNaN(loss)
-                || loss <= EnsembleScoringStrategy.ValidationLossThreshold
-                || loss >= EnsembleScoringStrategy.ValidationLossCeiling)
-            {
-                continue;
-            }
-
-            var qualityFactor = ExpectedQualityFactor(loss);
-            var sigmoidAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(
-                ensemble.TrainingExampleCount, AlphaMin, AlphaMax);
-            var expectedAlpha = AlphaMin + ((sigmoidAlpha - AlphaMin) * qualityFactor);
-
-            Assert.Equal(expectedAlpha, ensemble.CurrentAlpha, 4);
-            // In-band loss keeps qualityFactor >= 0.01, so the gate is dampened, not frozen.
-            Assert.False(ensemble.IsQualityGateFrozen);
-            return;
-        }
-
-        Assert.Fail("No noisy seed produced a validation loss in the soft-dampening band.");
+        using var ensemble = new EnsembleScoringStrategy();
+        var holdout = CleanExamples(40, seed: 99);
+        foreach (var example in holdout) example.Label = example.Label > 0.5 ? 0.8 : 0.2;
+        Assert.True(ensemble.Train(CleanExamples(60), holdout));
+        var loss = ensemble.LearnedStrategy.LastValidationLoss;
+        var baseline = ensemble.LearnedStrategy.LastBaselineValidationLoss;
+        var qualityFactor = Math.Clamp(1.0 - loss / baseline, 0.0, 1.0);
+        var sigmoidAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(ensemble.TrainingExampleCount, AlphaMin, AlphaMax);
+        Assert.True(qualityFactor is > 0 and < 1);
+        Assert.Equal(AlphaMin + ((sigmoidAlpha - AlphaMin) * qualityFactor), ensemble.CurrentAlpha, 10);
+        Assert.False(ensemble.IsQualityGateFrozen);
     }
 
     [Fact]
@@ -140,8 +129,8 @@ public sealed class EnsembleScoringStrategyTrainingTests
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
         // Ramp beta above zero with clean data past the activation threshold.
-        ensemble.Train(CleanExamples(160));
-        ensemble.Train(CleanExamples(160));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
+        ensemble.Train(CleanExamples(160), CleanExamples(40, seed: 99));
         var betaBefore = ensemble.CurrentNeuralBeta;
         Assert.True(betaBefore > 0, $"Neural beta must have activated, was {betaBefore:F4}");
 
@@ -150,7 +139,7 @@ public sealed class EnsembleScoringStrategyTrainingTests
         double betaAfter = betaBefore;
         for (var round = 0; round < 8; round++)
         {
-            ensemble.Train(NoisyExamples(60, seed: 100 + round));
+            ensemble.Train(NoisyExamples(60, seed: 100 + round), NoisyExamples(40, seed: 2000 + round));
             betaAfter = ensemble.CurrentNeuralBeta;
             if (ensemble.LastTrend == EnsembleScoringStrategy.MetricsTrend.Degrading)
             {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -31,6 +32,10 @@ public sealed class RecommendationResult
     ///     Gets the recommended items sorted by score descending.
     /// </summary>
     public Collection<RecommendedItem> Recommendations { get; init; } = [];
+
+    /// <summary>Gets or initializes bounded, unshown contrast candidates scored with this user's actual serve-time feature basis.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Collection<RecommendedItem>? TrainingContrasts { get; init; }
 
     /// <summary>
     ///     Gets or sets the UTC timestamp when these recommendations were generated. Normalized to UTC on set to ensure consistency after JSON deserialization (mirrors GeneratedAt).

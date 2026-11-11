@@ -14,7 +14,72 @@ internal static class TrainingMath
     /// <returns>The eligible examples in their original order.</returns>
     internal static IReadOnlyList<TrainingExample> FilterEffectiveExamples(
         IReadOnlyList<TrainingExample> examples, DateTime referenceTime, double minimumWeight)
-        => examples.Where(example => example.ComputeEffectiveWeight(referenceTime) >= minimumWeight).ToArray();
+        => examples.Where(example => (example.IsObserved || example.IsContrastSample)
+            && example.ComputeEffectiveWeight(referenceTime) >= minimumWeight).ToArray();
+
+    /// <summary>Tests whether an observed evaluation slice contains distinguishable relevance outcomes.</summary>
+    /// <param name="examples">The evaluation observations.</param>
+    /// <param name="referenceTime">The fixed temporal-weight reference.</param>
+    /// <param name="minimumWeight">The eligibility floor.</param>
+    /// <returns>True when at least two effective observed labels differ.</returns>
+    internal static bool HasRankingEvidence(IReadOnlyList<TrainingExample>? examples, DateTime referenceTime, double minimumWeight)
+    {
+        if (examples is null)
+        {
+            return false;
+        }
+
+        var labels = examples.Where(e => e.IsObserved && e.ComputeEffectiveWeight(referenceTime) >= minimumWeight).Select(e => e.Label).ToArray();
+        return labels.Length >= 2 && labels.Max() - labels.Min() > 1e-9;
+    }
+
+    /// <summary>Evaluates a constant predictor fitted only to training labels, never to held-out labels.</summary>
+    /// <param name="training">The fit observations.</param>
+    /// <param name="holdout">The observed evaluation slice.</param>
+    /// <param name="referenceTime">The fixed temporal-weight reference.</param>
+    /// <param name="minimumWeight">The eligibility floor.</param>
+    /// <returns>Baseline held-out weighted MSE, or NaN without ranking evidence.</returns>
+    internal static double BaselineValidationLoss(IReadOnlyList<TrainingExample> training, IReadOnlyList<TrainingExample>? holdout, DateTime referenceTime, double minimumWeight)
+    {
+        if (!HasRankingEvidence(holdout, referenceTime, minimumWeight))
+        {
+            return double.NaN;
+        }
+
+        var fit = training.Where(e => e.IsObserved && e.ComputeEffectiveWeight(referenceTime) >= minimumWeight).ToArray();
+        var totalWeight = fit.Sum(e => e.ComputeEffectiveWeight(referenceTime));
+        if (totalWeight <= 0)
+        {
+            return double.NaN;
+        }
+
+        var mean = fit.Sum(e => e.Label * e.ComputeEffectiveWeight(referenceTime)) / totalWeight;
+        var loss = 0.0;
+        var weightSum = 0.0;
+        foreach (var example in holdout!)
+        {
+            var weight = example.ComputeEffectiveWeight(referenceTime);
+            if (!example.IsObserved || weight < minimumWeight)
+            {
+                continue;
+            }
+
+            var error = mean - example.Label;
+            loss += weight * error * error;
+            weightSum += weight;
+        }
+
+        return loss / weightSum;
+    }
+
+    /// <summary>Returns positive trust only for a model that improves on an independent constant baseline.</summary>
+    /// <param name="validationLoss">The model's observed held-out MSE.</param>
+    /// <param name="baselineLoss">The training-fitted constant predictor's held-out MSE.</param>
+    /// <returns>The fraction of baseline error removed, clamped to [0,1].</returns>
+    internal static double QualityFactor(double validationLoss, double baselineLoss)
+        => double.IsFinite(validationLoss) && validationLoss >= 0 && double.IsFinite(baselineLoss) && baselineLoss > 0
+            ? Math.Clamp(1.0 - (validationLoss / baselineLoss), 0.0, 1.0)
+            : 0.0;
 
     /// <summary>An explicitly supplied holdout is authoritative, including when its weight is insufficient.</summary>
     /// <param name="holdout">Independent validation examples, or null when unavailable.</param>
@@ -41,7 +106,7 @@ internal static class TrainingMath
         foreach (var example in holdout)
         {
             var weight = example.ComputeEffectiveWeight(referenceTime);
-            if (weight < minimumWeight)
+            if (!example.IsObserved || weight < minimumWeight)
             {
                 continue;
             }

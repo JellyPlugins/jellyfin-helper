@@ -538,6 +538,8 @@ public class TrainingFeatureComputerTests
             Genres = new[] { "Action" }
         };
         profile.WatchedItems.Add(target); // target present in profile
+        // Ten history rows are required independently of the three-match bucket floor.
+        for (var i = 0; i < 6; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = saturday.AddDays(-2), Genres = ["Drama"] });
 
         // 3 other Action items on same day -> target itself is filtered out, we still get 3 hits.
         for (int i = 0; i < 3; i++)
@@ -572,6 +574,7 @@ public class TrainingFeatureComputerTests
         };
 
         // 3 real playback items on Saturday, all Action.
+        for (var i = 0; i < 2; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = saturday.AddDays(-2), Genres = ["Drama"] });
         for (int i = 0; i < 3; i++)
         {
             profile.WatchedItems.Add(new WatchedItemInfo
@@ -697,11 +700,40 @@ public class TrainingFeatureComputerTests
         Assert.Equal(0.0, ex.Features.SeriesAffinity);
     }
 
+    [Theory]
+    [InlineData(null, 0.9)]
+    [InlineData(0.0, 0.9)]
+    [InlineData(-2.0, 0.9)]
+    [InlineData(double.NaN, 0.9)]
+    [InlineData(double.PositiveInfinity, 0.9)]
+    [InlineData(double.NegativeInfinity, 0.9)]
+    [InlineData(2.0, 0.2)]
+    [InlineData(10.0, 1.0)]
+    [InlineData(12.0, 1.0)]
+    public void AddAggregatedSeriesExample_ParentRatingPrecedenceRejectsInvalidValuesAndPreservesEpisodeFallback(double? parentRating, double expected)
+    {
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        foreach (var episode in episodes)
+        {
+            episode.UserRating = 9.0;
+        }
+
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int> { [seriesId] = 2 });
+
+        var example = RunAggregatedSeriesExample(episodes, seriesId, profile, context, parentRating);
+
+        Assert.Equal(expected, example.Label);
+        Assert.True(example.IsObserved);
+        Assert.Equal(0.5, example.Features.UserRatingScore);
+        Assert.False(example.Features.HasUserInteraction);
+    }
+
     private static TrainingExample RunAggregatedSeriesExample(
         List<WatchedItemInfo> episodes,
         Guid seriesId,
         UserWatchProfile profile,
-        ContentScoring.SeriesAffinityContext context)
+        ContentScoring.SeriesAffinityContext context,
+        double? parentRating = null)
     {
         var examples = new List<TrainingExample>();
         var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
@@ -729,7 +761,8 @@ public class TrainingFeatureComputerTests
             new Dictionary<string, double>(),
             genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow,
-            seriesAffinityContext: context);
+            seriesAffinityContext: context,
+            parentSeriesRating: parentRating);
 
         return Assert.Single(examples);
     }
@@ -892,9 +925,9 @@ public class TrainingFeatureComputerTests
     }
 
     [Fact]
-    public void AddAggregatedSeriesExample_StartedButAbandoned_UsesAbandonedLabel()
+    public void AddAggregatedSeriesExample_UnfinishedPlayback_IsNotObservedRejection()
     {
-        // When playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0 (started but abandoned) AND the average completion ratio is below the abandoned threshold, the label must be AbandonedLabel (0.0).
+        // Playback progress without a completed play, favorite or rating is censored, not rejection.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(
             totalEpisodes: 3, playedEpisodes: 0, anyFavorite: false, anyPartial: true);
         var examples = new List<TrainingExample>();
@@ -925,7 +958,8 @@ public class TrainingFeatureComputerTests
             organicFallbackTimestamp: DateTime.UtcNow);
 
         var example = Assert.Single(examples);
-        Assert.Equal(EngineConstants.AbandonedLabel, example.Label);
+        Assert.False(example.IsObserved);
+        Assert.Empty(TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, 0.01));
     }
 
     [Fact]

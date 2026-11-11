@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Microsoft.AspNetCore.Http;
@@ -43,6 +44,8 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         // The Trakt endpoints cap their result to the same visible count as the "For you" tab, read from the
         // discovery service; mirror the real MaxVisiblePerUser so the cap tests are deterministic.
         _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
+        _discoveryMock.Setup(d => d.FilterConsumedItems(It.IsAny<Guid>(), It.IsAny<DiscoveryResult>()))
+            .Returns((Guid _, DiscoveryResult result) => result);
         // Trakt is sourced only through the official plugin; present by default so the read endpoints are open.
         _officialPlugin.Setup(p => p.IsPresent()).Returns(true);
 
@@ -168,7 +171,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
         Assert.True(payload.Linked);
-        Assert.Same(scored, payload.Result);
+        AssertDetachedDelivery(scored, payload.Result);
     }
 
     [Fact]
@@ -204,7 +207,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var payload = Assert.IsType<TraktDiscoveryResponse>(ok.Value);
         Assert.True(payload.Linked);
-        Assert.Same(scored, payload.Result);
+        AssertDetachedDelivery(scored, payload.Result);
     }
 
     [Fact]
@@ -216,7 +219,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
 
         var result = await CreateController(userId).GetMyTraktTrending(CancellationToken.None);
 
-        Assert.Same(scored, Assert.IsType<OkObjectResult>(result.Result).Value);
+        AssertDetachedDelivery(scored, Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(result.Result).Value));
     }
 
     private static DiscoveryResult ResultWith(Guid userId, int count)
@@ -264,10 +267,9 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     }
 
     [Fact]
-    public async Task GetMyTrakt_WhenPoolWithinCap_ReturnsSameInstanceUnchanged()
+    public async Task GetMyTrakt_WhenPoolWithinCap_ReturnsDetachedDeliveryWithoutChangingThePool()
     {
-        // At or below the cap nothing is sliced, and the original result instance flows through untouched so a
-        // small pool pays no allocation and callers relying on reference identity keep working.
+        // Delivery identity belongs to the response, never to the shared scored pool.
         var userId = Guid.NewGuid();
         var scored = ResultWith(userId, 10);
         _traktDiscovery.Setup(d => d.IsLinkedForAsync(userId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
@@ -276,7 +278,45 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var result = await CreateController(userId).GetMyTrakt(CancellationToken.None);
 
         var payload = Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
-        Assert.Same(scored, payload.Result);
+        AssertDetachedDelivery(scored, payload.Result);
+        Assert.NotSame(scored.Recommendations[0], payload.Result!.Recommendations[0]);
+        payload.Result.Recommendations[0].Title = "client mutation";
+        Assert.Equal("m0", scored.Recommendations[0].Title);
+    }
+
+    private static void AssertDetachedDelivery(DiscoveryResult source, DiscoveryResult? delivered)
+    {
+        Assert.NotNull(delivered);
+        Assert.NotSame(source, delivered);
+        Assert.Equal(source.UserId, delivered.UserId);
+        Assert.Equal(source.GeneratedAt, delivered.GeneratedAt);
+        Assert.Equal(source.Recommendations.Select(item => item.TmdbId), delivered.Recommendations.Select(item => item.TmdbId));
+        Assert.NotNull(delivered.DeliveryId);
+        Assert.Null(source.DeliveryId);
+    }
+
+    [Fact]
+    public async Task PersonalAndTrendingDeliveries_WithEqualGenerationTimes_KeepSeparateFeatureSnapshots()
+    {
+        var user = Guid.NewGuid();
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        var pool = ResultWith(user, 1);
+        pool.Recommendations[0].ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.3 };
+        _traktDiscovery.Setup(service => service.IsLinkedForAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(service => service.GetPersonalAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        _traktDiscovery.Setup(service => service.GetTrendingAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        var controller = CreateController(user);
+        var personalResult = await controller.GetMyTrakt(CancellationToken.None);
+        var personal = Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(personalResult.Result).Value).Result!;
+        pool.Recommendations[0].ScoringFeatures!.GenreSimilarity = 0.8;
+        var trendingResult = await controller.GetMyTraktTrending(CancellationToken.None);
+        var trending = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(trendingResult.Result).Value);
+        Assert.NotEqual(personal.DeliveryId, trending.DeliveryId);
+        Assert.Null(pool.DeliveryId);
+
+        Assert.IsType<NoContentResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = personal.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1000 }] }));
+
+        _feedbackStoreMock.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => BitConverter.DoubleToInt64Bits(items.Single().ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), pool.GeneratedAt), Times.Once);
     }
 
     [Fact]

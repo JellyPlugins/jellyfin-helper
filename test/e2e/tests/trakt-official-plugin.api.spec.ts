@@ -10,8 +10,9 @@
  * Only runs when the external plugins (which include the official Trakt plugin) are staged.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, requireNormalUser, loadAuth, p } from '../setup/api-client.ts';
-import { SEEDED_OFFICIAL_TRAKT_TOKEN, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
+import { randomUUID } from 'node:crypto';
+import { apiContext, authHeader, normalUserContext, requireNormalUser, loadAuth, p } from '../setup/api-client.ts';
+import { OFFICIAL_TRAKT_GUID, SEEDED_OFFICIAL_TRAKT_TOKEN, ensureDiscoveryConfigured } from '../setup/discovery-config.ts';
 import {
   seedNormalUserWatchProfile,
   clearNormalUserWatchProfile,
@@ -25,7 +26,7 @@ let admin: APIRequestContext;
 let user: APIRequestContext | null;
 let profileSeed: WatchProfileSeed | null = null;
 
-test.describe('Trakt via official plugin', () => {
+test.describe.serial('Trakt via official plugin', () => {
   test.skip(process.env.JFH_E2E_EXTERNAL_PLUGINS !== '1', 'external plugins (incl. official Trakt) not staged');
 
   test.beforeAll(async () => {
@@ -38,9 +39,8 @@ test.describe('Trakt via official plugin', () => {
     await ensureDiscoveryConfigured(admin, (m) => console.log(`[trakt-official] ${m}`));
     await waitForTraktAccessible();
 
-    // Trakt personal scoring reuses the Seerr-backed external scorer, which returns null (empty grid) unless
-    // the requesting user has a genre watch profile - independent of link state. Seed one so the GET below
-    // returns recommendations rather than Linked:true with an empty result.
+    // Keep a real watch profile for the normal user's trending checks. The token-provenance test below
+    // uses its own fresh linked account, so an earlier scheduled task or readiness GET cannot warm its cache.
     requireNormalUser(user);
     profileSeed = await seedNormalUserWatchProfile(admin, auth.userId, auth.normalUser!.userId);
   });
@@ -79,30 +79,107 @@ test.describe('Trakt via official plugin', () => {
     }
   }
 
-  test('personal recommendations are sourced via the official plugin token', async () => {
-    requireNormalUser(user);
-
-    // Clear the mock's recorded bearer so the provenance assert can only pass on a fresh fetch made during
-    // this test, never on residue from an earlier spec.
-    const resetCtx = await pwRequest.newContext();
+  async function resetTraktMock(): Promise<void> {
+    const ctx = await pwRequest.newContext();
     try {
-      await resetCtx.post(`${MOCK_TRAKT_PUBLIC}/reset`);
+      const reset = await ctx.post(`${MOCK_TRAKT_PUBLIC}/reset`);
+      expect(reset.ok(), `reset mock Trakt: ${reset.status()}`).toBeTruthy();
     } finally {
-      await resetCtx.dispose();
+      await ctx.dispose();
     }
+  }
 
-    const res = await user!.get(p('Discovery/My/Trakt'));
-    expect(res.ok(), `GET Discovery/My/Trakt: ${res.status()}`).toBeTruthy();
-    const body = (await res.json()) as { Linked?: boolean; Result?: { Recommendations?: unknown[] } | null };
+  /** A unique linked account guarantees a cache miss without weakening the production cache or the Bearer assertion. */
+  async function withFreshOfficialTraktUser(run: (fresh: APIRequestContext, userId: string) => Promise<void>): Promise<void> {
+    const configUrl = `/Plugins/${OFFICIAL_TRAKT_GUID}/Configuration`;
+    const current = await admin.get(configUrl);
+    expect(current.ok(), `read official Trakt configuration: ${current.status()}`).toBeTruthy();
+    const original = await current.json() as { TraktUsers?: unknown[] };
+    const name = `jfh-trakt-${randomUUID().slice(0, 8)}`;
+    const password = `Jfh-${randomUUID()}`;
+    const created = await admin.post('/Users/New', { data: { Name: name, Password: password } });
+    expect(created.ok(), `new token-provenance account: ${created.status()}`).toBeTruthy();
+    const account = await created.json() as { Id: string };
+    let anonymous: APIRequestContext | undefined;
+    let fresh: APIRequestContext | undefined;
+    try {
+      anonymous = await pwRequest.newContext({ baseURL: auth.baseUrl });
+      const login = await anonymous.post('/Users/AuthenticateByName', {
+        headers: { Authorization: authHeader() }, data: { Username: name, Pw: password },
+      });
+      expect(login.ok(), `token-provenance login: ${login.status()}`).toBeTruthy();
+      const session = await login.json() as { AccessToken: string; User: { Id: string } };
+      expect(session.User.Id).toBe(account.Id);
+      fresh = await pwRequest.newContext({ baseURL: auth.baseUrl, extraHTTPHeaders: { Authorization: authHeader(session.AccessToken), Accept: 'application/json' } });
+      const linked = await admin.post(configUrl, {
+        data: { ...original, TraktUsers: [...(original.TraktUsers ?? []), {
+          LinkedMbUserId: account.Id,
+          AccessToken: SEEDED_OFFICIAL_TRAKT_TOKEN,
+          RefreshToken: 'seeded-official-refresh',
+          AccessTokenExpiration: '2099-01-01T00:00:00',
+        }] },
+      });
+      expect(linked.ok(), `link isolated official Trakt account: ${linked.status()}`).toBeTruthy();
+      await run(fresh, account.Id);
+    } finally {
+      try {
+        const restored = await admin.post(configUrl, { data: original });
+        expect(restored.ok(), `restore official Trakt configuration: ${restored.status()}`).toBeTruthy();
+      } finally {
+        try {
+          await fresh?.dispose();
+          await anonymous?.dispose();
+        } finally {
+          expect((await admin.delete(`/Users/${account.Id}`)).ok(), 'token-provenance account cleanup failed').toBeTruthy();
+        }
+      }
+    }
+  }
 
-    // Linked is true because the official plugin supplies a usable token for this user.
-    expect(body.Linked).toBe(true);
-    expect(body.Result?.Recommendations?.length ?? 0).toBeGreaterThan(0);
+  test('personal recommendations are sourced via the official plugin token', async () => {
+    await withFreshOfficialTraktUser(async (fresh, userId) => {
+      // No personal request or task has ever warmed this unique account. Clearing the mock therefore
+      // cannot erase the only evidence while leaving a pre-existing Helper cache entry behind.
+      await resetTraktMock();
+      expect((await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer')).bearer).toBeNull();
 
-    // Decisive proof: mock-trakt only answers /recommendations/* for a valid Bearer, and the last one it saw
-    // must be the token seeded into the official plugin's config.
-    const seen = await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer');
-    expect(seen.bearer).toBe(SEEDED_OFFICIAL_TRAKT_TOKEN);
+      const res = await fresh.get(p('Discovery/My/Trakt'));
+      expect(res.ok(), `GET Discovery/My/Trakt: ${res.status()}`).toBeTruthy();
+      const body = (await res.json()) as { Linked?: boolean; Result?: { UserId?: string; Recommendations?: unknown[] } | null };
+
+      expect(body.Linked).toBe(true);
+      expect(body.Result?.UserId).toBe(userId);
+      expect(body.Result?.Recommendations?.length ?? 0).toBeGreaterThan(0);
+
+      const seen = await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer');
+      expect(seen.bearer).toBe(SEEDED_OFFICIAL_TRAKT_TOKEN);
+    });
+  });
+
+  test('warm personal recommendations keep their user ownership without another upstream Bearer request', async () => {
+    await withFreshOfficialTraktUser(async (fresh, userId) => {
+      await resetTraktMock();
+      const first = await fresh.get(p('Discovery/My/Trakt'));
+      expect(first.ok()).toBeTruthy();
+      const original = await first.json() as { Linked?: boolean; Result?: { UserId?: string; GeneratedAt?: string; Recommendations?: Array<{ TmdbId: number; MediaType: string }> } | null };
+      expect(original.Linked).toBe(true);
+      expect(original.Result?.UserId).toBe(userId);
+      expect(original.Result?.GeneratedAt).toBeTruthy();
+      expect(original.Result?.Recommendations?.length ?? 0).toBeGreaterThan(0);
+      expect((await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer')).bearer).toBe(SEEDED_OFFICIAL_TRAKT_TOKEN);
+
+      // Reproduce the old test's reset-with-a-warm-cache sequence. A cache hit is valid, and must
+      // neither move results to another user nor pretend it made a new authenticated Trakt request.
+      await resetTraktMock();
+      const cached = await fresh.get(p('Discovery/My/Trakt'));
+      expect(cached.ok()).toBeTruthy();
+      const repeated = await cached.json() as typeof original;
+      expect(repeated.Linked).toBe(true);
+      expect(repeated.Result?.UserId).toBe(userId);
+      expect(repeated.Result?.GeneratedAt).toBe(original.Result?.GeneratedAt);
+      expect(repeated.Result?.Recommendations?.map(item => [item.MediaType, item.TmdbId])).toEqual(original.Result?.Recommendations?.map(item => [item.MediaType, item.TmdbId]));
+      expect((await traktHookJson<{ bearer: string | null }>('/last-recommendation-bearer')).bearer).toBeNull();
+    });
   });
 
   test('trending is available (client-id only, no linking)', async () => {

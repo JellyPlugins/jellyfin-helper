@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -65,6 +66,14 @@ internal sealed class SeerrMediaDetailResponse
     /// </summary>
     [JsonPropertyName("mediaInfo")]
     public TmdbDiscoverMediaInfo? MediaInfo { get; set; }
+
+    /// <summary>Gets or sets movie release certifications using the provider's documented country/release structure.</summary>
+    [JsonPropertyName("releases")]
+    public JsonElement Releases { get; set; }
+
+    /// <summary>Gets or sets TV content certifications using the provider's documented country/rating structure.</summary>
+    [JsonPropertyName("contentRatings")]
+    public JsonElement ContentRatings { get; set; }
 
     /// <summary>
     ///     A single genre entry in a Seerr detail response.

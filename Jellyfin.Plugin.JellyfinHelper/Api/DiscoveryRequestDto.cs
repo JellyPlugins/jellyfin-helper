@@ -10,6 +10,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 public sealed class DiscoveryRequestDto : IValidatableObject
 {
+    /// <summary>Gets or sets the card's server-issued delivery; absent for legacy or non-card requests.</summary>
+    public Guid? DeliveryId { get; set; }
+
     /// <summary>
     ///     Gets or sets the TMDb ID.
     /// </summary>

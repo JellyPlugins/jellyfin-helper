@@ -1,3 +1,4 @@
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -11,6 +12,145 @@ public class NeuralFeatureImportanceTests
 {
     private static NeuralScoringStrategy CreateStrategy()
         => new(weightsPath: null, logger: NullLogger.Instance);
+
+    [Fact]
+    public void PredictiveFeature_IsImportantEvenWhenPermutationPreservesMeanScore()
+    {
+        using var strategy = CreateSingleFeatureStrategy();
+        var examples = BuildPredictableExamples(strategy);
+        var result = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples);
+
+        Assert.True(result[nameof(FeatureIndex.LibraryAddedRecency)] > 0.001);
+        Assert.Equal(0.0, result[nameof(FeatureIndex.GenreSimilarity)]);
+    }
+
+    [Fact]
+    public void HarmfulFeature_HasNegativeImportance()
+    {
+        using var strategy = CreateSingleFeatureStrategy();
+        var examples = BuildPredictableExamples(strategy);
+        foreach (var example in examples) example.Label = 1.0 - example.Label;
+        var result = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples);
+
+        Assert.True(result[nameof(FeatureIndex.LibraryAddedRecency)] < 0.0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IgnoredExamples_DoNotAffectSamplingOrImportance(bool temporallyExpired)
+    {
+        using var strategy = CreateSingleFeatureStrategy();
+        var examples = BuildPredictableExamples(strategy);
+        var reference = DateTime.UtcNow;
+        var ignored = new TrainingExample
+        {
+            Features = new CandidateFeatures { LibraryAddedRecency = 1.0 },
+            Label = 0.0,
+            SampleWeight = temporallyExpired ? 1.0 : 0.0,
+            GeneratedAtUtc = temporallyExpired ? reference.AddDays(-900) : reference
+        };
+        var baseline = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, referenceTimeUtc: reference);
+        var actual = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples.Prepend(ignored).ToArray(), referenceTimeUtc: reference);
+
+        Assert.Equal(baseline.OrderBy(pair => pair.Key), actual.OrderBy(pair => pair.Key));
+    }
+
+    [Fact]
+    public void Importance_UsesSampleAndTemporalWeightsWithFixedLabels()
+    {
+        using var strategy = CreateSingleFeatureStrategy();
+        var examples = BuildPredictableExamples(strategy);
+        var reference = new DateTime(2026, 11, 10, 12, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < examples.Length; i++)
+        {
+            examples[i].SampleWeight = 0.1 + 0.9 * i / examples.Length;
+            examples[i].GeneratedAtUtc = reference.AddDays(-10.0 * i);
+        }
+
+        var result = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, referenceTimeUtc: reference);
+        var expected = ExpectedPermutedLoss(strategy, examples, reference, (int)FeatureIndex.LibraryAddedRecency);
+        Assert.Equal(expected, result[nameof(FeatureIndex.LibraryAddedRecency)], precision: 12);
+    }
+
+    [Fact]
+    public void Normalization_DoesNotMutateSampleFeaturesOrModelWeights()
+    {
+        using var strategy = CreateSingleFeatureStrategy();
+        typeof(NeuralScoringStrategy).GetField("_featureMeans", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(strategy, Enumerable.Repeat(0.2, CandidateFeatures.FeatureCount).ToArray());
+        typeof(NeuralScoringStrategy).GetField("_featureStdDevs", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(strategy, Enumerable.Repeat(0.4, CandidateFeatures.FeatureCount).ToArray());
+        var examples = BuildPredictableExamples(strategy);
+        var vectors = examples.Select(example => example.Features.ToVector()).ToArray();
+        var weights = strategy.GetCurrentWeightsHidden();
+        var reference = DateTime.UtcNow;
+        var first = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, referenceTimeUtc: reference);
+        var second = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, referenceTimeUtc: reference);
+
+        Assert.True(first[nameof(FeatureIndex.LibraryAddedRecency)] > 0.0);
+        Assert.Equal(first.OrderBy(pair => pair.Key), second.OrderBy(pair => pair.Key));
+        for (var i = 0; i < examples.Length; i++) Assert.Equal(vectors[i], examples[i].Features.ToVector());
+        Assert.Equal(weights, strategy.GetCurrentWeightsHidden());
+    }
+
+    private static NeuralScoringStrategy CreateSingleFeatureStrategy()
+    {
+        var strategy = CreateStrategy();
+        foreach (var name in new[] { "_weightsIH", "_weightsH1H2", "_weightsH2H3", "_weightsH3H4", "_weightsH4O", "_biasH1", "_biasH2", "_biasH3", "_biasH4" })
+        {
+            var values = (double[])typeof(NeuralScoringStrategy).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(strategy)!;
+            Array.Clear(values);
+            if (name.StartsWith("_weights", StringComparison.Ordinal)) values[name == "_weightsIH" ? (int)FeatureIndex.LibraryAddedRecency : 0] = 1.0;
+        }
+
+        typeof(NeuralScoringStrategy).GetField("_biasOutput", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(strategy, 0.0);
+        return strategy;
+    }
+
+    private static TrainingExample[] BuildPredictableExamples(NeuralScoringStrategy strategy)
+        => Enumerable.Range(0, 16).Select(i =>
+        {
+            var features = new CandidateFeatures { LibraryAddedRecency = i / 15.0 };
+            return new TrainingExample { Features = features, Label = strategy.Score(features) };
+        }).ToArray();
+
+    private static double ExpectedPermutedLoss(NeuralScoringStrategy strategy, TrainingExample[] examples, DateTime reference, int feature)
+    {
+        var rng = new Random(42);
+        var indices = Enumerable.Range(0, examples.Length).ToArray();
+        for (var i = 0; i < indices.Length - 1; i++)
+        {
+            var j = rng.Next(i, indices.Length);
+            (indices[i], indices[j]) = (indices[j], indices[i]);
+        }
+
+        var samples = indices.Select(index => examples[index]).ToArray();
+        var values = Array.Empty<double>();
+        for (var f = 0; f <= feature; f++)
+        {
+            values = samples.Select(sample => sample.Features.ToVector()[f]).ToArray();
+            for (var i = values.Length - 1; i > 0; i--)
+            {
+                var j = rng.Next(i + 1);
+                (values[i], values[j]) = (values[j], values[i]);
+            }
+        }
+
+        var loss = 0.0;
+        var totalWeight = 0.0;
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var vector = samples[i].Features.ToVector();
+            vector[feature] = values[i];
+            var error = strategy.ScoreVector(vector) - samples[i].Label;
+            var weight = samples[i].ComputeEffectiveWeight(reference);
+            loss += weight * error * error;
+            totalWeight += weight;
+        }
+
+        return loss / totalWeight;
+    }
 
     /// <summary>Builds N examples with random-looking features that pass validation.</summary>
     private static List<TrainingExample> BuildExamples(int count, int seed = 7)

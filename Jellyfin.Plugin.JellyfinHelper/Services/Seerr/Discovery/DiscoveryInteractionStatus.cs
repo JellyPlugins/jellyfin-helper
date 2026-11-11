@@ -28,5 +28,8 @@ public enum DiscoveryInteractionStatus
     ///     The user requested the item AND later watched it after it was added to the library.
     ///     Strongest positive signal (interest confirmed by consumption).
     /// </summary>
-    RequestedAndWatched = 3
+    RequestedAndWatched = 3,
+
+    /// <summary>The candidate was generated but no actual display or explicit user action is confirmed.</summary>
+    Generated = 4
 }

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Xunit;
 
@@ -111,6 +112,7 @@ public sealed class TrainingDataBuilderOrganicTests
         var movieId = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
         var boxSet = Guid.NewGuid();
+        var earlierItem = Guid.NewGuid();
 
         var profiles = new Collection<UserWatchProfile>
         {
@@ -153,6 +155,12 @@ public sealed class TrainingDataBuilderOrganicTests
             }
         };
 
+        profiles[1].WatchedItems.Add(new WatchedItemInfo { ItemId = earlierItem, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1), Genres = ["Action"] });
+        var metadata = new LibraryItemMetadata(
+            new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["Lionsgate"] },
+            new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["heist"] },
+            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] });
+
         // movieId is recommended to A (populating the cross-user studio/tag/boxset lookups) but
         // never to B, so it stays an organic discovery for B.
         var results = new List<RecommendationResult>
@@ -176,19 +184,20 @@ public sealed class TrainingDataBuilderOrganicTests
             }
         };
 
-        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
+        var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, null, null, null, metadata, null, CancellationToken.None);
 
         // The organic movie example for B (weight 0.7, not a series).
-        var movieExample = Assert.Single(examples, e => Math.Abs(e.SampleWeight - 0.7) < 1e-9 && !e.Features.IsSeries);
+        var movieExample = Assert.Single(examples, e => e.ObservationId == TrainingExample.CreateObservationId(userB, "library:" + movieId.ToString("N")));
+        Assert.Equal(0.7, movieExample.SampleWeight);
         Assert.True(movieExample.Features.StudioMatch);
         Assert.True(movieExample.Features.TagSimilarity > 0.0);
         Assert.True(movieExample.Features.CollectionProgressionBoost > 0.0);
     }
 
     [Fact]
-    public void BuildExamples_OrganicFavoriteAndAbandoned_LabelledDistinctly()
+    public void BuildExamples_OrganicFavoriteIsObservedButUnfinishedPlaybackIsNot()
     {
-        // Two standalone organic items exercise both non-default arms of the organic label switch: a favorite-only item (not played, no playback progress) is explicit interest (0.65), while a started-but-abandoned item (playback below the abandoned threshold) is active rejection.
+        // A favorite is explicit interest; unfinished playback alone does not prove rejection.
         var user = Guid.NewGuid();
         var favoriteId = Guid.NewGuid();
         var abandonedId = Guid.NewGuid();
@@ -230,7 +239,11 @@ public sealed class TrainingDataBuilderOrganicTests
             TrainingDataBuilder.BuildExamples([], profiles, CancellationToken.None);
 
         Assert.Equal(2, examples.Count);
-        Assert.Contains(examples, e => Math.Abs(e.Label - 0.65) < 1e-9);
-        Assert.Contains(examples, e => Math.Abs(e.Label - EngineConstants.AbandonedLabel) < 1e-9);
+        var favorite = Assert.Single(examples, e => e.ObservationId == TrainingExample.CreateObservationId(user, "library:" + favoriteId.ToString("N")));
+        Assert.True(favorite.IsObserved);
+        Assert.Equal(0.65, favorite.Label, 9);
+        var unfinished = Assert.Single(examples, e => e.ObservationId == TrainingExample.CreateObservationId(user, "library:" + abandonedId.ToString("N")));
+        Assert.False(unfinished.IsObserved);
+        Assert.Equal([favorite], TrainingMath.FilterEffectiveExamples(examples, Anchor, 0.01));
     }
 }

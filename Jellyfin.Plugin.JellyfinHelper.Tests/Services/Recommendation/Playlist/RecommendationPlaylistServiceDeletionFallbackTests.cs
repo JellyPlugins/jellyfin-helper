@@ -191,6 +191,7 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
         // Non-cancelled token passes the top-of-loop guard; the OCE originates inside the
         // try body (CreatePlaylist) and must be re-thrown, not swallowed as a failure.
         var userId = Guid.NewGuid();
+        SetupUserManagerSingleUser(userId, "Alice");
         var result = new RecommendationResult
         {
             UserId = userId,

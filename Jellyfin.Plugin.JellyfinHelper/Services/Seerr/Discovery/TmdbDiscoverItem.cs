@@ -104,6 +104,10 @@ internal sealed class TmdbDiscoverItem
     [JsonPropertyName("adult")]
     public bool Adult { get; set; }
 
+    /// <summary>Gets or sets a verified Jellyfin-scale certification score obtained from detailed provider metadata.</summary>
+    [JsonIgnore]
+    public int? CertificationScore { get; set; }
+
     /// <summary>
     ///     Gets or sets the Seerr media availability info, present when Seerr already tracks this title.
     ///     Null for titles Seerr has never seen.

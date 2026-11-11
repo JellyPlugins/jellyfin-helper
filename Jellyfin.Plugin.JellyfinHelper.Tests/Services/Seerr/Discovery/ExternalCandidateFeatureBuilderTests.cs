@@ -185,7 +185,8 @@ public sealed class ExternalCandidateFeatureBuilderTests
             // Score is deliberately different from the normalized popularity: if training
             // regressed to using entry.Score as PopularityScore, this test would fail.
             Score = 0.9,
-            ShownAtUtc = DateTime.UtcNow
+            ShownAtUtc = DateTime.UtcNow,
+            RequestedAtUtc = DateTime.UtcNow
         });
 
         var profileById = new Dictionary<Guid, UserWatchProfile> { [userId] = profile };
@@ -230,7 +231,8 @@ public sealed class ExternalCandidateFeatureBuilderTests
             TmdbRating = 6.5,
             Popularity = 0.0, // legacy: not recorded
             Score = 0.42,
-            ShownAtUtc = DateTime.UtcNow
+            ShownAtUtc = DateTime.UtcNow,
+            RequestedAtUtc = DateTime.UtcNow
         });
 
         var profileById = new Dictionary<Guid, UserWatchProfile> { [userId] = profile };
@@ -285,7 +287,8 @@ public sealed class ExternalCandidateFeatureBuilderTests
             TmdbRating = 7.5,
             Popularity = 120.0,
             Score = 0.9,
-            ShownAtUtc = DateTime.UtcNow
+            ShownAtUtc = DateTime.UtcNow,
+            RequestedAtUtc = DateTime.UtcNow
         });
 
         var profileById = new Dictionary<Guid, UserWatchProfile> { [userId] = profile };

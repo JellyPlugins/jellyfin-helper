@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -178,6 +179,16 @@ public sealed class CandidateFeatures
     /// </summary>
     internal const double AbandonedThreshold = 0.25;
 
+    private static readonly FeatureIndex[] ExternalMissingIndices =
+    [
+        FeatureIndex.CollaborativeScore, FeatureIndex.StudioMatch, FeatureIndex.SeriesAffinity,
+        FeatureIndex.DayOfWeekAffinity, FeatureIndex.HourOfDayAffinity, FeatureIndex.TagSimilarity,
+        FeatureIndex.LibraryAddedRecency, FeatureIndex.ContentNearestNeighborScore, FeatureIndex.LanguageAffinity,
+        FeatureIndex.CollectionProgressionBoost, FeatureIndex.SubtitleLanguageAffinity, FeatureIndex.FranchiseAffinity,
+        FeatureIndex.ProductionLocationAffinity, FeatureIndex.InheritedTagSimilarity, FeatureIndex.SeriesCompletability,
+        FeatureIndex.WriterAffinity, FeatureIndex.BillingWeightedPeople, FeatureIndex.GenreStudioIdfPrior
+    ];
+
     private double _genreSimilarity;
     private double _collaborativeScore;
     private double _ratingScore;
@@ -207,6 +218,9 @@ public sealed class CandidateFeatures
     private double _writerAffinity;
     private double _billingWeightedPeople;
     private double _genreStudioIdfPrior;
+
+    /// <summary>Gets or sets a value indicating whether unavailable external metadata requires model-specific imputation.</summary>
+    public bool IsExternalCandidate { get; set; }
 
     /// <summary>Gets or sets the genre similarity score (0-1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
@@ -546,5 +560,123 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.WriterAffinity] = WriterAffinity;
         buffer[(int)FeatureIndex.BillingWeightedPeople] = BillingWeightedPeople;
         buffer[(int)FeatureIndex.GenreStudioIdfPrior] = GenreStudioIdfPrior;
+    }
+
+    /// <summary>Copies raw scalar signals so later feedback cannot change prediction-time features.</summary>
+    /// <returns>An independent copy.</returns>
+    public CandidateFeatures Copy() => (CandidateFeatures)MemberwiseClone();
+
+    /// <summary>Builds a feature-space counterfactual without a named signal, recomputing derived interactions normally.</summary>
+    /// <param name="signal">A named signal or the minor-signal group represented by GenreCountNormalized.</param>
+    /// <returns>An independent counterfactual; external unknowns retain their model imputation.</returns>
+    internal CandidateFeatures WithoutSignal(FeatureIndex signal)
+    {
+        var copy = Copy();
+        switch (signal)
+        {
+            case FeatureIndex.GenreSimilarity:
+                copy.GenreSimilarity = 0;
+                break;
+            case FeatureIndex.CollaborativeScore:
+                copy.CollaborativeScore = 0;
+                break;
+            case FeatureIndex.CombinedCriticScore:
+                copy.CombinedCriticScore = 0;
+                break;
+            case FeatureIndex.RecencyScore:
+                copy.RecencyScore = 0;
+                break;
+            case FeatureIndex.YearProximityScore:
+                copy.YearProximityScore = 0;
+                break;
+            case FeatureIndex.UserRatingScore:
+                copy.UserRatingScore = 0;
+                break;
+            case FeatureIndex.PeopleSimilarity:
+                copy.PeopleSimilarity = 0;
+                break;
+            case FeatureIndex.StudioMatch:
+                copy.StudioMatch = false;
+                break;
+            case FeatureIndex.FranchiseAffinity:
+                copy.FranchiseAffinity = 0;
+                break;
+            case FeatureIndex.CollectionProgressionBoost:
+                copy.CollectionProgressionBoost = 0;
+                break;
+            case FeatureIndex.PopularityScore:
+                copy.PopularityScore = 0;
+                break;
+            case FeatureIndex.GenreCountNormalized:
+                copy.GenreCount = 0;
+                copy.IsSeries = false;
+                copy.CompletionRatio = 0;
+                copy.IsAbandoned = 0;
+                copy.HasUserInteraction = false;
+                copy.SeriesAffinity = 0;
+                copy.DayOfWeekAffinity = 0;
+                copy.HourOfDayAffinity = 0;
+                copy.IsWeekend = false;
+                copy.TagSimilarity = 0;
+                copy.GenreUnderexposure = 0;
+                copy.GenreDominanceRatio = 0;
+                copy.GenreAffinityGap = 0;
+                copy.LibraryAddedRecency = 0;
+                copy.ContentNearestNeighborScore = 0;
+                copy.LanguageAffinity = 0;
+                copy.SubtitleLanguageAffinity = 0;
+                copy.ProductionLocationAffinity = 0;
+                copy.InheritedTagSimilarity = 0;
+                copy.SeriesCompletability = 0;
+                copy.WriterAffinity = 0;
+                copy.BillingWeightedPeople = 0;
+                copy.GenreStudioIdfPrior = 0;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(signal));
+        }
+
+        return copy;
+    }
+
+    /// <summary>Writes raw features using this model's fixed missing-metadata coordinates.</summary>
+    /// <param name="buffer">The vector destination.</param>
+    /// <param name="means">The model's last fitting imputation means, or null for initial priors.</param>
+    internal void WriteForModel(double[] buffer, IReadOnlyList<double>? means)
+    {
+        WriteToVector(buffer);
+        if (!IsExternalCandidate)
+        {
+            return;
+        }
+
+        foreach (var index in ExternalMissingIndices)
+        {
+            var i = (int)index;
+            buffer[i] = means is { Count: FeatureCount } ? Clamp01(means[i]) : ExternalPrior(index);
+        }
+
+        buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CollaborativeScore];
+    }
+
+    /// <summary>Builds a raw model vector without mutating recorded features.</summary>
+    /// <param name="means">The model's fixed imputation means.</param>
+    /// <returns>The unstandardized vector.</returns>
+    internal double[] ToModelVector(IReadOnlyList<double>? means)
+    {
+        var vector = new double[FeatureCount];
+        WriteForModel(vector, means);
+        return vector;
+    }
+
+    private static double ExternalPrior(FeatureIndex index)
+    {
+        if (index is FeatureIndex.CollaborativeScore or FeatureIndex.DayOfWeekAffinity or FeatureIndex.HourOfDayAffinity
+            or FeatureIndex.LibraryAddedRecency or FeatureIndex.LanguageAffinity or FeatureIndex.SubtitleLanguageAffinity or FeatureIndex.SeriesCompletability)
+        {
+            return 0.5;
+        }
+
+        return 0.0;
     }
 }

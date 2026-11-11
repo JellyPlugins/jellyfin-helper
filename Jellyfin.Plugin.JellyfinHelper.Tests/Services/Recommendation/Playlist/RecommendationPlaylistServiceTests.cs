@@ -93,6 +93,7 @@ public class RecommendationPlaylistServiceTests
             CreateResult(user2, "Bob", 3)
         };
 
+        SetupEnabledUsers(results);
         SetupPlaylistQuery();
         _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
             .ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
@@ -110,6 +111,7 @@ public class RecommendationPlaylistServiceTests
     {
         var userId = Guid.NewGuid();
         var results = new List<RecommendationResult> { CreateResult(userId, "Alice", 3) };
+        SetupEnabledUsers(results);
 
         PlaylistCreationRequest? captured = null;
         SetupPlaylistQuery();
@@ -135,6 +137,7 @@ public class RecommendationPlaylistServiceTests
             CreateResult(Guid.NewGuid(), "Alice", 0)
         };
 
+        SetupEnabledUsers(results);
         SetupPlaylistQuery();
         var sut = CreateSut();
         var syncResult = await sut.UpdatePlaylistsForAllUsersAsync(results, CancellationToken.None);
@@ -190,6 +193,7 @@ public class RecommendationPlaylistServiceTests
             CreateResult(Guid.NewGuid(), "Alice", 5)
         };
 
+        SetupEnabledUsers(results);
         SetupPlaylistQuery();
         _playlistManagerMock.Setup(m => m.CreatePlaylist(It.IsAny<PlaylistCreationRequest>()))
             .ThrowsAsync(new InvalidOperationException("Playlist creation failed"));
@@ -273,6 +277,7 @@ public class RecommendationPlaylistServiceTests
             }
         };
         var results = new List<RecommendationResult> { result };
+        SetupEnabledUsers(results);
 
         SetupPlaylistQuery();
 
@@ -417,6 +422,7 @@ public class RecommendationPlaylistServiceTests
             }
         };
 
+        SetupEnabledUsers([result]);
         SetupPlaylistQuery();
         SetupEpisodeResolution(new Dictionary<Guid, Guid> { { seriesId, episodeId } });
 
@@ -460,6 +466,13 @@ public class RecommendationPlaylistServiceTests
         };
         _userManagerMock.Setup(m => m.GetUsers()).Returns(new[] { user });
         _userManagerMock.Setup(m => m.GetUserById(userId)).Returns(user);
+    }
+
+    private void SetupEnabledUsers(IEnumerable<RecommendationResult> results)
+    {
+        var users = results.Select(result => new Jellyfin.Database.Implementations.Entities.User(result.UserName, "default", "default") { Id = result.UserId }).ToArray();
+        _userManagerMock.Setup(manager => manager.GetUsers()).Returns(users);
+        foreach (var user in users) _userManagerMock.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
     }
 
     private void SetupUserManagerDisabledUser(Guid userId, string username)
@@ -673,6 +686,21 @@ public class RecommendationPlaylistServiceTests
         _libraryManagerMock.Verify(
             m => m.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
             Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdatePlaylists_UserDeletedAfterRosterLoad_DoesNotResolveItemsOrCreatePlaylist()
+    {
+        var userId = Guid.NewGuid();
+        SetupUserManagerSingleUser(userId, "Deleted");
+        _userManagerMock.Setup(manager => manager.GetUserById(userId)).Returns((Jellyfin.Database.Implementations.Entities.User?)null);
+        var recommendation = CreateResult(userId, "Deleted", 3);
+        recommendation.Recommendations[0].ItemType = "Series";
+        var result = await CreateSut().UpdatePlaylistsForAllUsersAsync([recommendation], CancellationToken.None);
+
+        Assert.Equal(0, result.PlaylistsCreated);
+        _playlistManagerMock.Verify(manager => manager.CreatePlaylist(It.IsAny<MediaBrowser.Model.Playlists.PlaylistCreationRequest>()), Times.Never);
+        _libraryManagerMock.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.Episode))), Times.Never);
     }
 
     [Fact]

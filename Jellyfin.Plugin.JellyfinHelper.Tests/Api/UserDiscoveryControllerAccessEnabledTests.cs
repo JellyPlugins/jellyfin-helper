@@ -43,6 +43,8 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         _cache = new DiscoveryCacheService(pluginLog.Object, new Mock<ILogger<DiscoveryCacheService>>().Object);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
+        _discoveryMock.Setup(d => d.FilterConsumedItems(It.IsAny<Guid>(), It.IsAny<DiscoveryResult>()))
+            .Returns((Guid _, DiscoveryResult result) => result);
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
         _feedbackStoreMock.Setup(f => f.GetDismissedItems(It.IsAny<Guid>()))
             .Returns(new HashSet<(int, string)>());

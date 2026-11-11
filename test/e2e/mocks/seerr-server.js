@@ -324,6 +324,15 @@ const server = http.createServer(async (req, res) => {
   if (svcDetail) { send(res, 200, serviceDetail(svcDetail[1])); return done(200); }
 
   // Se3. discover (path-based genre/language, ?page=N)
+  if (path === '/api/v1/discover/movies' || path === '/api/v1/discover/tv' || path === '/api/v1/discover/trending') {
+    const series = path === '/api/v1/discover/tv';
+    const item = series
+      ? { id: 97502, mediaType: 'tv', name: 'Cold Start Series', firstAirDate: '2026-01-01' }
+      : { id: 97501, mediaType: 'movie', title: 'Cold Start Movie', releaseDate: '2026-01-01' };
+    send(res, 200, { page: 1, totalPages: 1, totalResults: 1, results: [{ ...item, genreIds: [18], voteAverage: 8.0, popularity: 150, adult: false }] });
+    return done(200);
+  }
+
   if (/^\/api\/v1\/discover\/(movies|tv)\//.test(path)) {
     send(res, 200, discoverPage());
     return done(200);

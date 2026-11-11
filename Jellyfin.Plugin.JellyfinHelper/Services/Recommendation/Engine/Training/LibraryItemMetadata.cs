@@ -13,7 +13,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training
 /// <param name="Studios">Item id -> non-empty studio names (mirrors <c>BaseItem.Studios</c>).</param>
 /// <param name="Tags">Item id -> non-empty tag names (mirrors <c>BaseItem.Tags</c>).</param>
 /// <param name="BoxSetIds">Item id -> BoxSet ids, resolved exactly as the serve-time candidate BoxSet lookup.</param>
+/// <param name="TmdbIds">Optional item id -> canonical provider title id map, also available for legacy cached predictions.</param>
 internal readonly record struct LibraryItemMetadata(
     IReadOnlyDictionary<Guid, IReadOnlyList<string>> Studios,
     IReadOnlyDictionary<Guid, IReadOnlyList<string>> Tags,
-    IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> BoxSetIds);
+    IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> BoxSetIds,
+    IReadOnlyDictionary<Guid, int>? TmdbIds = null);

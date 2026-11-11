@@ -144,16 +144,19 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         Assert.Equal(0, sut.TrainingExampleCount);
     }
 
-    [Fact]
-    public void Constructor_SchemaVersionMismatch_ResetsToDefaults()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(999)]
+    public void Constructor_SchemaVersionMismatch_ResetsToDefaults(int schemaVersion)
     {
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
         File.WriteAllText(StatePath, SerializeState(new
         {
-            SchemaVersion = 999,
+            SchemaVersion = schemaVersion,
             TrainingExampleCount = 123,
+            ObservedTrainingIds = new[] { Guid.NewGuid() },
             Alpha = 0.6,
             NeuralBeta = 0.0,
             QualityGateFrozen = false,
@@ -162,10 +165,14 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var sut = BuildSut(logger);
+        var storedState = File.ReadAllText(StatePath);
+        using var sut = BuildSut(logger);
 
         Assert.Equal(0, sut.TrainingExampleCount);
+        Assert.Equal(0, sut.MetricsHistoryCount);
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
         Assert.Equal(AlphaMin, sut.CurrentAlpha, 4);
+        Assert.Equal(storedState, File.ReadAllText(StatePath));
         VerifyWarningLogged(logger);
     }
 
@@ -402,6 +409,43 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         Assert.True(File.Exists(StatePath), "Ensemble state must be written after a successful weights save");
     }
 
+    [Fact]
+    public void Reload_PreservesUniqueObservationMaturityWithoutCountingReplayAgain()
+    {
+        var examples = CleanExamples(60);
+        var validation = CleanExamples(20, seed: 99);
+        using (var first = BuildSut())
+        {
+            Assert.True(first.Train(examples, validation));
+            Assert.Equal(60, first.TrainingExampleCount);
+        }
+
+        using var reloaded = BuildSut();
+        Assert.Equal(60, reloaded.TrainingExampleCount);
+        Assert.True(reloaded.Train(examples, validation));
+        Assert.Equal(60, reloaded.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void InflatedPersistedCount_CannotActivateNeuralWithoutDistinctObservedIds()
+    {
+        var id = Guid.NewGuid();
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = 10000,
+            ObservedTrainingIds = new[] { id, id, Guid.Empty },
+            Alpha = AlphaMin,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction,
+            MetricsHistory = Array.Empty<object>()
+        }));
+        using var neural = new NeuralScoringStrategy();
+        using var ensemble = BuildSut(neural: neural);
+
+        Assert.Equal(1, ensemble.TrainingExampleCount);
+        Assert.Equal(0.0, ensemble.CurrentNeuralBeta);
+    }
+
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {
         var examples = new List<TrainingExample>(count);
@@ -411,6 +455,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,

@@ -243,8 +243,8 @@ public sealed class PerUserTrainingDataBuilderTests
 
         var profiles = new Collection<UserWatchProfile>
         {
-            new() { UserId = userAction, UserName = "ActionFan", WatchedItems = [new WatchedItemInfo { ItemId = actionItem, Played = true, PlayCount = 5, Genres = ["Action", "SciFi"] }] },
-            new() { UserId = userHorror, UserName = "HorrorFan", WatchedItems = [new WatchedItemInfo { ItemId = horrorItem, Played = true, PlayCount = 5, Genres = ["Horror"] }] },
+            new() { UserId = userAction, UserName = "ActionFan", WatchedItems = [new WatchedItemInfo { ItemId = actionItem, Played = true, PlayCount = 5, LastPlayedDate = DateTime.UtcNow.AddDays(-3), Genres = ["Action", "SciFi"] }] },
+            new() { UserId = userHorror, UserName = "HorrorFan", WatchedItems = [new WatchedItemInfo { ItemId = horrorItem, Played = true, PlayCount = 5, LastPlayedDate = DateTime.UtcNow.AddDays(-3), Genres = ["Horror"] }] },
         };
 
         var previousResults = new List<RecommendationResult>

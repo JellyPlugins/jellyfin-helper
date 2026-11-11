@@ -135,7 +135,7 @@ internal static class TrainingFeatureComputer
         UserWatchProfile userProfile,
         bool isDay)
     {
-        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0)
+        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0 || userProfile.WatchedItems.Count < 10)
         {
             return 0.5;
         }
@@ -230,6 +230,8 @@ internal static class TrainingFeatureComputer
     /// <param name="genreStudioIdf">Optional genre studio IDF weights.</param>
     /// <param name="organicFallbackTimestamp">Fallback timestamp when no watch date exists.</param>
     /// <param name="seriesAffinityContext">Optional series affinity context.</param>
+    /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
+    /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -252,7 +254,9 @@ internal static class TrainingFeatureComputer
         IReadOnlyDictionary<string, double> preferredWriterWeights,
         IReadOnlyDictionary<string, double>? genreStudioIdf,
         DateTime organicFallbackTimestamp,
-        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null)
+        ContentScoring.SeriesAffinityContext? seriesAffinityContext = null,
+        double? parentSeriesRating = null,
+        int seriesTmdbId = 0)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -334,7 +338,7 @@ internal static class TrainingFeatureComputer
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate ?? organicFallbackTimestamp),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency =
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
@@ -366,15 +370,12 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         // Label from aggregated completion.
-        var label = playedEps switch
-        {
-            0 when episodes.Any(e => e.PlaybackPositionTicks > 0) =>
-                completionRatio < EngineConstants.AbandonedCompletionThreshold
-                    ? EngineConstants.AbandonedLabel
-                    : ContentScoring.ComputeEngagementLabel(completionRatio),
-            0 when episodes.Any(e => e.IsFavorite) => 0.65,
-            _ => ContentScoring.ComputeEngagementLabel(completionRatio)
-        };
+        var parentRating = NormalizeExplicitRating(parentSeriesRating);
+        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
+            {
+                0 when episodes.Any(e => e.IsFavorite) => 0.65,
+                _ => ContentScoring.ComputeEngagementLabel(completionRatio)
+            };
 
         examples.Add(
             new TrainingExample
@@ -383,8 +384,34 @@ internal static class TrainingFeatureComputer
                 Label = label,
                 GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
                 SampleWeight = 0.7,
-                UserId = userProfile.UserId
+                UserId = userProfile.UserId,
+                ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),
+                HasStableObservationId = true,
+                IsObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
             });
+    }
+
+    /// <summary>Normalizes a finite positive explicit rating; absent, invalid and unrated values retain the episode-label fallback.</summary>
+    /// <param name="rating">The current explicit outcome rating on a ten-point scale.</param>
+    /// <returns>The clamped normalized rating, or null when no valid rating exists.</returns>
+    private static double? NormalizeExplicitRating(double? rating)
+    {
+        if (rating is not { } value || value <= 0 || !double.IsFinite(value))
+        {
+            return null;
+        }
+
+        return Math.Clamp(value / 10.0, 0.0, 1.0);
+    }
+
+    /// <summary>Computes the explicit series feedback from finite rated episodes, ignoring unrated partial plays.</summary>
+    /// <param name="episodes">The series' current outcome rows, never historical feature inputs.</param>
+    /// <returns>The mean normalized rating, or null without explicit rating evidence.</returns>
+    internal static double? AverageExplicitRatings(IEnumerable<WatchedItemInfo> episodes)
+    {
+        var ratings = episodes.Where(episode => episode.UserRating is > 0 && double.IsFinite(episode.UserRating.Value))
+            .Select(episode => Math.Clamp(episode.UserRating!.Value / 10.0, 0.0, 1.0)).ToArray();
+        return ratings.Length > 0 ? ratings.Average() : null;
     }
 
     /// <summary>

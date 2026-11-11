@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -7,6 +8,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 public sealed class DiscoveryDismissDto
 {
+    /// <summary>Gets or sets the card's server-issued delivery; absent for legacy clients.</summary>
+    public Guid? DeliveryId { get; set; }
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the item to dismiss.
     /// </summary>

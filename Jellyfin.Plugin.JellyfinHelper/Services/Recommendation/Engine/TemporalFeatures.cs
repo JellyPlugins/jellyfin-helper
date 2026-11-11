@@ -137,19 +137,13 @@ internal static class TemporalFeatures
     ///     Resolves IsWeekend consistently across training and inference.
     /// </summary>
     /// <param name="userProfile">The user profile.</param>
-    /// <param name="referenceOverride">Fallback timestamp when the profile has no activity date.</param>
-    /// <returns>True for Saturday or Sunday, false otherwise. False when no date is available.</returns>
+    /// <param name="referenceOverride">The prediction-time context; defaults to the current UTC time.</param>
+    /// <returns>True for Saturday or Sunday, false otherwise.</returns>
     internal static bool ResolveIsWeekend(UserWatchProfile userProfile, DateTime? referenceOverride = null)
     {
         ArgumentNullException.ThrowIfNull(userProfile);
 
-        // No date available, return false so training and inference stay consistent.
-        var reference = userProfile.LastActivityDate ?? referenceOverride;
-        if (!reference.HasValue)
-        {
-            return false;
-        }
-
-        return reference.Value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+        var reference = DateTimeNormalization.ToUtc(referenceOverride ?? DateTime.UtcNow);
+        return reference.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
     }
 }

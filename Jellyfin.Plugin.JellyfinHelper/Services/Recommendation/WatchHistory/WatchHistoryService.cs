@@ -71,6 +71,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <inheritdoc />
+    public (bool Available, int? MaximumRating) GetUserParentalPolicy(Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        return user is null || IsDisabled(user) ? (false, null) : (true, user.MaxParentalRatingScore);
+    }
+
+    /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
         var users = _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).ToList() ?? [];

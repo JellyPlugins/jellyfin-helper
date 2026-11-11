@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -15,13 +16,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 {
+    private const string LogSource = "DiscoveryFeedback";
     private const string FileName = "jellyfin-helper-discovery-feedback.json";
 
     /// <summary>
     ///     Maximum allowed file size for the feedback store (30 MB).
-    ///     Files exceeding this size are treated as corrupted and deleted.
+    ///     Oversized valid stores are compacted without dropping all users' feedback.
     /// </summary>
     private const long MaxFileSizeBytes = 30 * 1024 * 1024;
+
+    private const long MaxRecoveryFileSizeBytes = 4 * MaxFileSizeBytes;
 
     /// <summary>
     ///     Maximum number of feedback entries retained per user.
@@ -39,6 +43,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private readonly Lock _fileLock = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
+    private readonly long _sizeLimit = MaxFileSizeBytes;
+    private bool _recoveryBlocked;
 
     /// <summary>
     ///     In-memory cache of feedback data. Avoids repeated disk reads.
@@ -70,18 +76,26 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="dataFolderPath">The directory path where the feedback file will be stored.</param>
+    /// <param name="sizeLimit">Maximum serialized UTF-8 size; the smaller override supports isolated boundary tests.</param>
     internal DiscoveryFeedbackStore(
         IPluginLogService pluginLog,
         ILogger<DiscoveryFeedbackStore> logger,
-        string dataFolderPath)
+        string dataFolderPath,
+        long sizeLimit = MaxFileSizeBytes)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sizeLimit);
         _pluginLog = pluginLog;
         _logger = logger;
         _filePath = Path.Join(dataFolderPath, FileName);
+        _sizeLimit = sizeLimit;
     }
 
     /// <inheritdoc />
     public void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items)
+        => RecordGenerated(userId, userName, items);
+
+    /// <inheritdoc />
+    public void RecordGenerated(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items, DateTime? generatedAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(userName);
         ArgumentNullException.ThrowIfNull(items);
@@ -105,7 +119,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 entryLookup.TryAdd((entry.TmdbId, NormalizeMediaType(entry.MediaType)), entry);
             }
 
-            var now = DateTime.UtcNow;
+            var now = DateTimeNormalization.ToUtc(generatedAtUtc ?? DateTime.UtcNow);
             var modified = false;
 
             foreach (var item in items)
@@ -114,6 +128,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 var key = (item.TmdbId, normalizedType);
                 if (entryLookup.TryGetValue(key, out var existing))
                 {
+                    if (existing.GetStatus() == DiscoveryInteractionStatus.Generated)
+                    {
+                        existing.ScoringFeatures = null;
+                        existing.ShownAtUtc = now;
+                        modified = true;
+                    }
+
                     modified |= BackfillExistingEntry(existing, item);
                     continue;
                 }
@@ -128,6 +149,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     TmdbRating = item.TmdbRating,
                     Popularity = item.Popularity,
                     Score = item.Score,
+                    // Exact card features already live in the recommendation cache and delivery evidence.
+                    // An unseen generation is not training evidence and need not duplicate those features here.
+                    ScoringFeatures = null,
                     ShownAtUtc = now,
                     KnownPeople = item.KnownPeople?.ToList() ?? []
                 };
@@ -139,6 +163,49 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (modified)
             {
                 SaveInternal(data);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void RecordImpressions(Guid userId, IReadOnlyList<DiscoveryRecommendation> items, DateTime generatedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        lock (_fileLock)
+        {
+            var data = LoadInternal();
+            var userResult = GetOrCreateUserResult(data, userId, string.Empty);
+            var modified = false;
+            foreach (var item in items)
+            {
+                var mediaType = NormalizeMediaType(item.MediaType);
+                var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == item.TmdbId && e.MediaType == mediaType);
+                if (entry is null)
+                {
+                    entry = new DiscoveryFeedbackEntry { TmdbId = item.TmdbId, MediaType = mediaType };
+                    userResult.Entries.Add(entry);
+                }
+
+                if (entry.ImpressionAtUtc.HasValue)
+                {
+                    continue;
+                }
+
+                // A verified action can establish the prediction before any viewport acknowledgement.
+                // Later impressions may record visibility but must not rewrite that action's evidence.
+                ConfirmPrediction(entry, item, generatedAtUtc);
+                entry.ImpressionAtUtc = DateTime.UtcNow;
+                modified = true;
+            }
+
+            if (modified && !SaveInternal(data))
+            {
+                throw new IOException("Could not persist confirmed discovery impressions.");
             }
         }
     }
@@ -217,25 +284,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     /// <inheritdoc />
     public void RecordDismissed(Guid userId, int tmdbId, string mediaType)
-    {
-        if (tmdbId <= 0)
-        {
-            return;
-        }
+        => RecordAction(userId, tmdbId, mediaType, requested: false, item: null, generatedAtUtc: null);
 
-        lock (_fileLock)
-        {
-            var data = LoadInternal();
-            var userResult = GetOrCreateUserResult(data, userId, userName: null);
-            var normalizedType = NormalizeMediaType(mediaType);
-            var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            entry.DismissedAtUtc = DateTime.UtcNow;
-            SaveInternal(data);
-        }
+    /// <inheritdoc />
+    public void RecordDismissed(Guid userId, DiscoveryRecommendation item, DateTime generatedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        RecordAction(userId, item.TmdbId, item.MediaType, requested: false, item, generatedAtUtc);
     }
 
     /// <inheritdoc />
     public void RecordRequested(Guid userId, int tmdbId, string mediaType)
+        => RecordAction(userId, tmdbId, mediaType, requested: true, item: null, generatedAtUtc: null);
+
+    /// <inheritdoc />
+    public void RecordRequested(Guid userId, DiscoveryRecommendation item, DateTime generatedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        RecordAction(userId, item.TmdbId, item.MediaType, requested: true, item, generatedAtUtc);
+    }
+
+    private void RecordAction(Guid userId, int tmdbId, string mediaType, bool requested, DiscoveryRecommendation? item, DateTime? generatedAtUtc)
     {
         if (tmdbId <= 0)
         {
@@ -248,9 +317,47 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            entry.RequestedAtUtc = DateTime.UtcNow;
+            if (item is not null && generatedAtUtc.HasValue)
+            {
+                ConfirmPrediction(entry, item, generatedAtUtc.Value);
+            }
+            else if (!entry.HasConfirmedPrediction)
+            {
+                // Legacy/non-card actions have no delivery proof. Do not attribute them to an unseen generation.
+                entry.ScoringFeatures = null;
+                entry.ShownAtUtc = DateTime.UtcNow;
+            }
+
+            if (requested)
+            {
+                entry.RequestedAtUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                entry.DismissedAtUtc = DateTime.UtcNow;
+            }
+
             SaveInternal(data);
         }
+    }
+
+    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc)
+    {
+        if (entry.HasConfirmedPrediction)
+        {
+            return;
+        }
+
+        entry.Title = item.Title;
+        entry.Year = item.Year;
+        entry.Genres = item.Genres.ToArray();
+        entry.KnownPeople = item.KnownPeople?.ToList() ?? [];
+        entry.TmdbRating = item.TmdbRating;
+        entry.Popularity = item.Popularity;
+        entry.Score = item.Score;
+        entry.ScoringFeatures = item.ScoringFeatures?.Copy();
+        entry.ShownAtUtc = DateTimeNormalization.ToUtc(generatedAtUtc);
+        entry.PredictionEvidenceAtUtc = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -380,6 +487,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 TmdbRating = e.TmdbRating,
                 Popularity = e.Popularity,
                 Score = e.Score,
+                ScoringFeatures = e.ScoringFeatures?.Copy(),
+                ImpressionAtUtc = e.ImpressionAtUtc,
+                PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
+                PredictionInputsCompacted = e.PredictionInputsCompacted,
                 KnownPeople = e.KnownPeople?.ToList() ?? [],
                 ShownAtUtc = e.ShownAtUtc,
                 DismissedAtUtc = e.DismissedAtUtc,
@@ -409,26 +520,37 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var fileInfo = new FileInfo(_filePath);
-            if (fileInfo.Length > MaxFileSizeBytes)
+            if (fileInfo.Length > MaxRecoveryFileSizeBytes)
             {
                 _pluginLog.LogWarning(
-                    "DiscoveryFeedback",
-                    $"Feedback file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning empty.",
+                    LogSource,
+                    $"Feedback file exceeds the bounded recovery limit ({fileInfo.Length} bytes); preserving it and blocking writes.",
                     null,
                     _logger);
-                TryDeleteFile();
+                _recoveryBlocked = true;
                 _memoryCache = [];
                 return [];
             }
 
-            var json = File.ReadAllText(_filePath);
-            _memoryCache = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(json, JsonOptions) ?? [];
+            using (var stream = File.OpenRead(_filePath))
+            {
+                _memoryCache = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(stream, JsonOptions) ?? [];
+            }
+
+            if (fileInfo.Length > _sizeLimit)
+            {
+                _pluginLog.LogWarning(LogSource, $"Feedback file exceeds the size limit ({fileInfo.Length} bytes); recovering and compacting valid feedback.", null, _logger);
+                var recovered = _memoryCache;
+                SaveInternal(recovered);
+                _memoryCache ??= recovered;
+            }
+
             return _memoryCache.Select(CloneResult).ToList();
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             _pluginLog.LogWarning(
-                "DiscoveryFeedback",
+                LogSource,
                 $"Could not load discovery feedback from {_filePath}: {ex.Message}",
                 ex,
                 _logger);
@@ -445,8 +567,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <summary>
     ///     Saves the feedback data to disk using atomic write (temp file + move). Applies eviction rules before saving.
     /// </summary>
-    private void SaveInternal(List<DiscoveryFeedbackResult> data)
+    private bool SaveInternal(List<DiscoveryFeedbackResult> data)
     {
+        if (_recoveryBlocked)
+        {
+            return false;
+        }
+
         // Work on a deep copy so eviction mutations never touch the live _memoryCache.
         // The copy is swapped into _memoryCache atomically after a successful disk write.
         var workingCopy = data.Select(CloneResult).ToList();
@@ -455,6 +582,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
         foreach (var userResult in workingCopy)
         {
+            foreach (var entry in userResult.Entries.Where(entry => !entry.HasConfirmedPrediction))
+            {
+                entry.ScoringFeatures = null;
+            }
+
             // Remove expired entries based on their most recent activity
             userResult.Entries.RemoveAll(e => GetLatestActivityUtc(e) < cutoff);
 
@@ -479,13 +611,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Directory.CreateDirectory(directory);
             }
 
-            var json = JsonSerializer.Serialize(workingCopy, JsonOptions);
+            var bytes = SerializeWithinSizeLimit(workingCopy);
+            if (bytes is null)
+            {
+                _pluginLog.LogWarning(LogSource, "Explicit feedback cannot fit the size limit; preserving the existing file instead of overwriting it.", null, _logger);
+                return false;
+            }
 
             // Use AtomicFile so a transient sharing violation on the final File.Move (typical when an AV scanner or the Search indexer briefly holds the file handle) gets a bounded retry with backoff.
-            AtomicFile.WriteAllText(_filePath, json);
+            AtomicFile.WriteAllText(_filePath, Encoding.UTF8.GetString(bytes));
 
             // Atomically replace the live cache with the post-eviction copy.
             _memoryCache = workingCopy;
+            return true;
         }
 
         // Broader filter than plain IOException / UnauthorizedAccessException / JsonException because AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException and ArgumentException (malformed path characters from OS layer).
@@ -499,11 +637,53 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
             _memoryCache = null;
             _pluginLog.LogWarning(
-                "DiscoveryFeedback",
+                LogSource,
                 $"Could not save discovery feedback to {_filePath}: {ex.Message}",
                 ex,
                 _logger);
         }
+
+        return false;
+    }
+
+    /// <summary>Evicts generated-only rows first, then compacts older metadata while preserving explicit outcomes and identities.</summary>
+    private byte[]? SerializeWithinSizeLimit(List<DiscoveryFeedbackResult> data)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(data, JsonOptions);
+        if (bytes.LongLength <= _sizeLimit)
+        {
+            return bytes;
+        }
+
+        foreach (var result in data)
+        {
+            result.Entries.RemoveAll(entry => entry.GetStatus() == DiscoveryInteractionStatus.Generated);
+        }
+
+        data.RemoveAll(result => result.Entries.Count == 0);
+        bytes = JsonSerializer.SerializeToUtf8Bytes(data, JsonOptions);
+        var estimatedSize = bytes.LongLength;
+        foreach (var entry in data.SelectMany(result => result.Entries)
+                     .OrderBy(entry => entry.RequestedAtUtc.HasValue || entry.DismissedAtUtc.HasValue)
+                     .ThenBy(GetLatestActivityUtc))
+        {
+            if (estimatedSize <= _sizeLimit)
+            {
+                break;
+            }
+
+            var previousSize = JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions).LongLength;
+            entry.PredictionInputsCompacted = true;
+            entry.ScoringFeatures = null;
+            entry.Title = string.Empty;
+            entry.Year = null;
+            entry.Genres = [];
+            entry.KnownPeople = [];
+            estimatedSize -= previousSize - JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions).LongLength;
+        }
+
+        bytes = JsonSerializer.SerializeToUtf8Bytes(data, JsonOptions);
+        return bytes.LongLength <= _sizeLimit ? bytes : null;
     }
 
     /// <summary>
@@ -569,6 +749,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private static DateTime GetLatestActivityUtc(DiscoveryFeedbackEntry entry)
     {
         var latest = entry.ShownAtUtc;
+        if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value > latest)
+        {
+            latest = entry.ImpressionAtUtc.Value;
+        }
+
         if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
         {
             latest = entry.DismissedAtUtc.Value;

@@ -1,3 +1,4 @@
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -8,6 +9,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class EnsembleScoringStrategyNeuralTests
 {
+    [Fact]
+    public void PerUserNeuralActivation_ContrastSamplesCannotInflateObservedMaturity()
+    {
+        using var shared = new NeuralScoringStrategy();
+        typeof(NeuralScoringStrategy).GetField("_lastValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(shared, 0.1);
+        typeof(NeuralScoringStrategy).GetField("_lastBaselineValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(shared, 0.25);
+        using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), shared, ownsNeural: false);
+        var observed = Enumerable.Range(0, 19).Select(i => new TrainingExample { HasStableObservationId = true, Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1 }).ToList();
+        var contrasts = Enumerable.Range(0, 170).Select(_ => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = 0.1 }, Label = 0.05, IsObserved = false, IsContrastSample = true });
+        var validation = Enumerable.Range(0, 20).Select(i => new TrainingExample { Features = new CandidateFeatures { GenreSimilarity = i % 2 == 0 ? 0.9 : 0.1 }, Label = i % 2 == 0 ? 0.9 : 0.1 }).ToArray();
+
+        Assert.True(ensemble.Train(observed.Concat(contrasts).ToArray(), validation, trainNeural: false));
+        Assert.Equal(19, ensemble.TrainingExampleCount);
+        Assert.Equal(0.0, ensemble.CurrentNeuralBeta);
+    }
+
     // Cleanly separable data so both learned and neural generalize well and beta ramps.
     private static List<TrainingExample> CleanExamples(int count, int seed = 42)
     {
@@ -18,6 +35,7 @@ public sealed class EnsembleScoringStrategyNeuralTests
             var positive = i % 2 == 0;
             examples.Add(new TrainingExample
             {
+                HasStableObservationId = true,
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = positive ? 0.9 : 0.05,
@@ -185,6 +203,29 @@ public sealed class EnsembleScoringStrategyNeuralTests
         Assert.Equal(betaHigh, perUser.CurrentNeuralBeta, 6);
 
         shared.Dispose();
+    }
+
+    [Theory]
+    [InlineData(40, 0.9)]
+    [InlineData(149, 0.9)]
+    [InlineData(40, double.NaN)]
+    [InlineData(40, double.PositiveInfinity)]
+    public void Train_OwnsNeuralFalse_LeanRoundStillRejectsPoorSharedQuality(int count, double validationLoss)
+    {
+        using var shared = new NeuralScoringStrategy();
+        var lossField = typeof(NeuralScoringStrategy).GetField("_lastValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        lossField.SetValue(shared, 0.1);
+        typeof(NeuralScoringStrategy).GetField("_lastBaselineValidationLoss", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(shared, 0.25);
+        using var perUser = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), shared, ownsNeural: false);
+        Assert.True(perUser.Train(CleanExamples(260), heldOutForMetrics: null, trainNeural: false));
+        var establishedBeta = perUser.CurrentNeuralBeta;
+        Assert.Equal(EnsembleScoringStrategy.NeuralMaxBetaFraction, establishedBeta);
+
+        lossField.SetValue(shared, validationLoss);
+        Assert.True(perUser.Train(CleanExamples(count), heldOutForMetrics: null, trainNeural: false));
+
+        Assert.Equal(establishedBeta * 0.5, perUser.CurrentNeuralBeta);
+        Assert.Equal(0, shared.TrainingGeneration);
     }
 
     [Fact]
