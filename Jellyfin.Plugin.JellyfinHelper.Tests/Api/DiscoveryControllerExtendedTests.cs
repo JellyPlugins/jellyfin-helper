@@ -315,6 +315,21 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     }
 
     [Fact]
+    public async Task GetDiscoveryResults_UsesTheDistinctServiceFilteredResultForTheCorrectUser()
+    {
+        var user = Guid.NewGuid();
+        var original = new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 1 }, new DiscoveryRecommendation { TmdbId = 2 }] };
+        Assert.True(_cache.Save([original]));
+        _discoveryMock.Setup(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>()))
+            .Returns(new DiscoveryResult { UserId = user, Recommendations = [new DiscoveryRecommendation { TmdbId = 2 }] });
+        var response = await CreateController().GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
+        var pools = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(Assert.IsType<OkObjectResult>(response.Result).Value);
+        Assert.Equal(2, Assert.Single(Assert.Single(pools).Recommendations).TmdbId);
+        _discoveryMock.Verify(service => service.FilterConsumedItems(user, It.Is<DiscoveryResult>(result => result.UserId == user && result.Recommendations.Count == 2)), Times.Once);
+        Assert.Equal(2, Assert.Single(_cache.Load()).Recommendations.Count);
+    }
+
+    [Fact]
     public async Task GetDiscoveryResults_FiltersDismissedItems()
     {
         var userId = Guid.NewGuid();

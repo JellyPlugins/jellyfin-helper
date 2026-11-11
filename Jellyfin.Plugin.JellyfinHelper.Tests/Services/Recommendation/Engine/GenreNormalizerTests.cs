@@ -159,11 +159,12 @@ public sealed class GenreNormalizerTests
         {
             using var stream = assembly.GetManifestResourceStream(resource)!;
             using var document = JsonDocument.Parse(stream);
-            foreach (var entry in document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal)))
+            var entries = document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal))
+                .Select(entry => (Id: int.Parse(entry.Name.Split('.')[1], System.Globalization.CultureInfo.InvariantCulture), Labels: entry.Value.GetString()!.Split('|')));
+            foreach (var entry in entries)
             {
-                var id = int.Parse(entry.Name.Split('.')[1], System.Globalization.CultureInfo.InvariantCulture);
-                var expected = Assert.Single(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres([id]));
-                foreach (var label in entry.Value.GetString()!.Split('|'))
+                var expected = Assert.Single(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres([entry.Id]));
+                foreach (var label in entry.Labels)
                 {
                     Assert.Equal(expected, GenreNormalizer.Name(label));
                     count++;

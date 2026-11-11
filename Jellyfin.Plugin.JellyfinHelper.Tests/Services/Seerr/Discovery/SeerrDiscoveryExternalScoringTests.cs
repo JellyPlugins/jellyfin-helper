@@ -87,8 +87,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null)
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
-        // Strict handler routing Seerr detail calls by TMDb id. Unregistered ids answer 404, which the
-        // enrichment treats as "unenriched" - and no real network is ever touched.
+        // Valid minimal details are the default. Failure scenarios explicitly select their HTTP status
+        // or transport error, so ordinary scoring tests still verify availability without real network I/O.
         var handler = new Mock<System.Net.Http.HttpMessageHandler>(MockBehavior.Strict);
         handler.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
         handler.Protected()
@@ -130,7 +130,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                     };
                 }
 
-                return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
+                if (id <= 0) return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
+                return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new System.Net.Http.StringContent($$"""{"id":{{id}}}""")
+                };
             });
         factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new System.Net.Http.HttpClient(handler.Object));
         var arr = new Mock<IArrIntegrationService>();
@@ -323,9 +327,9 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Single(service.FilterConsumedItems(user, loaded).Recommendations);
         configuration.MetadataCountryCode = "US";
         Assert.Empty(service.FilterConsumedItems(user, loaded).Recommendations);
-        Assert.Single(loaded.Recommendations);
-        Assert.Equal("DE", loaded.Recommendations[0].CertificationPolicyCountry);
-        Assert.Equal("DE", loaded.Recommendations[0].Clone().CertificationPolicyCountry);
+        var recommendation = Assert.Single(loaded.Recommendations);
+        Assert.Equal("DE", recommendation.CertificationPolicyCountry);
+        Assert.Equal("DE", recommendation.Clone().CertificationPolicyCountry);
     }
 
     [Fact]
@@ -439,6 +443,32 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(1, features.GenreSimilarity);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AvailableReplacementBeyondTheInitialBudget_IsNeverSelectedUnchecked(bool warmCache)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var candidates = Enumerable.Range(1000, 21).Select((id, rank) => RankedCandidate(id, rank)).ToList();
+        foreach (var candidate in candidates) _detailById[candidate.TmdbId] = $$"""{"id":{{candidate.TmdbId}},"mediaInfo":{"status":5} }""";
+        var service = CreateService();
+        if (warmCache) Assert.Null(await service.ScoreExternalCandidatesAsync(user, candidates.Take(20).ToList(), TestContext.Current.CancellationToken));
+        var calls = _detailCalls;
+        Assert.Null(await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken));
+        Assert.Equal(warmCache ? 1 : 20, _detailCalls - calls);
+    }
+
+    [Fact]
+    public async Task FailedAvailabilityVerification_DoesNotOfferAnUncheckedTraktTitle()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        _detailStatus = HttpStatusCode.NotFound;
+        Assert.Null(await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken));
+        Assert.Equal(1, _detailCalls);
+    }
+
     [Fact]
     public async Task SlowUnrestrictedTraktDetails_UseOnlyTheSharedTop20Deadline()
     {
@@ -450,8 +480,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var timer = System.Diagnostics.Stopwatch.StartNew();
         var result = await CreateService().ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
         timer.Stop();
-        Assert.Equal(20, result!.Recommendations.Count);
-        Assert.Equal(Enumerable.Range(1000, 20), result.Recommendations.Select(recommendation => recommendation.TmdbId));
+        Assert.Null(result); // An expired optional budget cannot verify the availability of these titles.
         Assert.InRange(_maxConcurrentDelayedDetails, 1, 3);
         Assert.InRange(_detailCalls, 1, 20);
         Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Unrestricted Trakt details must not run a forty-candidate pre-enrichment pass.");

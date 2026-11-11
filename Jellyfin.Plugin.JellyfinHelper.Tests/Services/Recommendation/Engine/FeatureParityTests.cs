@@ -164,10 +164,11 @@ public sealed class FeatureParityTests
         Assert.Contains("Favorite Studio", context.Studios);
         profile.WatchedItems.Clear();
         var candidate = new TmdbDiscoverItem { KnownKeywords = ["item tag", "parent tag", "favorite tag", "replayed tag"], KnownStudios = ["Favorite Studio"] };
-        var features = ExternalCandidateFeatureBuilder.Build(candidate, [], [], 0, PreferenceBuilder.BuildGenreExposureAnalysis([], profile), profile, userContext: context);
+        var prepared = new ExternalCandidateFeatureBuilder.Context { GenrePreferences = [], PreferredPeople = [], GenreExposure = PreferenceBuilder.BuildGenreExposureAnalysis([], profile), User = context };
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, prepared);
         Assert.Equal(1, features.TagSimilarity);
         Assert.True(features.StudioMatch);
-        var inheritedOnly = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { KnownKeywords = ["folder tag"] }, [], [], 0, PreferenceBuilder.BuildGenreExposureAnalysis([], profile), profile, userContext: context);
+        var inheritedOnly = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { KnownKeywords = ["folder tag"] }, prepared);
         Assert.Equal(0, inheritedOnly.TagSimilarity);
     }
 
@@ -194,8 +195,8 @@ public sealed class FeatureParityTests
         var result = TrainingDataBuilder.BuildExamples([previous], new Collection<UserWatchProfile> { profile }, TestContext.Current.CancellationToken);
         var recommendedId = TrainingExample.CreateTitleObservationId(user, recommended, 2, false);
         var organicId = TrainingExample.CreateTitleObservationId(user, organic, 3, false);
-        Assert.Contains(result.Examples, example => example.ObservationId == recommendedId && example.Features.FranchiseAffinity == 1);
-        Assert.Contains(result.Examples, example => example.ObservationId == organicId && example.Features.FranchiseAffinity == 1);
+        Assert.Equal(1, Assert.Single(result.Examples, example => example.ObservationId == recommendedId).Features.FranchiseAffinity, 12);
+        Assert.Equal(1, Assert.Single(result.Examples, example => example.ObservationId == organicId).Features.FranchiseAffinity, 12);
     }
 
     [Fact]

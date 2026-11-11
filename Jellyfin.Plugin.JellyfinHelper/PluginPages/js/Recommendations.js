@@ -538,8 +538,6 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 }
 
 function renderDiscoveryCard(rec, index) {
-    var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
-    var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
     var html = '<div class="discovery-card" data-index="' + index + '">';
     html += renderDiscoveryPoster(rec.PosterPath);
 
@@ -560,14 +558,7 @@ function renderDiscoveryCard(rec, index) {
     if (!Number.isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
-    if (rec.IsPersonalized === false) {
-        html += '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</span>';
-    } else {
-        html += '<div class="recs-item-score ' + cls + '">';
-        html += '<div class="recs-score-bar" style="width:' + pct + '%"></div>';
-        html += '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span>';
-        html += '</div>';
-    }
+    html += renderDiscoveryScore(rec);
 
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');
     if (rec.RelatedInfo) {
@@ -592,6 +583,17 @@ function renderDiscoveryCard(rec, index) {
 
     html += '</div></div>';
     return html;
+}
+
+function renderDiscoveryScore(rec) {
+    if (rec.IsPersonalized === false) {
+        return '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</span>';
+    }
+    var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
+    var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
+    return '<div class="recs-item-score ' + cls + '">' +
+        '<div class="recs-score-bar" style="width:' + pct + '%"></div>' +
+        '<span class="recs-score-text">' + pct + '% ' + T('recsMatch', 'match') + '</span></div>';
 }
 
 function renderDiscoveryPoster(posterPath) {

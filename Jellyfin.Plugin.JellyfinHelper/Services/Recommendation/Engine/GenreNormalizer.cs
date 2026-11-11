@@ -121,9 +121,8 @@ internal static class GenreNormalizer
             return false;
         }
 
-        foreach (var genre in genres)
+        foreach (var name in genres.Select(Name))
         {
-            var name = Name(genre);
             var matches = name switch
             {
                 "Action & Adventure" => canonical.Contains("Action") || canonical.Contains("Adventure"),
@@ -232,18 +231,7 @@ internal static class GenreNormalizer
                 continue;
             }
 
-            var idText = entry.Name["genre.".Length..];
-            if (idText.EndsWith(".aliases", StringComparison.Ordinal))
-            {
-                idText = idText[..^".aliases".Length];
-            }
-
-            if (!int.TryParse(idText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id))
-            {
-                continue;
-            }
-
-            var canonical = TmdbGenreMap.ToJellyfinGenres([id]).FirstOrDefault();
+            var canonical = CatalogGenre(entry.Name);
             if (canonical is null)
             {
                 continue;
@@ -251,15 +239,33 @@ internal static class GenreNormalizer
 
             foreach (var label in entry.Value.GetString()!.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             {
-                var normalized = label.Normalize(NormalizationForm.FormKC);
-                if (aliases.TryGetValue(normalized, out var existing) && existing != canonical)
-                {
-                    throw new InvalidDataException($"Conflicting genre alias '{label}' for TMDb ID {id}.");
-                }
-
-                aliases[normalized] = canonical;
+                AddCatalogAlias(aliases, label, canonical);
             }
         }
+    }
+
+    private static string? CatalogGenre(string key)
+    {
+        var idText = key["genre.".Length..];
+        if (idText.EndsWith(".aliases", StringComparison.Ordinal))
+        {
+            idText = idText[..^".aliases".Length];
+        }
+
+        return int.TryParse(idText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id)
+            ? TmdbGenreMap.ToJellyfinGenres([id]).FirstOrDefault()
+            : null;
+    }
+
+    private static void AddCatalogAlias(Dictionary<string, string> aliases, string label, string canonical)
+    {
+        var normalized = label.Normalize(NormalizationForm.FormKC);
+        if (aliases.TryGetValue(normalized, out var existing) && existing != canonical)
+        {
+            throw new InvalidDataException($"Conflicting genre alias '{label}' for '{canonical}'.");
+        }
+
+        aliases[normalized] = canonical;
     }
 
     private static Dictionary<string, string> BuildAliases()

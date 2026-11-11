@@ -474,6 +474,35 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MissingCertifications_PreserveThePriorPoolOnlyWhenTheProviderPassWasIncomplete(bool incomplete)
+    {
+        var profile = NewProfile();
+        profile.MaxParentalRating = 6;
+        profile.GenreDistribution = new Dictionary<string, int> { ["Family"] = 5 };
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var before = DateTime.UtcNow.AddHours(-1);
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = profile.UserId, GeneratedAt = before, Recommendations = [new DiscoveryRecommendation { TmdbId = 9600, CertificationScore = 6, CertificationPolicyCountry = "*" }] }]));
+        RegisterMovieRoute("/api/v1/discover/movies/genre/10751?page=1", [Candidate(9601, 9), Candidate(9602, 9)]);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9601", HttpStatusCode.OK, """{"id":9601,"genres":[{"id":10751}]}""");
+        if (incomplete) _handler.RegisterFailure(HttpMethod.Get, "/api/v1/movie/9602", new TaskCanceledException("provider detail request timed out"));
+        else _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9602", HttpStatusCode.OK, """{"id":9602,"genres":[{"id":10751}]}""");
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var pools = await _cache.LoadAsync(TestContext.Current.CancellationToken);
+        if (incomplete)
+        {
+            var retained = Assert.Single(pools);
+            Assert.Equal(before, retained.GeneratedAt);
+            Assert.Equal(9600, Assert.Single(retained.Recommendations).TmdbId);
+        }
+        else
+        {
+            Assert.Empty(pools);
+        }
+    }
+
+    [Theory]
     [InlineData("studio", "reasonStudioNamed")]
     [InlineData("franchise", "reasonFranchiseNamed")]
     [InlineData("person", "reasonPersonNamed")]

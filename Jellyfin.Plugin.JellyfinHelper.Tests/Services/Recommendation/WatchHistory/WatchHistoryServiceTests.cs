@@ -237,6 +237,22 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void BuildProfile_RepeatedSeriesIdentity_RetainsLastMetadataSnapshot()
+    {
+        var user = CreateTestUser("duplicates");
+        var id = Guid.NewGuid();
+        var episode = new Episode { Id = Guid.NewGuid(), SeriesId = id };
+        var first = new Series { Id = id, Studios = ["Old Studio"], Tags = ["old tag"], Status = MediaBrowser.Model.Entities.SeriesStatus.Continuing };
+        var last = new Series { Id = id, Studios = ["Current Studio"], Tags = ["current tag"], Status = MediaBrowser.Model.Entities.SeriesStatus.Ended };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "played", Played = true });
+        var profile = _service.BuildProfile(user, [episode], [first, last]);
+        var watched = Assert.Single(profile.WatchedItems);
+        Assert.Equal(["Current Studio"], watched.SeriesStudios);
+        Assert.Equal(["current tag"], watched.SeriesTags);
+        Assert.Equal("Ended", watched.SeriesStatus);
+    }
+
+    [Fact]
     public void BuildProfile_EpisodeWithoutGenres_InheritsParentSeriesGenres()
     {
         // Episodes usually carry no genres of their own; the watched item must inherit the parent

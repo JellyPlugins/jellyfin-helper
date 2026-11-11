@@ -101,6 +101,9 @@ remain loadable. BoxSet libraries are optional: franchise IDs work without them;
 External own-tag/studio preferences share the library/training eligibility rules, including synthetic series favorites.
 Optional detail enrichment is limited to the pre-scoring top 20 and one eight-second pass; required age checks remain fail-closed.
 Required certification enrichment has its own 30-second deadline, including external/Trakt entry points.
+An incomplete required pass without safe replacements preserves the prior pool as a transient failure.
+Trakt suggestions require a successful availability check (including valid cached details); replacement
+checks share the same eight-second/top-20 request budget, so a provider outage can produce a smaller pool.
 Personal studio/tag/person/franchise evidence does not require genre metadata. Provider alias updates invalidate
 derived genre preferences, exposure and engagement inputs before final scoring.
 Live metadata maps distinguish a confirmed empty list (clear stale cache values) from an absent entry (unknown;

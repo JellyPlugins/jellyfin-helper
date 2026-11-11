@@ -929,6 +929,7 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
     private readonly Dictionary<(HttpMethod Method, string PathSuffix), (HttpStatusCode Status, string Body)> _routes =
         new();
     private readonly object _delayLock = new();
+    private readonly Dictionary<(HttpMethod Method, string PathSuffix), Exception> _failures = new();
 
     public string? LastRequestBody { get; private set; }
 
@@ -969,6 +970,9 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
     {
         _routes[(method, pathSuffix)] = (status, body);
     }
+
+    public void RegisterFailure(HttpMethod method, string pathSuffix, Exception failure)
+        => _failures[(method, pathSuffix)] = failure;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -1029,6 +1033,12 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 
         var url = request.RequestUri?.AbsolutePath ?? string.Empty;
         var fullUrl = request.RequestUri?.PathAndQuery ?? string.Empty;
+        var scriptedFailure = _failures.FirstOrDefault(pair => pair.Key.Method == request.Method && fullUrl.EndsWith(pair.Key.PathSuffix, StringComparison.Ordinal)).Value;
+        if (scriptedFailure is not null)
+        {
+            throw scriptedFailure;
+        }
+
         foreach (var kvp in _routes)
         {
             if (kvp.Key.Method == request.Method &&

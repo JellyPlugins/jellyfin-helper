@@ -31,8 +31,6 @@ internal static class ExternalCandidateFeatureBuilder
     ///     constant, so under standardization they land at ~0 ("no information") rather than biasing the
     ///     score. Null (no trained model yet) keeps the legacy neutral constants.
     /// </param>
-    /// <param name="watchedCollections">Known library BoxSets and the user's distinct engaged sibling counts.</param>
-    /// <param name="userContext">A single immutable user-preference preparation shared by pre- and final scoring.</param>
     /// <returns>A populated feature vector.</returns>
     internal static CandidateFeatures Build(
         TmdbDiscoverItem candidate,
@@ -41,15 +39,33 @@ internal static class ExternalCandidateFeatureBuilder
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         UserWatchProfile? profile = null,
-        IReadOnlyList<double>? featureMeans = null,
-        IReadOnlyDictionary<int, int>? watchedCollections = null,
-        UserContext? userContext = null)
+        IReadOnlyList<double>? featureMeans = null)
+        => Build(candidate, new Context
+        {
+            GenrePreferences = genrePreferences,
+            PreferredPeople = preferredPeople,
+            AverageYear = avgYear,
+            GenreExposure = genreExposure,
+            User = PrepareUserContext(profile),
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(profile ?? new UserWatchProfile()),
+            FeatureMeans = featureMeans
+        });
+
+    /// <summary>Builds one vector from user metadata prepared once for the scoring pass.</summary>
+    /// <param name="candidate">The actual external candidate metadata.</param>
+    /// <param name="context">Shared numerical inputs, preferences and known collection counts.</param>
+    /// <returns>A populated feature vector.</returns>
+    internal static CandidateFeatures Build(TmdbDiscoverItem candidate, Context context)
     {
         ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(context);
+        var genrePreferences = context.GenrePreferences;
+        var preferredPeople = context.PreferredPeople;
+        var genreExposure = context.GenreExposure;
+        var userContext = context.User;
         ArgumentNullException.ThrowIfNull(genrePreferences);
         ArgumentNullException.ThrowIfNull(preferredPeople);
         ArgumentNullException.ThrowIfNull(genreExposure);
-        userContext ??= PrepareUserContext(profile);
 
         // Ensure case insensitive matching.
         if (preferredPeople.Count > 0 && preferredPeople.Comparer != StringComparer.OrdinalIgnoreCase)
@@ -82,7 +98,7 @@ internal static class ExternalCandidateFeatureBuilder
                         new DateTime(releaseDate.Year, 7, 1, 0, 0, 0, DateTimeKind.Utc))
                     : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(
-                candidate.EffectiveReleaseDate?.Year, avgYear),
+                candidate.EffectiveReleaseDate?.Year, context.AverageYear),
             GenreCount = genres.Count,
             IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
             PopularityScore = NormalizePopularity(candidate.Popularity),
@@ -96,7 +112,7 @@ internal static class ExternalCandidateFeatureBuilder
             SeriesProgressionBoost = 0.0,
             DayOfWeekAffinity = 0.5,
             HourOfDayAffinity = 0.5,
-            IsWeekend = TemporalFeatures.ResolveIsWeekend(profile ?? new UserWatchProfile()),
+            IsWeekend = context.IsWeekend,
             TagSimilarity = 0.0,
             LibraryAddedRecency = 0.5,
             ContentNearestNeighborScore = 0.0,
@@ -118,8 +134,8 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        ApplyAvailableMetadata(features, candidate, userContext, watchedCollections);
-        ApplyMeanImputation(features, featureMeans);
+        ApplyAvailableMetadata(features, candidate, userContext, context.WatchedCollections);
+        ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;
     }
@@ -276,4 +292,32 @@ internal static class ExternalCandidateFeatureBuilder
     /// <param name="Studios">Preferred production companies.</param>
     /// <param name="Engagement">Cached genre completion/rating inputs.</param>
     internal sealed record UserContext(Dictionary<string, double> Franchises, HashSet<string> Tags, HashSet<string> Studios, ContentScoring.GenreEngagementContext? Engagement);
+
+    /// <summary>Inputs shared between pre-scoring and final scoring; only genre-derived values change after alias updates.</summary>
+    internal sealed record Context
+    {
+        /// <summary>Gets canonical personal genre weights.</summary>
+        public required Dictionary<string, double> GenrePreferences { get; init; }
+
+        /// <summary>Gets preferred people names.</summary>
+        public required HashSet<string> PreferredPeople { get; init; }
+
+        /// <summary>Gets the user's average watched year.</summary>
+        public double AverageYear { get; init; }
+
+        /// <summary>Gets the current genre exposure analysis.</summary>
+        public required PreferenceBuilder.GenreExposureAnalysis GenreExposure { get; init; }
+
+        /// <summary>Gets prepared personal metadata and engagement inputs.</summary>
+        public required UserContext User { get; init; }
+
+        /// <summary>Gets a value indicating whether scoring occurs on a weekend.</summary>
+        public bool IsWeekend { get; init; }
+
+        /// <summary>Gets optional model-specific feature means.</summary>
+        public IReadOnlyList<double>? FeatureMeans { get; init; }
+
+        /// <summary>Gets known distinct engaged title counts, or null when membership was unavailable.</summary>
+        public IReadOnlyDictionary<int, int>? WatchedCollections { get; init; }
+    }
 }

@@ -43,18 +43,14 @@ internal static class CollectionMembershipResolver
         }
 
         var counts = new Dictionary<int, int>();
-        foreach (var collection in boxsets)
+        foreach (var group in boxsets.GroupBy(ProviderCollectionId).Where(group => group.Key > 0))
         {
-            if (!int.TryParse(collection.ProviderIds.GetValueOrDefault("Tmdb"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id) || id <= 0)
-            {
-                continue;
-            }
-
-            var count = engaged.Where(item => membership.TryGetValue(item.ItemId, out var members) && members.Contains(collection.Id))
+            var collectionIds = group.Select(collection => collection.Id).ToHashSet();
+            var count = engaged.Where(item => membership.TryGetValue(item.ItemId, out var members) && members.Any(collectionIds.Contains))
                 .Select(item => item.TmdbId > 0 ? $"tmdb:{item.TmdbId}" : $"item:{item.ItemId:N}").Distinct(StringComparer.Ordinal).Count();
             if (count > 0)
             {
-                counts[id] = Math.Max(counts.GetValueOrDefault(id), count);
+                counts[group.Key] = count;
             }
         }
 
@@ -86,45 +82,54 @@ internal static class CollectionMembershipResolver
                 continue;
             }
 
-            IReadOnlyList<Guid>? children = null;
-            try
-            {
-                children = linkedChildren?.Invoke(collection.Id);
-                if (linkedChildren is not null && children is null)
-                {
-                    complete = false;
-                }
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                complete = false;
-                onFailure?.Invoke(ex);
-            }
-
-            children ??= collection.LinkedChildren
-                .Where(child => child.Type == LinkedChildType.Manual && child.ItemId.HasValue)
-                .Select(child => child.ItemId.GetValueOrDefault())
-                .ToArray();
-            foreach (var childId in children)
-            {
-                if (childId == Guid.Empty || !allowedItems.Contains(childId))
-                {
-                    continue;
-                }
-
-                if (!lookup.TryGetValue(childId, out var memberships))
-                {
-                    memberships = [];
-                    lookup[childId] = memberships;
-                }
-
-                if (!memberships.Contains(collection.Id))
-                {
-                    memberships.Add(collection.Id);
-                }
-            }
+            var resolved = ReadChildren(collection, linkedChildren, onFailure);
+            complete &= resolved.Complete;
+            AddMemberships(lookup, allowedItems, collection.Id, resolved.Children);
         }
 
         return complete;
+    }
+
+    private static int ProviderCollectionId(BoxSet collection)
+        => int.TryParse(collection.ProviderIds.GetValueOrDefault("Tmdb"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id : 0;
+
+    private static (IReadOnlyList<Guid> Children, bool Complete) ReadChildren(BoxSet collection, Func<Guid, IReadOnlyList<Guid>?>? linkedChildren, Action<Exception>? onFailure)
+    {
+        if (linkedChildren is null)
+        {
+            return (LegacyChildren(collection), true);
+        }
+
+        try
+        {
+            var children = linkedChildren(collection.Id);
+            return (children ?? LegacyChildren(collection), children is not null);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            onFailure?.Invoke(ex);
+            return (LegacyChildren(collection), false);
+        }
+    }
+
+    private static Guid[] LegacyChildren(BoxSet collection)
+        => collection.LinkedChildren.Where(child => child.Type == LinkedChildType.Manual && child.ItemId.HasValue)
+            .Select(child => child.ItemId.GetValueOrDefault()).ToArray();
+
+    private static void AddMemberships(Dictionary<Guid, List<Guid>> lookup, HashSet<Guid> allowedItems, Guid collectionId, IReadOnlyList<Guid> children)
+    {
+        foreach (var childId in children.Where(childId => childId != Guid.Empty && allowedItems.Contains(childId)))
+        {
+            if (!lookup.TryGetValue(childId, out var memberships))
+            {
+                memberships = [];
+                lookup[childId] = memberships;
+            }
+
+            if (!memberships.Contains(collectionId))
+            {
+                memberships.Add(collectionId);
+            }
+        }
     }
 }

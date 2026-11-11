@@ -75,6 +75,21 @@ public sealed class CollectionMembershipResolverTests
     }
 
     [Fact]
+    public void ExternalCounts_UnionDistinctTitlesAcrossBoxsetsWithTheSameProviderIdentity()
+    {
+        var first = new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 1, Played = true };
+        var duplicate = new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 1, Played = true };
+        var second = new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 2, Played = true };
+        var collectionA = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var collectionB = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var counts = CollectionMembershipResolver.ExternalCounts([first, second], [collectionA, collectionB], id => id == collectionA.Id ? [first.ItemId] : [second.ItemId]);
+        Assert.Equal(2, Assert.Single(counts!).Value);
+        Assert.Equal(0.5, EngineConstants.ComputeCollectionProgressionBoost(counts![123]), 12);
+        var duplicateCopies = CollectionMembershipResolver.ExternalCounts([first, duplicate], [collectionA, collectionB], id => id == collectionA.Id ? [first.ItemId] : [duplicate.ItemId]);
+        Assert.Equal(1, Assert.Single(duplicateCopies!).Value);
+    }
+
+    [Fact]
     public void ExternalCounts_UseRealProviderBackedCollectionsAndDistinctTitles()
     {
         var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };

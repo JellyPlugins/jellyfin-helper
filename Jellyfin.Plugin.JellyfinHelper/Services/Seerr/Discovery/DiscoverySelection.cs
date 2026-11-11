@@ -40,25 +40,7 @@ internal static class DiscoverySelection
         var collections = new Dictionary<int, int>();
         while (selected.Count < count && remaining.Count > 0)
         {
-            var best = -1;
-            var bestUtility = double.NegativeInfinity;
-            for (var i = 0; i < remaining.Count; i++)
-            {
-                var candidate = remaining[i];
-                if (candidate.TmdbCollectionId > 0 && collections.GetValueOrDefault(candidate.TmdbCollectionId) >= MaximumPerCollection)
-                {
-                    continue;
-                }
-
-                var similarity = selected.Count == 0 ? 0.0 : selected.Max(previous => SimilarityComputer.ComputeJaccardFromSets(genres[candidate], genres[previous]));
-                var utility = (0.8 * candidate.Score) - (0.2 * similarity);
-                if (utility > bestUtility)
-                {
-                    best = i;
-                    bestUtility = utility;
-                }
-            }
-
+            var best = BestCandidate(remaining, selected, genres, collections);
             if (best < 0)
             {
                 break;
@@ -74,5 +56,29 @@ internal static class DiscoverySelection
         }
 
         return selected;
+    }
+
+    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections)
+    {
+        var best = -1;
+        var bestUtility = double.NegativeInfinity;
+        for (var i = 0; i < remaining.Count; i++)
+        {
+            var candidate = remaining[i];
+            if (candidate.TmdbCollectionId > 0 && collections.GetValueOrDefault(candidate.TmdbCollectionId) >= MaximumPerCollection)
+            {
+                continue;
+            }
+
+            var similarity = selected.Count == 0 ? 0.0 : selected.Max(previous => SimilarityComputer.ComputeJaccardFromSets(genres[candidate], genres[previous]));
+            var utility = (0.8 * candidate.Score) - (0.2 * similarity);
+            if (utility > bestUtility)
+            {
+                best = i;
+                bestUtility = utility;
+            }
+        }
+
+        return best;
     }
 }

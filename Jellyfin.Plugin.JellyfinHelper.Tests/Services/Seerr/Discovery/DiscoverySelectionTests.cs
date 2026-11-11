@@ -11,6 +11,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 /// <summary>Personal relevance floors, cold-start honesty, diverse lists and bounded collection repetition.</summary>
 public sealed class DiscoverySelectionTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
+
     [Fact]
     public void Select_DoesNotFillPersonalListsWithIrrelevantTitles()
     {
@@ -64,7 +66,7 @@ public sealed class DiscoverySelectionTests
         Assert.False(candidate.Clone().IsPersonalized);
         candidate.TmdbCollectionId = 5;
         Assert.Equal(5, candidate.Clone().TmdbCollectionId);
-        var json = JsonSerializer.Serialize(candidate, new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault });
+        var json = JsonSerializer.Serialize(candidate, JsonOptions);
         Assert.Contains("\"IsPersonalized\":false", json, StringComparison.Ordinal);
     }
 

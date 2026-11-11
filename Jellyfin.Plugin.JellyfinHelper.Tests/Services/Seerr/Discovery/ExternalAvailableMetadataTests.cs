@@ -61,9 +61,8 @@ public sealed class ExternalAvailableMetadataTests
     public void ExternalBoxsetContinuation_IsComputedRatherThanMeanImputed()
     {
         var profile = History();
-        var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var candidate = new TmdbDiscoverItem { CollectionId = 123, HasCollectionMetadata = true };
-        var features = ExternalCandidateFeatureBuilder.Build(candidate, preferences, [], 0, PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile), profile, Means(), new Dictionary<int, int> { [123] = 3 });
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, ForProfile(profile, new Dictionary<int, int> { [123] = 3 }));
         Assert.Equal(0.7, features.CollectionProgressionBoost, 12);
         Assert.Equal(0.7, features.ToModelVector(Means())[(int)FeatureIndex.CollectionProgressionBoost], 12);
     }
@@ -76,10 +75,8 @@ public sealed class ExternalAvailableMetadataTests
         var unknown = CollectionMembershipResolver.ExternalCounts(profile.WatchedItems, [boxset], _ => throw new InvalidOperationException("offline"));
         var empty = CollectionMembershipResolver.ExternalCounts(profile.WatchedItems, [boxset], _ => []);
         var candidate = new TmdbDiscoverItem { HasCollectionMetadata = true, CollectionId = 123 };
-        var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
-        var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile);
-        var uncertain = ExternalCandidateFeatureBuilder.Build(candidate, preferences, [], 0, exposure, profile, Means(), unknown);
-        var confirmed = ExternalCandidateFeatureBuilder.Build(candidate, preferences, [], 0, exposure, profile, Means(), empty);
+        var uncertain = ExternalCandidateFeatureBuilder.Build(candidate, ForProfile(profile, unknown));
+        var confirmed = ExternalCandidateFeatureBuilder.Build(candidate, ForProfile(profile, empty));
         Assert.False(uncertain.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
         Assert.Equal(0.37, uncertain.ToModelVector(Means())[(int)FeatureIndex.CollectionProgressionBoost]);
         Assert.True(confirmed.IsExternalFeatureKnown(FeatureIndex.CollectionProgressionBoost));
@@ -189,9 +186,20 @@ public sealed class ExternalAvailableMetadataTests
     };
 
     private static CandidateFeatures Build(TmdbDiscoverItem candidate, UserWatchProfile? profile)
+        => ExternalCandidateFeatureBuilder.Build(candidate, ForProfile(profile));
+
+    private static ExternalCandidateFeatureBuilder.Context ForProfile(UserWatchProfile? profile, IReadOnlyDictionary<int, int>? collections = null)
     {
         var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile ?? new UserWatchProfile());
         var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile ?? new UserWatchProfile());
-        return ExternalCandidateFeatureBuilder.Build(candidate, preferences, new HashSet<string>(), 0, exposure, profile, Means());
+        return new ExternalCandidateFeatureBuilder.Context
+        {
+            GenrePreferences = preferences,
+            PreferredPeople = [],
+            GenreExposure = exposure,
+            User = ExternalCandidateFeatureBuilder.PrepareUserContext(profile),
+            FeatureMeans = Means(),
+            WatchedCollections = collections
+        };
     }
 }
