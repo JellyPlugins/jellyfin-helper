@@ -39,18 +39,18 @@
       },
       "StyleCop.Analyzers": {
         "type": "Direct",
-        "requested": "[1.3.177-beta, )",
-        "resolved": "1.3.177-beta",
-        "contentHash": "ps/dg2S6EsZzq3Cz6A8lihBXj6r3aCxZsYePt+GYMDXM2rHke/0t0ZM6i0PXiUzCaKOEE87zOjSFToYBA8h7Wg=="
+        "requested": "[1.3.180, )",
+        "resolved": "1.3.180",
+        "contentHash": "/TDyrO3tUJOsnyTazvaX+qwwBt4aixQLNLtxmkyWQZE94IOZ9PnClHrwKUVn/NSXdXUUWrKMHTtlxUkZ1F8JWg=="
       },
       "System.IO.Abstractions": {
         "type": "Direct",
-        "requested": "[22.3.0, )",
-        "resolved": "22.3.0",
-        "contentHash": "dHMHwd6rl1CFJvdD9jnahy3ZjU67huvUCNhitH+7mzg8ZfLocc5ZQyKmUQMUJiQdElARWJBw0XQQzP6BCKsglA==",
+        "requested": "[23.0.0, )",
+        "resolved": "23.0.0",
+        "contentHash": "lMBdXRPdCL95QKrmhK7hthyF3CZblVcU1JBGjZyYpkGlw/Mnrw4GZeP6S4rzkm4oKpa4lUecNInKCLs8+6HI5Q==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions": "22.3.0",
-          "TestableIO.System.IO.Abstractions.Wrappers": "22.3.0"
+          "TestableIO.System.IO.Abstractions": "23.0.0",
+          "TestableIO.System.IO.Abstractions.Wrappers": "23.0.0"
         }
       },
       "Diacritics": {
@@ -275,24 +275,24 @@
       },
       "TestableIO.System.IO.Abstractions": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "2dqQ5AEE61NkQ/0F31mhOXYhgzZOtC+RUuJajwYa7gPgZBqJVe9Mc/hnqXEbBSDOxGZ7hYsmULjzK3yqewB3FA==",
+        "resolved": "23.0.0",
+        "contentHash": "xodhCNREe8aUgwqeN372r/CF6uOowyHfC5hgBIvs7Taax9p5v/z6PC8fA/weEDxZyJzzjxcpT8vf4xQdcq+2ug==",
         "dependencies": {
-          "Testably.Abstractions.FileSystem.Interface": "10.4.0"
+          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
         }
       },
       "TestableIO.System.IO.Abstractions.Wrappers": {
         "type": "Transitive",
-        "resolved": "22.3.0",
-        "contentHash": "9TsOEcwIGJXHjkZ/lIpg6KnoRjxpZZ/LpMvNddcXEvmcxWKZdbhSy2UWMpy3oN8klbQ3dcpxbp9AddQk0zE+Kg==",
+        "resolved": "23.0.0",
+        "contentHash": "WfbIVmdi/Yh3eKLDzprsctUXziXVP60lPfPRrAFxR+YPT++yGpsgBsen0vC5N3HeXANCHP7xRukgn/kZcUqusg==",
         "dependencies": {
-          "Testably.Abstractions.FileSystem.Interface": "10.4.0"
+          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
         }
       },
       "Testably.Abstractions.FileSystem.Interface": {
         "type": "Transitive",
-        "resolved": "10.4.0",
-        "contentHash": "7G5NzIjs7544Dit0uuvYOOAzD8E4alQS2ENPGT3HV1Ks/1r55O7X4d9g6L273n70IDkgqNdBCmrkWxJLn0xCZA=="
+        "resolved": "11.0.0",
+        "contentHash": "bHE3UgieMizRsrzHYsWOLGMVjDmy0yx1PTv4QMgoAi3GU+vw2tJZ/jR5woIZ6Et6H0Hvhwriv6XSgwoZV9bU0A=="
       }
     }
   }
