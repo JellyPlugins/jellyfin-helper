@@ -460,6 +460,43 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public async Task CachedRankedPool_DoesNotFetchUnneededLowerRankedTitles()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var candidates = Enumerable.Range(1000, 40).Select((id, rank) => RankedCandidate(id, rank)).ToList();
+        var service = CreateService();
+        Assert.Equal(20, (await service.ScoreExternalCandidatesAsync(user, candidates.Take(20).ToList(), TestContext.Current.CancellationToken))!.Recommendations.Count);
+        var priorCalls = _detailCalls;
+
+        var result = await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, _detailCalls - priorCalls);
+        Assert.Equal(Enumerable.Range(1000, 20), result!.Recommendations.Select(item => item.TmdbId));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CachedLowerRankedPool_InspectsTheHigherRankBeforeStoppingWithoutFetchingLaterExtras(bool higherRankSucceeds)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var candidates = Enumerable.Range(1000, 41).Select((id, rank) => RankedCandidate(id, rank)).ToList();
+        var service = CreateService();
+        var warm = await service.ScoreExternalCandidatesAsync(user, candidates.Skip(1).Take(20).ToList(), TestContext.Current.CancellationToken);
+        Assert.Equal(Enumerable.Range(1001, 20), warm!.Recommendations.Select(item => item.TmdbId));
+        var priorCalls = _detailCalls;
+        if (!higherRankSucceeds) _detailStatus = HttpStatusCode.NotFound;
+
+        var result = await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, _detailCalls - priorCalls);
+        Assert.Equal(Enumerable.Range(higherRankSucceeds ? 1000 : 1001, 20), result!.Recommendations.Select(item => item.TmdbId));
+        Assert.All(result.Recommendations, item => Assert.True(item.AvailabilityVerified));
+    }
+
+    [Fact]
     public async Task FailedAvailabilityVerification_DoesNotOfferAnUncheckedTraktTitle()
     {
         var user = Guid.NewGuid();

@@ -683,6 +683,40 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Fact]
+    public async Task WarmCachedAvailableTitles_DoNotConsumeTheOptionalEnrichmentSelectionLimit()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10 };
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        RegisterGenreMovieResults(28, Enumerable.Range(8100, 20).Select(id => Candidate(id, 9)).ToArray());
+        foreach (var id in Enumerable.Range(8100, 20))
+        {
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}},"mediaInfo":{"status":5} }""");
+        }
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations);
+        var priorCalls = _handler.Requests.Count;
+        RegisterGenreMovieResults(28, Enumerable.Range(8100, 40).Select(id => Candidate(id, id < 8120 ? 9 : 8)).ToArray());
+        foreach (var id in Enumerable.Range(8120, 20))
+        {
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}}}""");
+        }
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+
+        var pool = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(20, pool.Recommendations.Count);
+        Assert.All(pool.Recommendations, recommendation =>
+        {
+            Assert.InRange(recommendation.TmdbId, 8120, 8139);
+            Assert.True(recommendation.AvailabilityVerified);
+        });
+        var detailCalls = _handler.Requests.Skip(priorCalls).Where(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)).ToList();
+        Assert.Equal(20, detailCalls.Count);
+        Assert.All(detailCalls, call => Assert.InRange(int.Parse(call.Path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture), 8120, 8139));
+    }
+
+    [Fact]
     public async Task FinalScoring_RetainsCandidatesOutsideTheDetailEnrichmentBudget()
     {
         var profile = NewProfile();

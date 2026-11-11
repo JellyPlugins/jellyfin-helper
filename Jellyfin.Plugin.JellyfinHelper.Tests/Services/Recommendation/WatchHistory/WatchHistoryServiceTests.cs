@@ -443,6 +443,63 @@ public sealed class WatchHistoryServiceTests
 
     // The three tests below explicitly stub GetUserDataBatch so LookupUserData exercises the "valid batch present" branch (lookup is not null) rather than falling back to per-item GetUserData via Moq's implicit null default.
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BuildProfile_CancelledCollectionQueryPropagatesBeforeReadingUserData(bool batch)
+    {
+        var user = CreateTestUser("cancelled collection");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns([user]);
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var cancellation = new OperationCanceledException("collection query cancelled");
+        _mockLibraryManager.SetupSequence(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]).Returns([]).Throws(cancellation);
+
+        var thrown = batch
+            ? Assert.Throws<OperationCanceledException>(() => _service.GetAllUserWatchProfiles())
+            : Assert.Throws<OperationCanceledException>(() => _service.GetUserWatchProfile(user.Id));
+        Assert.Same(cancellation, thrown);
+
+        _mockUserDataManager.Verify(manager => manager.GetUserData(user, It.IsAny<BaseItem>()), Times.Never);
+        _mockUserDataManager.Verify(manager => manager.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user), Times.Never);
+    }
+
+    [Fact]
+    public void BuildProfile_CancelledLinkedCollectionQueryPropagatesBeforeReadingUserData()
+    {
+        var user = CreateTestUser("cancelled membership");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _mockLibraryManager.SetupSequence(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]).Returns([]).Returns([collection]);
+        var linked = new Mock<ILinkedChildrenService>();
+        var cancellation = new OperationCanceledException("membership query cancelled");
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)MediaBrowser.Controller.Entities.LinkedChildType.Manual)).Throws(cancellation);
+        var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object, _mockPluginLog.Object, _mockLogger.Object, linked.Object);
+
+        Assert.Same(cancellation, Assert.Throws<OperationCanceledException>(() => service.GetUserWatchProfile(user.Id)));
+
+        _mockUserDataManager.Verify(manager => manager.GetUserData(user, It.IsAny<BaseItem>()), Times.Never);
+        _mockUserDataManager.Verify(manager => manager.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user), Times.Never);
+    }
+
+    [Fact]
+    public void BuildProfile_DuplicateUnrelatedItemIdsDoNotEraseTheBatchedCollectionIdentity()
+    {
+        var user = CreateTestUser("duplicate ids");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var unrelated = new Movie { Id = Guid.NewGuid() };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" }, LinkedChildren = [LinkedChild.Create(movie)] };
+        _mockLibraryManager.SetupSequence(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie, unrelated, unrelated]).Returns([]).Returns([collection]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "watched", Played = true });
+
+        var watched = Assert.Single(_service.GetUserWatchProfile(user.Id)!.WatchedItems);
+
+        Assert.Equal(123, watched.TmdbCollectionId);
+        Assert.True(watched.Played);
+    }
+
     [Fact]
     public void BuildProfile_UnavailableCollectionRoster_KeepsHistoryWithoutConfirmingAmbiguousIds()
     {

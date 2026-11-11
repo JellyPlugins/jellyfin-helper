@@ -1,4 +1,8 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -47,6 +51,108 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
         return new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+    }
+
+    [Fact]
+    public void Backfill_RecordsObservedEmptyCreditsAndDoesNotReplaceThemWithLaterPeople()
+    {
+        var store = CreateStore();
+        var user = Guid.NewGuid();
+        var item = new DiscoveryRecommendation { TmdbId = 700, Title = "Title", KnownPeople = null };
+        store.RecordShown(user, "user", [item]);
+        Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
+        item.KnownPeople = [];
+        store.RecordShown(user, "user", [item]);
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople));
+        item.KnownPeople = ["Later actor"];
+        store.RecordShown(user, "user", [item]);
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople));
+    }
+
+    [Theory]
+    [InlineData("missing", 0.6)]
+    [InlineData("empty", 0.0)]
+    [InlineData("nonmatch", 0.0)]
+    [InlineData("match", 1.0)]
+    public void PersistedCredits_RetainUnknownVersusObservedEvidenceThroughWritesClonesReloadsAndTraining(string state, double expected)
+    {
+        var user = Guid.NewGuid();
+        var shown = DateTime.UtcNow.AddDays(-2);
+        IReadOnlyList<string>? people = state switch { "missing" => null, "empty" => [], "match" => ["Keanu Reeves"], _ => ["Other actor"] };
+        var store = CreateStore();
+        var item = new DiscoveryRecommendation { TmdbId = 700, MediaType = "movie", Title = "Title", Genres = ["Action"], KnownPeople = people, Popularity = 50 };
+        store.RecordGenerated(user, "user", [item], shown);
+        Assert.Equal(people, Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
+        store.RecordRequested(user, item, shown); // Confirm metadata without a stored numerical snapshot.
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = new System.Collections.ObjectModel.Collection<WatchedItemInfo>(Enumerable.Range(0, 3).Select(_ => new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = shown.AddDays(-1), Genres = ["Action"], PeopleNames = ["Keanu Reeves"]
+        }).ToList()) };
+        var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var means = Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray();
+        var candidate = new TmdbDiscoverItem { Id = 700, MediaType = "movie", GenreIds = [28], KnownPeople = people?.ToList() };
+        var inference = ExternalCandidateFeatureBuilder.Build(candidate, preferences, ["Keanu Reeves"], 0,
+            PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile), profile, means);
+        foreach (var reader in new[] { store, CreateStore() })
+        {
+            var feedback = reader.LoadAll();
+            var entry = Assert.Single(Assert.Single(feedback).Entries);
+            Assert.Equal(people, entry.KnownPeople);
+            Assert.True(entry.HasConfirmedPrediction);
+            Assert.Null(entry.ScoringFeatures);
+            var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(feedback,
+                new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, means, TestContext.Current.CancellationToken).Examples).Features;
+            Assert.Equal(state != "missing", features.HasPeopleMetadata);
+            Assert.Equal(state != "missing", features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity));
+            Assert.Equal(expected, features.PeopleSimilarity);
+            Assert.Equal(inference.PeopleSimilarity, features.PeopleSimilarity);
+            Assert.Equal(inference.ToModelVector(means)[(int)FeatureIndex.PeopleGenreInteraction], features.ToModelVector(means)[(int)FeatureIndex.PeopleGenreInteraction]);
+        }
+        if (people is not null)
+        {
+            var exposed = Assert.IsAssignableFrom<IList<string>>(Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
+            exposed.Add("Client-only actor");
+            Assert.Equal(people, Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LegacyFeedback_MissingCreditsPropertyIsUnknownButExplicitEmptyCreditsRemainObserved(bool explicitEmpty)
+    {
+        var user = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var credits = explicitEmpty ? ",\"KnownPeople\":[]" : string.Empty;
+        File.WriteAllText(Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json"),
+            $$"""[{"UserId":"{{user}}","Entries":[{"TmdbId":700,"MediaType":"movie","ShownAtUtc":"{{now:O}}","RequestedAtUtc":"{{now:O}}","Genres":["Action"]{{credits}}}]}]""");
+        var feedback = CreateStore().LoadAll();
+        var entry = Assert.Single(Assert.Single(feedback).Entries);
+        if (explicitEmpty) Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(entry.KnownPeople));
+        else Assert.Null(entry.KnownPeople);
+        var means = Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray();
+        var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(feedback,
+            new Dictionary<Guid, UserWatchProfile>(), null, means, TestContext.Current.CancellationToken).Examples).Features;
+        Assert.Equal(explicitEmpty, features.HasPeopleMetadata);
+        Assert.Equal(explicitEmpty, features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity));
+        Assert.Equal(explicitEmpty ? 0.0 : 0.6, features.PeopleSimilarity);
+    }
+
+    [Fact]
+    public void MissingFeedbackCredits_DoNotRewriteAConfirmedLegacyPredictionSnapshot()
+    {
+        var user = Guid.NewGuid();
+        var stored = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = 0.7, PeopleSimilarity = 0.23 };
+        var item = new DiscoveryRecommendation { TmdbId = 700, KnownPeople = null, ScoringFeatures = stored };
+        var store = CreateStore();
+        store.RecordRequested(user, item, DateTime.UtcNow.AddDays(-2));
+        var feedback = CreateStore().LoadAll();
+        Assert.Null(Assert.Single(Assert.Single(feedback).Entries).KnownPeople);
+        var example = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(feedback,
+            new Dictionary<Guid, UserWatchProfile>(), null, Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray(), TestContext.Current.CancellationToken).Examples);
+        Assert.Null(example.Features.HasPeopleMetadata);
+        Assert.Equal(stored.ToVector(), example.Features.ToVector());
+        Assert.NotSame(stored, example.Features);
     }
 
     [Fact]
@@ -319,6 +425,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(2024, movieEntry.Year);
         Assert.Equal(7.8, movieEntry.TmdbRating);
         Assert.Equal(0.85, movieEntry.Score);
+        Assert.NotNull(movieEntry.KnownPeople);
         Assert.Contains("Actor A", movieEntry.KnownPeople);
         Assert.Contains("Director B", movieEntry.KnownPeople);
 
@@ -498,6 +605,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(7.5, entry.TmdbRating);
         Assert.Equal(42.0, entry.Popularity);
         Assert.Equal(0.88, entry.Score);
+        Assert.NotNull(entry.KnownPeople);
         Assert.Contains("Actor X", entry.KnownPeople);
         // Placeholder DismissedAtUtc must remain intact (not overwritten by RecordShown).
         Assert.NotNull(entry.DismissedAtUtc);

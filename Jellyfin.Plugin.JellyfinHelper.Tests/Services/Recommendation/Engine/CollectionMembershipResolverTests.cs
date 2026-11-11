@@ -30,6 +30,34 @@ public sealed class CollectionMembershipResolverTests
     }
 
     [Fact]
+    public void CollectionIds_DuplicateLibraryIdsDoNotDiscardOtherTitlesOrConfirmedMemberships()
+    {
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var unrelated = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "456" } };
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var calls = 0;
+        var ids = CollectionMembershipResolver.CollectionIds([movie, unrelated, unrelated, movie], [collection], _ => { calls++; return [movie.Id]; });
+        Assert.Equal(2, ids.Count);
+        Assert.Equal(123, ids[movie.Id]);
+        Assert.Equal(0, ids[unrelated.Id]);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void Merge_CancelledMembershipQueryPropagatesWithoutLegacyFallbackOrFailureLogging()
+    {
+        var movie = new Movie { Id = Guid.NewGuid() };
+        var collection = new BoxSet { Id = Guid.NewGuid(), LinkedChildren = [LinkedChild.Create(movie)] };
+        var lookup = new Dictionary<Guid, List<Guid>>();
+        var cancellation = new OperationCanceledException("cancelled");
+        var failures = 0;
+        Assert.Same(cancellation, Assert.Throws<OperationCanceledException>(() =>
+            CollectionMembershipResolver.Merge(lookup, [movie.Id], [collection], _ => throw cancellation, _ => failures++)));
+        Assert.Empty(lookup);
+        Assert.Equal(0, failures);
+    }
+
+    [Fact]
     public void Merge_RecognizesLinkedMoviesWithoutReparentingThem()
     {
         var item = new Movie { Id = Guid.NewGuid() };

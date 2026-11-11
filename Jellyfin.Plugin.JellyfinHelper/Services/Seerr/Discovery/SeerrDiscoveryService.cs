@@ -2306,7 +2306,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 }
                 else
                 {
-                    var pending = ordered.Take(CreditsEnrichmentBudget).Where(candidate => !candidate.MetadataFetchAttempted).ToList();
+                    var pending = ordered.Where(candidate => CanFinalScore(context, candidate)).Take(CreditsEnrichmentBudget)
+                        .Where(candidate => !candidate.MetadataFetchAttempted).ToList();
                     await FetchOptionalDetailsAsync(context, pending, enrichmentBudget.Token).ConfigureAwait(false);
                 }
             }
@@ -2315,7 +2316,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // Optional metadata times out as one pass, not one timeout per batch/user candidate.
             }
 
-            var inspected = ordered.Take(CreditsEnrichmentBudget).ToList();
+            var inspected = ordered.Where(candidate => CanFinalScore(context, candidate)).Take(CreditsEnrichmentBudget).ToList();
             var enrichedCount = inspected.Count(c => c.KnownPeople != null);
             _pluginLog.LogDebug(
                 LogCategory,
@@ -2342,13 +2343,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         while (requests < CreditsEnrichmentBudget)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (ordered.Count(candidate => IsVerifiedRankedCandidate(candidate, context.Profile.MaxParentalRating)) >= MaxPoolPerUser)
-            {
-                break;
-            }
-
-            var pending = ordered.Where(candidate => !candidate.MetadataFetchAttempted)
-                .Take(Math.Min(MetadataEnrichmentParallelism, CreditsEnrichmentBudget - requests)).ToList();
+            var pending = PendingRankedCandidates(
+                ordered,
+                context.Profile.MaxParentalRating,
+                Math.Min(MetadataEnrichmentParallelism, CreditsEnrichmentBudget - requests));
             if (pending.Count == 0)
             {
                 break;
@@ -2361,6 +2359,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private static bool IsVerifiedRankedCandidate(TmdbDiscoverItem candidate, int? maximumRating)
         => candidate.MetadataFetchSucceeded && !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, maximumRating);
+
+    private static List<TmdbDiscoverItem> PendingRankedCandidates(List<TmdbDiscoverItem> ordered, int? maximumRating, int limit)
+    {
+        var pending = new List<TmdbDiscoverItem>(limit);
+        var verified = 0;
+        foreach (var candidate in ordered)
+        {
+            if (!candidate.MetadataFetchAttempted)
+            {
+                pending.Add(candidate);
+            }
+            else if (IsVerifiedRankedCandidate(candidate, maximumRating))
+            {
+                verified++;
+            }
+
+            // A cached lower-ranked pool is sufficient only after every candidate ahead of
+            // its last title has been inspected. Never fetch lower-ranked extras past that frontier.
+            if (verified >= MaxPoolPerUser || pending.Count >= limit)
+            {
+                break;
+            }
+        }
+
+        return pending;
+    }
 
     private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, EnsembleScoringStrategy? userStrategy)
     {

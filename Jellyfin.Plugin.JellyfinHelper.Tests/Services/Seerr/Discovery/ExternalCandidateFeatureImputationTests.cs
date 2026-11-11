@@ -175,7 +175,7 @@ public sealed class ExternalCandidateFeatureImputationTests
     {
         var user = Guid.NewGuid();
         var shown = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
-        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "movie", Genres = ["Action"], ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), Popularity = 50, KnownPeople = hasCredits ? [] : null! };
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "movie", Genres = ["Action"], ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), Popularity = 50, KnownPeople = hasCredits ? [] : null };
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = shown.AddDays(-1), Genres = ["Action"] }] };
         var means = DistinctMeans();
         var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new DiscoveryFeedbackResult { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, means, TestContext.Current.CancellationToken).Examples).Features;

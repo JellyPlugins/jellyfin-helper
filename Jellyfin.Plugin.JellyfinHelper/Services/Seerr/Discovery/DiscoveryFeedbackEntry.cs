@@ -110,9 +110,10 @@ public sealed class DiscoveryFeedbackEntry
 
     /// <summary>
     ///     Gets or sets the known people (actors/directors) associated with this item
-    ///     at the time of discovery. Used for PeopleSimilarity during training.
+    ///     at the time of discovery. Null means credits are unknown; an empty list means
+    ///     credits were observed but contained no usable people. Used for PeopleSimilarity during training.
     /// </summary>
-    public IReadOnlyList<string> KnownPeople { get; set; } = [];
+    public IReadOnlyList<string>? KnownPeople { get; set; }
 
     /// <summary>
     ///     Gets the interaction status of this entry.

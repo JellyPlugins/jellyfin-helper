@@ -18,7 +18,7 @@ internal static class CollectionMembershipResolver
     /// <returns>Confirmed collection IDs; zero means unknown or unsupported.</returns>
     internal static Dictionary<Guid, int> CollectionIds(IEnumerable<BaseItem> items, IEnumerable<BoxSet> collections, Func<Guid, IReadOnlyList<Guid>?>? linkedChildren = null)
     {
-        var candidates = items.ToArray();
+        var candidates = items.DistinctBy(item => item.Id).ToArray();
         var boxsets = collections.ToArray();
         var membership = new Dictionary<Guid, List<Guid>>();
         Merge(membership, candidates.Where(ContentAffinityResolver.NeedsCollectionCorroboration).Select(item => item.Id).ToHashSet(), boxsets, linkedChildren);
@@ -152,6 +152,10 @@ internal static class CollectionMembershipResolver
         {
             var children = linkedChildren(collection.Id);
             return (children ?? LegacyChildren(collection), children is not null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (!ex.IsFatal())
         {

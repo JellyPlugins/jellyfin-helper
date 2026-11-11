@@ -153,7 +153,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     // An unseen generation is not training evidence and need not duplicate those features here.
                     ScoringFeatures = null,
                     ShownAtUtc = now,
-                    KnownPeople = item.KnownPeople?.ToList() ?? []
+                    KnownPeople = item.KnownPeople?.ToList()
                 };
                 userResult.Entries.Add(newEntry);
                 entryLookup.TryAdd(key, newEntry);
@@ -251,7 +251,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Backfills the score, popularity, and known-people fields of an existing entry. Extracted verbatim from BackfillExistingEntry to keep each merge routine focused.
+    ///     Backfills missing score, popularity, and credits without replacing an observed empty cast.
     /// </summary>
     /// <param name="existing">The existing feedback entry to backfill in place.</param>
     /// <param name="item">The freshly shown recommendation providing candidate values.</param>
@@ -273,7 +273,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             modified = true;
         }
 
-        if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
+        if (existing.KnownPeople is null && item.KnownPeople is not null)
         {
             existing.KnownPeople = item.KnownPeople.ToList();
             modified = true;
@@ -351,7 +351,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         entry.Title = item.Title;
         entry.Year = item.Year;
         entry.Genres = item.Genres.ToArray();
-        entry.KnownPeople = item.KnownPeople?.ToList() ?? [];
+        entry.KnownPeople = item.KnownPeople?.ToList();
         entry.TmdbRating = item.TmdbRating;
         entry.Popularity = item.Popularity;
         entry.Score = item.Score;
@@ -491,7 +491,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
                 PredictionInputsCompacted = e.PredictionInputsCompacted,
-                KnownPeople = e.KnownPeople?.ToList() ?? [],
+                KnownPeople = e.KnownPeople?.ToList(),
                 ShownAtUtc = e.ShownAtUtc,
                 DismissedAtUtc = e.DismissedAtUtc,
                 RequestedAtUtc = e.RequestedAtUtc,
@@ -678,7 +678,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             entry.Title = string.Empty;
             entry.Year = null;
             entry.Genres = [];
-            entry.KnownPeople = [];
+            entry.KnownPeople = null;
             estimatedSize -= previousSize - JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions).LongLength;
         }
 

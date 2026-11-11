@@ -427,6 +427,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             var collections = (_libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Recursive = true }) ?? []).OfType<BoxSet>();
             return CollectionMembershipResolver.CollectionIds(items, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(LogCategory, "Ambiguous collection IDs remain unconfirmed; collection evidence is unavailable.", _logger);
