@@ -39,7 +39,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Moq" Version="[4.21.0]" />
-    <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="[]23.0.0]" />
+    <PackageReference Include="System.IO.Abstractions.TestingHelpers" Version="[23.0.0]" />
   </ItemGroup>
 
   <ItemGroup>

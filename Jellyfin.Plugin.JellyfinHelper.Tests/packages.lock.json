@@ -457,8 +457,8 @@
       "jellyfin.plugin.jellyfinhelper": {
         "type": "Project",
         "dependencies": {
-          "Jellyfin.Controller": "[12.4.0, )",
-          "Jellyfin.Model": "[12.4.0, )",
+          "Jellyfin.Controller": "[12.4.0, 12.4.0]",
+          "Jellyfin.Model": "[12.4.0, 12.4.0]",
           "System.IO.Abstractions": "[23.0.0, 23.0.0]"
         }
       }
