@@ -25,6 +25,25 @@ internal static class CollectionMembershipResolver
         return candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, boxsets, membership));
     }
 
+    /// <summary>Captures one membership read for the allowed history population of a complete generation run.</summary>
+    /// <param name="collections">The library's actual BoxSets.</param>
+    /// <param name="allowedItems">Allowed movie and parent-series IDs only.</param>
+    /// <param name="linkedChildren">Optional authoritative membership service.</param>
+    /// <returns>A reusable snapshot retaining failed queries as unknown.</returns>
+    internal static Snapshot CaptureMemberships(IEnumerable<BoxSet> collections, HashSet<Guid> allowedItems, Func<Guid, IReadOnlyList<Guid>?>? linkedChildren = null)
+    {
+        var boxsets = collections.ToArray();
+        var membership = new Dictionary<Guid, List<Guid>>();
+        var complete = Merge(membership, allowedItems, boxsets, linkedChildren);
+        return new Snapshot(boxsets, membership, complete);
+    }
+
+    /// <summary>Gets allowed parent/title IDs without counting episodes as independent series.</summary>
+    /// <param name="history">Allowed watch rows across the generation population.</param>
+    /// <returns>Actual library movie and parent-series identifiers.</returns>
+    internal static HashSet<Guid> EngagedItemIds(IEnumerable<WatchedItemInfo> history)
+        => history.Where(item => item.HasMeaningfulInteraction()).Select(item => EngagedTitle(item).ItemId).ToHashSet();
+
     /// <summary>Counts engaged titles in provider-backed BoxSets, including external titles not installed yet.</summary>
     /// <param name="history">Only the current user's allowed watch history.</param>
     /// <param name="collections">Real library BoxSets, not inferred title prefixes.</param>
@@ -39,19 +58,6 @@ internal static class CollectionMembershipResolver
         return ExternalCounts(engaged, CaptureMemberships(boxsets, engaged.Select(item => item.ItemId).ToHashSet(), linkedChildren));
     }
 
-    /// <summary>Captures one membership read for the allowed history population of a complete generation run.</summary>
-    /// <param name="collections">The library's actual BoxSets.</param>
-    /// <param name="allowedItems">Allowed movie and parent-series IDs only.</param>
-    /// <param name="linkedChildren">Optional authoritative membership service.</param>
-    /// <returns>A reusable snapshot retaining failed queries as unknown.</returns>
-    internal static Snapshot CaptureMemberships(IEnumerable<BoxSet> collections, HashSet<Guid> allowedItems, Func<Guid, IReadOnlyList<Guid>?>? linkedChildren = null)
-    {
-        var boxsets = collections.ToArray();
-        var membership = new Dictionary<Guid, List<Guid>>();
-        var complete = Merge(membership, allowedItems, boxsets, linkedChildren);
-        return new Snapshot(boxsets, membership, complete);
-    }
-
     /// <summary>Counts one user's distinct engaged titles using the shared membership snapshot.</summary>
     /// <param name="history">Only that user's allowed history.</param>
     /// <param name="snapshot">Memberships read once for the generation run.</param>
@@ -62,12 +68,6 @@ internal static class CollectionMembershipResolver
         ArgumentNullException.ThrowIfNull(snapshot);
         return ExternalCounts(EngagedTitles(history), snapshot);
     }
-
-    /// <summary>Gets allowed parent/title IDs without counting episodes as independent series.</summary>
-    /// <param name="history">Allowed watch rows across the generation population.</param>
-    /// <returns>Actual library movie and parent-series identifiers.</returns>
-    internal static HashSet<Guid> EngagedItemIds(IEnumerable<WatchedItemInfo> history)
-        => history.Where(item => item.HasMeaningfulInteraction()).Select(item => EngagedTitle(item).ItemId).ToHashSet();
 
     private static Dictionary<int, int>? ExternalCounts(List<(Guid ItemId, string Key)> engaged, Snapshot snapshot)
     {
