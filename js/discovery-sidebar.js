@@ -16,6 +16,7 @@
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
     // Discovery has no standalone page, so the sidebar link activates the native Home tab.
     var API_URL = '/JellyfinHelper/Discovery/My';
+    var _reportedImpressions = new WeakMap();
 
     var TOAST_DURATION_MS = 5000;
 
@@ -262,6 +263,8 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
+            // A quiet full-width status line must not squeeze the remaining dismiss button.
+            '.jfh-discovery-availability { flex: 1 1 100%; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 0.15em 0; font-size: 0.75em; line-height: 1.3; color: var(--color-text-muted, #ccc); text-align: center; white-space: normal; overflow-wrap: anywhere; }' +
             // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
             // Failed) exactly the same size, so swapping the label never changes the button's height or width
             // and the state transition doesn't flicker. The request button spans the full row (its dismiss
@@ -271,7 +274,7 @@
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
-            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
+            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; overflow-wrap: anywhere; }' +
             '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: var(--color-danger); } }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
@@ -389,6 +392,7 @@
                 setCachedDiscoveryResult(data);
                 var changed = !previous
                     || discoveryGeneratedAt(data) > discoveryGeneratedAt(previous)
+                    || data?.DeliveryId !== previous?.DeliveryId
                     || discoveryVisibleKey(data) !== discoveryVisibleKey(previous);
                 // Render into the panel that is live now, not the one captured at
                 // call time, because Jellyfin may have rebuilt it while we were away.
@@ -905,7 +909,7 @@
         if (isEmptyTraktResult(entry.data)) {
             return (Date.now() - entry.storedAt) < TRAKT_EMPTY_CACHE_MS;
         }
-        return true;
+        return !entry.data?.DeliveryExpiresAtUtc || Date.parse(entry.data.DeliveryExpiresAtUtc) > Date.now();
     }
 
     function makeTraktCacheEntry(data, userId) {
@@ -1013,6 +1017,7 @@
     }
 
     function renderCards(container, userDiscovery) {
+        container._jfhDiscoverySource = _activeTab;
         container.classList.add('jfh-ui-surface');
         var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
             return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
@@ -1038,7 +1043,7 @@
             wanted.add(key);
             var markup = renderSidebarCardHtml(recommendation);
             var card = existing.get(key) || createSidebarCard(markup, key);
-            updateSidebarCard(card, markup);
+            updateSidebarCard(card, markup, userDiscovery.DeliveryId, userDiscovery.DeliveryExpiresAtUtc);
             placeSidebarCard(grid, card, reference, preserveOrder);
             reference = card.nextElementSibling;
         }
@@ -1046,6 +1051,97 @@
             if (!wanted.has(old.dataset.cardKey) && !old._jfhConsuming && !window.JellyfinHelperUi.ownsDialogTrigger(old)) window.JellyfinHelperUi.removeCard(old);
         }
         bindSidebarCardHandlers(container);
+        observeVisibleDiscoveryCards(container);
+    }
+
+    function observeVisibleDiscoveryCards(container) {
+        if (typeof window.IntersectionObserver !== 'function') return;
+        container._jfhImpressionObserver?.disconnect();
+        if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+        container._jfhImpressionTimer = null;
+        var grid = container.querySelector('.jfh-discovery-grid');
+        if (!grid || grid.closest('.jfh-ui-surface') !== container) return;
+        var request = captureDiscoveryRequest();
+        var pending = new Map();
+        var observer = new window.IntersectionObserver(function (entries) {
+            if (!isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible') return;
+            for (var entry of entries) {
+                var card = entry.target;
+                var candidate = discoveryImpressionItem(card);
+                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
+                    || _reportedImpressions.get(card) === card._jfhDeliveryId) continue;
+                pending.set(card.dataset.cardKey, card);
+            }
+            if (!pending.size || container._jfhImpressionTimer) return;
+            container._jfhImpressionTimer = setTimeout(function () {
+                container._jfhImpressionTimer = null;
+                if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible'
+                    || document.getElementById('jfhDiscoveryPopup')) { pending.clear(); return; }
+                var batch = [];
+                for (var card of pending.values()) {
+                    if (deliveryExpired(card)) {
+                        pending.clear();
+                        refreshDiscoveryDelivery(container, request);
+                        return;
+                    }
+                    var rect = card.getBoundingClientRect();
+                    var candidate = discoveryImpressionItem(card);
+                    if (!card.isConnected || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
+                        || rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) continue;
+                    var visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+                    var visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                    if (visibleWidth * visibleHeight < rect.width * rect.height * 0.5) continue;
+                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: candidate.TmdbId, type: candidate.MediaType });
+                    if (batch.length === 20) break;
+                }
+                pending.clear();
+                if (!batch.length) return;
+                // A protected dialog card can retain an older delivery while its siblings are refreshed.
+                // Never send those cards under the new response's token.
+                var deliveries = new Map();
+                for (var item of batch) {
+                    if (!deliveries.has(item.deliveryId)) deliveries.set(item.deliveryId, []);
+                    deliveries.get(item.deliveryId).push(item);
+                }
+                for (const [deliveryId, items] of deliveries) {
+                    request.client.ajax({
+                        type: 'POST', url: request.client.getUrl(API_URL + '/Impressions'),
+                        contentType: 'application/json',
+                        data: JSON.stringify({ DeliveryId: deliveryId, Items: items.map(function (item) { return { TmdbId: item.id, MediaType: item.type }; }) })
+                    }).then(function (result) {
+                        if (result?.Success === false || !isCurrentDiscoveryRequest(request)) return;
+                        for (var item of items) {
+                            if (item.card._jfhDeliveryId === deliveryId) _reportedImpressions.set(item.card, deliveryId);
+                        }
+                    }, function (error) {
+                        if (error?.status === 400 && isCurrentDiscoveryRequest(request)) refreshDiscoveryDelivery(container, request);
+                        // Failed feedback writes do not claim an impression; a later render can retry.
+                    });
+                }
+            }, 0);
+        }, { threshold: 0.5 });
+        container._jfhImpressionObserver = observer;
+        for (var card of container.querySelectorAll('.jfh-discovery-card')) observer.observe(card);
+    }
+
+    function resumeDiscoveryImpressions() {
+        if (_discoveryDisabled || _hostSessionChanges !== 0 || !currentDiscoveryUserId() || !isOnHomePage()) return;
+        var owners = new Set();
+        for (const grid of document.querySelectorAll('.jfh-discovery-grid')) {
+            const owner = grid.closest('.jfh-ui-surface');
+            if (owner) owners.add(owner);
+        }
+        for (const owner of owners) observeVisibleDiscoveryCards(owner);
+    }
+
+    function discoveryImpressionItem(card) {
+        // Availability only gates requesting; visible recommendations still carry delivery evidence.
+        // Read identity from the card, not from optional action buttons.
+        var id = Number.parseInt(card.dataset.tmdb, 10);
+        var type = card.dataset.type;
+        if (!Number.isInteger(id) || id <= 0 || (type !== 'movie' && type !== 'tv') || card._jfhConsuming
+            || card.querySelector('.jfh-discovery-btn-done, [data-jfh-action="request"]:disabled')) return null;
+        return { TmdbId: id, MediaType: type };
     }
 
     function renderEmptySidebarCards(container) {
@@ -1070,15 +1166,49 @@
         return card;
     }
 
-    function updateSidebarCard(card, markup) {
-        if (card._jfhMarkup === markup || card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
+    function updateSidebarCard(card, markup, deliveryId, expiresAt) {
+        if (card._jfhConsuming || window.JellyfinHelperUi.ownsDialogTrigger(card)
             || card.querySelector('button:disabled:not(.jfh-discovery-btn-done), .jfh-discovery-btn-failed')) return;
+        card._jfhDeliveryId = deliveryId;
+        if (card._jfhInvalidDeliveryId !== deliveryId) card._jfhInvalidDeliveryId = null;
+        card._jfhDeliveryExpiresAt = expiresAt ? Date.parse(expiresAt) : 0;
+        if (card._jfhMarkup === markup) return;
         var focused = card.contains(document.activeElement) ? document.activeElement.dataset.jfhAction : null;
         var flipped = card.querySelector('.flipped') != null;
         card.innerHTML = createSidebarCard(markup, card.dataset.cardKey).innerHTML;
         card._jfhMarkup = markup;
         if (flipped) toggleSidebarDetails(card.querySelector('.jfh-discovery-card-poster'), true);
         if (focused) card.querySelector('[data-jfh-action="' + focused + '"]')?.focus({ preventScroll: true });
+    }
+
+    function deliveryExpired(card) {
+        return !!(card?._jfhInvalidDeliveryId && card._jfhInvalidDeliveryId === card._jfhDeliveryId)
+            || (card?._jfhDeliveryExpiresAt > 0 && card._jfhDeliveryExpiresAt <= Date.now());
+    }
+
+    // Refresh the visible server response, never re-sign stale client features under a new delivery id.
+    function refreshDiscoveryDelivery(container, request) {
+        if (container._jfhDeliveryRefreshInFlight || !container.isConnected || !isCurrentDiscoveryRequest(request)
+            || _discoveryDisabled || document.getElementById('jfhDiscoveryPopup')) return;
+        container._jfhDeliveryRefreshInFlight = true;
+        var source = container._jfhDiscoverySource;
+        var url = API_URL;
+        if (source === TAB_TRAKT) {
+            url = API_URL + '/Trakt';
+        } else if (source === TAB_TRENDING) {
+            url = API_URL + '/Trakt/Trending';
+        }
+        request.client.ajax({ type: 'GET', url: request.client.getUrl(url), dataType: 'json' }).then(function (response) {
+            if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled || container._jfhDiscoverySource !== source) return;
+            if (source === TAB_TRAKT && response?.Linked !== true) { renderTraktNotLinked(container); return; }
+            var data = source === TAB_TRAKT ? response.Result : response;
+            if (source === TAB_TRAKT) _traktPersonalCache = makeTraktCacheEntry(data, request.userId);
+            else if (source === TAB_TRENDING) _traktTrendingCache = makeTraktCacheEntry(data, request.userId);
+            else setCachedDiscoveryResult(data);
+            renderCards(container, data);
+        }).catch(function (error) {
+            if (isCurrentDiscoveryRequest(request) && error?.status === 403 && source !== TAB_TRAKT && source !== TAB_TRENDING) disableDiscoveryUi();
+        }).finally(function () { container._jfhDeliveryRefreshInFlight = false; });
     }
 
     function placeSidebarCard(grid, card, reference, preserveOrder) {
@@ -1115,6 +1245,9 @@
             generation: _discoveryGeneration,
             resp: { ...probe.resp, Result: filtered(probe.resp.Result) }
         };
+        // Mutations invalidate the captured generation. Fresh observers receive an initial
+        // visibility check from the browser for remaining cards without weakening session guards.
+        resumeDiscoveryImpressions();
     }
 
     function renderSidebarExternalLinksHtml(r, mediaType) {
@@ -1163,6 +1296,9 @@
     }
 
     function renderSidebarScoreHtml(r) {
+        if (r.IsPersonalized === false) {
+            return '<div class="jfh-discovery-score-text">' + esc(t('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</div>';
+        }
         var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
         var scoreClass = getDiscoveryScoreClass(scorePercent);
         // Trakt's ranking is independent of our local match percentage.
@@ -1176,17 +1312,25 @@
         var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
         // Slash breaks are inserted only after escaping the reason.
         var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
-        var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
-        var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
-        var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
-        return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
+        return '<div class="jfh-discovery-card" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '">' + renderSidebarPosterHtml(r, mediaType) +
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
-            '<div class="jfh-discovery-btn-row">' +
-            '<button type="button" class="' + btnClass + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
-            dismissBtnHtml + '</div></div></div>';
+            '<div class="jfh-discovery-btn-row">' + renderSidebarActionsHtml(r, mediaType) + '</div></div></div>';
+    }
+
+    function renderSidebarActionsHtml(r, mediaType) {
+        var request;
+        if (r.AlreadyRequested || r.AvailabilityVerified === true) {
+            var text = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
+            var cls = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
+            request = '<button type="button" class="' + cls + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + (r.AlreadyRequested ? ' disabled' : '') + '>' + esc(text) + '</button>';
+        } else {
+            var hint = t('discoveryAvailabilityUnknownHint', 'Availability not checked');
+            request = '<span class="jfh-discovery-availability" role="note" title="' + esc(hint) + '" aria-label="' + esc(hint) + '">' + esc(t('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
+        }
+        var dismiss = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+        return request + dismiss;
     }
 
     function bindSidebarCardHandlers(container) {
@@ -1274,6 +1418,7 @@
     function handleRequest(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
+        if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         if (!tmdbId || !mediaType) return;
@@ -1461,6 +1606,7 @@
         if (el) window.JellyfinHelperUi.closeDialog(el);
         if (cancelled !== false && triggerBtn) setDismissSiblingHidden(triggerBtn, false);
         if (triggerBtn?.focus) triggerBtn.focus();
+        resumeDiscoveryImpressions();
     }
 
     function isCurrentDiscoveryPopup(overlay, request) {
@@ -1493,6 +1639,8 @@
         btn.disabled = true;
         btn.textContent = t('discoveryRequesting', 'Requesting...');
         var payload = { TmdbId: tmdbId, MediaType: mediaType };
+        var deliveryId = btn.closest('.jfh-discovery-card')?._jfhDeliveryId;
+        if (deliveryId) payload.DeliveryId = deliveryId;
         if (serverId != null) payload.ServerId = serverId;
         if (profileId != null) payload.ProfileId = profileId;
         if (rootFolder) payload.RootFolder = rootFolder;
@@ -1533,6 +1681,7 @@
             }
         }).catch(function (err) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (recoverActionDelivery(btn, err, request)) return;
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
@@ -1566,6 +1715,7 @@
     function handleDismissClick(e) {
         var btn = e.currentTarget;
         if (btn.disabled) return;
+        if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
         var mediaType = btn.dataset.type;
         var title = btn.dataset.title || '';
@@ -1631,12 +1781,15 @@
      */
     function executeDismiss(tmdbId, mediaType, btn) {
         var request = captureDiscoveryRequest();
+        var payload = { TmdbId: tmdbId, MediaType: mediaType };
+        var deliveryId = btn.closest('.jfh-discovery-card')?._jfhDeliveryId;
+        if (deliveryId) payload.DeliveryId = deliveryId;
         btn.disabled = true;
         btn.textContent = '...';
         ApiClient.ajax({
             type: 'POST',
             url: ApiClient.getUrl(API_URL + '/Dismiss'),
-            data: JSON.stringify({ TmdbId: tmdbId, MediaType: mediaType }),
+            data: JSON.stringify(payload),
             contentType: 'application/json',
             dataType: 'json'
         }).then(function () {
@@ -1652,12 +1805,40 @@
                     checkEmptyDiscoveryState(scopeEl);
                 });
             }
-        }).catch(function () {
+        }).catch(function (error) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (recoverActionDelivery(btn, error, request)) return;
             btn.disabled = false;
             btn.textContent = t('discoveryDismiss', 'Not interested');
             showToast(t('discoveryDismissError', 'Could not dismiss this item. Please try again.'));
         });
+    }
+
+    function refreshExpiredActionCard(button) {
+        var card = button.closest('.jfh-discovery-card');
+        if (!deliveryExpired(card)) return false;
+        var container = card.closest('.jfh-ui-surface');
+        if (container) refreshDiscoveryDelivery(container, captureDiscoveryRequest());
+        return true;
+    }
+
+    // An acknowledged card can lose its delivery before its timestamp expires (another tab may evict it).
+    // Refresh evidence after that specific rejection, but never automatically repeat a media request or dismissal.
+    function recoverActionDelivery(button, error, request) {
+        if (error?.status !== 400 || extractErrorMessage(error) !== 'No matching recent discovery delivery for this action.'
+            || !isSameDiscoverySession(request) || _discoveryDisabled) return false;
+        var card = button.closest('.jfh-discovery-card');
+        var container = card?.closest('.jfh-ui-surface');
+        if (!container?.isConnected || !card._jfhDeliveryId) return false;
+        card._jfhInvalidDeliveryId = card._jfhDeliveryId;
+        button.disabled = false;
+        button.classList.remove('jfh-discovery-btn-failed');
+        var requesting = button.dataset.jfhAction === 'request';
+        button.textContent = requesting ? t('discoveryRequest', 'Request') : t('discoveryDismiss', 'Not interested');
+        if (requesting) setDismissSiblingHidden(button, false);
+        // An unrelated successful action may have advanced the generation while this rejected request was away.
+        refreshDiscoveryDelivery(container, captureDiscoveryRequest());
+        return true;
     }
 
     // Adds a zero-width space (U+200B) after each slash so the browser may break a slashed compound like
@@ -1671,7 +1852,9 @@
     // Reason keys whose localized text embeds a {0} anchor (person name, genre). Fallbacks match en.json.
     var REASON_TEMPLATES = {
         reasonPersonNamed: 'Featuring {0}',
-        reasonGenre: 'Because you enjoy {0}'
+        reasonGenre: 'Because you enjoy {0}',
+        reasonFranchiseNamed: 'More from the {0} collection',
+        reasonStudioNamed: 'From {0}'
     };
     // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json so a
     // discovery card still shows a reason when the /Translations fetch failed and _strings is empty.
@@ -1680,6 +1863,8 @@
         reasonPopular: 'Popular and highly rated',
         reasonHighlyRated: 'Highly rated',
         reasonPopularAmongViewers: 'Popular with other viewers',
+        reasonFranchise: 'From a franchise you follow',
+        reasonCollectionContinuation: 'Because you like this collection',
         reasonDefault: 'Recommended for you'
     };
 
@@ -1874,6 +2059,11 @@
         _strings = null;
         _permCache = {};
         _consumedDiscoveryItems.clear();
+        _reportedImpressions = new WeakMap();
+        document.querySelectorAll('.jfh-ui-surface').forEach(function (container) {
+            container._jfhImpressionObserver?.disconnect();
+            if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+        });
         closeDiscoveryPopup(null, false);
         document.querySelectorAll('.jfh-discovery-toast').forEach(function (toast) { window.JellyfinHelperUi.closeToast(toast, true); });
         if (window.JellyfinHelperTabs && typeof window.JellyfinHelperTabs.unregister === 'function') {
