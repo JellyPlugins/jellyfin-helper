@@ -56,17 +56,17 @@ public sealed class TrainingPipelineIntegrityTests
         var rebuilt = TrainingHistory.Before(source, Prediction);
         Assert.Equal(oldFeatures, ContentScoring.ComputeGenreRatingScore(["Drama"], rebuilt));
         Assert.Equal(PreferenceBuilder.BuildGenrePreferenceVector(baseline), PreferenceBuilder.BuildGenrePreferenceVector(rebuilt));
-        Assert.Single(rebuilt.WatchedItems);
+        var rebuiltItem = Assert.Single(rebuilt.WatchedItems);
         Assert.DoesNotContain(favoriteOnly.ItemId, shared.Collaborative.UserSets[source.UserId]);
         Assert.Empty(rebuilt.FavoriteSeriesIds);
         Assert.True(past.IsFavorite);
         Assert.Equal(10, past.UserRating);
         Assert.Null(shared.Profile.WatchedItems[0].UserRating);
         Assert.False(shared.Profile.WatchedItems[0].IsFavorite);
-        foreach (var property in new[] { nameof(WatchedItemInfo.Genres), nameof(WatchedItemInfo.PeopleNames), nameof(WatchedItemInfo.PeopleWeights), nameof(WatchedItemInfo.WriterNames), nameof(WatchedItemInfo.ProductionCountries), nameof(WatchedItemInfo.InheritedTags) })
+        foreach (var info in new[] { nameof(WatchedItemInfo.Genres), nameof(WatchedItemInfo.PeopleNames), nameof(WatchedItemInfo.PeopleWeights), nameof(WatchedItemInfo.WriterNames), nameof(WatchedItemInfo.ProductionCountries), nameof(WatchedItemInfo.InheritedTags) }
+                     .Select(property => typeof(WatchedItemInfo).GetProperty(property)!))
         {
-            var info = typeof(WatchedItemInfo).GetProperty(property)!;
-            Assert.NotSame(info.GetValue(past), info.GetValue(rebuilt.WatchedItems[0]));
+            Assert.NotSame(info.GetValue(past), info.GetValue(rebuiltItem));
         }
     }
 

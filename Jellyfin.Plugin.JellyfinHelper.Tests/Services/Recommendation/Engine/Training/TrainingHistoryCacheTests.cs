@@ -220,7 +220,8 @@ public sealed class TrainingHistoryCacheTests
         Assert.Single(context.ItemPopularity);
         Assert.Equal(new[] { known }, context.ItemPopularity.Keys);
         Assert.Equal(new[] { 1 }, context.ItemPopularity.Values);
-        Assert.True(context.ItemPopularity.ContainsKey(known));
+        Assert.True(context.ItemPopularity.TryGetValue(known, out var knownCount));
+        Assert.Equal(1, knownCount);
         Assert.False(context.ItemPopularity.ContainsKey(future));
         Assert.False(context.ItemPopularity.TryGetValue(future, out var futureCount));
         Assert.Equal(0, futureCount);
@@ -236,7 +237,8 @@ public sealed class TrainingHistoryCacheTests
         Assert.False(excluded.TryGetValue(future, out _));
         Assert.Throws<KeyNotFoundException>(() => excluded[known]);
         Assert.Empty(((System.Collections.IEnumerable)excluded).Cast<KeyValuePair<Guid, int>>());
-        Assert.Equal(1, context.ItemPopularity[known]);
+        Assert.True(context.ItemPopularity.TryGetValue(known, out var unchangedCount));
+        Assert.Equal(knownCount, unchangedCount);
     }
 
     [Fact]

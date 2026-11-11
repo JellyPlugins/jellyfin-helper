@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 {
+    private const string LogSource = "DiscoveryFeedback";
     private const string FileName = "jellyfin-helper-discovery-feedback.json";
 
     /// <summary>
@@ -521,7 +522,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (fileInfo.Length > MaxRecoveryFileSizeBytes)
             {
                 _pluginLog.LogWarning(
-                    "DiscoveryFeedback",
+                    LogSource,
                     $"Feedback file exceeds the bounded recovery limit ({fileInfo.Length} bytes); preserving it and blocking writes.",
                     null,
                     _logger);
@@ -537,7 +538,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             if (fileInfo.Length > _sizeLimit)
             {
-                _pluginLog.LogWarning("DiscoveryFeedback", $"Feedback file exceeds the size limit ({fileInfo.Length} bytes); recovering and compacting valid feedback.", null, _logger);
+                _pluginLog.LogWarning(LogSource, $"Feedback file exceeds the size limit ({fileInfo.Length} bytes); recovering and compacting valid feedback.", null, _logger);
                 var recovered = _memoryCache;
                 SaveInternal(recovered);
                 _memoryCache ??= recovered;
@@ -548,7 +549,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             _pluginLog.LogWarning(
-                "DiscoveryFeedback",
+                LogSource,
                 $"Could not load discovery feedback from {_filePath}: {ex.Message}",
                 ex,
                 _logger);
@@ -612,7 +613,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var bytes = SerializeWithinSizeLimit(workingCopy);
             if (bytes is null)
             {
-                _pluginLog.LogWarning("DiscoveryFeedback", "Explicit feedback cannot fit the size limit; preserving the existing file instead of overwriting it.", null, _logger);
+                _pluginLog.LogWarning(LogSource, "Explicit feedback cannot fit the size limit; preserving the existing file instead of overwriting it.", null, _logger);
                 return false;
             }
 
@@ -635,7 +636,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
             _memoryCache = null;
             _pluginLog.LogWarning(
-                "DiscoveryFeedback",
+                LogSource,
                 $"Could not save discovery feedback to {_filePath}: {ex.Message}",
                 ex,
                 _logger);

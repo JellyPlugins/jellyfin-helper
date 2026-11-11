@@ -1166,7 +1166,12 @@
             || _discoveryDisabled || document.getElementById('jfhDiscoveryPopup')) return;
         container._jfhDeliveryRefreshInFlight = true;
         var source = container._jfhDiscoverySource;
-        var url = source === TAB_TRAKT ? API_URL + '/Trakt' : source === TAB_TRENDING ? API_URL + '/Trakt/Trending' : API_URL;
+        var url = API_URL;
+        if (source === TAB_TRAKT) {
+            url = API_URL + '/Trakt';
+        } else if (source === TAB_TRENDING) {
+            url = API_URL + '/Trakt/Trending';
+        }
         request.client.ajax({ type: 'GET', url: request.client.getUrl(url), dataType: 'json' }).then(function (response) {
             if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled || container._jfhDiscoverySource !== source) return;
             if (source === TAB_TRAKT && response?.Linked !== true) { renderTraktNotLinked(container); return; }

@@ -126,7 +126,7 @@ public class RecommendationControllerTests
         var own = Assert.IsType<RecommendationResult>(Assert.IsType<OkObjectResult>(_controller.GetUserRecommendations(user, cancellationToken: TestContext.Current.CancellationToken).Result).Value);
         Assert.Null(own.TrainingContrasts);
         var all = await _controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken);
-        var responses = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(Assert.IsType<OkObjectResult>(all.Result).Value);
+        var responses = Assert.IsType<IReadOnlyList<RecommendationResult>>(Assert.IsType<OkObjectResult>(all.Result).Value, exactMatch: false);
         Assert.Null(Assert.Single(responses).TrainingContrasts);
         Assert.Single(result.TrainingContrasts!);
         Assert.Single(result.Recommendations);
