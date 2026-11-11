@@ -134,6 +134,24 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.Collection(heldout ? split.Holdout : split.Fit, example => Assert.Equal(expected, example.ObservationId), example => Assert.Equal(expected, example.ObservationId));
         Assert.NotEqual(expected, TrainingExample.CreateProviderObservationId(user, tmdb, series ? "movie" : "tv"));
         Assert.Equal(TrainingExample.CreateLibraryObservationId(user, libraryTitle), TrainingExample.CreateTitleObservationId(user, libraryTitle, 0, series));
+
+        var cached = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new RecommendedItem { ItemId = libraryTitle, ItemType = series ? "Series" : "Movie", TmdbId = tmdb, ScoringFeatures = new CandidateFeatures { IsSeries = series } }] };
+        var recorded = TrainingDataBuilder.BuildExamples([cached], [profile], [feedback], CancellationToken.None).Examples;
+        Assert.Collection(recorded, example => Assert.Equal(expected, example.ObservationId), example => Assert.Equal(expected, example.ObservationId));
+        Assert.All(recorded, example => Assert.True(example.IsObserved));
+
+        // Duplicate source rows and subsequent replay represent one observed title, not two.
+        var fit = Balanced(20).Concat(split.Fit).ToArray();
+        using var global = new EnsembleScoringStrategy();
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), ownsNeural: false);
+        foreach (var ensemble in new[] { global, personal })
+        {
+            Assert.True(ensemble.Train(fit, split.Holdout));
+            Assert.Equal(heldout ? 0 : 1, ensemble.TrainingExampleCount);
+            var replay = Balanced(20).Concat(Split(recorded).Fit).ToArray();
+            Assert.True(ensemble.Train(replay, split.Holdout));
+            Assert.Equal(heldout ? 0 : 1, ensemble.TrainingExampleCount);
+        }
     }
 
     [Fact]

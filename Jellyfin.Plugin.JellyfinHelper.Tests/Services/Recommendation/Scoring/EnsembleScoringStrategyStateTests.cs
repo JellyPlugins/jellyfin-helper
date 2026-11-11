@@ -144,16 +144,19 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         Assert.Equal(0, sut.TrainingExampleCount);
     }
 
-    [Fact]
-    public void Constructor_SchemaVersionMismatch_ResetsToDefaults()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(999)]
+    public void Constructor_SchemaVersionMismatch_ResetsToDefaults(int schemaVersion)
     {
         var logger = new Mock<ILogger>();
         logger.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
 
         File.WriteAllText(StatePath, SerializeState(new
         {
-            SchemaVersion = 999,
+            SchemaVersion = schemaVersion,
             TrainingExampleCount = 123,
+            ObservedTrainingIds = new[] { Guid.NewGuid() },
             Alpha = 0.6,
             NeuralBeta = 0.0,
             QualityGateFrozen = false,
@@ -162,10 +165,14 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var sut = BuildSut(logger);
+        var storedState = File.ReadAllText(StatePath);
+        using var sut = BuildSut(logger);
 
         Assert.Equal(0, sut.TrainingExampleCount);
+        Assert.Equal(0, sut.MetricsHistoryCount);
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
         Assert.Equal(AlphaMin, sut.CurrentAlpha, 4);
+        Assert.Equal(storedState, File.ReadAllText(StatePath));
         VerifyWarningLogged(logger);
     }
 
