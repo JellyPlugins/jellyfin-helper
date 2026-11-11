@@ -570,6 +570,14 @@ function renderDiscoveryCard(rec, index) {
         html += '<div class="discovery-card-reason">' + escHtml(reasonText) + '</div>';
     }
 
+    html += renderDiscoveryActions(rec, mediaType);
+
+    html += '</div></div>';
+    return html;
+}
+
+function renderDiscoveryActions(rec, mediaType) {
+    var html = '';
     if (rec.AlreadyRequested) {
         html += '<button class="discovery-request-btn discovery-request-done" disabled>';
         html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
@@ -583,7 +591,6 @@ function renderDiscoveryCard(rec, index) {
         html += '<span class="recs-tag">' + escHtml(T('discoveryAvailabilityUnknown', 'Availability not checked')) + '</span>';
     }
 
-    html += '</div></div>';
     return html;
 }
 
