@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 function recommendations(title: string, posterPath?: string) {
-  return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath }] };
+  return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath, AvailabilityVerified: true }] };
 }
 
 function appendHomeLink(list: Element) {

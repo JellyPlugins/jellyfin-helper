@@ -1065,8 +1065,8 @@
             if (!isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible') return;
             for (var entry of entries) {
                 var card = entry.target;
-                var button = card.querySelector('[data-jfh-action="request"]');
-                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
+                var candidate = discoveryImpressionItem(card);
+                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
                     || _reportedImpressions.get(card) === card._jfhDeliveryId) continue;
                 pending.set(card.dataset.cardKey, card);
             }
@@ -1083,13 +1083,13 @@
                         return;
                     }
                     var rect = card.getBoundingClientRect();
-                    var button = card.querySelector('[data-jfh-action="request"]');
-                    if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
+                    var candidate = discoveryImpressionItem(card);
+                    if (!card.isConnected || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
                         || rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) continue;
                     var visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
                     var visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
                     if (visibleWidth * visibleHeight < rect.width * rect.height * 0.5) continue;
-                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: Number.parseInt(button.dataset.tmdb, 10), type: button.dataset.type });
+                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: candidate.TmdbId, type: candidate.MediaType });
                     if (batch.length === 20) break;
                 }
                 pending.clear();
@@ -1130,6 +1130,16 @@
             if (owner) owners.add(owner);
         }
         for (const owner of owners) observeVisibleDiscoveryCards(owner);
+    }
+
+    function discoveryImpressionItem(card) {
+        // Availability only gates requesting; visible recommendations still carry delivery evidence.
+        // Read identity from the card, not from optional action buttons.
+        var id = Number.parseInt(card.dataset.tmdb, 10);
+        var type = card.dataset.type;
+        if (!Number.isInteger(id) || id <= 0 || (type !== 'movie' && type !== 'tv') || card._jfhConsuming
+            || card.querySelector('.jfh-discovery-btn-done, [data-jfh-action="request"]:disabled')) return null;
+        return { TmdbId: id, MediaType: type };
     }
 
     function renderEmptySidebarCards(container) {
@@ -1300,7 +1310,7 @@
         var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
         // Slash breaks are inserted only after escaping the reason.
         var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
-        return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
+        return '<div class="jfh-discovery-card" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '">' + renderSidebarPosterHtml(r, mediaType) +
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +

@@ -32,7 +32,7 @@ function fullRoutes(): RouteTable {
     'JellyfinHelper/Discovery': [
       {
         UserId: 'u1',
-        Recommendations: [{ Title: 'D1', Score: 0.8, MediaType: 'movie', TmdbId: 5, Genres: ['Drama'] }],
+        Recommendations: [{ Title: 'D1', Score: 0.8, MediaType: 'movie', TmdbId: 5, Genres: ['Drama'], AvailabilityVerified: true }],
       },
     ],
     'Diagnostics/Ensemble': { Available: true, Alpha: 0.5, NeuralBeta: 0, NeuralEnabled: false },
@@ -122,6 +122,23 @@ describe('discovery request through the profile popup', () => {
     'Discovery/Services/radarr': services,
     ...extra,
     ...fullRoutes(),
+  });
+
+  test.each([false, undefined])('unverified and legacy cards do not start the request flow (%s)', async verified => {
+    const routes = fullRoutes();
+    routes['JellyfinHelper/Discovery'][0].Recommendations[0].AvailabilityVerified = verified;
+    const calls = ajaxRouter(routes);
+    document.body.innerHTML = '<div id="recsContent"></div>';
+    ui.initRecommendationsTab();
+    await flush();
+    const card = document.querySelector('#discoveryGrid .discovery-card') as HTMLElement;
+    expect(card).not.toBeNull();
+    expect(card.querySelector('.discovery-request-btn')).toBeNull();
+    expect(card.textContent).toContain('Availability not checked');
+    card.click();
+    await flush();
+    expect(document.getElementById('seerrUserPopup')).toBeNull();
+    expect(calls.some(call => call.url.includes('Discovery/Services') || call.url.includes('Discovery/Request'))).toBe(false);
   });
 
   test('profile click submits with server, profile and folder', async () => {
@@ -343,8 +360,8 @@ describe('discovery request through the profile popup', () => {
     routes['JellyfinHelper/Discovery'] = [{
       UserId: 'u1',
       Recommendations: [
-        { Title: 'Movie', Score: 0.8, MediaType: 'movie', TmdbId: 5 },
-        { Title: 'Show', Score: 0.7, MediaType: 'tv', TmdbId: 6 },
+        { Title: 'Movie', Score: 0.8, MediaType: 'movie', TmdbId: 5, AvailabilityVerified: true },
+        { Title: 'Show', Score: 0.7, MediaType: 'tv', TmdbId: 6, AvailabilityVerified: true },
       ],
     }];
     ajaxRouter(routes);

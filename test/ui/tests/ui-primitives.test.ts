@@ -201,7 +201,7 @@ describe('Discovery rendering', () => {
     (globalThis as any).ApiClient.getCurrentUserId = () => 'u1';
     return freshDiscoveryHelpers();
   }
-  const rec = (id: number, title = 'Movie') => ({ TmdbId: id, Title: title, MediaType: 'movie', PosterPath: '/poster.jpg', Score: 0.8 });
+  const rec = (id: number, title = 'Movie') => ({ TmdbId: id, Title: title, MediaType: 'movie', PosterPath: '/poster.jpg', Score: 0.8, AvailabilityVerified: true });
 
   test('ranking updates do not move a card while its action has focus', () => {
     const discoveryUi = discovery();
@@ -214,6 +214,24 @@ describe('Discovery rendering', () => {
     discoveryUi.renderCards(host, { Recommendations: [rec(2), rec(1)] });
     expect(host.querySelector('.jfh-discovery-card')).toBe(card);
     expect(document.activeElement).toBe(action);
+  });
+
+  test.each([false, undefined])('cards without verified availability retain their dismiss action and focus during ranking updates (%s)', verified => {
+    const discoveryUi = discovery();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const first = { ...rec(1), AvailabilityVerified: verified };
+    const second = { ...rec(2), AvailabilityVerified: verified };
+    discoveryUi.renderCards(host, { Recommendations: [first, second] });
+    const card = host.querySelector('.jfh-discovery-card')!;
+    const action = card.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
+    expect(card.querySelector('[data-jfh-action="request"]')).toBeNull();
+    expect(action.disabled).toBe(false);
+    action.focus();
+    discoveryUi.renderCards(host, { Recommendations: [second, first] });
+    expect(host.querySelector('.jfh-discovery-card')).toBe(card);
+    expect(document.activeElement).toBe(action);
+    expect(card.textContent).toContain('Availability not checked');
   });
 
   test('an unavailable Trakt source retires its tab controls', () => {

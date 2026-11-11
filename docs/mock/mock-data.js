@@ -419,8 +419,8 @@ var MOCK_DISCOVERY=[
 {TmdbId:1184918,MediaType:"movie",Title:"The Wild Robot",Year:2024,Score:0.78,Reason:"New and highly rated",ReasonKey:"reasonTrending",Genres:["Animation","Sci-Fi","Family"],TmdbRating:8.4,PosterPath:"/wTnV3PCVW5O92JMrFvvrRcV39RU.jpg",Overview:"After a shipwreck, an intelligent robot called Roz is stranded on an uninhabited island. To survive the harsh environment, Roz bonds with the island's animals.",AlreadyRequested:false}
 ]},
 {UserId:_uid2,UserName:"Bob",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
-{TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"From a director you like",ReasonKey:"reasonStudioNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
-{TmdbId:94028,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/g5pk8cgo5XnEnNfJTNq1mdUlhib.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
+{TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"Featuring Alexander Payne",ReasonKey:"reasonPersonNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
+{TmdbId:94028,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Popular Drama among similar viewers",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/g5pk8cgo5XnEnNfJTNq1mdUlhib.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
 {TmdbId:792307,MediaType:"movie",Title:"Poor Things",Year:2023,Score:0.85,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Comedy","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg",Overview:"Brought back to life by an unorthodox scientist, a young woman runs off with a debauched lawyer on a whirlwind adventure across the continents.",AlreadyRequested:false},
 {TmdbId:208942,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.1,PosterPath:"/aBU2mlyZT5BzvCkXXUewH7wfhkK.jpg",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
 {TmdbId:467244,MediaType:"movie",Title:"The Zone of Interest",Year:2023,Score:0.79,Reason:"Highly rated drama",ReasonKey:"reasonHighlyRated",Genres:["Drama","History","War"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",Overview:"The commandant of Auschwitz, Rudolf H\u00f6ss, and his wife Hedwig, strive to build a dream life for their family in a house and garden next to the camp.",AlreadyRequested:false}
@@ -435,8 +435,8 @@ var MOCK_DISCOVERY=[
 // below is HEAD-verified against image.tmdb.org. Served per request (cloned), never
 // mutated in place.
 var MOCK_TRAKT_PERSONAL={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().toISOString(),Recommendations:[
-{TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"From a director you like",ReasonKey:"reasonStudioNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",TraktSlug:"the-holdovers-2023",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
-{TmdbId:94028,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/g5pk8cgo5XnEnNfJTNq1mdUlhib.jpg",TraktSlug:"ripley",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
+{TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"Featuring Alexander Payne",ReasonKey:"reasonPersonNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",TraktSlug:"the-holdovers-2023",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
+{TmdbId:94028,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Popular Drama among similar viewers",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/g5pk8cgo5XnEnNfJTNq1mdUlhib.jpg",TraktSlug:"ripley",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
 {TmdbId:792307,MediaType:"movie",Title:"Poor Things",Year:2023,Score:0.85,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Comedy","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg",TraktSlug:"poor-things-2023",Overview:"Brought back to life by an unorthodox scientist, a young woman runs off with a debauched lawyer on a whirlwind adventure across the continents.",AlreadyRequested:false},
 {TmdbId:208942,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.1,PosterPath:"/aBU2mlyZT5BzvCkXXUewH7wfhkK.jpg",TraktSlug:"a-gentleman-in-moscow",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
 {TmdbId:467244,MediaType:"movie",Title:"The Zone of Interest",Year:2023,Score:0.79,Reason:"Highly rated drama",ReasonKey:"reasonHighlyRated",Genres:["Drama","History","War"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",TraktSlug:"the-zone-of-interest-2023",Overview:"The commandant of Auschwitz, Rudolf Höss, and his wife Hedwig, strive to build a dream life for their family in a house and garden next to the camp.",AlreadyRequested:false}
@@ -446,14 +446,34 @@ var MOCK_TRAKT_TRENDING={UserId:_uid1,UserName:"Alice",GeneratedAt:new Date().to
 {TmdbId:100088,MediaType:"tv",Title:"The Last of Us",Year:2023,Score:0.90,Reason:"Trending — critically acclaimed",ReasonKey:"reasonTrending",Genres:["Drama","Action","Sci-Fi"],TmdbRating:8.8,PosterPath:"/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg",TraktSlug:"the-last-of-us",Overview:"Twenty years after a fungal outbreak destroys civilization, a hardened survivor takes charge of a 14-year-old girl who may be humanity's last hope.",AlreadyRequested:false},
 {TmdbId:496243,MediaType:"movie",Title:"Parasite",Year:2019,Score:0.87,Reason:"Trending — award winner",ReasonKey:"reasonTrending",Genres:["Thriller","Drama","Comedy"],TmdbRating:8.5,PosterPath:"/7pU95cO4KHli4w0L9N5hyoplEke.jpg",TraktSlug:"parasite-2019",Overview:"All unemployed, Ki-taek's family takes peculiar interest in the wealthy Parks for their livelihood until they get entangled in an unexpected incident.",AlreadyRequested:false},
 {TmdbId:475557,MediaType:"movie",Title:"Joker",Year:2019,Score:0.84,Reason:"Trending now",ReasonKey:"reasonTrending",Genres:["Crime","Drama","Thriller"],TmdbRating:8.1,PosterPath:"/udDclJoHjfjb8Ekgsd4FDteOkCU.jpg",TraktSlug:"joker-2019",Overview:"During the 1980s, a failed stand-up comedian is driven insane and turns to a life of crime and chaos in Gotham City.",AlreadyRequested:false},
-{TmdbId:680,MediaType:"movie",Title:"Pulp Fiction",Year:1994,Score:0.81,Reason:"Trending — all-time classic",ReasonKey:"reasonTrending",Genres:["Crime","Thriller"],TmdbRating:8.5,PosterPath:"/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",TraktSlug:"pulp-fiction-1994",Overview:"The lives of two mob hitmen, a boxer, a gangster's wife and a pair of diner bandits intertwine in four tales of violence and redemption.",AlreadyRequested:false},
+{TmdbId:680,MediaType:"movie",Title:"Pulp Fiction",Year:1994,Score:0.81,Reason:"Trending — all-time classic",ReasonKey:"reasonTrending",Genres:["Crime","Drama"],TmdbRating:8.5,PosterPath:"/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",TraktSlug:"pulp-fiction-1994",Overview:"The lives of two mob hitmen, a boxer, a gangster's wife and a pair of diner bandits intertwine in four tales of violence and redemption.",AlreadyRequested:false},
 {TmdbId:603,MediaType:"movie",Title:"The Matrix",Year:1999,Score:0.78,Reason:"Trending — sci-fi classic",ReasonKey:"reasonTrending",Genres:["Sci-Fi","Action"],TmdbRating:8.2,PosterPath:"/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",TraktSlug:"the-matrix-1999",Overview:"A computer hacker learns the shocking truth about his reality and his role in the war against its controllers.",AlreadyRequested:false}
 ]};
 
-// Removes a consumed (requested/dismissed) item from every discovery pool, mirroring
-// the server where feedback excludes it from all future serves. In-place splice keeps
-// the shared fixture references (Trakt pools reuse these arrays) consistent.
-function mockConsumeDiscovery(tmdbId, mediaType){
+// Curated preview titles simulate successfully checked Seerr details and personal
+// matches. Keep this demo-only: missing availability in real payloads stays unknown.
+function mockPrepareDiscoveryPool(pool){
+  pool.Recommendations=pool.Recommendations.map(function(item){
+    return Object.assign({AvailabilityVerified:true,IsPersonalized:true},item);
+  });
+  return pool;
+}
+MOCK_DISCOVERY=MOCK_DISCOVERY.map(mockPrepareDiscoveryPool);
+mockPrepareDiscoveryPool(MOCK_TRAKT_PERSONAL);
+mockPrepareDiscoveryPool(MOCK_TRAKT_TRENDING);
+
+// Deliver detached response evidence per request, including identical cached pools.
+// Matches the five-minute lifetime used by the real per-user controller.
+function mockDiscoveryDelivery(pool){
+  var response=structuredClone(pool);
+  response.DeliveryId=crypto.randomUUID();
+  response.DeliveryExpiresAtUtc=new Date(Date.now()+300000).toISOString();
+  return response;
+}
+
+// Requests affect shared Seerr status; dismissals affect only the current user's
+// pools. Mutate fixtures, never previously delivered response snapshots.
+function mockConsumeDiscovery(tmdbId, mediaType, userId){
   var id=Number.parseInt(tmdbId,10);
   if(!id) return;
   var mt=String(mediaType||'').trim().toLowerCase();
@@ -464,9 +484,10 @@ function mockConsumeDiscovery(tmdbId, mediaType){
       if(Number.parseInt(r.TmdbId,10)===id && String(r.MediaType||'').trim().toLowerCase()===mt){ list.splice(i,1); }
     }
   }
-  for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(MOCK_DISCOVERY[u]){ drop(MOCK_DISCOVERY[u].Recommendations); } }
-  if(typeof MOCK_TRAKT_TRENDING!=="undefined"&&MOCK_TRAKT_TRENDING){ drop(MOCK_TRAKT_TRENDING.Recommendations); }
-  if(typeof MOCK_TRAKT_PERSONAL!=="undefined"&&MOCK_TRAKT_PERSONAL){ drop(MOCK_TRAKT_PERSONAL.Recommendations); }
+  function applies(pool){return pool&&(!userId||pool.UserId===userId);}
+  for(var u=0;u<MOCK_DISCOVERY.length;u++){ if(applies(MOCK_DISCOVERY[u])){ drop(MOCK_DISCOVERY[u].Recommendations); } }
+  if(applies(MOCK_TRAKT_TRENDING)){ drop(MOCK_TRAKT_TRENDING.Recommendations); }
+  if(applies(MOCK_TRAKT_PERSONAL)){ drop(MOCK_TRAKT_PERSONAL.Recommendations); }
 }
 
 var MOCK_SEERR_SERVICES_RADARR=[{
@@ -500,7 +521,7 @@ var MOCK_WATCH_PROFILES={};
 var MOCK_ENSEMBLE_DIAGNOSTICS={Available:true,IsPerUser:false,Alpha:0.62,NeuralBeta:0.28,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:342,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
 var MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER={};
 MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid1]={Available:true,IsPerUser:true,UserName:"Alice",Alpha:0.68,NeuralBeta:0.31,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:412,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
-MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid2]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{UserName:"Bob"});
+MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid2]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{IsPerUser:true,UserName:"Bob"});
 MOCK_WATCH_PROFILES[_uid1]={WatchedMovieCount:_movieWatchedA.length,WatchedEpisodeCount:_tvWatchedA.length,WatchedSeriesCount:_tvWatchedShows(_tvWatchedA),FavoriteCount:12,GenreDistribution:{"Sci-Fi":60,"Drama":40,"Action":30,"Thriller":18,"Adventure":12,"Comedy":8,"Horror":5}};
 MOCK_WATCH_PROFILES[_uid2]={WatchedMovieCount:_movieWatchedB.length,WatchedEpisodeCount:_tvWatchedC.length,WatchedSeriesCount:_tvWatchedShows(_tvWatchedC),FavoriteCount:4,GenreDistribution:{"Drama":14,"Comedy":12,"Sci-Fi":8,"Thriller":5,"Adventure":3,"War":2}};
 MOCK_USER_ACTIVITY={};
@@ -545,16 +566,17 @@ else if(url.includes("Trash/Contents"))resolve(MOCK_TRASH_CONTENTS);
 else if(url.includes("Trash/Summary"))resolve({TotalSize:17179869184,TotalItems:3});
 else if(url.includes("Discovery/Services/radarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_RADARR));
 else if(url.includes("Discovery/Services/sonarr"))resolve(structuredClone(MOCK_SEERR_SERVICES_SONARR));
-else if(url.includes("Discovery/Request")&&method==="POST"){try{var rqBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(rqBody.TmdbId,rqBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
-else if(url.includes("Discovery/My/Trakt/Trending"))resolve(structuredClone(MOCK_TRAKT_TRENDING));
-else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:structuredClone(MOCK_TRAKT_PERSONAL)});
+else if(url.includes("Discovery/Request")&&method==="POST"){try{var rqBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(rqBody.TmdbId,rqBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Seerr (demo)."});}
+else if(url.includes("Discovery/My/Trakt/Trending"))resolve(mockDiscoveryDelivery(MOCK_TRAKT_TRENDING));
+else if(url.includes("Discovery/My/Trakt"))resolve({Linked:true,Result:mockDiscoveryDelivery(MOCK_TRAKT_PERSONAL)});
 else if(url.includes("Discovery/My/RequestPermissions"))resolve({CanRequest:true,IsTransient:false,Profiles:[],DeniedReason:null});
-else if(url.includes("Discovery/My/Request")&&method==="POST"){try{var mrBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mrBody.TmdbId,mrBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Jellyseerr."});}
-else if(url.includes("Discovery/My/Dismiss")&&method==="POST"){try{var mdBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mdBody.TmdbId,mdBody.MediaType);}catch(e){}resolve({Success:true,Message:"Dismissed."});}
+else if(url.includes("Discovery/My/Request")&&method==="POST"){try{var mrBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mrBody.TmdbId,mrBody.MediaType);}catch(e){}resolve({Success:true,Message:"Request submitted to Seerr (demo)."});}
+else if(url.includes("Discovery/My/Dismiss")&&method==="POST"){try{var mdBody=JSON.parse(opts.data||"{}");mockConsumeDiscovery(mdBody.TmdbId,mdBody.MediaType,ApiClient.getCurrentUserId());}catch(e){}resolve({Success:true,Message:"Dismissed."});}
+else if(url.includes("Discovery/My/Impressions")&&method==="POST")resolve({Success:true});
 else if(url.includes("Discovery/My/ExternalLinks"))resolve({SeerrUrl:"https://seerr.example.com"});
-else if(url.includes("Discovery/My"))resolve(structuredClone(MOCK_DISCOVERY[0]));
+else if(url.includes("Discovery/My"))resolve(mockDiscoveryDelivery(MOCK_DISCOVERY[0]));
 else if(url.includes("Discovery")&&!url.includes("Services")&&!url.includes("Request"))resolve(structuredClone(MOCK_DISCOVERY));
-else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Jellyseerr (demo)"});
+else if(url.includes("Seerr/Test"))resolve({success:true,message:"Connected to Seerr (demo)"});
 else if(url.includes("Trakt/OfficialPluginStatus"))resolve({Present:true});
 else if(url.includes("ArrIntegration/TestConnection"))resolve({Success:true,Message:"Connection successful (demo)"});
 else if(url.includes("ArrIntegration/Compare/"))resolve(structuredClone(MOCK_ARR_COMPARE));
