@@ -872,7 +872,7 @@ internal static class ContentScoring
         List<MeaningfulWatch> MeaningfulWatches,
         int CatalogVersion)
     {
-        private readonly object _genreCacheLock = new();
+        private readonly Lock _genreCacheLock = new();
         private int _refreshedVersion = -1;
         private List<MeaningfulWatch>? _refreshedWatches;
 
