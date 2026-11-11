@@ -161,7 +161,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private double[]? _mWH4O;
     private double[]? _mWIH;
     private int _trainingGeneration;
-    private bool _hasTrainedWeights;
+    private volatile bool _hasTrainedWeights;
+
     private double[]? _vBH1;
     private double[]? _vBH2;
     private double[]? _vBH3;
@@ -207,6 +208,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <inheritdoc />
     public string Name => "Neural (Adaptive MLP)";
+
+    /// <summary>Gets a value indicating whether validated weights were loaded or successfully fitted, rather than freshly initialized.</summary>
+    internal bool HasTrainedWeights => !_disposed && _hasTrainedWeights;
 
     /// <summary>Gets the independent constant-predictor validation baseline.</summary>
     internal double LastBaselineValidationLoss

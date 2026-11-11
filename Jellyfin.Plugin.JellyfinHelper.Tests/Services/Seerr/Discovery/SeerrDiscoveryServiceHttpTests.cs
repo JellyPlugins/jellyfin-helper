@@ -928,12 +928,20 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 {
     private readonly Dictionary<(HttpMethod Method, string PathSuffix), (HttpStatusCode Status, string Body)> _routes =
         new();
+    private readonly object _delayLock = new();
+    private readonly Dictionary<(HttpMethod Method, string PathSuffix), Exception> _failures = new();
 
     public string? LastRequestBody { get; private set; }
 
     public List<(HttpMethod Method, string Path)> Requests { get; } = [];
 
     public Exception? ThrowNext { get; set; }
+
+    /// <summary>Gets or sets a simulated provider-detail delay, cancelled by the real request budget.</summary>
+    public TimeSpan DetailResponseDelay { get; set; }
+
+    /// <summary>Gets the measured peak number of simultaneous delayed detail requests.</summary>
+    public int MaxConcurrentDelayedDetails { get; private set; }
 
     /// <summary>
     ///     Gets or sets an exception thrown once the handler has served <see cref="ThrowAfterCallIndex"/> calls. Lets a test allow the first N calls (e.g. user resolution) through and fail a later one (e.g. the request-page fetch).
@@ -956,11 +964,15 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
     public int CancelAfterCallIndex { get; set; }
 
     private int _callCount;
+    private int _activeDelayedDetails;
 
     public void RegisterResponse(HttpMethod method, string pathSuffix, HttpStatusCode status, string body)
     {
         _routes[(method, pathSuffix)] = (status, body);
     }
+
+    public void RegisterFailure(HttpMethod method, string pathSuffix, Exception failure)
+        => _failures[(method, pathSuffix)] = failure;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -969,6 +981,27 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
         cancellationToken.ThrowIfCancellationRequested();
 
         Requests.Add((request.Method, request.RequestUri?.PathAndQuery ?? string.Empty));
+
+        if (DetailResponseDelay > TimeSpan.Zero && request.RequestUri?.AbsolutePath.StartsWith("/api/v1/movie/", StringComparison.Ordinal) == true)
+        {
+            lock (_delayLock)
+            {
+                _activeDelayedDetails++;
+                MaxConcurrentDelayedDetails = Math.Max(MaxConcurrentDelayedDetails, _activeDelayedDetails);
+            }
+
+            try
+            {
+                await Task.Delay(DetailResponseDelay, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_delayLock)
+                {
+                    _activeDelayedDetails--;
+                }
+            }
+        }
 
         if (ThrowNext is not null)
         {
@@ -1000,6 +1033,12 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 
         var url = request.RequestUri?.AbsolutePath ?? string.Empty;
         var fullUrl = request.RequestUri?.PathAndQuery ?? string.Empty;
+        var scriptedFailure = _failures.FirstOrDefault(pair => pair.Key.Method == request.Method && fullUrl.EndsWith(pair.Key.PathSuffix, StringComparison.Ordinal)).Value;
+        if (scriptedFailure is not null)
+        {
+            throw scriptedFailure;
+        }
+
         foreach (var kvp in _routes)
         {
             if (kvp.Key.Method == request.Method &&

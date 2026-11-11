@@ -13,6 +13,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +33,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IPluginLogService _pluginLog;
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
+    private readonly ILinkedChildrenService? _linkedChildren;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -42,13 +44,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="userDataManager">The user data manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="linkedChildren">Optional authoritative Jellyfin collection membership service.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
         IPluginConfigurationService configService,
         IUserManager userManager,
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
-        ILogger<WatchHistoryService> logger)
+        ILogger<WatchHistoryService> logger,
+        ILinkedChildrenService? linkedChildren = null)
     {
         _libraryManager = libraryManager;
         _configService = configService;
@@ -56,6 +60,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _userDataManager = userDataManager;
         _pluginLog = pluginLog;
         _logger = logger;
+        _linkedChildren = linkedChildren;
     }
 
     /// <inheritdoc />
@@ -98,13 +103,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // rather than rebuilding it inside BuildProfile on each iteration.
         var seriesGenresById = BuildSeriesGenresLookup(allSeries);
         var seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
+        var collectionIds = LoadCollectionIds(allItems);
 
         var profiles = new Collection<UserWatchProfile>();
         foreach (var user in users)
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -304,13 +310,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="allSeries">Pre-loaded series items for favorite detection (null to query on demand).</param>
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
+    /// <param name="collectionIds">Pre-resolved collection identities shared by the batch; null performs the single-profile lookup on demand.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem>? allItems = null,
         IReadOnlyList<BaseItem>? allSeries = null,
         Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
-        Dictionary<Guid, int>? seriesTmdbById = null)
+        Dictionary<Guid, int>? seriesTmdbById = null,
+        Dictionary<Guid, int>? collectionIds = null)
     {
         var profile = new UserWatchProfile
         {
@@ -337,6 +345,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
         allSeries ??= LoadAllSeriesItems(onDemandScope);
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
         seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
+        // Preserve the original dictionary-assignment semantics when a library query repeats an ID.
+        var uniqueSeries = allSeries.GroupBy(series => series.Id).Select(group => group.Last()).ToArray();
+        var metadata = new WatchedMetadata(
+            seriesGenresById,
+            seriesTmdbById,
+            uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Studios?.ToArray() ?? [])),
+            uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Tags?.ToArray() ?? [])),
+            uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
+            collectionIds ?? LoadCollectionIds(allItems));
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -354,12 +371,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
 
             // Only include items with some interaction (played, partially watched, or favorited)
-            if (!userData.Played && userData.PlaybackPositionTicks <= 0 && !userData.IsFavorite)
+            if (!IsIncludedInHistory(userData))
             {
                 continue;
             }
 
-            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, seriesGenresById, seriesTmdbById, ref ratingSum, ref ratingCount);
+            AccumulateWatchedItem(profile, item, userData, watchedSeriesIds, metadata, ref ratingSum, ref ratingCount);
         }
 
         // Check series-level favorites: users can favorite an entire series in Jellyfin (the heart button on the series page).
@@ -395,6 +412,32 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return profile;
     }
 
+    private static bool IsIncludedInHistory(UserItemData data)
+        => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+
+    private Dictionary<Guid, int> LoadCollectionIds(IReadOnlyList<BaseItem> items)
+    {
+        if (!items.Any(ContentAffinityResolver.NeedsCollectionCorroboration))
+        {
+            return [];
+        }
+
+        try
+        {
+            var collections = (_libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Recursive = true }) ?? []).OfType<BoxSet>();
+            return CollectionMembershipResolver.CollectionIds(items, collections, _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(LogCategory, "Ambiguous collection IDs remain unconfirmed; collection evidence is unavailable.", _logger);
+            return [];
+        }
+    }
+
     /// <summary>
     ///     Builds a WatchedItemInfo for an interacted library item and folds its statistics (watch counts, runtime, genres, favorites, ratings, last activity) into the profile.
     /// </summary>
@@ -402,8 +445,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="item">The library item the user interacted with.</param>
     /// <param name="userData">The user data for the item.</param>
     /// <param name="watchedSeriesIds">Accumulator of distinct watched series IDs.</param>
-    /// <param name="seriesGenresById">Map of series id to genres, used to give an episode its parent series' genres when the episode has none.</param>
-    /// <param name="seriesTmdbById">Map of series id to TMDb id, used to attribute a watched episode to its parent series' TMDb id.</param>
+    /// <param name="metadata">Shared parent metadata and corroborated collection identities.</param>
     /// <param name="ratingSum">Running community-rating sum (updated in place).</param>
     /// <param name="ratingCount">Running community-rating count (updated in place).</param>
     private void AccumulateWatchedItem(
@@ -411,8 +453,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         BaseItem item,
         UserItemData userData,
         HashSet<Guid> watchedSeriesIds,
-        Dictionary<Guid, IReadOnlyList<string>> seriesGenresById,
-        Dictionary<Guid, int> seriesTmdbById,
+        WatchedMetadata metadata,
         ref double ratingSum,
         ref int ratingCount)
     {
@@ -431,17 +472,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // the parent series' genres so episode-based genre signals (engagement, SeriesAffinity) are not empty.
         // Copy rather than share the series' list so a later mutation of one item's genres cannot bleed into
         // every other episode of the same series that inherited the same reference.
-        IReadOnlyList<string> genres = item.Genres ?? [];
-        if (genres.Count == 0 && seriesId.HasValue && seriesGenresById.TryGetValue(seriesId.Value, out var inheritedGenres))
-        {
-            genres = new List<string>(inheritedGenres);
-        }
+        var genres = WatchedGenres(item, seriesId, metadata.Genres);
 
         // For episodes, attribute the watch to the parent series' TMDb id (episodes rarely carry a
         // useful id of their own), so a duplicate series entry of a partially watched show is excluded.
-        var seriesTmdbId = seriesId.HasValue && seriesTmdbById.TryGetValue(seriesId.Value, out var resolvedSeriesTmdb)
+        var seriesTmdbId = seriesId.HasValue && metadata.TmdbIds.TryGetValue(seriesId.Value, out var resolvedSeriesTmdb)
             ? resolvedSeriesTmdb
             : 0;
+        var ownStudios = item.Studios?.ToArray() ?? [];
+        var ownTags = item.Tags?.ToArray() ?? [];
+        var parentStudios = ParentValues(seriesId, metadata.Studios);
+        var parentTags = ParentValues(seriesId, metadata.Tags);
+        var lifecycle = seriesId.HasValue && metadata.Lifecycle.TryGetValue(seriesId.Value, out var parentLifecycle)
+            ? parentLifecycle
+            : (Status: ContentAffinityResolver.ResolveSeriesStatus(item), EndDate: ContentAffinityResolver.ResolveSeriesEndDate(item));
 
         var watchedItem = new WatchedItemInfo
         {
@@ -468,10 +512,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             // Content-affinity source fields.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
+            TmdbCollectionId = metadata.CollectionIds.GetValueOrDefault(item.Id, ContentAffinityResolver.ResolveTmdbCollectionId(item)),
+            Studios = MergeOwnAndParent(ownStudios, parentStudios),
+            Tags = MergeOwnAndParent(ownTags, parentTags),
+            OwnStudios = ownStudios,
+            OwnTags = ownTags,
+            SeriesStudios = parentStudios,
+            SeriesTags = parentTags,
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
-            SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
-            EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
+            SeriesStatus = lifecycle.Status,
+            EndDate = lifecycle.EndDate,
             WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
         };
 
@@ -479,6 +530,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, genres, ref ratingSum, ref ratingCount);
     }
+
+    private static IReadOnlyList<string> WatchedGenres(BaseItem item, Guid? seriesId, Dictionary<Guid, IReadOnlyList<string>> lookup)
+    {
+        var genres = item.Genres ?? [];
+        return genres.Length == 0 && seriesId.HasValue && lookup.TryGetValue(seriesId.Value, out var inherited)
+            ? new List<string>(inherited)
+            : genres;
+    }
+
+    private static IReadOnlyList<string>? ParentValues(Guid? seriesId, Dictionary<Guid, IReadOnlyList<string>> lookup)
+        => seriesId.HasValue && lookup.TryGetValue(seriesId.Value, out var values) ? values : null;
+
+    private static string[] MergeOwnAndParent(string[] own, IReadOnlyList<string>? parent)
+        => parent is { Count: > 0 } ? own.Concat(parent).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() : own;
 
     /// <summary>
     ///     Resolves the billed cast/directors for a watched item, returning null for episodes (people are aggregated at series level, never per episode) and swallowing non-fatal lookup failures.
@@ -634,6 +699,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             // Content-affinity source fields for the favorited series, using the same shared resolvers as the primary loop so a favorited series contributes franchise/country/ inherited-tag/writer/completability preference signal identically to a watched item.
             TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
+            Studios = series.Studios?.ToArray() ?? [],
+            Tags = series.Tags?.ToArray() ?? [],
+            OwnStudios = series.Studios?.ToArray() ?? [],
+            OwnTags = series.Tags?.ToArray() ?? [],
             ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
             InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
             SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
@@ -1131,4 +1200,19 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         return _userDataManager.GetUserData(user, item);
     }
+
+    /// <summary>Detached metadata shared by all watched items in one profile build.</summary>
+    /// <param name="Genres">Parent-series genres.</param>
+    /// <param name="TmdbIds">Parent-series provider title identities.</param>
+    /// <param name="Studios">Parent-series studio snapshots, including known empty values.</param>
+    /// <param name="Tags">Parent-series tag snapshots, including known empty values.</param>
+    /// <param name="Lifecycle">Parent-series status and end date.</param>
+    /// <param name="CollectionIds">Corroborated movie collection identities.</param>
+    private sealed record WatchedMetadata(
+        Dictionary<Guid, IReadOnlyList<string>> Genres,
+        Dictionary<Guid, int> TmdbIds,
+        Dictionary<Guid, IReadOnlyList<string>> Studios,
+        Dictionary<Guid, IReadOnlyList<string>> Tags,
+        Dictionary<Guid, (string? Status, DateTime? EndDate)> Lifecycle,
+        Dictionary<Guid, int> CollectionIds);
 }

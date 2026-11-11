@@ -75,6 +75,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     private double _lastBaselineValidationLoss = double.NaN;
     private double[]? _imputationMeans;
     private bool _hasTrainedWeights;
+    private bool _hasPersistedWeights;
+
     private double _lastPrecisionAtK = double.NaN;
     private double _lastRecallAtK = double.NaN;
     private double _lastNdcgAtK = double.NaN;
@@ -110,6 +112,18 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         // Try to load persisted weights
         TryLoadWeights();
+    }
+
+    /// <summary>Gets a value indicating whether this instance loaded a valid file or fitted its own data, rather than only receiving a global seed.</summary>
+    internal bool HasOwnWeights
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _hasPersistedWeights || _trainingGeneration > 0;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -1109,6 +1123,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     _featureStdDevs = data.FeatureStdDevs;
                     _imputationMeans = data.ImputationMeans;
                     _hasTrainedWeights = true;
+                    _hasPersistedWeights = true;
                 }
                 else
                 {
@@ -1178,6 +1193,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             // Use AtomicFile so a transient Windows AV/indexer sharing violation on the final File.Move gets a bounded retry instead of silently dropping the save (it also cleans up temp files).
             AtomicFile.WriteAllText(_weightsPath, json);
+            lock (_syncRoot)
+            {
+                _hasPersistedWeights = true;
+            }
+
             return true;
         }
         catch (IOException ex)

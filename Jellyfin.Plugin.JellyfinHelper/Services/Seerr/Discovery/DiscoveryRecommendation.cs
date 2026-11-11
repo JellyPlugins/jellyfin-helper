@@ -18,6 +18,16 @@ public sealed class DiscoveryRecommendation
     /// <summary>Gets or sets the verified Jellyfin-scale certification score; null means unknown, never child-safe.</summary>
     public int? CertificationScore { get; set; }
 
+    /// <summary>Gets or sets the country-policy context that verified the cached rating; null means legacy/unverified.</summary>
+    public string? CertificationPolicyCountry { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the score contains personal evidence rather than a metadata-only prior.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool IsPersonalized { get; set; } = true;
+
+    /// <summary>Gets or sets the stable provider collection identity used only to limit repetitive suggestions.</summary>
+    public int TmdbCollectionId { get; set; }
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
     /// </summary>
@@ -91,6 +101,10 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public bool AlreadyRequested { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether provider details verified availability before offering a Request action. Missing legacy data remains unverified.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool AvailabilityVerified { get; set; }
+
     /// <summary>
     ///     Gets or sets the Trakt URL slug for linking to the canonical trakt.tv page. Null for non-Trakt
     ///     sources or when Trakt returned no slug; the frontend renders no Trakt link then.
@@ -139,11 +153,15 @@ public sealed class DiscoveryRecommendation
         PosterPath = PosterPath,
         Overview = Overview,
         AlreadyRequested = AlreadyRequested,
+        AvailabilityVerified = AvailabilityVerified,
         KnownPeople = KnownPeople?.ToArray(),
         Popularity = Popularity,
         TraktSlug = TraktSlug,
         SourceRank = SourceRank,
         ScoringFeatures = ScoringFeatures?.Copy(),
         CertificationScore = CertificationScore,
+        CertificationPolicyCountry = CertificationPolicyCountry,
+        IsPersonalized = IsPersonalized,
+        TmdbCollectionId = TmdbCollectionId,
     };
 }

@@ -30,7 +30,7 @@ internal static class TemporalFeatures
         var today = (now ?? DateTime.UtcNow).DayOfWeek;
         var matchCount = 0;
         var totalToday = 0;
-        var candidateGenreSet = new HashSet<string>(candidate.Genres, StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidate.Genres);
 
         foreach (var w in userProfile.WatchedItems)
         {
@@ -50,7 +50,7 @@ internal static class TemporalFeatures
             }
 
             totalToday++;
-            if (w.Genres is not null && candidateGenreSet.Overlaps(w.Genres))
+            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
             {
                 matchCount++;
             }
@@ -83,7 +83,7 @@ internal static class TemporalFeatures
 
         var currentHour = (now ?? DateTime.UtcNow).Hour;
         var currentBucket = GetTimeBucket(currentHour);
-        var candidateGenreSet = new HashSet<string>(candidate.Genres, StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidate.Genres);
 
         var matchCount = 0;
         var totalInBucket = 0;
@@ -106,7 +106,7 @@ internal static class TemporalFeatures
             }
 
             totalInBucket++;
-            if (w.Genres is not null && candidateGenreSet.Overlaps(w.Genres))
+            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
             {
                 matchCount++;
             }

@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -116,6 +117,106 @@ public sealed class ExternalCandidateFeatureImputationTests
         Assert.True(features.GenreSimilarity > 0.0);
         Assert.Equal(0.5, features.PopularityScore, 9);
         Assert.Equal(0.8, features.CombinedCriticScore, 9);
+    }
+
+    [Fact]
+    public void MissingPeopleMetadata_UsesEachModelsMeanAndRecomputesItsGenreInteraction()
+    {
+        var profile = BuildActionHeavyProfile();
+        var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile);
+        var firstMeans = DistinctMeans();
+        var secondMeans = Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray();
+        var features = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { Id = 700, MediaType = "movie", GenreIds = [28], KnownPeople = null }, preferences, ["Favorite actor"], 2015, exposure, profile, firstMeans);
+        Assert.False(features.HasPeopleMetadata);
+        Assert.False(features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity));
+        Assert.Equal(firstMeans[(int)FeatureIndex.PeopleSimilarity], features.PeopleSimilarity);
+        var original = features.ToVector();
+        foreach (var means in new[] { firstMeans, secondMeans })
+        {
+            var vector = features.ToModelVector(means);
+            Assert.Equal(means[(int)FeatureIndex.PeopleSimilarity], vector[(int)FeatureIndex.PeopleSimilarity]);
+            Assert.Equal(features.GenreSimilarity * means[(int)FeatureIndex.PeopleSimilarity], vector[(int)FeatureIndex.PeopleGenreInteraction]);
+            Assert.Equal(vector, features.Copy().ToModelVector(means));
+            Assert.Equal(vector, features.WithoutSignal(FeatureIndex.PeopleSimilarity).ToModelVector(means));
+        }
+        Assert.Equal(original, features.ToVector());
+        Assert.Equal(0.0, features.ToModelVector(null)[(int)FeatureIndex.PeopleSimilarity]);
+        Assert.Equal(0.0, features.ToModelVector(null)[(int)FeatureIndex.PeopleGenreInteraction]);
+        var library = features.Copy();
+        library.IsExternalCandidate = false;
+        Assert.Equal(library.ToVector(), library.ToModelVector(secondMeans));
+    }
+
+    [Theory]
+    [InlineData("empty", 0.0)]
+    [InlineData("nonmatch", 0.0)]
+    [InlineData("match", 1.0)]
+    public void ObservedCredits_PreserveRealMatchesAndKnownZeroValuesAcrossModelMeans(string credits, double expected)
+    {
+        var profile = BuildActionHeavyProfile();
+        var preferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile);
+        List<string> people = credits switch { "empty" => [], "match" => ["Favorite actor"], _ => ["Other actor"] };
+        var features = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { Id = 700, GenreIds = [28], KnownPeople = people }, preferences, ["Favorite actor"], 2015, exposure, profile, DistinctMeans());
+        Assert.True(features.HasPeopleMetadata);
+        Assert.True(features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity));
+        Assert.Equal(expected, features.PeopleSimilarity);
+        var vector = features.ToModelVector(Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray());
+        Assert.Equal(expected, vector[(int)FeatureIndex.PeopleSimilarity]);
+        Assert.Equal(expected * features.GenreSimilarity, vector[(int)FeatureIndex.PeopleGenreInteraction]);
+        Assert.Equal(0.0, features.WithoutSignal(FeatureIndex.PeopleSimilarity).ToModelVector(DistinctMeans())[(int)FeatureIndex.PeopleGenreInteraction]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReconstructedDiscoveryFeedback_PreservesTheDifferenceBetweenMissingAndEmptyCredits(bool hasCredits)
+    {
+        var user = Guid.NewGuid();
+        var shown = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "movie", Genres = ["Action"], ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), Popularity = 50, KnownPeople = hasCredits ? [] : null };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = shown.AddDays(-1), Genres = ["Action"] }] };
+        var means = DistinctMeans();
+        var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new DiscoveryFeedbackResult { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, means, TestContext.Current.CancellationToken).Examples).Features;
+        Assert.Equal(hasCredits, features.HasPeopleMetadata);
+        Assert.Equal(hasCredits, features.IsExternalFeatureKnown(FeatureIndex.PeopleSimilarity));
+        Assert.Equal(hasCredits ? 0.0 : means[(int)FeatureIndex.PeopleSimilarity], features.PeopleSimilarity);
+        var vector = features.ToModelVector(means);
+        Assert.Equal(features.PeopleSimilarity * features.GenreSimilarity, vector[(int)FeatureIndex.PeopleGenreInteraction]);
+    }
+
+    [Fact]
+    public void ConfirmedFeedback_RetainsPeopleProvenanceEvenWhenLaterMetadataOrModelMeansChange()
+    {
+        var user = Guid.NewGuid();
+        var shown = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
+        var stored = new CandidateFeatures { IsExternalCandidate = true, HasPeopleMetadata = false, GenreSimilarity = 0.8, PeopleSimilarity = 0.2 };
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, ShownAtUtc = shown, RequestedAtUtc = shown.AddDays(1), PredictionEvidenceAtUtc = shown, ScoringFeatures = stored, KnownPeople = ["Later actor"] };
+        var restored = System.Text.Json.JsonSerializer.Deserialize<DiscoveryFeedbackResult>(System.Text.Json.JsonSerializer.Serialize(new DiscoveryFeedbackResult { UserId = user, Entries = [entry] }))!;
+        var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([restored], new Dictionary<Guid, UserWatchProfile>(), null, DistinctMeans(), TestContext.Current.CancellationToken).Examples).Features;
+        Assert.False(features.HasPeopleMetadata);
+        Assert.Equal(stored.ToVector(), features.ToVector());
+        var personalMeans = Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray();
+        Assert.Equal(stored.ToModelVector(personalMeans), features.ToModelVector(personalMeans));
+        Assert.NotSame(restored.Entries[0].ScoringFeatures, features);
+    }
+
+    [Fact]
+    public void LegacyPredictionSnapshots_RetainRawPeopleAndInteractionValuesWithoutRetroactiveImputation()
+    {
+        var legacy = System.Text.Json.JsonSerializer.Deserialize<CandidateFeatures>("""{"IsExternalCandidate":true,"GenreSimilarity":0.8,"PeopleSimilarity":0.3,"KnownExternalFeatures":1048576}""")!;
+        var means = DistinctMeans();
+        Assert.Null(legacy.HasPeopleMetadata);
+        var vector = legacy.ToModelVector(means);
+        Assert.Equal(0.3, vector[(int)FeatureIndex.PeopleSimilarity]);
+        Assert.Equal(0.3 * 0.8, vector[(int)FeatureIndex.PeopleGenreInteraction]);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<CandidateFeatures>(System.Text.Json.JsonSerializer.Serialize(legacy.Copy()))!;
+        Assert.Equal(vector, restored.ToModelVector(means));
+        legacy.HasPeopleMetadata = false;
+        var unknown = System.Text.Json.JsonSerializer.Deserialize<CandidateFeatures>(System.Text.Json.JsonSerializer.Serialize(legacy))!;
+        Assert.False(unknown.HasPeopleMetadata);
+        Assert.Equal(means[(int)FeatureIndex.PeopleSimilarity], unknown.ToModelVector(means)[(int)FeatureIndex.PeopleSimilarity]);
     }
 
     [Fact]

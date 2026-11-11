@@ -15,6 +15,41 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class ContentAffinityResolverTests
 {
+    [Fact]
+    public void CollectionIdentity_WorksWithoutNamesAndWithoutAnOptionalBoxsetLibrary()
+    {
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "45", ["TmdbCollection"] = "123" } };
+        Assert.Equal(123, ContentAffinityResolver.ResolveTmdbCollectionId(movie));
+        Assert.Equal("tmdb:collection:123", ContentAffinityResolver.CollectionKey(123, null));
+        Assert.Equal("tmdb:collection:123", ContentAffinityResolver.CollectionKey(123, "different translated name"));
+        Assert.Equal("legacy collection", ContentAffinityResolver.CollectionKey(0, "legacy collection"));
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(new Series()));
+    }
+
+    [Fact]
+    public void SelfValuedCollectionIds_NeedCorroborationButAreNotAutomaticallyDeclaredInvalid()
+    {
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        Assert.True(ContentAffinityResolver.NeedsCollectionCorroboration(movie));
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(movie));
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" }, LinkedChildren = [LinkedChild.Create(movie)] };
+        Assert.Equal(123, ContentAffinityResolver.ResolveTmdbCollectionId(movie, [collection]));
+        collection.LinkedChildren = [];
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(movie, [collection]));
+        movie.TmdbCollectionName = "provider collection name";
+        Assert.Equal(123, ContentAffinityResolver.ResolveTmdbCollectionId(movie));
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(new Movie { ProviderIds = new Dictionary<string, string> { ["TmdbCollection"] = "invalid" } }));
+    }
+
+    [Fact]
+    public void UnrelatedOrMalformedBoxsetIdentities_DoNotCorroborateCopiedTitleIds()
+    {
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123", ["TmdbCollection"] = "123" } };
+        var unrelated = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "999" }, LinkedChildren = [LinkedChild.Create(movie)] };
+        var malformed = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "invalid" }, LinkedChildren = [LinkedChild.Create(movie)] };
+        Assert.Equal(0, ContentAffinityResolver.ResolveTmdbCollectionId(movie, [unrelated, malformed, new BoxSet()]));
+    }
+
     [Theory]
     [InlineData(SeriesStatus.Continuing, "Continuing")]
     [InlineData(SeriesStatus.Ended, "Ended")]

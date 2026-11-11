@@ -73,10 +73,41 @@ public sealed class CertificationResolverTests
         Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 6));
     }
 
+    [Theory]
+    [InlineData("DE", 0)]
+    [InlineData(" de ", 0)]
+    [InlineData("US", 7)]
+    [InlineData(null, 7)]
+    [InlineData("GB", 7)]
+    public void RegionalTvRating_IsNotOverriddenByAnotherCountry(string? region, int expected)
+    {
+        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"contentRatings":{"results":[{"iso_3166_1":"DE","rating":"0"},{"iso_3166_1":"US","rating":"TV-Y7"}]}}""")!;
+        var score = CertificationResolver.Resolve(detail, Mapper().Object, preferredCountry: region);
+        Assert.Equal(expected, score);
+        Assert.Equal(expected > 6, ParentalRatingHelper.ShouldExclude(new TmdbDiscoverItem { CertificationScore = score }, 6));
+    }
+
+    [Fact]
+    public void RegionalMovieRating_RetainsTheMostRestrictiveLocalRelease()
+    {
+        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"0"},{"certification":"6"}]},{"iso_3166_1":"US","release_dates":[{"certification":"PG-13"}]}]}}""")!;
+        Assert.Equal(6, CertificationResolver.Resolve(detail, Mapper().Object, preferredCountry: "DE"));
+        Assert.Equal(1000, CertificationResolver.Resolve(detail, Mapper().Object, adultFlag: true, preferredCountry: "DE"));
+    }
+
+    [Fact]
+    public void UnrecognizedLocalRating_DoesNotFallBackToAnotherCountrysSafeRating()
+    {
+        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"contentRatings":{"results":[{"iso_3166_1":"DE","rating":"unknown"},{"iso_3166_1":"US","rating":"TV-Y7"}]}}""")!;
+        Assert.Null(CertificationResolver.Resolve(detail, Mapper().Object, preferredCountry: "DE"));
+    }
+
     private static Mock<ILocalizationManager> Mapper()
     {
         var mapper = new Mock<ILocalizationManager>();
         mapper.Setup(m => m.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
+        mapper.Setup(m => m.GetRatingScore("0", "DE")).Returns(new ParentalRatingScore(0, null));
+        mapper.Setup(m => m.GetRatingScore("TV-Y7", "US")).Returns(new ParentalRatingScore(7, null));
         mapper.Setup(m => m.GetRatingScore("18", "DE")).Returns(new ParentalRatingScore(18, null));
         mapper.Setup(m => m.GetRatingScore("PG-13", "US")).Returns(new ParentalRatingScore(13, null));
         mapper.Setup(m => m.GetRatingScore("TV-MA", "US")).Returns(new ParentalRatingScore(17, null));

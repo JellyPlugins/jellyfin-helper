@@ -85,6 +85,13 @@ internal static class ScoringHelper
         return floor + ((genreSimilarity / threshold) * (1.0 - floor));
     }
 
+    /// <summary>Applies genre mismatch penalties only when both sides supplied actual genre evidence.</summary>
+    /// <param name="features">Candidate signals and their metadata availability.</param>
+    /// <param name="floor">The minimum multiplier for an observed genre mismatch.</param>
+    /// <returns>A neutral multiplier for missing evidence, otherwise the configured genre penalty.</returns>
+    internal static double ComputeGenrePenalty(CandidateFeatures features, double floor)
+        => features.HasGenreEvidence ? ComputeSoftGenrePenalty(features.GenreSimilarity, floor) : 1.0;
+
     /// <summary>
     ///     Computes the raw linear score from a feature vector, weights, and bias. Returns NaNFallbackScore if the result is NaN or Infinity, which can occur when weights are corrupted or features contain invalid values.
     /// </summary>

@@ -12,13 +12,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public class ScoringGoldenLockTests
 {
-    // Deterministic digest of Heuristic+Learned+Neural scores over 500 seeded feature vectors. If a behavior-preserving refactor changes this, the refactor changed behavior. Rebaselined when the IsAbandoned heuristic weight was tuned -0.04 -> -0.10 (ablation-gated, intentional scoring-math change).
-    private const string ExpectedDigest = "02A4B7D764E9E9AF836B7C379487B8E632EBE558AD66663A6EE1FF0C8BB5D98D";
+    // Rebaselined for the deliberate BoxSet-over-franchise prior: collection 0.045 -> 0.150,
+    // franchise 0.040 -> 0.025. The seed-to-feature mapping and all three scoring algorithms stay locked.
+    private const string ExpectedDigest = "9825A32ABD237D833B8FB460EFFB42B4CA0A6C0486A37C1588605317BFEF3EC7";
 
     [Fact]
     public void ScoringStrategies_ProduceStableDigest_AcrossSeededFeatureBatch()
     {
         var digest = ComputeDigest();
+        TestContext.Current.SendDiagnosticMessage("Current scoring digest: {0}", digest);
 
         // If this fails, a change altered scoring output. For a deliberate scoring-math change, regenerate ExpectedDigest from the new value (after reviewing the diff); otherwise the refactor was not behavior-preserving and must be fixed.
         Assert.Equal(ExpectedDigest, digest);
@@ -32,7 +34,12 @@ public class ScoringGoldenLockTests
 
         var settableDoubles = Array.FindAll(
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
-            static p => p.CanWrite && p.Name != nameof(CandidateFeatures.IsExternalCandidate));
+            static p => p.CanWrite && p.Name != nameof(CandidateFeatures.IsExternalCandidate)
+                && p.Name != nameof(CandidateFeatures.HasGenreEvidence));
+
+        // Availability is policy metadata, not a numerical signal: adding its boolean must not consume
+        // another RNG value and silently change the seed-to-feature mapping. The original known-genre
+        // outputs remain locked; missing-genre behaviour has separate observable regression tests.
 
         // Reflection does NOT guarantee a stable GetProperties() order across runtimes/platforms, so sort by name to make the seed-to-feature assignment (and thus the digest) identical on Windows and the Linux CI runner.
         Array.Sort(settableDoubles, static (a, b) => string.CompareOrdinal(a.Name, b.Name));

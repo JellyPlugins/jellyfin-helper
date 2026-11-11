@@ -365,12 +365,7 @@ internal static class ReasonResolver
             return null;
         }
 
-        return candidate.Genres
-            .Select(g => (Genre: g, Score: genrePreferences.TryGetValue(g, out var s) ? s : (double?)null))
-            .Where(x => x.Score.HasValue)
-            .OrderByDescending(x => x.Score!.Value)
-            .Select(x => x.Genre)
-            .FirstOrDefault();
+        return GenreNormalizer.BestMatch(candidate.Genres, genrePreferences);
     }
 
     /// <summary>

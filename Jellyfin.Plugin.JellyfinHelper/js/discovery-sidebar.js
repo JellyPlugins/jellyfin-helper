@@ -263,6 +263,8 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
+            // A quiet full-width status line must not squeeze the remaining dismiss button.
+            '.jfh-discovery-availability { flex: 1 1 100%; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 0.15em 0; font-size: 0.75em; line-height: 1.3; color: var(--color-text-muted, #ccc); text-align: center; white-space: normal; overflow-wrap: anywhere; }' +
             // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
             // Failed) exactly the same size, so swapping the label never changes the button's height or width
             // and the state transition doesn't flicker. The request button spans the full row (its dismiss
@@ -272,7 +274,7 @@
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
-            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
+            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; overflow-wrap: anywhere; }' +
             '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: var(--color-danger); } }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; overflow-wrap: anywhere; }' +
@@ -1065,8 +1067,8 @@
             if (!isCurrentDiscoveryRequest(request) || _discoveryDisabled || document.visibilityState !== 'visible') return;
             for (var entry of entries) {
                 var card = entry.target;
-                var button = card.querySelector('[data-jfh-action="request"]');
-                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
+                var candidate = discoveryImpressionItem(card);
+                if (!entry.isIntersecting || entry.intersectionRatio < 0.5 || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey)
                     || _reportedImpressions.get(card) === card._jfhDeliveryId) continue;
                 pending.set(card.dataset.cardKey, card);
             }
@@ -1083,13 +1085,13 @@
                         return;
                     }
                     var rect = card.getBoundingClientRect();
-                    var button = card.querySelector('[data-jfh-action="request"]');
-                    if (!card.isConnected || !button || button.disabled || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
+                    var candidate = discoveryImpressionItem(card);
+                    if (!card.isConnected || !candidate || !card._jfhDeliveryId || _consumedDiscoveryItems.has(card.dataset.cardKey) || _reportedImpressions.get(card) === card._jfhDeliveryId || !rect.width || !rect.height
                         || rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) continue;
                     var visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
                     var visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
                     if (visibleWidth * visibleHeight < rect.width * rect.height * 0.5) continue;
-                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: Number.parseInt(button.dataset.tmdb, 10), type: button.dataset.type });
+                    batch.push({ card: card, deliveryId: card._jfhDeliveryId, id: candidate.TmdbId, type: candidate.MediaType });
                     if (batch.length === 20) break;
                 }
                 pending.clear();
@@ -1130,6 +1132,16 @@
             if (owner) owners.add(owner);
         }
         for (const owner of owners) observeVisibleDiscoveryCards(owner);
+    }
+
+    function discoveryImpressionItem(card) {
+        // Availability only gates requesting; visible recommendations still carry delivery evidence.
+        // Read identity from the card, not from optional action buttons.
+        var id = Number.parseInt(card.dataset.tmdb, 10);
+        var type = card.dataset.type;
+        if (!Number.isInteger(id) || id <= 0 || (type !== 'movie' && type !== 'tv') || card._jfhConsuming
+            || card.querySelector('.jfh-discovery-btn-done, [data-jfh-action="request"]:disabled')) return null;
+        return { TmdbId: id, MediaType: type };
     }
 
     function renderEmptySidebarCards(container) {
@@ -1284,6 +1296,9 @@
     }
 
     function renderSidebarScoreHtml(r) {
+        if (r.IsPersonalized === false) {
+            return '<div class="jfh-discovery-score-text">' + esc(t('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</div>';
+        }
         var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
         var scoreClass = getDiscoveryScoreClass(scorePercent);
         // Trakt's ranking is independent of our local match percentage.
@@ -1297,17 +1312,25 @@
         var reasonText = formatReason(r.ReasonKey, r.Reason, r.RelatedInfo);
         // Slash breaks are inserted only after escaping the reason.
         var reason = reasonText ? '<div class="jfh-discovery-reason">' + insertSlashBreaks(esc(reasonText)) + '</div>' : '';
-        var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
-        var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
-        var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-        var dismissBtnHtml = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
-        return '<div class="jfh-discovery-card">' + renderSidebarPosterHtml(r, mediaType) +
+        return '<div class="jfh-discovery-card" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '">' + renderSidebarPosterHtml(r, mediaType) +
             '<div class="jfh-discovery-card-body">' +
             '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
             renderSidebarMetadataHtml(r, mediaType) + renderSidebarScoreHtml(r) + reason +
-            '<div class="jfh-discovery-btn-row">' +
-            '<button type="button" class="' + btnClass + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
-            dismissBtnHtml + '</div></div></div>';
+            '<div class="jfh-discovery-btn-row">' + renderSidebarActionsHtml(r, mediaType) + '</div></div></div>';
+    }
+
+    function renderSidebarActionsHtml(r, mediaType) {
+        var request;
+        if (r.AlreadyRequested || r.AvailabilityVerified === true) {
+            var text = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
+            var cls = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
+            request = '<button type="button" class="' + cls + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + (r.AlreadyRequested ? ' disabled' : '') + '>' + esc(text) + '</button>';
+        } else {
+            var hint = t('discoveryAvailabilityUnknownHint', 'Availability not checked');
+            request = '<span class="jfh-discovery-availability" role="note" title="' + esc(hint) + '" aria-label="' + esc(hint) + '">' + esc(t('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
+        }
+        var dismiss = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+        return request + dismiss;
     }
 
     function bindSidebarCardHandlers(container) {
@@ -1829,7 +1852,9 @@
     // Reason keys whose localized text embeds a {0} anchor (person name, genre). Fallbacks match en.json.
     var REASON_TEMPLATES = {
         reasonPersonNamed: 'Featuring {0}',
-        reasonGenre: 'Because you enjoy {0}'
+        reasonGenre: 'Because you enjoy {0}',
+        reasonFranchiseNamed: 'More from the {0} collection',
+        reasonStudioNamed: 'From {0}'
     };
     // Reason keys that render as a plain localized phrase with no anchor. Fallbacks match en.json so a
     // discovery card still shows a reason when the /Translations fetch failed and _strings is empty.
@@ -1838,6 +1863,8 @@
         reasonPopular: 'Popular and highly rated',
         reasonHighlyRated: 'Highly rated',
         reasonPopularAmongViewers: 'Popular with other viewers',
+        reasonFranchise: 'From a franchise you follow',
+        reasonCollectionContinuation: 'Because you like this collection',
         reasonDefault: 'Recommended for you'
     };
 

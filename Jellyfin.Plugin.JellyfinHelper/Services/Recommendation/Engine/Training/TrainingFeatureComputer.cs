@@ -20,40 +20,10 @@ internal static class TrainingFeatureComputer
     internal static HashSet<string> BuildStudioPreferenceSetFromCache(
         UserWatchProfile userProfile,
         Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup)
-    {
-        var studios = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (!w.HasMeaningfulInteraction())
-            {
-                continue;
-            }
-
-            // Look up studios by the item's own ID
-            if (itemStudiosLookup.TryGetValue(w.ItemId, out var itemStudios))
-            {
-                foreach (var s in itemStudios.Where(static s => !string.IsNullOrWhiteSpace(s)))
-                {
-                    studios.Add(s);
-                }
-            }
-
-            // Also look up studios by the item's series ID (episodes ? series mapping)
-            if (!w.SeriesId.HasValue ||
-                !itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var seriesStudios))
-            {
-                continue;
-            }
-
-            foreach (var s in seriesStudios.Where(static s => !string.IsNullOrWhiteSpace(s)))
-            {
-                studios.Add(s);
-            }
-        }
-
-        return studios;
-    }
+        => PreferenceBuilder.BuildMetadataPreferenceSet(
+            userProfile,
+            itemStudiosLookup.GetValueOrDefault,
+            row => (row.Studios, row.OwnStudios, row.SeriesStudios));
 
     /// <summary>
     ///     Builds a set of preferred tag names for a user from a precomputed item-to-tags lookup.
@@ -64,39 +34,10 @@ internal static class TrainingFeatureComputer
     internal static HashSet<string> BuildTagPreferenceSetFromCache(
         UserWatchProfile userProfile,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup)
-    {
-        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var w in userProfile.WatchedItems)
-        {
-            if (!w.HasMeaningfulInteraction())
-            {
-                continue;
-            }
-
-            // Look up tags by the item's own ID
-            if (itemTagsLookup.TryGetValue(w.ItemId, out var itemTags))
-            {
-                foreach (var t in itemTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
-                {
-                    tags.Add(t);
-                }
-            }
-
-            // Also look up tags by the item's series ID (episodes ? series mapping)
-            if (!w.SeriesId.HasValue || !itemTagsLookup.TryGetValue(w.SeriesId.Value, out var seriesTags))
-            {
-                continue;
-            }
-
-            foreach (var t in seriesTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
-            {
-                tags.Add(t);
-            }
-        }
-
-        return tags;
-    }
+        => PreferenceBuilder.BuildMetadataPreferenceSet(
+            userProfile,
+            itemTagsLookup.GetValueOrDefault,
+            row => (row.Tags, row.OwnTags, row.SeriesTags));
 
     /// <summary>
     ///     Computes temporal affinity for training examples using the actual watch timestamp.
@@ -117,7 +58,7 @@ internal static class TrainingFeatureComputer
             return 0.5;
         }
 
-        var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
         return ComputeTrainingTemporalAffinity(watchedItem, candidateGenreSet, userProfile, isDay);
     }
 
@@ -142,6 +83,7 @@ internal static class TrainingFeatureComputer
 
         var watchDate = watchedItem.LastPlayedDate.Value;
 
+        candidateGenreSet = GenreNormalizer.CanonicalSet(candidateGenreSet);
         var (matchCount, totalInBucket) = CountBucketMatches(watchedItem, candidateGenreSet, userProfile, watchDate, isDay);
 
         if (totalInBucket < 3)
@@ -196,7 +138,7 @@ internal static class TrainingFeatureComputer
             }
 
             totalInBucket++;
-            if (w.Genres is not null && w.Genres.Any(candidateGenreSet.Contains))
+            if (w.Genres is not null && GenreNormalizer.Overlaps(candidateGenreSet, w.Genres))
             {
                 matchCount++;
             }
@@ -232,6 +174,7 @@ internal static class TrainingFeatureComputer
     /// <param name="seriesAffinityContext">Optional series affinity context.</param>
     /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
     /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
+    /// <param name="collectionProgressionBoost">Confirmed parent-series membership scored against the historical, self-excluded sibling counts.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -256,12 +199,14 @@ internal static class TrainingFeatureComputer
         DateTime organicFallbackTimestamp,
         ContentScoring.SeriesAffinityContext? seriesAffinityContext = null,
         double? parentSeriesRating = null,
-        int seriesTmdbId = 0)
+        int seriesTmdbId = 0,
+        double collectionProgressionBoost = 0.0)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
             .OrderByDescending(e => e.LastPlayedDate)
             .FirstOrDefault();
+        var predictionTime = DateTimeNormalization.ToUtc(mostRecent?.LastPlayedDate ?? organicFallbackTimestamp);
 
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0
@@ -320,10 +265,11 @@ internal static class TrainingFeatureComputer
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
+            HasGenreEvidence = genreList.Count > 0 && genrePreferences.Count > 0,
             CollaborativeScore = collabScore,
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = representativeYear is { } recY and >= 1 and <= 9999
-                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc))
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1, 0, 0, 0, DateTimeKind.Utc), predictionTime)
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
@@ -342,11 +288,12 @@ internal static class TrainingFeatureComputer
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency =
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
-                    ? ContentScoring.ComputeRecencyScore(minDate)
+                    ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
-            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
+            CollectionProgressionBoost = collectionProgressionBoost,
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(episodes.Select(episode => episode.TmdbCollectionId).FirstOrDefault(id => id > 0), seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(true, mostRecent?.SeriesStatus, mostRecent?.EndDate.HasValue ?? false),
@@ -382,7 +329,7 @@ internal static class TrainingFeatureComputer
             {
                 Features = features,
                 Label = label,
-                GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
+                GeneratedAtUtc = predictionTime,
                 SampleWeight = 0.7,
                 UserId = userProfile.UserId,
                 ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),
@@ -426,7 +373,7 @@ internal static class TrainingFeatureComputer
         representativeYear = null;
         foreach (var ep in episodes)
         {
-            allGenres.UnionWith((ep.Genres ?? Array.Empty<string>()).Where(g => !string.IsNullOrWhiteSpace(g)));
+            allGenres.UnionWith(GenreNormalizer.Set(ep.Genres));
 
             // Use the first available production year as representative
             representativeYear ??= ep.Year;
@@ -554,7 +501,7 @@ internal static class TrainingFeatureComputer
             return 0.0;
         }
 
-        var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
         HashSet<string>? candidatePeopleSet = candidatePeople.Count > 0
             ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
             : null;

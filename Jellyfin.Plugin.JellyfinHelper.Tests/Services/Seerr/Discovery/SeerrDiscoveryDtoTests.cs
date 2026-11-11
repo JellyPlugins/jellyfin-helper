@@ -502,13 +502,12 @@ public class SeerrDiscoveryDtoTests
     }
 
     [Fact]
-    public void DiscoveryFeedbackEntry_Defaults_AllCollectionsAreEmptyLists()
+    public void DiscoveryFeedbackEntry_Defaults_GenresAreEmptyButUnobservedCreditsStayUnknown()
     {
         var e = new DiscoveryFeedbackEntry();
         Assert.NotNull(e.Genres);
         Assert.Empty(e.Genres);
-        Assert.NotNull(e.KnownPeople);
-        Assert.Empty(e.KnownPeople);
+        Assert.Null(e.KnownPeople);
         Assert.Equal("movie", e.MediaType);
         Assert.Equal(string.Empty, e.Title);
     }

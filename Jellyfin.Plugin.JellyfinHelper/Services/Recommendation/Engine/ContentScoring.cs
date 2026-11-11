@@ -275,6 +275,7 @@ internal static class ContentScoring
         // Parallel-array invariant: all three lists MUST be the same length (populated in the same loop in Engine.GenerateForUser and the training-data builders).
         ReportParallelArrayMismatch(watchedGenreSets, watchedPeopleSets, watchedStudioSets);
 
+        candidateGenres = GenreNormalizer.CanonicalSet(candidateGenres);
         var maxComposite = 0.0;
 
         for (var i = 0; i < watchedGenreSets.Count; i++)
@@ -283,7 +284,7 @@ internal static class ContentScoring
                 candidateGenres,
                 candidatePeople,
                 candidateStudios,
-                watchedGenreSets[i],
+                GenreNormalizer.CanonicalSet(watchedGenreSets[i]),
                 i < watchedPeopleSets.Count ? watchedPeopleSets[i] : null,
                 i < watchedStudioSets.Count ? watchedStudioSets[i] : null);
             if (composite > maxComposite)
@@ -418,11 +419,11 @@ internal static class ContentScoring
             return (0.0, 0.5, 0.0);
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var matching = profile.WatchedItems
             .Where(w => w.HasMeaningfulInteraction()
                      && w.Genres is not null
-                     && w.Genres.Any(candidateSet.Contains)
+                      && GenreNormalizer.Overlaps(candidateSet, w.Genres)
                      && (excludeItemIds is null || !excludeItemIds.Contains(w.ItemId)))
             .ToList();
 
@@ -469,20 +470,21 @@ internal static class ContentScoring
         IReadOnlyList<string> candidateGenres,
         GenreEngagementContext context)
     {
-        var totalMeaningful = context.MeaningfulWatches.Count;
+        var watches = context.CanonicalWatches();
+        var totalMeaningful = watches.Count;
         if (candidateGenres.Count == 0 || totalMeaningful == 0)
         {
             return (0.0, 0.5, 0.0);
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var matchCount = 0;
         var withCompletionCount = 0;
         var completionSum = 0.0;
         var abandonCount = 0;
-        foreach (var w in context.MeaningfulWatches)
+        foreach (var w in watches)
         {
-            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains))
+            if (w.Genres is null || !candidateSet.Overlaps(w.Genres))
             {
                 continue;
             }
@@ -528,6 +530,7 @@ internal static class ContentScoring
     /// <returns>The per-user genre-engagement context.</returns>
     internal static GenreEngagementContext BuildGenreEngagementContext(UserWatchProfile profile)
     {
+        var catalogVersion = GenreNormalizer.CatalogVersion;
         var meaningful = new List<MeaningfulWatch>();
         foreach (var w in profile.WatchedItems)
         {
@@ -537,7 +540,7 @@ internal static class ContentScoring
             }
 
             var genreSet = w.Genres is { Count: > 0 }
-                ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                ? GenreNormalizer.Set(w.Genres)
                 : null;
             var countsForCompletion = w.RuntimeTicks > 0 || w.Played;
             var completion = countsForCompletion ? ComputeCompletionRatio(w) : 0.0;
@@ -545,7 +548,7 @@ internal static class ContentScoring
             meaningful.Add(new MeaningfulWatch(genreSet, countsForCompletion, completion, normalizedRating));
         }
 
-        return new GenreEngagementContext(meaningful);
+        return new GenreEngagementContext(meaningful, catalogVersion);
     }
 
     /// <summary>
@@ -568,14 +571,14 @@ internal static class ContentScoring
             return 0.5;
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var ratingSum = 0.0;
         var ratingCount = 0;
         foreach (var w in profile.WatchedItems)
         {
             if (!w.HasMeaningfulInteraction()
                 || w.Genres is null
-                || !w.Genres.Any(candidateSet.Contains)
+                || !GenreNormalizer.Overlaps(candidateSet, w.Genres)
                 || (excludeItemIds is not null && excludeItemIds.Contains(w.ItemId)))
             {
                 continue;
@@ -607,17 +610,18 @@ internal static class ContentScoring
         IReadOnlyList<string> candidateGenres,
         GenreEngagementContext context)
     {
-        if (candidateGenres.Count == 0 || context.MeaningfulWatches.Count == 0)
+        var watches = context.CanonicalWatches();
+        if (candidateGenres.Count == 0 || watches.Count == 0)
         {
             return 0.5;
         }
 
-        var candidateSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        var candidateSet = GenreNormalizer.Set(candidateGenres);
         var ratingSum = 0.0;
         var ratingCount = 0;
-        foreach (var w in context.MeaningfulWatches)
+        foreach (var w in watches)
         {
-            if (w.Genres is null || !w.Genres.Any(candidateSet.Contains) || w.NormalizedRating is null)
+            if (w.Genres is null || !candidateSet.Overlaps(w.Genres) || w.NormalizedRating is null)
             {
                 continue;
             }
@@ -684,15 +688,7 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var candidateGenreSet = new HashSet<string>(
-            candidate.Genres ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        peopleLookup.TryGetValue(candidate.Id, out var candidatePeople);
-        var candidatePeopleSet = candidatePeople is not null
-            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
-            : null;
-
-        return ComputeBestSeriesJaccard(
-            context.ProgressingSeriesIds, context.WatchedBySeries, peopleLookup, candidateGenreSet, candidatePeopleSet);
+        return ComputeSeriesAffinity(true, candidate.Id, candidate.Genres ?? [], context, peopleLookup);
     }
 
     /// <summary>
@@ -719,9 +715,7 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var candidateGenreSet = candidateGenres.Count > 0
-            ? new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var candidateGenreSet = GenreNormalizer.Set(candidateGenres);
         peopleLookup.TryGetValue(candidateId, out var candidatePeople);
         var candidatePeopleSet = candidatePeople is not null
             ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
@@ -822,10 +816,7 @@ internal static class ContentScoring
         {
             if (w.Genres is not null)
             {
-                foreach (var g in w.Genres)
-                {
-                    genres.Add(g);
-                }
+                genres.UnionWith(GenreNormalizer.Set(w.Genres));
             }
 
             AddPeopleFromLookup(w.ItemId, peopleLookup, people);
@@ -876,6 +867,37 @@ internal static class ContentScoring
     ///     reproduces the direct method's arithmetic exactly.
     /// </summary>
     /// <param name="MeaningfulWatches">Meaningful watched items, in profile order.</param>
+    /// <param name="CatalogVersion">The alias version used when these genres were normalized.</param>
     internal sealed record GenreEngagementContext(
-        List<MeaningfulWatch> MeaningfulWatches);
+        List<MeaningfulWatch> MeaningfulWatches,
+        int CatalogVersion)
+    {
+        private readonly Lock _genreCacheLock = new();
+        private int _refreshedVersion = -1;
+        private List<MeaningfulWatch>? _refreshedWatches;
+
+        /// <summary>Reuses canonical sets; a changed provider catalog re-normalizes the detached snapshot once.</summary>
+        /// <returns>The current canonical genre sets in the original arithmetic order.</returns>
+        internal List<MeaningfulWatch> CanonicalWatches()
+        {
+            var version = GenreNormalizer.CatalogVersion;
+            if (version == CatalogVersion)
+            {
+                return MeaningfulWatches;
+            }
+
+            lock (_genreCacheLock)
+            {
+                if (_refreshedWatches is null || _refreshedVersion != version)
+                {
+                    _refreshedWatches = MeaningfulWatches.Select(watch => watch.Genres is null
+                        ? watch
+                        : watch with { Genres = GenreNormalizer.Set(watch.Genres) }).ToList();
+                    _refreshedVersion = version;
+                }
+
+                return _refreshedWatches;
+            }
+        }
+    }
 }

@@ -161,9 +161,23 @@ public sealed class DiscoveryRecommendationTests
         Assert.Null(sut.PosterPath);
         Assert.Null(sut.Overview);
         Assert.False(sut.AlreadyRequested);
+        Assert.False(sut.AvailabilityVerified);
         Assert.Null(sut.KnownPeople);
         Assert.Equal(0.0, sut.Popularity);
         Assert.Null(sut.SourceRank);
+    }
+
+    [Fact]
+    public void AvailabilityVerification_SurvivesSerializationAndCloningWhileLegacyPayloadsRemainUnknown()
+    {
+        foreach (var verified in new[] { false, true })
+        {
+            var original = new DiscoveryRecommendation { TmdbId = 7, AvailabilityVerified = verified };
+            var restored = System.Text.Json.JsonSerializer.Deserialize<DiscoveryRecommendation>(System.Text.Json.JsonSerializer.Serialize(original))!;
+            Assert.Equal(verified, restored.AvailabilityVerified);
+            Assert.Equal(verified, restored.Clone().AvailabilityVerified);
+        }
+        Assert.False(System.Text.Json.JsonSerializer.Deserialize<DiscoveryRecommendation>("{\"TmdbId\":7}")!.AvailabilityVerified);
     }
 
     [Fact]

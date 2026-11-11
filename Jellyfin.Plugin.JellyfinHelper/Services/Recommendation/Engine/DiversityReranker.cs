@@ -338,9 +338,7 @@ internal static class DiversityReranker
         {
             if (!_genreSetCache.TryGetValue(item.Id, out var set))
             {
-                set = item.Genres is { Length: > 0 }
-                    ? new HashSet<string>(item.Genres, StringComparer.OrdinalIgnoreCase)
-                    : [];
+                set = GenreNormalizer.Set(item.Genres);
                 _genreSetCache[item.Id] = set;
             }
 

@@ -108,6 +108,10 @@ internal sealed class TmdbDiscoverItem
     [JsonIgnore]
     public int? CertificationScore { get; set; }
 
+    /// <summary>Gets or sets the country-policy context of the verified provider rating.</summary>
+    [JsonIgnore]
+    public string? CertificationPolicyCountry { get; set; }
+
     /// <summary>
     ///     Gets or sets the Seerr media availability info, present when Seerr already tracks this title.
     ///     Null for titles Seerr has never seen.
@@ -130,6 +134,34 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public List<string>? KnownPeople { get; set; }
+
+    /// <summary>Gets or sets the collection identity supplied by a movie detail response.</summary>
+    [JsonIgnore]
+    public int CollectionId { get; set; }
+
+    /// <summary>Gets or sets the localized provider collection label, used only as a legacy fallback.</summary>
+    [JsonIgnore]
+    public string? CollectionName { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the provider confirmed collection metadata.</summary>
+    [JsonIgnore]
+    public bool HasCollectionMetadata { get; set; }
+
+    /// <summary>Gets or sets provider keywords; null means unknown, empty means known to be empty.</summary>
+    [JsonIgnore]
+    public List<string>? KnownKeywords { get; set; }
+
+    /// <summary>Gets or sets provider production companies; null means unknown.</summary>
+    [JsonIgnore]
+    public List<string>? KnownStudios { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether this pass already attempted the shared detail request.</summary>
+    [JsonIgnore]
+    public bool MetadataFetchAttempted { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the attempted request supplied valid detail metadata.</summary>
+    [JsonIgnore]
+    public bool MetadataFetchSucceeded { get; set; }
 
     /// <summary>
     ///     Gets or sets the Trakt URL slug, carried through from external candidates so recommendations can

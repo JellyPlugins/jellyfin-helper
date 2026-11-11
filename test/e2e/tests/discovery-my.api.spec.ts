@@ -336,11 +336,9 @@ test.describe.serial('Discovery availability exclusion', () => {
     }
   });
 
-  // Discovery requires a user profile with watch history containing genres; without an active profile,
-  // no candidates are generated. Since this test suite seeds no playback,
-  // it must build its own profile instead of relying on prior test runs.
-  // The ffmpeg test fixtures lack genre metadata, which leaves the preference vector empty and causes `SeerrDiscoveryService` to return null and clear the pool.
-  // Assigning "Action" (a valid TMDb genre ID) ensures the mock discovery query returns candidates.
+  // Seed a personal profile that genuinely matches the positive-control candidate: 680 has Crime/Drama
+  // metadata. An Action-only profile correctly fails the genre relevance floor and cannot test its
+  // availability exclusion. Do not rely on another user's cold-start pool to satisfy this control.
   async function seedAdminWatchProfile(): Promise<void> {
     // Ensure a pristine watch profile so leftover playback from other specs (recommendations-ranking)
     // does not dilute the genre vector or change the average-year filter.
@@ -370,7 +368,7 @@ test.describe.serial('Discovery availability exclusion', () => {
     // Avoid picking the discover candidates themselves if they ever appear as library items.
     const watched = movies.slice(0, 3);
     for (const id of watched) {
-      await assignGenre(id, 'Action');
+      await assignGenre(id, 'Crime');
       const mark = await admin.post(`/UserPlayedItems/${id}?userId=${auth.userId}`);
       expect(mark.ok(), `mark-played ${id}: ${mark.status()}`).toBeTruthy();
       seededPlayed.push(id);
@@ -393,7 +391,7 @@ test.describe.serial('Discovery availability exclusion', () => {
       const wp = await admin.get(p(`Recommendations/WatchProfile/${auth.userId}`));
       if (wp.ok()) {
         lastProfile = (await wp.json()) as typeof lastProfile;
-        if ((lastProfile.WatchedMovieCount ?? 0) >= 3 && (lastProfile.GenreDistribution?.Action ?? 0) >= 3) {
+        if ((lastProfile.WatchedMovieCount ?? 0) >= 3 && (lastProfile.GenreDistribution?.Crime ?? 0) >= 3) {
           profileVisible = true;
           break;
         }
@@ -403,7 +401,7 @@ test.describe.serial('Discovery availability exclusion', () => {
     expect(
       profileVisible,
       `watch profile never became visible to the engine (setup race, not a product bug): ` +
-        `WatchedMovieCount=${lastProfile.WatchedMovieCount ?? 0}, Action=${lastProfile.GenreDistribution?.Action ?? 0}. ` +
+        `WatchedMovieCount=${lastProfile.WatchedMovieCount ?? 0}, Crime=${lastProfile.GenreDistribution?.Crime ?? 0}. ` +
         `Full GenreDistribution=${JSON.stringify(lastProfile.GenreDistribution ?? {})}`,
     ).toBe(true);
   }
@@ -427,13 +425,16 @@ test.describe.serial('Discovery availability exclusion', () => {
   }
 
   async function readDiscoveryPoolIds(): Promise<number[]> {
-    // The admin view returns every user's pool; flatten to the set of surfaced TMDb ids.
+    // The positive control belongs to the seeded admin, not an unrelated cold-start user's pool.
     const res = await admin.get(p('Discovery'));
     expect(res.ok(), `Discovery admin list failed: ${res.status()}`).toBeTruthy();
     const pools = (await res.json()) as Array<{
+      UserId: string;
       Recommendations?: Array<{ TmdbId: number; MediaType?: string }>;
     }>;
-    return pools.flatMap((pool) => (pool.Recommendations ?? []).map((rec) => rec.TmdbId));
+    const seededUser = auth.userId.replaceAll('-', '').toLowerCase();
+    return pools.filter(pool => pool.UserId.replaceAll('-', '').toLowerCase() === seededUser)
+      .flatMap((pool) => (pool.Recommendations ?? []).map((rec) => rec.TmdbId));
   }
 
   async function generatedTmdbIds(): Promise<number[]> {
@@ -454,12 +455,9 @@ test.describe.serial('Discovery availability exclusion', () => {
     return entries.slice(-12).map((l) => l.Message ?? '').join('\n');
   }
 
-  // Generate and require a non-empty pool. runCleanupTask runs the whole weekly umbrella task, whose
-  // "Completed" says nothing about whether discovery generated for THIS user: a single transient
-  // per-user null makes GenerateForUserAsync drop the user and the generator's final Save([]) wipes a
-  // previously-good pool (SeerrDiscoveryService: empty allResults overwrites the cache file). So the
-  // positive control must tolerate one bad regeneration and retry, and only fail - with the plugin's
-  // own debug tail attached - if the pool stays empty across attempts.
+  // "Completed" covers the umbrella task, not whether this user's discovery pool was populated.
+  // Transient provider failures retain prior pools; on the first generation there may be no prior
+  // pool to retain. Retry that empty first-generation case and attach the generator's own diagnostics.
   async function generateExpectingPool(): Promise<number[]> {
     let ids: number[] = [];
     for (let attempt = 0; attempt < 3; attempt++) {

@@ -14,6 +14,45 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal static class ContentAffinityResolver
 {
+    /// <summary>Creates one language-independent collection key, retaining names only for legacy metadata.</summary>
+    /// <param name="id">The corroborated provider collection identity, or zero when unknown.</param>
+    /// <param name="name">An optional legacy display label.</param>
+    /// <returns>A stable key, a legacy name, or null when no evidence exists.</returns>
+    internal static string? CollectionKey(int id, string? name)
+        => id > 0 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tmdb:collection:{id}") : name;
+
+    /// <summary>Detects self-valued collection metadata that needs evidence; provider ID spaces may legitimately overlap.</summary>
+    /// <param name="item">The library item.</param>
+    /// <returns>Whether a nameless collection ID is indistinguishable from a copied title ID.</returns>
+    internal static bool NeedsCollectionCorroboration(BaseItem item)
+        => item is Movie movie && string.IsNullOrWhiteSpace(movie.TmdbCollectionName)
+            && int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var collection) && collection > 0
+            && int.TryParse(item.ProviderIds.GetValueOrDefault("Tmdb"), out var title) && collection == title;
+
+    /// <summary>Resolves a collection ID without turning suspicious migration metadata into a verified franchise.</summary>
+    /// <param name="item">The library movie; BoxSet libraries are optional.</param>
+    /// <param name="collections">Optional corroboration for ambiguous self-valued IDs.</param>
+    /// <param name="memberships">An optional pre-resolved authoritative item-to-BoxSet lookup.</param>
+    /// <returns>The typed collection ID, or zero while evidence is insufficient.</returns>
+    internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null)
+    {
+        if (item is not Movie || !int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0)
+        {
+            return 0;
+        }
+
+        if (!NeedsCollectionCorroboration(item))
+        {
+            return id;
+        }
+
+        var supported = collections?.Any(boxset => int.TryParse(boxset.ProviderIds.GetValueOrDefault("Tmdb"), out var boxsetId) && boxsetId == id
+            && (memberships is not null
+                ? memberships.TryGetValue(item.Id, out var parents) && parents.Contains(boxset.Id)
+                : boxset.LinkedChildren.Any(child => child.Type == LinkedChildType.Manual && child.ItemId == item.Id))) == true;
+        return supported ? id : 0;
+    }
+
     /// <summary>
     ///     Resolves the TMDb collection (franchise) name of a movie, if any. Non-movies and items
     ///     without a collection return null.

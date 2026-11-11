@@ -217,8 +217,9 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
 
-        var neural = new NeuralScoringStrategy();
-        var sut = BuildSut(logger, neural);
+        using var neural = new NeuralScoringStrategy();
+        Assert.True(neural.Train(CleanExamples(30)));
+        using var sut = BuildSut(logger, neural);
 
         // An over-ceiling persisted beta is discarded so the ramp restarts from zero.
         Assert.Equal(0.0, sut.CurrentNeuralBeta);
@@ -252,6 +253,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         }));
 
         using var neural = new NeuralScoringStrategy();
+        Assert.True(neural.Train(CleanExamples(30)));
         using var sut = BuildPerUserSut(neural);
 
         Assert.Equal(beta, sut.CurrentNeuralBeta, 6);
@@ -275,9 +277,113 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
         }));
 
         using var neural = new NeuralScoringStrategy();
+        Assert.True(neural.Train(CleanExamples(30)));
         using var sut = BuildPerUserSut(neural);
 
         Assert.Equal(0.0, sut.CurrentNeuralBeta);
+    }
+
+    [Fact]
+    public void RestoreWithoutAnyNeuralStrategy_DoesNotRetainPersistedBeta()
+    {
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = 300,
+            ObservedTrainingIds = Enumerable.Range(0, 300).Select(index => TrainingExample.CreateObservationId(Guid.Empty, "restore:" + index)).ToArray(),
+            Alpha = 0.6,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction
+        }));
+        using var sut = new EnsembleScoringStrategy(new LearnedScoringStrategy(null), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), statePath: StatePath, ownsNeural: false);
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
+    }
+
+    [Theory]
+    [InlineData("missing", true)]
+    [InlineData("missing", false)]
+    [InlineData("corrupt", true)]
+    [InlineData("corrupt", false)]
+    [InlineData("version", true)]
+    [InlineData("version", false)]
+    [InlineData("shape", true)]
+    [InlineData("shape", false)]
+    [InlineData("valid", true)]
+    [InlineData("valid", false)]
+    public void RestoreBeta_RequiresUsableV5NeuralWeightsWithoutDiscardingValidLearnedWeights(string fileState, bool ownsNeural)
+    {
+        var neuralPath = Path.Join(_tempDir, "neural_weights.json");
+        var examples = CleanExamples(300);
+        var validation = CleanExamples(40, seed: 99);
+        var learned = new LearnedScoringStrategy(WeightsPath);
+        Assert.True(learned.Train(examples, validation));
+        if (fileState is "version" or "shape" or "valid")
+        {
+            using var fitted = new NeuralScoringStrategy(neuralPath);
+            Assert.True(fitted.Train(CleanExamples(30)));
+            Assert.True(fitted.HasTrainedWeights);
+            var payload = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(neuralPath))!;
+            Assert.Equal(5, payload["Version"]!.GetValue<int>());
+            if (fileState == "version") payload["Version"] = 999;
+            if (fileState == "shape") payload["WeightsIH"] = new System.Text.Json.Nodes.JsonArray();
+            File.WriteAllText(neuralPath, payload.ToJsonString());
+        }
+        if (fileState == "corrupt") File.WriteAllText(neuralPath, "not json {{{");
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = examples.Count,
+            ObservedTrainingIds = examples.Select(example => example.ObservationId).ToArray(),
+            Alpha = 0.6,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction
+        }));
+        var persistedState = File.ReadAllText(StatePath);
+        var persistedLearned = File.ReadAllText(WeightsPath);
+        using var neural = new NeuralScoringStrategy(neuralPath);
+        using var sut = new EnsembleScoringStrategy(new LearnedScoringStrategy(WeightsPath), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), neural, StatePath, ownsNeural: ownsNeural);
+        using var fallback = BuildSut();
+
+        Assert.Equal(fileState == "valid", neural.HasTrainedWeights);
+        Assert.Equal(fileState == "valid" ? EnsembleScoringStrategy.NeuralMaxBetaFraction : 0.0, sut.CurrentNeuralBeta);
+        Assert.Equal(0.6, sut.CurrentAlpha);
+        Assert.Equal(examples.Count, sut.TrainingExampleCount);
+        if (fileState != "valid")
+        {
+            Assert.All(validation, example =>
+            {
+                Assert.Equal(fallback.Score(example.Features), sut.Score(example.Features));
+                Assert.Equal(fallback.ScoreWithExplanation(example.Features).FinalScore, sut.ScoreWithExplanation(example.Features).FinalScore);
+            });
+        }
+        Assert.Equal(persistedState, File.ReadAllText(StatePath));
+        Assert.Equal(persistedLearned, File.ReadAllText(WeightsPath));
+    }
+
+    [Fact]
+    public void MissingNeuralWeights_RemainDisabledUntilSuccessfulTrainingPassesTheNormalQualityGate()
+    {
+        var examples = CleanExamples(300);
+        var validation = CleanExamples(40, seed: 99);
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            TrainingExampleCount = examples.Count,
+            ObservedTrainingIds = examples.Select(example => example.ObservationId).ToArray(),
+            Alpha = 0.6,
+            NeuralBeta = EnsembleScoringStrategy.NeuralMaxBetaFraction
+        }));
+        using var neural = new NeuralScoringStrategy(Path.Join(_tempDir, "missing_neural.json"));
+        using var sut = BuildSut(neural: neural);
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
+        Assert.False(neural.HasTrainedWeights);
+        Assert.True(sut.Train(examples, validation, trainNeural: false));
+        Assert.Equal(0.0, sut.CurrentNeuralBeta);
+        Assert.False(neural.HasTrainedWeights);
+
+        Assert.True(sut.Train(examples, validation));
+
+        Assert.True(neural.HasTrainedWeights);
+        Assert.True(TrainingMath.QualityFactor(neural.LastValidationLoss, neural.LastBaselineValidationLoss) > 0);
+        Assert.True(sut.CurrentNeuralBeta > 0);
     }
 
     [Fact]
@@ -440,6 +546,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             MetricsHistory = Array.Empty<object>()
         }));
         using var neural = new NeuralScoringStrategy();
+        Assert.True(neural.Train(CleanExamples(30)));
         using var ensemble = BuildSut(neural: neural);
 
         Assert.Equal(1, ensemble.TrainingExampleCount);

@@ -213,6 +213,29 @@ public class TrainingServiceTests
     }
 
     [Fact]
+    public void PerUserGate_SourceDuplicatesDoNotManufactureIndependentObservations()
+    {
+        var user = Guid.NewGuid();
+        var rows = new List<TrainingExample>();
+        for (var title = 1; title <= 6; title++)
+        {
+            var observation = new Guid(title, 1, 0, new byte[8]);
+            for (var source = 0; source < 2; source++)
+            {
+                rows.Add(new TrainingExample { UserId = user, ObservationId = observation, HasStableObservationId = true, IsObserved = true, Label = 0.85, Features = new CandidateFeatures { GenreSimilarity = 1 } });
+            }
+        }
+
+        using var service = CreateSut();
+        var registry = new Mock<IPerUserEnsembleRegistry>();
+        var method = typeof(TrainingService).GetMethod("TrainPerUserModels", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(service, [registry.Object, rows, TestContext.Current.CancellationToken]);
+        registry.Verify(value => value.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()), Times.Never);
+        registry.Verify(value => value.EvictPerUserModel(user), Times.Once);
+        Assert.Equal(6, rows.Select(row => row.ObservationId).Distinct().Count());
+    }
+
+    [Fact]
     public void TrainPerUser_EmptyUserGroup_SpawnsNoPerUserModel()
     {
         // Examples without an owning user stay folded into the global model: the

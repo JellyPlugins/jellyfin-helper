@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -355,6 +356,55 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.True(
             perUserDiag.Alpha <= globalDiag.Alpha,
             $"per-user alpha ({perUserDiag.Alpha}) must not exceed global alpha ({globalDiag.Alpha})");
+    }
+
+    [Fact]
+    public void InvalidExistingWeights_FallBackWithoutDeletingUserFilesAndWarmStartTraining()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        Assert.True(global.LearnedStrategy.Train(GenerateExamples(60)));
+        using var registry = BuildRegistry(global, neural);
+        var user = Guid.NewGuid();
+        var path = Path.Join(_dataPath, $"ml_weights_{user:N}.json");
+        var invalid = JsonSerializer.Serialize(new { Version = 3, Weights = DefaultWeights.CreateWeightArray(), Bias = 0.0 });
+        File.WriteAllText(path, invalid);
+        Assert.Same(global, registry.GetScoringStrategyForUser(user));
+        Assert.False(registry.HasPerUserModel(user));
+        Assert.False(registry.GetUserModelDiagnostics(user).IsPerUser);
+        Assert.Equal(invalid, File.ReadAllText(path));
+        var trainable = registry.GetOrCreateTrainableEnsembleForUser(user);
+        Assert.Equal(global.LearnedStrategy.GetCurrentWeights(), trainable.LearnedStrategy.GetCurrentWeights());
+        Assert.False(trainable.LearnedStrategy.HasOwnWeights);
+    }
+
+    [Fact]
+    public void ValidV5Weights_AreRetainedIncludingFilesWithGenerationZero()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var user = Guid.NewGuid();
+        var path = Path.Join(_dataPath, $"ml_weights_{user:N}.json");
+        var valid = JsonSerializer.Serialize(new { Version = 5, Weights = DefaultWeights.CreateWeightArray(), Bias = 0.1, TrainingGeneration = 0 });
+        File.WriteAllText(path, valid);
+        Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
+        Assert.True(registry.HasPerUserModel(user));
+        Assert.Equal(valid, File.ReadAllText(path));
+        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
+    }
+
+    [Fact]
+    public void GlobalSeedAlone_IsNotMislabelledAsAPersonalFit()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = BuildRegistry(global, neural);
+        var user = Guid.NewGuid();
+        registry.GetOrCreateTrainableEnsembleForUser(user);
+        Assert.Same(global, registry.GetEnsembleForUser(user));
+        Assert.False(registry.HasPerUserModel(user));
     }
 
     [Fact]

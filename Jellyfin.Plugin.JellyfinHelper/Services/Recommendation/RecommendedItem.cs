@@ -166,6 +166,9 @@ public sealed class RecommendedItem
     /// </summary>
     public string? TmdbCollectionName { get; set; }
 
+    /// <summary>Gets or sets the corroborated provider collection identity captured for training.</summary>
+    public int TmdbCollectionId { get; set; }
+
     /// <summary>
     ///     Gets or sets the production countries. Cached for training.
     /// </summary>

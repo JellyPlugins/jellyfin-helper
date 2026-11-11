@@ -28,6 +28,7 @@ public class DiscoveryControllerTests : IDisposable
         _tempCachePath = Path.GetTempFileName();
         _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: _tempCachePath);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
+        _discoveryMock.Setup(service => service.FilterConsumedItems(It.IsAny<Guid>(), It.IsAny<DiscoveryResult>())).Returns((Guid _, DiscoveryResult result) => result);
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
     }
 

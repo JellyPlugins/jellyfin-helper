@@ -55,6 +55,7 @@ function rec(over: Record<string, unknown> = {}) {
     RelatedInfo: 'Action',
     Overview: 'A hacker learns the truth.',
     AlreadyRequested: false,
+    AvailabilityVerified: true,
     ...over,
   };
 }
@@ -214,6 +215,15 @@ describe('formatReason / formatRawReasonFallback', () => {
     expect(ui.formatReason('reasonDefault')).toBe('Recommended for you');
   });
 
+  test('metadata reasons remain readable when translations are unavailable', () => {
+    const fallback = freshDiscoveryHelpers();
+    expect(fallback.formatReason('reasonFranchiseNamed', null, 'Actual saga')).toBe('More from the Actual saga collection');
+    expect(fallback.formatReason('reasonStudioNamed', null, 'Studio A')).toBe('From Studio A');
+    expect(fallback.formatReason('reasonFranchise')).toBe('From a franchise you follow');
+    expect(fallback.formatReason('reasonCollectionContinuation')).toBe('Because you like this collection');
+    expect(fallback.formatRawReasonFallback('reasonFranchiseNamed: Actual saga')).toBe('More from the Actual saga collection');
+  });
+
   test('empty when neither key nor reason present', () => {
     expect(ui.formatReason('', '')).toBe('');
   });
@@ -360,6 +370,14 @@ describe('renderCards', () => {
     expect(reqBtn.dataset.type).toBe('movie');
   });
 
+  test('cold-start suggestions do not claim a personal match percentage', () => {
+    const el = document.createElement('div');
+    ui.renderCards(el, { Recommendations: [rec({ IsPersonalized: false, Score: 0.99 })] });
+    expect(el.querySelector('.jfh-discovery-score-bar')).toBeNull();
+    expect(el.textContent).toContain('not personalized yet');
+    expect(el.textContent).not.toContain('99%');
+  });
+
   test('escapes a hostile title so no script element is created', () => {
     const el = document.createElement('div');
     const hostileTitle = '<img src=x onerror=alert(1)>';
@@ -376,6 +394,33 @@ describe('renderCards', () => {
     expect(btn.disabled).toBe(true);
     expect(btn.classList.contains('jfh-discovery-btn-done')).toBe(true);
     expect(el.querySelector('.jfh-discovery-btn-dismiss')).toBeNull();
+  });
+
+  test.each([false, undefined, null, 'true', 1])('unverified availability has no Request action (%j)', async (verified) => {
+    const calls = ajaxRouter();
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    ui.renderCards(el, { Recommendations: [rec({ AvailabilityVerified: verified })] });
+    expect(el.querySelector('[data-jfh-action="request"]')).toBeNull();
+    const status = el.querySelector('.jfh-discovery-availability')!;
+    expect(status.textContent).toBe('Unchecked');
+    expect(status.getAttribute('title')).toBe('Availability not checked');
+    expect(status.getAttribute('aria-label')).toBe('Availability not checked');
+    expect(status.getAttribute('role')).toBe('note');
+    const dismiss = el.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
+    expect(dismiss.disabled).toBe(false);
+    dismiss.click();
+    expect(document.getElementById('jfhDiscoveryPopup')!.textContent).toContain('The Matrix');
+    await flush();
+    expect(calls.some((call) => call.url.includes('RequestPermissions') || call.url.includes('/Request'))).toBe(false);
+  });
+
+  test('legacy requested cards retain their disabled state even without availability evidence', () => {
+    const el = document.createElement('div');
+    ui.renderCards(el, { Recommendations: [rec({ AlreadyRequested: true, AvailabilityVerified: undefined })] });
+    expect((el.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(el.querySelector('[data-jfh-action="dismiss"]')).toBeNull();
+    expect(el.querySelector('.jfh-discovery-availability')).toBeNull();
   });
 
   test('a missing poster falls back to the no-poster placeholder', () => {

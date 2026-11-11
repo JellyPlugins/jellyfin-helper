@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -50,8 +51,9 @@ internal static class EngineTestFactory
     ///     The scoring strategy is a real HeuristicScoringStrategy rather than a mock because Engine never checks the strategy for specific implementations except when it uses reflection on EnsembleScoringStrategy in TrainStrategy.
     /// </remarks>
     /// <param name="strategyOverride">Optional custom scoring strategy to use instead of the default heuristic strategy.</param>
+    /// <param name="linkedChildren">Optional authoritative collection membership service.</param>
     /// <returns>A new <see cref="EngineHarness"/> containing the constructed engine instance and all its associated mock references.</returns>
-    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null)
+    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null, ILinkedChildrenService? linkedChildren = null)
     {
         var watchHistory = new Mock<IWatchHistoryService>();
         watchHistory.Setup(w => w.GetAllUserWatchProfiles())
@@ -110,7 +112,8 @@ internal static class EngineTestFactory
             strategy,
             strategySelector.Object,
             perUserRegistry.Object,
-            feedbackStore.Object);
+            feedbackStore.Object,
+            linkedChildren);
 
         return new EngineHarness(
             engine,

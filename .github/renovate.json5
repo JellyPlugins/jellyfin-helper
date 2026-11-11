@@ -4,11 +4,11 @@
   "extends": [
     "config:recommended",
     ":dependencyDashboard",
-    "helpers:pinGitHubActionDigests",
-    ":pinVersions"
+    "helpers:pinGitHubActionDigests"
   ],
 
   "timezone": "Europe/Berlin",
+  "rangeStrategy": "pin",
 
   "schedule": ["at any time"],
   "prHourlyLimit": 0,
@@ -24,10 +24,12 @@
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
 
-  "dependencyDashboard": true,
-  "dependencyDashboardTitle": "Dependency Dashboard",
-  "dependencyDashboardLabels": ["dependencies", "dashboard"],
-  "dependencyDashboardOSVVulnerabilitySummary": "unresolved",
+  "dependencyDashboard": {
+    "enabled": true,
+    "title": "Dependency Dashboard",
+    "labels": ["dependencies", "dashboard"],
+    "osvVulnerabilitySummary": "unresolved"
+  },
   "osvVulnerabilityAlerts": true,
 
   "ignorePaths": [
@@ -118,7 +120,6 @@
       "matchManagers": ["npm"],
       "groupName": "UI & E2E Test Dependencies (Node)",
       "semanticCommitScope": "test",
-      "rangeStrategy": "pin",
       "postUpdateOptions": ["npmDedupe"]
     },
     {
@@ -215,6 +216,12 @@
       "matchUpdateTypes": ["major"],
       "addLabels": ["major-update"],
       "minimumReleaseAge": "7 days"
+    },
+    {
+      // Last so preset and manager-specific rules cannot restore version ranges.
+      "description": "Always use exact dependency versions, never caret or tilde ranges",
+      "matchPackageNames": ["*"],
+      "rangeStrategy": "pin"
     }
   ],
 

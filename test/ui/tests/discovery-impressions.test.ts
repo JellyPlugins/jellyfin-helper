@@ -51,11 +51,11 @@ describe('Discovery delivery-bound impressions', () => {
     vi.unstubAllGlobals();
   });
 
-  function render(deliveryId: string | undefined, ids = [1], expiresAt?: string) {
+  function render(deliveryId: string | undefined, ids = [1], expiresAt?: string, overrides: Record<string, unknown> = {}) {
     ui.renderCards(host, {
       DeliveryId: deliveryId,
       DeliveryExpiresAtUtc: expiresAt,
-      Recommendations: ids.map(TmdbId => ({ TmdbId, MediaType: 'movie', Title: `Movie ${TmdbId}`, Score: 0.7, Genres: ['Drama'], AlreadyRequested: false })),
+      Recommendations: ids.map(TmdbId => ({ TmdbId, MediaType: 'movie', Title: `Movie ${TmdbId}`, Score: 0.7, Genres: ['Drama'], AlreadyRequested: false, AvailabilityVerified: true, ...overrides })),
     });
   }
 
@@ -67,9 +67,9 @@ describe('Discovery delivery-bound impressions', () => {
 
   function posts() { return calls.filter(call => call.url.endsWith('/Impressions')); }
 
-  function freshDelivery() {
+  function freshDelivery(overrides: Record<string, unknown> = {}) {
     return { DeliveryId: SECOND, DeliveryExpiresAtUtc: new Date(Date.now() + 300_000).toISOString(),
-      Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Movie 1', Score: 0.7, Genres: ['Drama'], AlreadyRequested: false }] };
+      Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Movie 1', Score: 0.7, Genres: ['Drama'], AlreadyRequested: false, AvailabilityVerified: true, ...overrides }] };
   }
 
   test('reports only the visible delivery and deduplicates successful visibility callbacks', async () => {
@@ -79,6 +79,59 @@ describe('Discovery delivery-bound impressions', () => {
     expect(posts()).toHaveLength(1);
     expect(posts()[0].body).toEqual({ DeliveryId: FIRST, Items: [{ TmdbId: 1, MediaType: 'movie' }] });
   });
+
+  test.each([true, false, undefined])('visible cards report impressions independently of availability (%s)', async verified => {
+    render(FIRST, [1], undefined, { AvailabilityVerified: verified });
+    expect(host.querySelector('[data-jfh-action="request"]') !== null).toBe(verified === true);
+    expect(host.querySelector('[data-jfh-action="dismiss"]')).not.toBeNull();
+    await show();
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 1, MediaType: 'movie' }] }]);
+    expect(calls.some(call => call.url.endsWith('/Request') || call.url.includes('/RequestPermissions'))).toBe(false);
+  });
+
+  test('impressions use card identity even when all action buttons are absent', async () => {
+    render(FIRST, [1], undefined, { AvailabilityVerified: false, MediaType: ' TV ' });
+    host.querySelector('.jfh-discovery-btn-row')!.remove();
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 1, MediaType: 'tv' }] }]);
+  });
+
+  test('requested and pending request cards do not report impressions', async () => {
+    render(FIRST, [1], undefined, { AlreadyRequested: true });
+    await show();
+    expect(posts()).toHaveLength(0);
+    render(FIRST);
+    const button = host.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    button.disabled = true;
+    await show();
+    expect(posts()).toHaveLength(0);
+    button.disabled = false;
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: FIRST, Items: [{ TmdbId: 1, MediaType: 'movie' }] }]);
+  });
+
+  test('a request started after the visibility callback still suppresses the queued impression', async () => {
+    render(FIRST);
+    VisibilityObserver.instances.at(-1)!.show();
+    const button = host.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    button.disabled = true;
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(posts()).toHaveLength(0);
+    button.disabled = false;
+    await show();
+    expect(posts()).toHaveLength(1);
+  });
+
+  test.each([{ TmdbId: 0 }, { TmdbId: -1 }, { TmdbId: 'invalid' }, { MediaType: 'invalid' }, { MediaType: '' }])(
+    'malformed card identities are never sent as impression evidence: %j', async overrides => {
+      render(FIRST, [1], undefined, overrides);
+      await show();
+      expect(posts()).toHaveLength(0);
+      expect(calls.some(call => call.method === 'GET')).toBe(false);
+    },
+  );
 
   test('an identical card in a new delivery carries the new token, not the previous snapshot', async () => {
     render(FIRST);
@@ -202,6 +255,18 @@ describe('Discovery delivery-bound impressions', () => {
     expect(calls.some(call => call.method === 'GET')).toBe(true);
     await show();
     expect(posts().map(call => (call.body as any).DeliveryId)).toEqual([SECOND]);
+  });
+
+  test.each([false, undefined])('cards without verified availability still renew an expired delivery before reporting visibility (%s)', async verified => {
+    calls = ajaxRouter({ '/JellyfinHelper/Discovery/My': freshDelivery({ AvailabilityVerified: verified }), '/Impressions': undefined });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'user-1';
+    render(FIRST, [1], new Date(Date.now() - 1).toISOString(), { AvailabilityVerified: verified });
+    await show();
+    expect(posts()).toHaveLength(0);
+    expect(calls.filter(call => call.method === 'GET')).toHaveLength(1);
+    expect(host.querySelector('[data-jfh-action="request"]')).toBeNull();
+    await show();
+    expect(posts().map(call => call.body)).toEqual([{ DeliveryId: SECOND, Items: [{ TmdbId: 1, MediaType: 'movie' }] }]);
   });
 
   test('an evicted delivery triggers a fresh response instead of repeatedly sending the stale token', async () => {

@@ -79,6 +79,40 @@ See [Configuration Page Build System](#configuration-page-build-system) for how 
 
 ## Testing
 
+### Multilingual Genre Metadata
+
+Genre names and spelling variants live in `Jellyfin.Plugin.JellyfinHelper/i18n/<language>.json`, not in C# language tables:
+
+```json
+"genre.12": "Adventure",
+"genre.878": "Science Fiction|Sci-Fi|SciFi|Science-Fiction"
+```
+
+Use one `genre.<TMDb-ID>` key per genre. Separate alternative metadata spellings with `|`; no additional alias key is needed.
+The normalizer loads every embedded language file automatically; adding a language needs no normalizer language list.
+Keep translation keys consistent with `en.json`. Unknown custom genres remain available, and compound TV genres share movie semantics without changing the original display metadata.
+
+Recommendation tests cover raw, localized and canonical inputs at both training and inference boundaries.
+Weight schemas remain v5; real API histories and credentials must never be committed as test fixtures.
+
+Discovery caches created before certification-country provenance was recorded are not served to restricted users
+until normal regeneration verifies ratings under the current Jellyfin country policy. Existing valid v5 model files
+remain loadable. BoxSet libraries are optional: franchise IDs work without them; progression requires real membership.
+External own-tag/studio preferences share the library/training eligibility rules, including synthetic series favorites.
+Optional detail enrichment is limited to the pre-scoring top 20 and one eight-second pass; required age checks remain fail-closed.
+Required certification enrichment has its own 30-second deadline, including external/Trakt entry points.
+An incomplete required pass without safe replacements preserves the prior pool as a transient failure.
+Trakt suggestions require a successful availability check (including valid cached details); replacement
+checks share the same eight-second/top-20 request budget, so a provider outage can produce a smaller pool.
+Personal studio/tag/person/franchise evidence does not require genre metadata. Provider alias updates invalidate
+derived genre preferences, exposure and engagement inputs before final scoring.
+Live metadata maps distinguish a confirmed empty list (clear stale cache values) from an absent entry (unknown;
+keep prior metadata). Legacy franchise names contribute to stable IDs only when history confirms an unambiguous mapping.
+Display aliases do not participate in identity normalization. Episode snapshots retain separate own/parent tags and
+studios, so known empty parent metadata does not resurrect stale inherited values. Organic series features reuse
+historical, self-excluded collection counts and the actual parent-series lifecycle. Missing genre evidence disables
+the mismatch penalty without adding vector slots or changing the v5 weight schema.
+
 ### Running Tests
 
 ```bash
@@ -347,6 +381,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryFeedbackStoreTests.cs
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
+│   │       ├── DiscoverySelectionTests.cs             # Relevant varied pools, source-rank preservation and honest cold-start scores
+│   │       ├── ExternalAvailableMetadataTests.cs      # Collection IDs, keywords/studios and observed-feature imputation masks
 │   │       ├── DiscoveryFeedbackStoreConstructionTests.cs # NormalizeMediaType defaults, directory creation, graceful save degradation
 │   │       ├── DiscoveryFeedbackExampleBuilderLabelTests.cs # Label assignment, latest-interaction timestamp, people-similarity parity
 │   │       ├── SeerrDiscoveryServiceGenerationTests.cs   # GenerateDiscoveryRecommendationsAsync pipeline: guards, child/language routing, exclusions, credits, Arr exclusion
@@ -409,6 +445,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineLibraryMetadataTests.cs           # BuildLibraryItemMetadata (Movie/Series studios/tags, empty-skip) via TrainStrategy; GetEnsembleDiagnostics (ensemble non-null, non-ensemble null); featureMeans switch arms
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
+│       │   ├── CollectionMembershipResolverTests.cs    # Linked BoxSets, legacy fallback, candidate scope and provider failures
 │       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
@@ -423,6 +460,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── FeatureParityTests.cs                  # Train/serve parity for the 7 content features; SeriesCompletability + BillingWeight canonical formulas
 │       │   ├── GenreExposureRampTests.cs              # Cold-start confidence ramp: 15-watch features == 0.5× 30-watch, saturates at threshold, empty vector → invalid/zero
 │       │   ├── PreferenceBuilderTests.cs
+│       │   ├── GenreNormalizerTests.cs                 # Localized genre identities, compound genres, unknown metadata and Unicode
+│       │   ├── MultilingualGenreRegressionTests.cs      # Training/live parity, mixed provider IDs, inactive/repetitive and empty profiles
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
 │       │   ├── ReasonAnchorContextTests.cs            # Default + explicit construction of the reason anchors
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
@@ -430,6 +469,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── TrainingServiceTests.cs                # Process-wide TrainGate; tests serialised via ConfigOverride collection
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
+│       │       ├── HistoricalRecencyTests.cs          # Prediction/watch-time recency, unchanged stored snapshots and separate temporal weight decay
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
@@ -470,6 +510,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
 │       │   ├── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
+│       │   ├── GenreEvidencePenaltyTests.cs          # Missing-genre neutrality, observed mismatch penalties, explanations and v5-compatible snapshots
 │       │   └── ScoringParityTests.cs                # 38-feature parity pins: Score vs explanation agreement, weight-sum range, enum count
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
@@ -636,6 +677,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
+│   │   │   ├── GenreNormalizer.cs # Loads genre.<TMDb-ID> with pipe-separated spelling variants from all embedded i18n JSON files; shared movie/TV semantic coordinates
+│   │   │   ├── CollectionMembershipResolver.cs # Modern linked BoxSets with scoped parent fallback
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
 │   │   │   ├── ReasonAnchorContext.cs # Concrete anchors (collection/country/writer/tag/era) for reasons
@@ -707,6 +750,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
 │   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
 │   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 38-feature vector for TMDb items
+│   │       ├── DiscoverySelection.cs                # Personal relevance floor, genre diversity and collection saturation
 │   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
 │   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
 │   │       ├── CertificationResolver.cs   # Actual Seerr movie/TV certifications resolved through Jellyfin's own country-aware rating mapper

@@ -20,8 +20,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <summary>Candidate examples per user in the small population (mix of liked + disliked).</summary>
     private const int SmallExamplesPerUser = 40;
 
-    /// <summary>Fixed generation timestamp so temporal-decay weighting is identical across arms.</summary>
-    private static readonly DateTime FixedGeneratedAt = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    /// <summary>
+    /// One recent timestamp shared by every cohort/arm. An absolute historical date would increasingly
+    /// decay all optimizer gradients relative to L2 regularization, eventually disabling the MLP and
+    /// turning an engagement-feature ablation into an accidental stale-data/regularization experiment.
+    /// Population vectors, labels and identities remain deterministic from the seeds below.
+    /// </summary>
+    private static readonly DateTime SharedGeneratedAt = DateTime.UtcNow;
 
     /// <summary>
     ///     Tier 1 - the fixed-weight heuristic ranker. The new engagement/affinity signals must
@@ -56,15 +61,17 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
         const double epsilon = 0.02;
         var examples = BuildPopulation(SmallUserCount, SmallExamplesPerUser);
         var ablated = Ablate(examples);
+        var validation = BuildPopulation(20, SmallExamplesPerUser, seed: 45678, userOffset: SmallUserCount);
+        var evaluation = BuildPopulation(20, SmallExamplesPerUser, seed: 67890, userOffset: SmallUserCount + 20);
 
         using var realEnsemble = new EnsembleScoringStrategy(weightsPath: null);
-        realEnsemble.Train(examples);
+        Assert.True(realEnsemble.Train(examples, validation));
 
         using var ablatedEnsemble = new EnsembleScoringStrategy(weightsPath: null);
-        ablatedEnsemble.Train(ablated);
+        Assert.True(ablatedEnsemble.Train(ablated, Ablate(validation)));
 
-        var real = RankingMetrics.ComputeAll(examples, realEnsemble);
-        var neutral = RankingMetrics.ComputeAll(ablated, ablatedEnsemble);
+        var real = RankingMetrics.ComputeAll(evaluation, realEnsemble);
+        var neutral = RankingMetrics.ComputeAll(Ablate(evaluation), ablatedEnsemble);
 
         WriteRow("Heuristic+Learned", real.NdcgAtK, neutral.NdcgAtK);
 
@@ -77,8 +84,8 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// <summary>
     ///     Tier 3 - the full ensemble including the neural (MLP) sub-strategy. We use the multi-arg
     ///     constructor with an explicit <see cref="NeuralScoringStrategy"/> and train with enough
-    ///     examples (well above NeuralActivationThreshold = 150) over a couple of rounds so the neural
-    ///     blending factor beta ramps up and the neural path is genuinely exercised. As with Tier 2,
+    ///     stable observed examples above NeuralActivationThreshold = 150, with independent quality-gate
+    ///     and evaluation cohorts. Beta must be active before measuring the full blend. As with Tier 2,
     ///     we require "not meaningfully worse".
     /// </summary>
     [Fact]
@@ -87,23 +94,26 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
         const double epsilon = 0.02;
         var examples = BuildPopulation(SmallUserCount, SmallExamplesPerUser);
         var ablated = Ablate(examples);
+        var validation = BuildPopulation(20, SmallExamplesPerUser, seed: 45678, userOffset: SmallUserCount);
+        var evaluation = BuildPopulation(20, SmallExamplesPerUser, seed: 67890, userOffset: SmallUserCount + 20);
+        var trainingIds = examples.Select(example => example.ObservationId).ToHashSet();
+        Assert.All(validation.Concat(evaluation), example => Assert.DoesNotContain(example.ObservationId, trainingIds));
+        Assert.All(evaluation, example => Assert.DoesNotContain(example.UserId, validation.Select(item => item.UserId)));
 
-        using var realEnsemble = BuildNeuralEnsemble();
-        using var ablatedEnsemble = BuildNeuralEnsemble();
+        using var realEnsemble = BuildNeuralEnsemble(out var realNeural);
+        using var ablatedEnsemble = BuildNeuralEnsemble(out var ablatedNeural);
 
-        // Train each arm over a couple of rounds so the cumulative example count crosses the neural
-        // activation threshold (150) and beta ramps above zero, exercising the neural blend. Two rounds
-        // already push the cumulative count well past the threshold; more rounds only multiply the MLP
-        // training cost (76-96-48-24 over 1600 examples, Adam, 50 epochs) without changing what the test
-        // proves, and made the run hang long enough to trip test timeouts.
-        for (var round = 0; round < 2; round++)
-        {
-            realEnsemble.Train(examples);
-            ablatedEnsemble.Train(ablated);
-        }
+        // Maturity comes from stable distinct observations, not replaying the same rows. Validation
+        // users gate training quality; a third, independently generated cohort measures ranking.
+        Assert.True(realEnsemble.Train(examples, validation));
+        Assert.True(ablatedEnsemble.Train(ablated, Ablate(validation)));
+        Assert.True(realEnsemble.TrainingExampleCount > EnsembleScoringStrategy.NeuralActivationThreshold);
+        Assert.True(ablatedEnsemble.TrainingExampleCount > EnsembleScoringStrategy.NeuralActivationThreshold);
+        Assert.True(realEnsemble.CurrentNeuralBeta > 0, FormattableString.Invariant($"The real arm must actually mix the trained MLP into its scores. Neural loss={realNeural.LastValidationLoss:F6}, baseline={realNeural.LastBaselineValidationLoss:F6}."));
+        Assert.True(ablatedEnsemble.CurrentNeuralBeta > 0, FormattableString.Invariant($"The ablated arm must actually mix the trained MLP into its scores. Neural loss={ablatedNeural.LastValidationLoss:F6}, baseline={ablatedNeural.LastBaselineValidationLoss:F6}."));
 
-        var real = RankingMetrics.ComputeAll(examples, realEnsemble);
-        var neutral = RankingMetrics.ComputeAll(ablated, ablatedEnsemble);
+        var real = RankingMetrics.ComputeAll(evaluation, realEnsemble);
+        var neutral = RankingMetrics.ComputeAll(Ablate(evaluation), ablatedEnsemble);
 
         WriteRow("Full Ensemble (+Neural)", real.NdcgAtK, neutral.NdcgAtK);
         output.WriteLine(FormattableString.Invariant(
@@ -120,12 +130,13 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     ///     all sub-strategies disk-less. The heuristic sub-strategy must disable its own genre penalty
     ///     (floor 1.0) because the ensemble applies the penalty centrally.
     /// </summary>
-    private static EnsembleScoringStrategy BuildNeuralEnsemble()
+    private static EnsembleScoringStrategy BuildNeuralEnsemble(out NeuralScoringStrategy neural)
     {
+        neural = new NeuralScoringStrategy(weightsPath: null, logger: null);
         return new EnsembleScoringStrategy(
             new LearnedScoringStrategy(weightsPath: null),
             new HeuristicScoringStrategy(genrePenaltyFloor: 1.0),
-            new NeuralScoringStrategy(weightsPath: null, logger: null),
+            neural,
             statePath: null);
     }
 
@@ -144,18 +155,20 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     /// </remarks>
     /// <param name="userCount">Number of synthetic users.</param>
     /// <param name="examplesPerUser">Candidate examples per user (split roughly evenly liked/disliked).</param>
+    /// <param name="seed">Independent deterministic noise for each population.</param>
+    /// <param name="userOffset">Disjoint user cohorts prevent training/validation/evaluation identity overlap.</param>
     /// <returns>The labelled training examples for the whole population.</returns>
-    private static List<TrainingExample> BuildPopulation(int userCount, int examplesPerUser)
+    private static List<TrainingExample> BuildPopulation(int userCount, int examplesPerUser, int seed = 12345, int userOffset = 0)
     {
-        var rng = new Random(12345);
+        var rng = new Random(seed);
         var examples = new List<TrainingExample>(userCount * examplesPerUser);
 
         for (var u = 0; u < userCount; u++)
         {
             // Deterministic per-user id so RankingMetrics groups examples per user.
             var idBytes = new byte[16];
-            idBytes[0] = (byte)(u + 1);
-            idBytes[1] = (byte)((u + 1) >> 8);
+            idBytes[0] = (byte)(userOffset + u + 1);
+            idBytes[1] = (byte)((userOffset + u + 1) >> 8);
             var userId = new Guid(idBytes);
 
             for (var e = 0; e < examplesPerUser; e++)
@@ -213,7 +226,7 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                     CollaborativeScore = 0.5,
                     PopularityScore = 0.5,
                     GenreCount = 3,
-                    IsSeries = isLiked
+                    IsSeries = e % 3 == 0 // Title type is independent of the hidden like/dislike outcome.
                 };
 
                 examples.Add(new TrainingExample
@@ -222,7 +235,9 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                     Label = label,
                     UserId = userId,
                     SampleWeight = 1.0,
-                    GeneratedAtUtc = FixedGeneratedAt
+                    GeneratedAtUtc = SharedGeneratedAt,
+                    ObservationId = TrainingExample.CreateProviderObservationId(userId, e + 1, features.IsSeries ? "tv" : "movie"),
+                    HasStableObservationId = true
                 });
             }
         }
@@ -242,23 +257,11 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
     private static List<TrainingExample> Ablate(List<TrainingExample> source)
         => [.. source.Select(ex =>
         {
-            var f = ex.Features;
-            var copy = new CandidateFeatures
-            {
-                // Reset new signals to neutral.
-                HasUserInteraction = false,
-                CompletionRatio = 0.5,
-                IsAbandoned = 0.0,
-                SeriesAffinity = 0.0,
-
-                // Preserve everything else exactly.
-                GenreSimilarity = f.GenreSimilarity,
-                CombinedCriticScore = f.CombinedCriticScore,
-                CollaborativeScore = f.CollaborativeScore,
-                PopularityScore = f.PopularityScore,
-                GenreCount = f.GenreCount,
-                IsSeries = f.IsSeries
-            };
+            var copy = ex.Features.Copy();
+            copy.HasUserInteraction = false;
+            copy.CompletionRatio = 0.5;
+            copy.IsAbandoned = 0.0;
+            copy.SeriesAffinity = 0.0;
 
             return new TrainingExample
             {
@@ -266,7 +269,10 @@ public class ScoringAblationEvalTests(ITestOutputHelper output)
                 Label = ex.Label,
                 UserId = ex.UserId,
                 SampleWeight = ex.SampleWeight,
-                GeneratedAtUtc = ex.GeneratedAtUtc
+                GeneratedAtUtc = ex.GeneratedAtUtc,
+                ObservationId = ex.ObservationId,
+                HasStableObservationId = ex.HasStableObservationId,
+                IsObserved = ex.IsObserved
             };
         })];
 

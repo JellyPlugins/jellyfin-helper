@@ -14,6 +14,28 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
 {
     private const string ActionGenre = "Action";
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ReconstructedFeedback_UsesActualGenreEvidenceWithoutChangingConfirmedSnapshots(bool candidateGenres, bool profileGenres)
+    {
+        var user = Guid.NewGuid();
+        var shown = DateTime.UtcNow.AddDays(-3);
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = shown.AddDays(-1), Genres = profileGenres ? ["Action"] : [] }] };
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 101, ShownAtUtc = shown, RequestedAtUtc = shown.AddHours(1), Genres = candidateGenres ? ["Action"] : [], TmdbRating = 9, Popularity = 50 };
+        var feedback = new DiscoveryFeedbackResult { UserId = user, Entries = [entry] };
+        var profiles = new Dictionary<Guid, UserWatchProfile> { [user] = profile };
+        var reconstructed = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], profiles, null, null, TestContext.Current.CancellationToken).Examples).Features;
+        Assert.Equal(candidateGenres && profileGenres, reconstructed.HasGenreEvidence);
+        entry.ScoringFeatures = new CandidateFeatures { HasGenreEvidence = false, GenreSimilarity = 0.5 };
+        entry.PredictionEvidenceAtUtc = shown;
+        var confirmed = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], profiles, null, null, TestContext.Current.CancellationToken).Examples).Features;
+        Assert.False(confirmed.HasGenreEvidence);
+        Assert.Equal(0.5, confirmed.GenreSimilarity);
+    }
+
     [Fact]
     public void BuildDiscoveryExamples_NoFeedback_ReturnsEmptyWithZeroCount()
     {

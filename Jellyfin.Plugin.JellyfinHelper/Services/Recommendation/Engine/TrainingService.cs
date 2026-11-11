@@ -245,7 +245,7 @@ internal sealed class TrainingService : IDisposable
 
             var userExamples = group.ToList();
             SplitHeldOut(userExamples, out var userFit, out var userHoldout);
-            if (userFit.Count < PerUserEnsembleRegistry.PerUserModelThreshold)
+            if (userFit.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().Count() < PerUserEnsembleRegistry.PerUserModelThreshold)
             {
                 // Below threshold: no per-user model. Evict any model this user built on a previous, richer run
                 // so they fall back to the global model rather than keep scoring on a stale personal fit; a user
