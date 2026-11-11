@@ -63,10 +63,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
         item.KnownPeople = [];
         store.RecordShown(user, "user", [item]);
-        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople));
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople, exactMatch: false));
         item.KnownPeople = ["Later actor"];
         store.RecordShown(user, "user", [item]);
-        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople));
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(Assert.Single(CreateStore().LoadForUser(user)!.Entries).KnownPeople, exactMatch: false));
     }
 
     [Theory]
@@ -109,7 +109,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
         if (people is not null)
         {
-            var exposed = Assert.IsAssignableFrom<IList<string>>(Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
+            var exposed = Assert.IsType<IList<string>>(Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople, exactMatch: false);
             exposed.Add("Client-only actor");
             Assert.Equal(people, Assert.Single(store.LoadForUser(user)!.Entries).KnownPeople);
         }
@@ -127,7 +127,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             $$"""[{"UserId":"{{user}}","Entries":[{"TmdbId":700,"MediaType":"movie","ShownAtUtc":"{{now:O}}","RequestedAtUtc":"{{now:O}}","Genres":["Action"]{{credits}}}]}]""");
         var feedback = CreateStore().LoadAll();
         var entry = Assert.Single(Assert.Single(feedback).Entries);
-        if (explicitEmpty) Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(entry.KnownPeople));
+        if (explicitEmpty) Assert.Empty(Assert.IsType<IReadOnlyList<string>>(entry.KnownPeople, exactMatch: false));
         else Assert.Null(entry.KnownPeople);
         var means = Enumerable.Repeat(0.6, CandidateFeatures.FeatureCount).ToArray();
         var features = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(feedback,
