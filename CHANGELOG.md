@@ -32,7 +32,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 
-- Verified by 94% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests.
+- Verified by 95% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests.
 - Regression coverage exercises visible-card feedback, parental checks at request time, unchecked availability, cold-start labels, localized genres, linked collections, missing metadata, independent title validation and inactive-user playlist safety.
 
 ## [3.1.0.1] - 2026-11-09

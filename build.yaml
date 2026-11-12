@@ -22,5 +22,5 @@ changelog: |-
   - Training uses the context from prediction time, and quality checks keep duplicate copies of the same title out of training and validation overlap
   - Restricted profiles exclude missing or unverified age ratings; requests recheck the current parental settings and rating-country policy
   - Playlist updates skip disabled, removed or unverifiable users; compact touch controls avoid iOS focus zoom without oversized checkboxes or forced button heights
-  - Verified by 94% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests
+  - Verified by 95% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests
   - Requires Jellyfin 12.4
