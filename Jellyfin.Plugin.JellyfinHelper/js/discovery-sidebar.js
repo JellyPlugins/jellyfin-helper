@@ -1185,9 +1185,13 @@
     }
 
     // Refresh the visible server response, never re-sign stale client features under a new delivery id.
-    function refreshDiscoveryDelivery(container, request) {
-        if (container._jfhDeliveryRefreshInFlight || !container.isConnected || !isCurrentDiscoveryRequest(request)
-            || _discoveryDisabled || document.getElementById('jfhDiscoveryPopup')) return;
+    function refreshDiscoveryDelivery(container, request, refill) {
+        if (!container.isConnected || !isCurrentDiscoveryRequest(request) || _discoveryDisabled
+            || (!refill && document.getElementById('jfhDiscoveryPopup'))) return;
+        if (container._jfhDeliveryRefreshInFlight) {
+            if (refill) container._jfhPendingRefill = { request: request, source: container._jfhDiscoverySource };
+            return;
+        }
         container._jfhDeliveryRefreshInFlight = true;
         var source = container._jfhDiscoverySource;
         var url = API_URL;
@@ -1206,7 +1210,15 @@
             renderCards(container, data);
         }).catch(function (error) {
             if (isCurrentDiscoveryRequest(request) && error?.status === 403 && source !== TAB_TRAKT && source !== TAB_TRENDING) disableDiscoveryUi();
-        }).finally(function () { container._jfhDeliveryRefreshInFlight = false; });
+            else if (refill && isCurrentDiscoveryRequest(request)) checkEmptyDiscoveryState(container.querySelector('.jfh-discovery-container'));
+        }).finally(function () {
+            container._jfhDeliveryRefreshInFlight = false;
+            var pending = container._jfhPendingRefill;
+            container._jfhPendingRefill = null;
+            if (pending && isSameDiscoverySession(pending.request) && container._jfhDiscoverySource === pending.source) {
+                refreshDiscoveryDelivery(container, captureDiscoveryRequest(), true);
+            }
+        });
     }
 
     function placeSidebarCard(grid, card, reference, preserveOrder) {
@@ -1663,11 +1675,15 @@
                 if (card) {
                     card._jfhConsuming = true;
                     var scopeEl = card.closest('.jfh-discovery-container');
+                    var deliveryContainer = card.closest('.jfh-ui-surface');
+                    var deliverySource = deliveryContainer?._jfhDiscoverySource;
                     setTimeout(function () {
                         if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                         window.JellyfinHelperUi.removeCard(card, function () {
                             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-                            checkEmptyDiscoveryState(scopeEl);
+                            if (deliveryContainer && deliveryContainer._jfhDiscoverySource === deliverySource) {
+                                refreshDiscoveryDelivery(deliveryContainer, captureDiscoveryRequest(), true);
+                            } else checkEmptyDiscoveryState(scopeEl);
                         });
                     }, 5000);
                 }
@@ -1798,9 +1814,13 @@
             if (card) {
                 card._jfhConsuming = true;
                 var scopeEl = card.closest('.jfh-discovery-container');
+                var deliveryContainer = card.closest('.jfh-ui-surface');
+                var deliverySource = deliveryContainer?._jfhDiscoverySource;
                 window.JellyfinHelperUi.removeCard(card, function () {
                     if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
-                    checkEmptyDiscoveryState(scopeEl);
+                    if (deliveryContainer && deliveryContainer._jfhDiscoverySource === deliverySource) {
+                        refreshDiscoveryDelivery(deliveryContainer, captureDiscoveryRequest(), true);
+                    } else checkEmptyDiscoveryState(scopeEl);
                 });
             }
         }).catch(function (error) {

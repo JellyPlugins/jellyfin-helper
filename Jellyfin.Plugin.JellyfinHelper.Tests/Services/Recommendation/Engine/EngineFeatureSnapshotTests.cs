@@ -1,11 +1,16 @@
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Playlists;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -84,5 +89,10 @@ public sealed class EngineFeatureSnapshotTests
             Assert.DoesNotContain(item.ItemId, result.Recommendations.Select(selected => selected.ItemId));
             Assert.DoesNotContain(item.ScoringFeatures!.CombinedCriticScore, explanationInputs.Keys);
         });
+
+        var playlists = new RecommendationPlaylistService(Mock.Of<IPlaylistManager>(), Mock.Of<IUserManager>(), harness.LibraryManager.Object,
+            Mock.Of<IPluginLogService>(), Mock.Of<ILogger<RecommendationPlaylistService>>());
+        var playlistIds = playlists.ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
+        Assert.Equal(result.Recommendations.Select(item => item.ItemId), playlistIds);
     }
 }
