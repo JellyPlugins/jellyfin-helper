@@ -769,7 +769,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             var path = request.RequestUri!.AbsolutePath;
             if (!path.StartsWith("/api/v1/movie/", StringComparison.Ordinal))
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(path.EndsWith("/genre/28", StringComparison.Ordinal) ? discovered : "{\"results\":[]}") });
+                return Task.FromResult(JsonResponse(path.EndsWith("/genre/28", StringComparison.Ordinal) ? discovered : "{\"results\":[]}"));
             }
 
             var id = int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
@@ -777,7 +777,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             detailCalls[id] = ordinal;
             var status = ordinal > 1 && id < 8504 ? id - 8500 + 2 : 1;
             var json = $$"""{"id":{{id}},"mediaInfo":{"status":{{status}} },"collection":{"id":{{(ordinal == 1 && id < 8520 ? 0 : 99)}} } }""";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+            return Task.FromResult(JsonResponse(json));
         };
 
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
@@ -1163,6 +1163,10 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     // Helpers
+
+    // Ownership passes directly to HttpClient; the service disposes each received response.
+    private static HttpResponseMessage JsonResponse(string json)
+        => new(HttpStatusCode.OK) { Content = new StringContent(json) };
 
     private static Collection<UserWatchProfile> Profiles(params UserWatchProfile[] profiles)
     {

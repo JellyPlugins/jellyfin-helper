@@ -104,9 +104,14 @@ Required certification enrichment has its own 30-second deadline, including exte
 An incomplete required pass without safe replacements preserves the prior pool as a transient failure.
 After final scoring/diverse selection, Seerr status checks cover the selected pool and any replacements
 under a separate eight-second deadline. These fresh reads never rewrite prediction-time feature snapshots.
+Queued status reads check a monotonic deadline as well as cancellation, so delayed timer callbacks under
+coverage/CI load cannot start HTTP work after that deadline.
 Missing optional enrichment does not disable Request. Trakt retains source order and requires verified status;
 own lists retain diverse membership and display descending final Match scores.
 Request submission checks status freshly and serializes the same TMDb ID/media type per Seerr instance.
+Only movie title statuses short-circuit submission. TV requests always let Seerr filter the "all" payload
+per season, unless the coordinator confirms an identical request was submitted while waiting.
+Seerr's deleted media status (7) is valid and requestable again; blocklisted titles (6) are not duplicate intent.
 A confirmed existing request is successful current-user intent (localized toast, positive feedback using
 that user's original delivery snapshot, normal card consumption). Ownership alone, permissions,
 certification, malformed responses and transport failures never become successful duplicate feedback.

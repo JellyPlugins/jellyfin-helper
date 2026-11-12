@@ -531,6 +531,30 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Unrestricted Trakt details must not run a forty-candidate pre-enrichment pass.");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StatusBudgetGate_StopsExpiredOrCancelledReadsBeforeEnteringHttp(bool expired)
+    {
+        var service = CreateService();
+        using var budget = new CancellationTokenSource();
+        budget.CancelAfter(TimeSpan.FromMinutes(1));
+        if (!expired) budget.Cancel();
+        var deadline = Environment.TickCount64 + (expired ? -1 : 60_000);
+        var gate = typeof(SeerrDiscoveryService).GetMethod("ThrowIfStatusBudgetExpired", BindingFlags.NonPublic | BindingFlags.Static)!;
+        // Model a delayed CancelAfter callback deterministically, without sleeping or relaxing a gate.
+        var rejected = Assert.Throws<TargetInvocationException>(() => gate.Invoke(null, [budget, deadline]));
+        Assert.IsAssignableFrom<OperationCanceledException>(rejected.InnerException);
+        Assert.True(budget.IsCancellationRequested);
+
+        var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"id":101,"mediaInfo":null}""");
+        using var client = new System.Net.Http.HttpClient(handler.Object);
+        var fetch = typeof(SeerrDiscoveryService).GetMethod("FetchTitleStatusAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var read = Assert.IsAssignableFrom<Task<SeerrTitleStatus>>(fetch.Invoke(service, [client, new Uri("https://seerr.example.com/"), "test-key", 101, "movie", budget.Token]));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read);
+        handler.Protected().Verify("SendAsync", Times.Never(), ItExpr.IsAny<System.Net.Http.HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>());
+    }
+
     [Fact]
     public async Task SlowRestrictedTraktDetails_UseASeparateBoundedBudgetAndFailClosed()
     {

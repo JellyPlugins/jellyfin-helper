@@ -25,7 +25,7 @@ internal readonly record struct SeerrTitleStatus(bool Verified, bool AlreadyRequ
 
         if (media.ValueKind != JsonValueKind.Object || !MatchesId(media, "tmdbId", tmdbId, required: false)
             || !MatchesType(media, mediaType) || !media.TryGetProperty("status", out var status)
-            || status.ValueKind != JsonValueKind.Number || !status.TryGetInt32(out var value) || value is < 1 or > 6)
+            || status.ValueKind != JsonValueKind.Number || !status.TryGetInt32(out var value) || value is < 1 or > SeerrMediaStatus.Deleted)
         {
             return default;
         }
@@ -36,7 +36,7 @@ internal readonly record struct SeerrTitleStatus(bool Verified, bool AlreadyRequ
             return default;
         }
 
-        return new(true, value is 2 or 3 || activeRequest, value is SeerrMediaStatus.PartiallyAvailable or SeerrMediaStatus.Available);
+        return new(true, value != SeerrMediaStatus.Blocklisted && (value is 2 or 3 || activeRequest), value is SeerrMediaStatus.PartiallyAvailable or SeerrMediaStatus.Available);
     }
 
     private static bool TryReadActiveRequests(JsonElement media, out bool activeRequest)

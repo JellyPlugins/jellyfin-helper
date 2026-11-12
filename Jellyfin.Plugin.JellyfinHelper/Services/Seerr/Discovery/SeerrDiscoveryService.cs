@@ -842,30 +842,42 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
         var key = MetadataCacheKey(baseUri, apiKey, $"api/v1/{mediaType}/{tmdbId}");
-        async Task<SeerrRequestResult> SubmitAsync(bool submittedWhileWaiting)
+        return await _requestCoordinator.ExecuteAsync(
+            key,
+            submittedWhileWaiting => VerifyAndSubmitRequestAsync(client, baseUri, apiKey, requestParams, submittedWhileWaiting, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SeerrRequestResult> VerifyAndSubmitRequestAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        SeerrRequestParams requestParams,
+        bool submittedWhileWaiting,
+        CancellationToken cancellationToken)
+    {
+        var status = await FetchTitleStatusAsync(client, baseUri, apiKey, requestParams.TmdbId, requestParams.MediaType, cancellationToken).ConfigureAwait(false);
+        if (!status.Verified)
         {
-            var status = await FetchTitleStatusAsync(client, baseUri, apiKey, tmdbId, mediaType, cancellationToken).ConfigureAwait(false);
-            if (!status.Verified)
-            {
-                return new SeerrRequestResult(false, status.ErrorMessage ?? "Seerr status check failed. Please try again later.");
-            }
-
-            // A successful in-flight POST also proves the duplicate when Seerr's detail projection lags.
-            // A failed status fetch never becomes success, even for a queued caller.
-            if (status.AlreadyRequested || submittedWhileWaiting)
-            {
-                return SeerrRequestResult.ExistingRequest();
-            }
-
-            if (status.AlreadyAvailable)
-            {
-                return new SeerrRequestResult(false, "This title is already available in Seerr.");
-            }
-
-            return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
+            return new SeerrRequestResult(false, status.ErrorMessage ?? "Seerr status check failed. Please try again later.");
         }
 
-        return await _requestCoordinator.ExecuteAsync(key, SubmitAsync, cancellationToken).ConfigureAwait(false);
+        // A successful in-flight POST also proves the duplicate when Seerr's detail projection lags.
+        // A failed status fetch never becomes success, even for a queued caller.
+        var isMovie = requestParams.MediaType == MediaTypeMovie;
+        if (submittedWhileWaiting || (isMovie && status.AlreadyRequested))
+        {
+            return SeerrRequestResult.ExistingRequest();
+        }
+
+        if (isMovie && status.AlreadyAvailable)
+        {
+            return new SeerrRequestResult(false, "This title is already available in Seerr.");
+        }
+
+        // TV title status cannot tell whether every season is covered. Seerr filters the
+        // "all" payload per season and reports 202 only when no new season remains.
+        return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -2271,6 +2283,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         var inspected = new HashSet<(int, string)>();
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var deadline = Environment.TickCount64 + MetadataEnrichmentTimeoutMs;
         budget.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
         using var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
         while (true)
@@ -2287,9 +2300,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 try
                 {
+                    ThrowIfStatusBudgetExpired(budget, deadline);
                     await semaphore.WaitAsync(budget.Token).ConfigureAwait(false);
                     try
                     {
+                        ThrowIfStatusBudgetExpired(budget, deadline);
                         var status = await FetchTitleStatusAsync(context.Client, context.BaseUri, context.ApiKey, item.TmdbId, item.MediaType, budget.Token).ConfigureAwait(false);
                         return (Item: item, Status: status);
                     }
@@ -2318,6 +2333,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
+    private static void ThrowIfStatusBudgetExpired(CancellationTokenSource budget, long deadline)
+    {
+        // Timer callbacks can be delayed under CI/coverage load. Never start another queued
+        // HTTP request after the actual shared deadline while waiting for CancelAfter to run.
+        if (Environment.TickCount64 >= deadline)
+        {
+            budget.Cancel();
+        }
+
+        budget.Token.ThrowIfCancellationRequested();
+    }
+
     private async Task<SeerrTitleStatus> FetchTitleStatusAsync(
         HttpClient client,
         Uri baseUri,
@@ -2326,11 +2353,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string mediaType,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
         try
         {
             using var request = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/{mediaType}/{tmdbId}", apiKey);
+            timeout.Token.ThrowIfCancellationRequested();
             using var response = await client.SendAsync(request, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
@@ -2344,12 +2373,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             throw;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException or TimeoutException)
         {
             _pluginLog.LogDebug(LogCategory, $"Seerr status check failed for {mediaType}#{tmdbId}: {ex.Message}", _logger);
             return new SeerrTitleStatus
             {
-                ErrorMessage = ex is TaskCanceledException or TimeoutException
+                ErrorMessage = ex is OperationCanceledException or TimeoutException
                     ? "Seerr status check timed out. Please try again later."
                     : "Seerr status check failed. Please try again later."
             };

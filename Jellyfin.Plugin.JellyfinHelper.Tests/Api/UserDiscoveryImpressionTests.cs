@@ -286,8 +286,8 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         Assert.False(cacheAfterFirst.Single(pool => pool.UserId == second).Recommendations.Single().AlreadyRequested);
         var secondResponse = await Controller(second).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 1, DeliveryId = secondDelivery.DeliveryId }, CancellationToken.None);
         Assert.True(Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(secondResponse.Result).Value).AlreadyRequested);
-        _feedback.Verify(store => store.RecordRequested(first, It.Is<DiscoveryRecommendation>(item => item.ScoringFeatures!.GenreSimilarity == 0.3), generation), Times.Once);
-        _feedback.Verify(store => store.RecordRequested(second, It.Is<DiscoveryRecommendation>(item => item.ScoringFeatures!.GenreSimilarity == 0.8), generation), Times.Once);
+        _feedback.Verify(store => store.RecordRequested(first, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
+        _feedback.Verify(store => store.RecordRequested(second, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.8)), generation), Times.Once);
         _feedback.Verify(store => store.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
     }
 

@@ -118,6 +118,74 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     }
 
     [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task SubmitRequestAsync_TvTitleStatus_DoesNotPreventRequestingMissingSeasons(int status)
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/999", HttpStatusCode.OK,
+            $$"""{"id":999,"mediaInfo":{"mediaType":"tv","status":{{status}},"seasons":[{"seasonNumber":1,"status":{{status}} },{"seasonNumber":2,"status":1}] } }""");
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
+        var result = await _sut.SubmitRequestAsync(999, "tv", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.True(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+        using var payload = JsonDocument.Parse(_handler.LastRequestBody!);
+        Assert.Equal("tv", payload.RootElement.GetProperty("mediaType").GetString());
+        Assert.Equal("all", payload.RootElement.GetProperty("seasons").GetString());
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Accepted)]
+    [InlineData(HttpStatusCode.Conflict)]
+    public async Task SubmitRequestAsync_TvNoNewSeasons_IsExistingIntentOnlyAfterSubmittingAndConfirming(HttpStatusCode responseCode)
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/999", HttpStatusCode.OK, """{"id":999,"mediaInfo":{"status":2}}""");
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", responseCode, "No seasons available to request");
+        var result = await _sut.SubmitRequestAsync(999, "tv", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.True(result.Success);
+        Assert.True(result.AlreadyRequested);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Equal(2, _handler.Requests.Count(request => request.Method == HttpMethod.Get));
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_TvExistingSeason_DoesNotMaskSeerrPermissionFailures()
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/999", HttpStatusCode.OK, """{"id":999,"mediaInfo":{"status":2}}""");
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Forbidden, "Permission denied");
+        var result = await _sut.SubmitRequestAsync(999, "tv", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.Contains("403", result.Message, StringComparison.Ordinal);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_DeletedMovie_IsRequestableAgain()
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, """{"id":1234,"mediaInfo":{"status":7}}""");
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.True(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_BlocklistedMovieWithOldRequest_DoesNotBecomePositiveIntent()
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, """{"id":1234,"mediaInfo":{"status":6,"requests":[{"status":2,"is4k":false}]}}""");
+        _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Forbidden, "Blocklisted");
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.Contains("403", result.Message, StringComparison.Ordinal);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("{broken")]
     [InlineData("{\"id\":999,\"mediaInfo\":{\"status\":2}}")]
@@ -160,9 +228,11 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SubmitRequestAsync_SimultaneousUsers_OnlyPostOnceEvenWhenDetailsLag(bool secondCheckFails)
+    [InlineData(false, "movie")]
+    [InlineData(true, "movie")]
+    [InlineData(false, "tv")]
+    [InlineData(true, "tv")]
+    public async Task SubmitRequestAsync_SimultaneousUsers_OnlyPostOnceEvenWhenDetailsLag(bool secondCheckFails, string mediaType)
     {
         var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -180,9 +250,9 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
                 ? Response(HttpStatusCode.ServiceUnavailable, "")
                 : Response(HttpStatusCode.OK, """{"id":1234,"mediaInfo":null}""");
         };
-        var first = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        var first = _sut.SubmitRequestAsync(1234, mediaType, 42, null, null, null, TestContext.Current.CancellationToken);
         await enteredPost.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var second = _sut.SubmitRequestAsync(1234, " MOVIE ", 43, null, null, null, TestContext.Current.CancellationToken);
+        var second = _sut.SubmitRequestAsync(1234, " " + mediaType.ToUpperInvariant() + " ", 43, null, null, null, TestContext.Current.CancellationToken);
         Assert.False(second.IsCompleted);
         releasePost.SetResult();
         var results = await Task.WhenAll(first, second);
@@ -194,6 +264,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
         using var payload = JsonDocument.Parse(_handler.LastRequestBody!);
         Assert.Equal(42, payload.RootElement.GetProperty("userId").GetInt32());
+        Assert.Equal(mediaType, payload.RootElement.GetProperty("mediaType").GetString());
     }
 
     [Fact]

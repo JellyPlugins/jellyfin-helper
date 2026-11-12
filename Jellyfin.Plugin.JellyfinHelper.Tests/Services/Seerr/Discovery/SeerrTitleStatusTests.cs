@@ -12,6 +12,7 @@ public sealed class SeerrTitleStatusTests
     [InlineData(4, false, true)]
     [InlineData(5, false, true)]
     [InlineData(6, false, false)]
+    [InlineData(7, false, false)]
     public void MediaStatus_DistinguishesRequestsFromOwnership(int status, bool requested, bool available)
     {
         var result = SeerrTitleStatus.Parse($$"""{"id":123,"mediaInfo":{"tmdbId":123,"mediaType":"movie","status":{{status}} } }""", 123, "movie");
@@ -42,6 +43,29 @@ public sealed class SeerrTitleStatusTests
     }
 
     [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    [InlineData(4, false)]
+    [InlineData(5, false)]
+    public void DeletedMedia_OnlyConfirmsIntentForAnActiveStandardRequest(int requestStatus, bool requested)
+    {
+        var result = SeerrTitleStatus.Parse($$"""{"id":123,"mediaInfo":{"status":7,"requests":[{"status":{{requestStatus}},"is4k":false}] } }""", 123, "movie");
+        Assert.True(result.Verified);
+        Assert.False(result.AlreadyAvailable);
+        Assert.Equal(requested, result.AlreadyRequested);
+    }
+
+    [Fact]
+    public void BlocklistedMedia_DoesNotConfirmIntentEvenWithAnOlderActiveRequest()
+    {
+        var result = SeerrTitleStatus.Parse("""{"id":123,"mediaInfo":{"status":6,"requests":[{"status":2,"is4k":false}]}}""", 123, "movie");
+        Assert.True(result.Verified);
+        Assert.False(result.AlreadyAvailable);
+        Assert.False(result.AlreadyRequested);
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("null")]
     [InlineData("[]")]
@@ -51,6 +75,7 @@ public sealed class SeerrTitleStatusTests
     [InlineData("{\"id\":123,\"mediaInfo\":{\"mediaType\":\"tv\",\"status\":2}}")]
     [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":\"2\"}}")]
     [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":99}}")]
+    [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":8}}")]
     [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":2,\"requests\":{}}}")]
     [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":2,\"requests\":[{}]}}")]
     [InlineData("{\"id\":123,\"mediaInfo\":{\"status\":1,\"requests\":[{\"status\":99}]}}")]
