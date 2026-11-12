@@ -31,35 +31,46 @@ internal readonly record struct SeerrTitleStatus(bool Verified, bool AlreadyRequ
         }
 
         // Pending/processing proves an active standard request. Unknown/deleted media alone does not.
-        var requested = value is 2 or 3;
-        if (media.TryGetProperty("requests", out var requests))
+        if (!TryReadActiveRequests(media, out var activeRequest))
         {
-            if (requests.ValueKind != JsonValueKind.Array)
-            {
-                return default;
-            }
-
-            foreach (var request in requests.EnumerateArray())
-            {
-                if (request.ValueKind != JsonValueKind.Object || !request.TryGetProperty("status", out var requestStatus)
-                    || requestStatus.ValueKind != JsonValueKind.Number || !requestStatus.TryGetInt32(out var requestValue)
-                    || requestValue is < 1 or > 5)
-                {
-                    return default;
-                }
-
-                // A declined, failed or 4K-only request is not a successful standard request intent.
-                if (request.TryGetProperty("is4k", out var fourK) && fourK.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                {
-                    return default;
-                }
-
-                var is4k = fourK.ValueKind == JsonValueKind.True;
-                requested |= !is4k && requestValue is 1 or 2;
-            }
+            return default;
         }
 
-        return new(true, requested, value is SeerrMediaStatus.PartiallyAvailable or SeerrMediaStatus.Available);
+        return new(true, value is 2 or 3 || activeRequest, value is SeerrMediaStatus.PartiallyAvailable or SeerrMediaStatus.Available);
+    }
+
+    private static bool TryReadActiveRequests(JsonElement media, out bool activeRequest)
+    {
+        activeRequest = false;
+        if (!media.TryGetProperty("requests", out var requests))
+        {
+            return true;
+        }
+
+        if (requests.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var request in requests.EnumerateArray())
+        {
+            if (request.ValueKind != JsonValueKind.Object || !request.TryGetProperty("status", out var requestStatus)
+                || requestStatus.ValueKind != JsonValueKind.Number || !requestStatus.TryGetInt32(out var requestValue)
+                || requestValue is < 1 or > 5)
+            {
+                return false;
+            }
+
+            // A declined, failed or 4K-only request is not a successful standard request intent.
+            if (request.TryGetProperty("is4k", out var fourK) && fourK.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return false;
+            }
+
+            activeRequest |= fourK.ValueKind != JsonValueKind.True && requestValue is 1 or 2;
+        }
+
+        return true;
     }
 
     private static bool MatchesId(JsonElement element, string property, int id, bool required)
