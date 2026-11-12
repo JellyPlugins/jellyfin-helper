@@ -783,7 +783,7 @@ test.each([true, false])('stale permission completion cannot submit a request in
   expect(document.getElementById('jfhDiscoveryPopup')).toBeNull();
 });
 
-test.each(['request', 'dismiss'])('a delayed %s response cannot mutate the replacement session cache', async action => {
+test.each(['request', 'duplicate', 'dismiss'])('a delayed %s response cannot mutate the replacement session cache', async action => {
   const ui = freshDiscoveryHelpers();
   window.history.replaceState(null, '', '#/home');
   document.body.innerHTML = '<div class="jfh-discovery-card"><button id="request">Request</button></div>';
@@ -793,12 +793,12 @@ test.each(['request', 'dismiss'])('a delayed %s response cannot mutate the repla
     getCurrentUserId: () => 'a', accessToken: () => token, getUrl: (path: string) => path, ajax: () => pending.promise,
   };
   const button = document.getElementById('request');
-  if (action === 'request') ui.submitRequest(123, 'movie', null, null, null, button);
+  if (action !== 'dismiss') ui.submitRequest(123, 'movie', null, null, null, button);
   else ui.executeDismiss(123, 'movie', button);
   token = 'replacement';
   const replacement = recommendations('Replacement session');
   ui.setCachedDiscoveryResult(replacement);
-  pending.resolve({ Success: true });
+  pending.resolve({ Success: true, AlreadyRequested: action === 'duplicate' });
   await settle();
   expect(ui.getCachedDiscoveryResult()).toEqual(replacement);
   expect(document.querySelector('.jfh-discovery-toast')).toBeNull();

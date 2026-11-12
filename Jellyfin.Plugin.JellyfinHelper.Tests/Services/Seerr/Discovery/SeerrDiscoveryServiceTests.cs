@@ -170,7 +170,7 @@ public class SeerrDiscoveryServiceTests : IDisposable
             Plugin.Instance.Configuration.SeerrSkipCertificateValidation = true;
 
             var factoryMock = new Mock<System.Net.Http.IHttpClientFactory>();
-            var handler = TestMockFactory.CreateHttpMessageHandler(System.Net.HttpStatusCode.OK, "{}");
+            var handler = TestMockFactory.CreateHttpMessageHandler(System.Net.HttpStatusCode.OK, """{"id":123,"mediaInfo":null}""");
             using var httpClient = new System.Net.Http.HttpClient(handler.Object);
             factoryMock.Setup(f => f.CreateClient("SeerrDiscoveryInsecure")).Returns(httpClient);
 

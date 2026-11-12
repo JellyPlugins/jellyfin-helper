@@ -42,6 +42,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         TestMockFactory.CreateLibraryManager();
     private readonly Dictionary<int, string> _detailById = new();
     private readonly object _detailDelayLock = new();
+    private readonly List<int> _detailRequestedIds = [];
     private int _detailCalls;
     private HttpStatusCode _detailStatus = HttpStatusCode.OK;
     private Exception? _detailFailure;
@@ -122,6 +123,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
                 var segments = request.RequestUri?.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
                     ?? [];
                 var last = segments.Length > 0 ? segments[^1] : string.Empty;
+                lock (_detailDelayLock)
+                {
+                    if (int.TryParse(last, out var requestedId)) _detailRequestedIds.Add(requestedId);
+                }
                 if (int.TryParse(last, out var id) && _detailById.TryGetValue(id, out var json))
                 {
                     return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
@@ -456,7 +461,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         if (warmCache) Assert.Null(await service.ScoreExternalCandidatesAsync(user, candidates.Take(20).ToList(), TestContext.Current.CancellationToken));
         var calls = _detailCalls;
         Assert.Null(await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken));
-        Assert.Equal(warmCache ? 1 : 20, _detailCalls - calls);
+        Assert.Equal(warmCache ? 1 : 21, _detailCalls - calls);
+        Assert.Contains(1020, _detailRequestedIds);
     }
 
     [Fact]
@@ -471,7 +477,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
 
         var result = await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, _detailCalls - priorCalls);
+        Assert.Equal(20, _detailCalls - priorCalls); // Fresh status for the selected pool, never lower-ranked extras.
+        Assert.All(_detailRequestedIds, id => Assert.InRange(id, 1000, 1019));
         Assert.Equal(Enumerable.Range(1000, 20), result!.Recommendations.Select(item => item.TmdbId));
     }
 
@@ -487,11 +494,12 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var warm = await service.ScoreExternalCandidatesAsync(user, candidates.Skip(1).Take(20).ToList(), TestContext.Current.CancellationToken);
         Assert.Equal(Enumerable.Range(1001, 20), warm!.Recommendations.Select(item => item.TmdbId));
         var priorCalls = _detailCalls;
-        if (!higherRankSucceeds) _detailStatus = HttpStatusCode.NotFound;
+        if (!higherRankSucceeds) _detailById[1000] = "{}";
 
         var result = await service.ScoreExternalCandidatesAsync(user, candidates, TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, _detailCalls - priorCalls);
+        Assert.Equal(higherRankSucceeds ? 21 : 22, _detailCalls - priorCalls);
+        Assert.All(_detailRequestedIds, id => Assert.InRange(id, 1000, 1020));
         Assert.Equal(Enumerable.Range(higherRankSucceeds ? 1000 : 1001, 20), result!.Recommendations.Select(item => item.TmdbId));
         Assert.All(result.Recommendations, item => Assert.True(item.AvailabilityVerified));
     }
@@ -503,7 +511,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         SetupProfile(user);
         _detailStatus = HttpStatusCode.NotFound;
         Assert.Null(await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken));
-        Assert.Equal(1, _detailCalls);
+        Assert.Equal(2, _detailCalls); // Optional metadata failure does not stand in for the independent status check.
     }
 
     [Fact]
@@ -572,7 +580,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(0, recommendation.ScoringFeatures.CollectionProgressionBoost);
         Assert.Equal("reasonFranchiseNamed", recommendation.ReasonKey);
         Assert.Equal("Localized Collection", recommendation.RelatedInfo);
-        Assert.Equal(1, _detailCalls);
+        Assert.Equal(2, _detailCalls); // One scoring enrichment, one independent selected-title status read.
     }
 
     [Theory]
@@ -602,18 +610,22 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         _detailById[101] = CertifiedDetail(101, 6);
         var service = CreateService();
         Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
-        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
-        Assert.Equal(1, _detailCalls);
         var cache = (System.Collections.IDictionary)typeof(SeerrDiscoveryService).GetField("_metadataCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
         var entry = cache.Values.Cast<object>().Single();
+        Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.Equal(3, _detailCalls); // Metadata was reused; status was read freshly in both generations.
+        Assert.Same(entry, cache.Values.Cast<object>().Single());
         entry.GetType().GetProperty("ExpiresAtUtc")!.SetValue(entry, DateTime.UtcNow.AddMinutes(-1));
         Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
-        Assert.Equal(2, _detailCalls);
+        Assert.Equal(5, _detailCalls);
+        Assert.NotSame(entry, cache.Values.Cast<object>().Single());
         Plugin.Instance!.Configuration.SeerrApiKey = "another-key";
         Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
+        Assert.Equal(7, _detailCalls);
         Plugin.Instance.Configuration.SeerrUrl = "https://another-seerr.example.com";
         Assert.NotNull(await service.ScoreExternalCandidatesAsync(user, [Candidate(101)], CancellationToken.None));
-        Assert.Equal(4, _detailCalls);
+        Assert.Equal(9, _detailCalls);
+        Assert.Equal(3, cache.Count);
     }
 
     [Fact]

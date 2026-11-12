@@ -33,6 +33,8 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Plugin.Instance!.Configuration.SeerrApiKey = "test-api-key";
 
         _handler = new ScriptedHttpHandler();
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, """{"id":1234,"mediaInfo":null}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/999", HttpStatusCode.OK, """{"id":999,"mediaInfo":null}""");
 
         _httpFactoryMock = new Mock<IHttpClientFactory>();
         _httpFactoryMock
@@ -90,6 +92,208 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     }
 
     // SubmitRequestAsync
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task SubmitRequestAsync_ConfirmedExistingRequest_IsSuccessfulWithoutPosting(int status)
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, $$"""{"id":1234,"mediaInfo":{"status":{{status}} } }""");
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.True(result.Success);
+        Assert.True(result.AlreadyRequested);
+        Assert.DoesNotContain(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task SubmitRequestAsync_OwnershipAlone_IsNotPositiveRequestFeedback(int status)
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, $$"""{"id":1234,"mediaInfo":{"status":{{status}} } }""");
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.DoesNotContain(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{broken")]
+    [InlineData("{\"id\":999,\"mediaInfo\":{\"status\":2}}")]
+    [InlineData("{\"id\":1234,\"mediaType\":\"tv\",\"mediaInfo\":{\"status\":2}}")]
+    public async Task SubmitRequestAsync_InvalidStatus_NeverPostsOrClaimsSuccess(string body)
+    {
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/1234", HttpStatusCode.OK, body);
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.False(result.AlreadyRequested);
+        Assert.DoesNotContain(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict, 2, true)]
+    [InlineData(HttpStatusCode.Accepted, 2, true)]
+    [InlineData(HttpStatusCode.Conflict, 1, false)]
+    [InlineData(HttpStatusCode.Accepted, 1, false)]
+    [InlineData(HttpStatusCode.Forbidden, 2, false)]
+    [InlineData(HttpStatusCode.BadRequest, 2, false)]
+    [InlineData(HttpStatusCode.InternalServerError, 2, false)]
+    public async Task SubmitRequestAsync_ConflictIsOnlySuccessAfterFreshConfirmation(HttpStatusCode responseCode, int laterStatus, bool success)
+    {
+        var posted = false;
+        _handler.ResponseOverride = (request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                posted = true;
+                return Task.FromResult(Response(responseCode, "duplicate request"));
+            }
+
+            return Task.FromResult(Response(HttpStatusCode.OK, $$"""{"id":1234,"mediaInfo":{"status":{{(posted ? laterStatus : 1)}} } }"""));
+        };
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.Equal(success, result.Success);
+        Assert.Equal(success, result.AlreadyRequested);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Equal(responseCode is HttpStatusCode.Conflict or HttpStatusCode.Accepted ? 2 : 1, _handler.Requests.Count(request => request.Method == HttpMethod.Get));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SubmitRequestAsync_SimultaneousUsers_OnlyPostOnceEvenWhenDetailsLag(bool secondCheckFails)
+    {
+        var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checks = 0;
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                enteredPost.SetResult();
+                await releasePost.Task.WaitAsync(token);
+                return Response(HttpStatusCode.Created, "{}");
+            }
+
+            return ++checks == 2 && secondCheckFails
+                ? Response(HttpStatusCode.ServiceUnavailable, "")
+                : Response(HttpStatusCode.OK, """{"id":1234,"mediaInfo":null}""");
+        };
+        var first = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        await enteredPost.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var second = _sut.SubmitRequestAsync(1234, " MOVIE ", 43, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted);
+        releasePost.SetResult();
+        var results = await Task.WhenAll(first, second);
+        Assert.True(results[0].Success);
+        Assert.False(results[0].AlreadyRequested);
+        Assert.Equal(!secondCheckFails, results[1].Success);
+        Assert.Equal(!secondCheckFails, results[1].AlreadyRequested);
+        Assert.Equal(2, checks);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+        using var payload = JsonDocument.Parse(_handler.LastRequestBody!);
+        Assert.Equal(42, payload.RootElement.GetProperty("userId").GetInt32());
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_CancelledWaiter_DoesNotCancelTheOwnerOrPoisonLaterRequests()
+    {
+        var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var posted = false;
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                enteredPost.SetResult();
+                await releasePost.Task.WaitAsync(token);
+                posted = true;
+                return Response(HttpStatusCode.Created, "{}");
+            }
+
+            return Response(HttpStatusCode.OK, $$"""{"id":1234,"mediaInfo":{"status":{{(posted ? 2 : 1)}} } }""");
+        };
+        var first = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        await enteredPost.Task.WaitAsync(TestContext.Current.CancellationToken);
+        using var cancel = new CancellationTokenSource();
+        var second = _sut.SubmitRequestAsync(1234, "movie", 43, null, null, null, cancel.Token);
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        releasePost.SetResult();
+        Assert.True((await first).Success);
+        var later = await _sut.SubmitRequestAsync(1234, "movie", 44, null, null, null, TestContext.Current.CancellationToken);
+        Assert.True(later.Success);
+        Assert.True(later.AlreadyRequested);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    private static HttpResponseMessage Response(HttpStatusCode status, string json) => new(status) { Content = new StringContent(json) };
+
+    [Fact]
+    public async Task SubmitRequestAsync_FailedOwner_DoesNotTurnTheWaitingUsersRequestIntoDuplicateFeedback()
+    {
+        var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var posts = 0;
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method != HttpMethod.Post) return Response(HttpStatusCode.OK, """{"id":1234,"mediaInfo":null}""");
+            if (++posts == 1)
+            {
+                enteredPost.SetResult();
+                await releasePost.Task.WaitAsync(token);
+                return Response(HttpStatusCode.Forbidden, "permission denied");
+            }
+
+            return Response(HttpStatusCode.Created, "{}");
+        };
+        var first = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        await enteredPost.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var second = _sut.SubmitRequestAsync(1234, "movie", 43, null, null, null, TestContext.Current.CancellationToken);
+        releasePost.SetResult();
+        var results = await Task.WhenAll(first, second);
+        Assert.False(results[0].Success);
+        Assert.True(results[1].Success);
+        Assert.All(results, result => Assert.False(result.AlreadyRequested));
+        Assert.Equal(2, posts);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_SameIdDifferentMediaTypes_DoNotShareTheRequestLock()
+    {
+        var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method != HttpMethod.Post) return Response(HttpStatusCode.OK, """{"id":1234,"mediaInfo":null}""");
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            if (payload.RootElement.GetProperty("mediaType").GetString() == "movie")
+            {
+                enteredPost.SetResult();
+                await releasePost.Task.WaitAsync(token);
+            }
+
+            return Response(HttpStatusCode.Created, "{}");
+        };
+        var movie = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        await enteredPost.Task.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var tv = await _sut.SubmitRequestAsync(1234, "tv", 43, null, null, null, TestContext.Current.CancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(tv.Success);
+            Assert.False(tv.AlreadyRequested);
+            Assert.False(movie.IsCompleted);
+        }
+        finally
+        {
+            releasePost.SetResult();
+        }
+
+        Assert.True((await movie).Success);
+        Assert.Equal(2, _handler.Requests.Count(request => request.Method == HttpMethod.Post));
+    }
 
     [Fact]
     public async Task SubmitRequestAsync_HappyPath_MovieRequest_ReturnsSuccess()
@@ -937,6 +1141,9 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
 
     public Exception? ThrowNext { get; set; }
 
+    /// <summary>Gets or sets an asynchronous response script for deterministic races and changing status.</summary>
+    public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? ResponseOverride { get; set; }
+
     /// <summary>Gets or sets a simulated provider-detail delay, cancelled by the real request budget.</summary>
     public TimeSpan DetailResponseDelay { get; set; }
 
@@ -980,7 +1187,10 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        Requests.Add((request.Method, request.RequestUri?.PathAndQuery ?? string.Empty));
+        lock (_delayLock)
+        {
+            Requests.Add((request.Method, request.RequestUri?.PathAndQuery ?? string.Empty));
+        }
 
         if (DetailResponseDelay > TimeSpan.Zero && request.RequestUri?.AbsolutePath.StartsWith("/api/v1/movie/", StringComparison.Ordinal) == true)
         {
@@ -1029,6 +1239,11 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
         if (request.Content is not null)
         {
             LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (ResponseOverride is not null)
+        {
+            return await ResponseOverride(request, cancellationToken).ConfigureAwait(false);
         }
 
         var url = request.RequestUri?.AbsolutePath ?? string.Empty;

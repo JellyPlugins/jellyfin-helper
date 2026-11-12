@@ -188,7 +188,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
                 It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "Request submitted successfully."));
+            .ReturnsAsync(new SeerrRequestResult(true, "Request submitted successfully."));
 
         // Seed a matching recommendation so we can prove the persisted state transition, not just the HTTP result.
         var userId = Guid.NewGuid();
@@ -236,7 +236,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .Callback<int, string, int?, int?, int?, string?, CancellationToken>(
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto
@@ -262,7 +262,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .Callback<int, string, int?, int?, int?, string?, CancellationToken>(
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto
@@ -287,7 +287,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .Callback<int, string, int?, int?, int?, string?, CancellationToken>(
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = null };
@@ -489,8 +489,10 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         Assert.Equal(_discoveryMock.Object.MaxVisiblePerUser, user.Recommendations.Count);
     }
 
-    [Fact]
-    public async Task PostRequest_SubmitRequest_PassesCallerUserIdToMarkAsRequested()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PostRequest_SubmitRequest_PassesCallerUserIdToMarkAsRequested(bool duplicate)
     {
         // DiscoveryController.SubmitRequest must pass the authenticated admin caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not null (which marks ALL users).
         var adminUserId = Guid.NewGuid();
@@ -500,7 +502,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
                 It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "Request submitted successfully."));
+            .ReturnsAsync(new SeerrRequestResult(true, "Request submitted successfully.") { AlreadyRequested = duplicate });
 
         // Seed two users with the same item so we can verify only the caller's entry is marked.
         _cache.Save(
@@ -529,7 +531,9 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         var dto = new DiscoveryRequestDto { TmdbId = 42, MediaType = "movie" };
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(duplicate, body.AlreadyRequested);
+        _feedbackStoreMock.Verify(store => store.RecordRequested(adminUserId, 42, "movie"), Times.Once);
 
         var reload = _cache.Load();
         var adminEntry = reload.Single(r => r.UserId == adminUserId);
@@ -610,7 +614,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
                 It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
         _feedbackStoreMock.Setup(s => s.RecordRequested(
                 It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()))
             .Throws(new InvalidOperationException("simulated"));

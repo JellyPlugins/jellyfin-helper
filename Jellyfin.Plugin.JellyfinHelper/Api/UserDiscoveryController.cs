@@ -508,6 +508,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A result indicating success or failure.</returns>
     [HttpPost("Request")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -594,7 +595,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return certificationError;
         }
 
-        var (success, message) = await _discovery.SubmitRequestAsync(
+        var result = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
             seerrUserId,
@@ -603,14 +604,16 @@ public sealed class UserDiscoveryController : ControllerBase
             rootFolder,
             cancellationToken).ConfigureAwait(false);
 
-        if (!success)
+        if (!result.Success)
         {
-            return StatusCode(502, new RequestResult { Success = false, Message = message });
+            return StatusCode(502, new RequestResult { Success = false, Message = result.Message });
         }
 
         await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId, delivery).ConfigureAwait(false);
 
-        return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
+        return StatusCode(
+            result.AlreadyRequested ? StatusCodes.Status200OK : StatusCodes.Status201Created,
+            new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
     }
 
     private async Task<ObjectResult?> ValidateRequestCertificationAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken)

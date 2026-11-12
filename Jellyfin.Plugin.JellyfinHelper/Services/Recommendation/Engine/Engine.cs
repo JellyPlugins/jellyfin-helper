@@ -530,6 +530,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 WriterNames = ResolveWriterNames(s.Item),
                 PeopleWeights = []
             })
+            .OrderByDescending(item => item.Score)
             .ToList();
 
         _pluginLog.LogInfo(
@@ -1026,6 +1027,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
             .Select(s => CaptureSelected(s.Item, explain: true))
+            .OrderByDescending(item => item.Score)
             .ToList();
 
         var selectedIds = topItems.Select(item => item.ItemId).ToHashSet();

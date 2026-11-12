@@ -55,7 +55,8 @@ internal static class DiscoverySelection
             }
         }
 
-        return selected;
+        // Diversity determines membership, not the displayed Match order.
+        return selected.OrderByDescending(candidate => candidate.Score).ToList();
     }
 
     private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections)

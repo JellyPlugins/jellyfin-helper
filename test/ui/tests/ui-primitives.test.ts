@@ -216,6 +216,22 @@ describe('Discovery rendering', () => {
     expect(document.activeElement).toBe(action);
   });
 
+  test('sorted reserve cards append after survivors without moving a focused Request action', async () => {
+    const discoveryUi = discovery();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const pool = [1, 2, 3, 4].map(id => ({ ...rec(id), Score: 1 - id * 0.1 }));
+    discoveryUi.renderCards(host, { Recommendations: pool.slice(0, 3) });
+    const request = host.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    request.focus();
+    discoveryUi.consumeDiscoveryItem(2, 'movie');
+    discoveryUi.renderCards(host, { Recommendations: [pool[0], pool[2], pool[3]] });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(Array.from(host.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.tmdb)).toEqual(['1', '3', '4']);
+    expect(document.activeElement).toBe(request);
+    expect(host.querySelectorAll('.jfh-discovery-card')[2].textContent).toContain('60%');
+  });
+
   test.each([false, undefined])('cards without verified availability retain their dismiss action and focus during ranking updates (%s)', verified => {
     const discoveryUi = discovery();
     const host = document.createElement('div');
@@ -225,13 +241,13 @@ describe('Discovery rendering', () => {
     discoveryUi.renderCards(host, { Recommendations: [first, second] });
     const card = host.querySelector('.jfh-discovery-card')!;
     const action = card.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
-    expect(card.querySelector('[data-jfh-action="request"]')).toBeNull();
+    expect((card.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(false);
     expect(action.disabled).toBe(false);
     action.focus();
     discoveryUi.renderCards(host, { Recommendations: [second, first] });
     expect(host.querySelector('.jfh-discovery-card')).toBe(card);
     expect(document.activeElement).toBe(action);
-    expect(card.querySelector('.jfh-discovery-availability')!.textContent).toBe('Unchecked');
+    expect(card.querySelector('.jfh-discovery-availability')).toBeNull();
   });
 
   test('an unavailable Trakt source retires its tab controls', () => {

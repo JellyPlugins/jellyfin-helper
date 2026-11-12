@@ -176,6 +176,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly Lock _exclusionCacheLock = new();
     private readonly Lock _metadataCacheLock = new();
     private readonly Dictionary<string, CachedMediaDetail> _metadataCache = new(StringComparer.Ordinal);
+    private readonly SeerrRequestCoordinator _requestCoordinator = new();
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
@@ -783,7 +784,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task<(bool Success, string Message)> SubmitRequestAsync(
+    public async Task<SeerrRequestResult> SubmitRequestAsync(
         int tmdbId,
         string mediaType,
         int? seerrUserId,
@@ -794,32 +795,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         if (tmdbId <= 0)
         {
-            return (false, "Invalid TMDb ID.");
+            return new(false, "Invalid TMDb ID.");
         }
 
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
         if (mediaType is not (MediaTypeMovie or "tv"))
         {
-            return (false, "mediaType must be 'movie' or 'tv'.");
+            return new(false, "mediaType must be 'movie' or 'tv'.");
         }
 
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
             _pluginLog.LogWarning(LogCategory, PluginInstanceUnavailableMessage, null, _logger);
-            return (false, "Seerr is not configured.");
+            return new(false, "Seerr is not configured.");
         }
 
         if (string.IsNullOrWhiteSpace(config.SeerrUrl)
             || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
-            return (false, "Seerr is not configured.");
+            return new(false, "Seerr is not configured.");
         }
 
         var boundaryError = ValidateSubmitBoundaries(serverId, profileId, rootFolder);
         if (boundaryError != null)
         {
-            return (false, boundaryError);
+            return new(false, boundaryError);
         }
 
         Uri baseUri;
@@ -835,12 +836,36 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Invalid Seerr configuration: {ex.Message}",
                 ex,
                 _logger);
-            return (false, "Invalid Seerr configuration.");
+            return new(false, "Invalid Seerr configuration.");
         }
 
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
-        return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
+        var key = MetadataCacheKey(baseUri, apiKey, $"api/v1/{mediaType}/{tmdbId}");
+        async Task<SeerrRequestResult> SubmitAsync(bool submittedWhileWaiting)
+        {
+            var status = await FetchTitleStatusAsync(client, baseUri, apiKey, tmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+            if (!status.Verified)
+            {
+                return new SeerrRequestResult(false, status.ErrorMessage ?? "Seerr status check failed. Please try again later.");
+            }
+
+            // A successful in-flight POST also proves the duplicate when Seerr's detail projection lags.
+            // A failed status fetch never becomes success, even for a queued caller.
+            if (status.AlreadyRequested || submittedWhileWaiting)
+            {
+                return SeerrRequestResult.ExistingRequest();
+            }
+
+            if (status.AlreadyAvailable)
+            {
+                return new SeerrRequestResult(false, "This title is already available in Seerr.");
+            }
+
+            return await SendSubmitRequestAsync(client, baseUri, apiKey, requestParams, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await _requestCoordinator.ExecuteAsync(key, SubmitAsync, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -852,7 +877,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="p">The cohesive Seerr request field group (TMDb ID, media type, and optional targeting).</param>
     /// <param name="cancellationToken">Cooperative cancellation token.</param>
     /// <returns>A success flag and a client-safe message.</returns>
-    private async Task<(bool Success, string Message)> SendSubmitRequestAsync(
+    private async Task<SeerrRequestResult> SendSubmitRequestAsync(
         HttpClient client,
         Uri baseUri,
         string apiKey,
@@ -874,14 +899,24 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             using var request = BuildRequest(HttpMethod.Post, baseUri, "api/v1/request", apiKey, content);
             using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-            if (response.IsSuccessStatusCode)
+            // Seerr reports duplicate creates as 409, and TV requests with no new seasons as 202.
+            // Neither status alone proves a successful intent; confirm the same title freshly.
+            if (response.StatusCode is System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.Accepted)
+            {
+                var status = await FetchTitleStatusAsync(client, baseUri, apiKey, tmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+                if (status.Verified && status.AlreadyRequested)
+                {
+                    return SeerrRequestResult.ExistingRequest();
+                }
+            }
+            else if (response.IsSuccessStatusCode)
             {
                 var userInfo = seerrUserId is > 0 ? $" (as user #{seerrUserId})" : string.Empty;
                 _pluginLog.LogInfo(
                     LogCategory,
                     $"Request submitted: {mediaType} TMDb#{tmdbId}{userInfo}",
                     _logger);
-                return (true, "Request submitted successfully.");
+                return new(true, "Request submitted successfully.");
             }
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -892,7 +927,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
 
             // The full error body is already logged above for admin diagnostics. Only return a generic status code to the client to avoid leaking internal Seerr server details (hostnames, config paths, stack traces).
-            return (false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
+            return new(false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -905,7 +940,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Request timed out for TMDb#{tmdbId}",
                 ex,
                 _logger);
-            return (false, "Request timed out.");
+            return new(false, "Request timed out.");
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
         {
@@ -914,7 +949,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Request failed for TMDb#{tmdbId}: {ex.Message}",
                 ex,
                 _logger);
-            return (false, "Request failed.");
+            return new(false, "Request failed.");
         }
     }
 
@@ -2227,7 +2262,98 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        return FinalScoreCandidates(context, featureContext, userStrategy);
+        var recommendations = FinalScoreCandidates(context, featureContext, userStrategy);
+        return await VerifySelectedTitlesAsync(context, recommendations, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<List<DiscoveryRecommendation>> VerifySelectedTitlesAsync(
+        CandidateScoringContext context, List<DiscoveryRecommendation> candidates, CancellationToken cancellationToken)
+    {
+        var inspected = new HashSet<(int, string)>();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+        using var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var selected = DiscoverySelection.Select(candidates, MaxPoolPerUser, context.RankBasedOrdering);
+            var pending = selected.Where(item => inspected.Add((item.TmdbId, item.MediaType))).ToList();
+            if (pending.Count == 0)
+            {
+                return selected;
+            }
+
+            var checks = await Task.WhenAll(pending.Select(async item =>
+            {
+                try
+                {
+                    await semaphore.WaitAsync(budget.Token).ConfigureAwait(false);
+                    try
+                    {
+                        var status = await FetchTitleStatusAsync(context.Client, context.BaseUri, context.ApiKey, item.TmdbId, item.MediaType, budget.Token).ConfigureAwait(false);
+                        return (Item: item, Status: status);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return (Item: item, Status: default(SeerrTitleStatus));
+                }
+            })).ConfigureAwait(false);
+
+            foreach (var (item, status) in checks)
+            {
+                // Only status flags are projected. Late metadata must not rewrite prediction features.
+                item.AvailabilityVerified = status.Verified;
+                if (status.AlreadyAvailable || status.AlreadyRequested || (context.RankBasedOrdering && !status.Verified))
+                {
+                    candidates.Remove(item);
+                }
+            }
+
+            // Re-select and check any replacements under the same bounded generation deadline.
+        }
+    }
+
+    private async Task<SeerrTitleStatus> FetchTitleStatusAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        int tmdbId,
+        string mediaType,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+        try
+        {
+            using var request = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/{mediaType}/{tmdbId}", apiKey);
+            using var response = await client.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new SeerrTitleStatus { ErrorMessage = $"Seerr status check failed: HTTP {(int)response.StatusCode}. Please try again later." };
+            }
+
+            var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            return SeerrTitleStatus.Parse(json, tmdbId, mediaType);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+        {
+            _pluginLog.LogDebug(LogCategory, $"Seerr status check failed for {mediaType}#{tmdbId}: {ex.Message}", _logger);
+            return new SeerrTitleStatus
+            {
+                ErrorMessage = ex is TaskCanceledException or TimeoutException
+                    ? "Seerr status check timed out. Please try again later."
+                    : "Seerr status check failed. Please try again later."
+            };
+        }
     }
 
     private static bool HasPersonalPreferences(CandidateScoringContext context, ExternalCandidateFeatureBuilder.UserContext user)
@@ -2388,8 +2514,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, EnsembleScoringStrategy? userStrategy)
     {
-        // Phase 3: score eligible candidates; personal-library discovery retains candidates outside the
-        // enrichment budget, while ranked external sources require a successful availability check.
+        // Phase 3: score all age-eligible candidates, including those outside optional enrichment.
+        // Only the selected pool is checked for current Seerr status afterward.
         var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score, bool Personalized)>(context.Candidates.Count);
         foreach (var candidate in context.Candidates)
         {
@@ -2424,7 +2550,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var recommendation = BuildRecommendation(item, features, score, context.TopGenres, reasonPeople, featureContext.GenrePreferences, personalized ? featureContext.User : null);
             recommendation.IsPersonalized = personalized;
             recommendation.TmdbCollectionId = item.CollectionId;
-            recommendation.AvailabilityVerified = item.MetadataFetchSucceeded;
             if (recommendation.ReasonKey == "reasonGenre" && recommendation.RelatedInfo is { } genre)
             {
                 recommendation.RelatedInfo = GenreNormalizer.DisplayName(genre, context.Profile.GenreDistribution.Keys);
@@ -2433,7 +2558,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             recommendations.Add(recommendation);
         }
 
-        return DiscoverySelection.Select(recommendations, MaxPoolPerUser, context.RankBasedOrdering);
+        return recommendations;
     }
 
     private static bool HasCandidatePersonalEvidence(TmdbDiscoverItem candidate, CandidateFeatures features, ExternalCandidateFeatureBuilder.Context context)
@@ -2447,8 +2572,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         => context.User.Franchises.Count > 0 || context.WatchedCollections is { Count: > 0 };
 
     private static bool CanFinalScore(CandidateScoringContext context, TmdbDiscoverItem candidate)
-        => !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating)
-            && (!context.RankBasedOrdering || candidate.MetadataFetchSucceeded);
+        => !candidate.IsAlreadyAvailable && !ParentalRatingHelper.ShouldExclude(candidate, context.Profile.MaxParentalRating);
 
     private Dictionary<int, int>? GetWatchedCollections(UserWatchProfile profile, Lazy<CollectionMembershipResolver.Snapshot?>? shared)
     {

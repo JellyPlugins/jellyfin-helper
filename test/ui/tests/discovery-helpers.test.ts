@@ -396,17 +396,13 @@ describe('renderCards', () => {
     expect(el.querySelector('.jfh-discovery-btn-dismiss')).toBeNull();
   });
 
-  test.each([false, undefined, null, 'true', 1])('unverified availability has no Request action (%j)', async (verified) => {
+  test.each([false, undefined, null, 'true', 1])('unverified availability keeps Request and Dismiss independent (%j)', async (verified) => {
     const calls = ajaxRouter();
     const el = document.createElement('div');
     document.body.appendChild(el);
     ui.renderCards(el, { Recommendations: [rec({ AvailabilityVerified: verified })] });
-    expect(el.querySelector('[data-jfh-action="request"]')).toBeNull();
-    const status = el.querySelector('.jfh-discovery-availability')!;
-    expect(status.textContent).toBe('Unchecked');
-    expect(status.getAttribute('title')).toBe('Availability not checked');
-    expect(status.getAttribute('aria-label')).toBe('Availability not checked');
-    expect(status.getAttribute('role')).toBe('note');
+    expect((el.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(el.querySelector('.jfh-discovery-availability')).toBeNull();
     const dismiss = el.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement;
     expect(dismiss.disabled).toBe(false);
     dismiss.click();
@@ -749,6 +745,23 @@ describe('request flow', () => {
     expect((post!.body as any).TmdbId).toBe(603);
     expect((post!.body as any).ProfileId).toBe('p');
     expect(btn.classList.contains('jfh-discovery-btn-done')).toBe(true);
+  });
+
+  test('confirmed duplicate consumes an unverified card and displays the localized intent toast', async () => {
+    const ui = freshDiscoveryHelpers();
+    ajaxRouter({ 'Translations': { discoveryAlreadyRequested: 'Titel wurde bereits angefragt' },
+      'RequestPermissions': { CanRequest: true, Profiles: [] }, '/Request': { Success: true, AlreadyRequested: true } }, { userId: 'u1' });
+    await ui.loadStrings(() => {});
+    const el = cardFixture(ui, { AvailabilityVerified: false });
+    ui.setCachedDiscoveryResult({ Recommendations: [rec({ AvailabilityVerified: false })] });
+    const btn = el.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    btn.click();
+    await flush();
+    expect(document.querySelector('.jfh-discovery-toast')!.textContent).toContain('Titel wurde bereits angefragt');
+    expect(btn.classList.contains('jfh-discovery-btn-done')).toBe(true);
+    expect(ui.getCachedDiscoveryResult().Recommendations).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(el.querySelector('.jfh-discovery-card')).toBeNull();
   });
 
   test('permission denial marks the button failed and toasts the reason', async () => {

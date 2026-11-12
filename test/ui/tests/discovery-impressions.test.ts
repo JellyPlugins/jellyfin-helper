@@ -82,7 +82,7 @@ describe('Discovery delivery-bound impressions', () => {
 
   test.each([true, false, undefined])('visible cards report impressions independently of availability (%s)', async verified => {
     render(FIRST, [1], undefined, { AvailabilityVerified: verified });
-    expect(host.querySelector('[data-jfh-action="request"]') !== null).toBe(verified === true);
+    expect((host.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(false);
     expect(host.querySelector('[data-jfh-action="dismiss"]')).not.toBeNull();
     await show();
     await show();
@@ -264,7 +264,7 @@ describe('Discovery delivery-bound impressions', () => {
     await show();
     expect(posts()).toHaveLength(0);
     expect(calls.filter(call => call.method === 'GET')).toHaveLength(1);
-    expect(host.querySelector('[data-jfh-action="request"]')).toBeNull();
+    expect((host.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(false);
     await show();
     expect(posts().map(call => call.body)).toEqual([{ DeliveryId: SECOND, Items: [{ TmdbId: 1, MediaType: 'movie' }] }]);
   });

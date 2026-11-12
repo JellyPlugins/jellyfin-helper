@@ -583,7 +583,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task OptionalDetails_AreBoundedAndFailedCallsAreNotRepeatedForCredits(bool people)
+    public async Task OptionalDetails_AreBoundedAndSelectedStatusChecksAreIndependentOfCredits(bool people)
     {
         var profile = NewProfile();
         profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10 };
@@ -592,8 +592,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         RegisterGenreMovieResults(28, Enumerable.Range(8000, 60).Select(id => Candidate(id, 8)).ToArray());
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
         var details = _handler.Requests.Where(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)).ToList();
-        Assert.Equal(20, details.Count);
-        Assert.Equal(details.Count, details.Select(request => request.Path).Distinct().Count());
+        Assert.Equal(40, details.Count);
+        Assert.Equal(20, details.Select(request => request.Path).Distinct().Count());
+        Assert.All(details.GroupBy(request => request.Path), group => Assert.Equal(2, group.Count()));
         var pool = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
         Assert.Equal(20, pool.Recommendations.Count);
     }
@@ -615,7 +616,11 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.False(TestContext.Current.CancellationToken.IsCancellationRequested);
         Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Optional details must use one eight-second deadline, not one minute or one timeout per batch.");
         Assert.InRange(_handler.MaxConcurrentDelayedDetails, 1, 3);
-        Assert.InRange(_handler.Requests.Count(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)), 1, 20);
+        // Keep the original total-call/time gates. Per-request and shared deadline callbacks may
+        // race by a scheduling tick, so a freed slot can start another call before cancellation.
+        var details = _handler.Requests.Where(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)).ToList();
+        Assert.InRange(details.Count, 1, 20);
+        Assert.All(details.GroupBy(request => request.Path), group => Assert.InRange(group.Count(), 1, 2));
     }
 
     [Fact]
@@ -712,7 +717,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             Assert.True(recommendation.AvailabilityVerified);
         });
         var detailCalls = _handler.Requests.Skip(priorCalls).Where(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)).ToList();
-        Assert.Equal(20, detailCalls.Count);
+        Assert.Equal(40, detailCalls.Count);
+        Assert.All(detailCalls.GroupBy(request => request.Path), group => Assert.Equal(2, group.Count()));
         Assert.All(detailCalls, call => Assert.InRange(int.Parse(call.Path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture), 8120, 8139));
     }
 
@@ -728,12 +734,64 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}},"mediaInfo":{"status":{{(int)SeerrMediaStatus.Available}} } }""");
         }
 
+        foreach (var id in Enumerable.Range(8120, 20))
+        {
+            // Late status responses contain metadata, but must not retroactively enrich scoring inputs.
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK,
+                $$"""{"id":{{id}},"mediaInfo":null,"collection":{"id":99},"credits":{"cast":[{"name":"Late actor","order":0}] } }""");
+        }
+
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
         var pool = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
         Assert.Equal(20, pool.Recommendations.Count);
         Assert.All(pool.Recommendations, recommendation => Assert.InRange(recommendation.TmdbId, 8120, 8139));
-        Assert.All(pool.Recommendations, recommendation => Assert.False(recommendation.AvailabilityVerified));
-        Assert.Equal(20, _handler.Requests.Count(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)));
+        Assert.All(pool.Recommendations, recommendation =>
+        {
+            Assert.True(recommendation.AvailabilityVerified);
+            Assert.Null(recommendation.KnownPeople);
+            Assert.Equal(0, recommendation.TmdbCollectionId);
+            Assert.False(recommendation.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity));
+        });
+        Assert.Equal(40, _handler.Requests.Count(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)));
+        Assert.Equal(pool.Recommendations.OrderByDescending(item => item.Score).Select(item => item.TmdbId), pool.Recommendations.Select(item => item.TmdbId));
+    }
+
+    [Fact]
+    public async Task SelectedStatusChecks_RemoveNewRequestsAndVerifyEveryReplacementWithoutChangingFeatures()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10 };
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var discovered = BuildDiscoverJson([28], Enumerable.Range(8500, 30).Select(id => Candidate(id, 9 - (id - 8500) * 0.01)).ToArray());
+        var detailCalls = new Dictionary<int, int>();
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (!path.StartsWith("/api/v1/movie/", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(path.EndsWith("/genre/28", StringComparison.Ordinal) ? discovered : "{\"results\":[]}") });
+            }
+
+            var id = int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            var ordinal = detailCalls.GetValueOrDefault(id) + 1;
+            detailCalls[id] = ordinal;
+            var status = ordinal > 1 && id < 8504 ? id - 8500 + 2 : 1;
+            var json = $$"""{"id":{{id}},"mediaInfo":{"status":{{status}} },"collection":{"id":{{(ordinal == 1 && id < 8520 ? 0 : 99)}} } }""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+        };
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var pool = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(20, pool.Recommendations.Count);
+        Assert.DoesNotContain(pool.Recommendations, item => item.TmdbId < 8504);
+        Assert.All(pool.Recommendations, item => Assert.True(item.AvailabilityVerified));
+        foreach (var id in Enumerable.Range(8520, 4))
+        {
+            var replacement = Assert.Single(pool.Recommendations, item => item.TmdbId == id);
+            Assert.Equal(1, detailCalls[id]);
+            Assert.Equal(0, replacement.TmdbCollectionId);
+            Assert.False(replacement.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity));
+        }
     }
 
     [Fact]
