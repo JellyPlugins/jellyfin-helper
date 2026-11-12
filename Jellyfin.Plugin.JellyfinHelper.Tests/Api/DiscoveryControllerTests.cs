@@ -156,15 +156,17 @@ public class DiscoveryControllerTests : IDisposable
         Assert.Contains("invalid characters", body.Message, System.StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task PostRequest_CaseInsensitiveMediaType_Accepted()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PostRequest_CaseInsensitiveMediaType_Accepted(bool duplicate)
     {
         var discovery = new Mock<ISeerrDiscoveryService>();
         discovery.Setup(d => d.SubmitRequestAsync(
             It.IsAny<int>(), "movie", It.IsAny<int?>(),
             It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
             It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK") { AlreadyRequested = duplicate });
 
         var controller = CreateController(discovery);
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "Movie" };
@@ -175,6 +177,7 @@ public class DiscoveryControllerTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<RequestResult>(okResult.Value);
         Assert.True(body.Success);
+        Assert.Equal(duplicate, body.AlreadyRequested);
 
         // Verify the normalized value "movie" (not "Movie") was forwarded to the service
         discovery.Verify(d => d.SubmitRequestAsync(
@@ -191,7 +194,7 @@ public class DiscoveryControllerTests : IDisposable
             It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
             It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
             It.IsAny<CancellationToken>()))
-            .ReturnsAsync((false, "Seerr returned HTTP 409: Already requested"));
+            .ReturnsAsync(new SeerrRequestResult(false, "Seerr returned HTTP 409: Already requested"));
 
         var controller = CreateController(discovery);
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };

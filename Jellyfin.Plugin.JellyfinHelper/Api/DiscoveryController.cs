@@ -161,7 +161,7 @@ public sealed class DiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var (success, message) = await _discovery.SubmitRequestAsync(
+        var result = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
             dto.SeerrUserId,
@@ -170,9 +170,9 @@ public sealed class DiscoveryController : ControllerBase
             rootFolder,
             cancellationToken).ConfigureAwait(false);
 
-        if (!success)
+        if (!result.Success)
         {
-            return StatusCode(StatusCodes.Status502BadGateway, new RequestResult { Success = false, Message = message });
+            return StatusCode(StatusCodes.Status502BadGateway, new RequestResult { Success = false, Message = result.Message });
         }
 
         // Mark item as requested in cache so it doesn't reappear on page refresh. Best-effort: don't let cache bookkeeping failures turn a successful Seerr request into a 500 response, which would encourage client retries.
@@ -195,7 +195,7 @@ public sealed class DiscoveryController : ControllerBase
             // best-effort
         }
 
-        return Ok(new RequestResult { Success = true, Message = message });
+        return Ok(new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
     }
 
     private HashSet<(int TmdbId, string MediaType)> BuildExcludedItemKeys(Guid userId)

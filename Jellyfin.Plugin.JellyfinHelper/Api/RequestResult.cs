@@ -10,6 +10,9 @@ public sealed class RequestResult
     /// </summary>
     public bool Success { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether an existing request fulfilled the current user's intent.</summary>
+    public bool AlreadyRequested { get; set; }
+
     /// <summary>
     ///     Gets or sets the result message.
     /// </summary>

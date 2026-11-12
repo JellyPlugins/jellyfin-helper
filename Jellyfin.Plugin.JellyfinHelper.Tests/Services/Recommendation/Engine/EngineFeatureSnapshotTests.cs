@@ -71,6 +71,7 @@ public sealed class EngineFeatureSnapshotTests
         }
 
         Assert.Equal(3, result.Recommendations.Count);
+        Assert.Equal(result.Recommendations.OrderByDescending(item => item.Score).Select(item => item.ItemId), result.Recommendations.Select(item => item.ItemId));
         Assert.All(result.Recommendations, item => AssertSnapshot(item, explanationInputs));
         var lastMovie = Assert.Single(result.Recommendations, item => item.ItemId == movies[^1].Id);
         Assert.Equal(ContentScoring.ComputeCombinedCriticScore(refreshMetadata ? 9.9f : 5.95f, null), lastMovie.ScoringFeatures!.CombinedCriticScore);

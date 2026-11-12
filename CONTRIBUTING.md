@@ -102,8 +102,19 @@ External own-tag/studio preferences share the library/training eligibility rules
 Optional detail enrichment is limited to the pre-scoring top 20 and one eight-second pass; required age checks remain fail-closed.
 Required certification enrichment has its own 30-second deadline, including external/Trakt entry points.
 An incomplete required pass without safe replacements preserves the prior pool as a transient failure.
-Trakt suggestions require a successful availability check (including valid cached details); replacement
-checks share the same eight-second/top-20 request budget, so a provider outage can produce a smaller pool.
+After final scoring/diverse selection, Seerr status checks cover the selected pool and any replacements
+under a separate eight-second deadline. These fresh reads never rewrite prediction-time feature snapshots.
+Queued status reads check a monotonic deadline as well as cancellation, so delayed timer callbacks under
+coverage/CI load cannot start HTTP work after that deadline.
+Missing optional enrichment does not disable Request. Trakt retains source order and requires verified status;
+own lists retain diverse membership and display descending final Match scores.
+Request submission checks status freshly and serializes the same TMDb ID/media type per Seerr instance.
+Only movie title statuses short-circuit submission. TV requests always let Seerr filter the "all" payload
+per season, unless the coordinator confirms an identical request was submitted while waiting.
+Seerr's deleted media status (7) is valid and requestable again; blocklisted titles (6) are not duplicate intent.
+A confirmed existing request is successful current-user intent (localized toast, positive feedback using
+that user's original delivery snapshot, normal card consumption). Ownership alone, permissions,
+certification, malformed responses and transport failures never become successful duplicate feedback.
 Personal studio/tag/person/franchise evidence does not require genre metadata. Provider alias updates invalidate
 derived genre preferences, exposure and engagement inputs before final scoring.
 Live metadata maps distinguish a confirmed empty list (clear stale cache values) from an absent entry (unknown;
@@ -277,7 +288,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
-│   ├── UserDiscoveryImpressionTests.cs               # Bounded opaque deliveries, overlapping tabs/generations, exact server snapshots, ownership, expiry and persistence failures
+│   ├── UserDiscoveryImpressionTests.cs               # Bounded opaque deliveries, exact per-user snapshots, duplicate intents, sorted reserve backfill, ownership, expiry and persistence failures
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
 │   ├── UserDiscoveryControllerTraktTests.cs          # Trakt read endpoints: official-plugin-absent/master-switch 403 gates, linked/not-linked envelope, mid-fetch link lapse, authentication requirement
 │   ├── TraktDiscoveryDtoTests.cs                     # Trakt linked/unlinked envelope DTO: defaults, result carriage, JSON round-trip
@@ -399,6 +410,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryServiceTests.cs
 │   │       ├── SeerrDiscoveryServiceHelperTests.cs      # Pure-static helpers: StampMediaType, BuildGenreIdList, GetPrimaryLanguageForDiscovery
 │   │       ├── SeerrDiscoveryServiceHttpTests.cs        # HTTP surface via scripted HttpMessageHandler: SubmitRequestAsync, GetServiceInfoAsync, user resolution, permissions
+│   │       ├── SeerrTitleStatusTests.cs                 # Matching ID/type, active standard requests, ownership, untracked titles and malformed status rejection
 │   │       ├── SeerrDiscoveryGenerationTests.cs         # Task-mode orchestration: Deactivate short-circuits, DryRun never writes feedback, cancellation propagates
 │   │       ├── SeerrDiscoveryServiceUserResolutionTests.cs # FindSeerrUserByJellyfinId, BuildAllowedProfileList
 │   │       ├── SeerrDiscoveryReconcileTests.cs         # ReconcileRequestedItemsAsync: records+marks cached items also requested out-of-band, per-user, media-type normalization, all fail-safe/pagination branches
@@ -748,6 +760,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── Discovery/               # Seerr Discovery (external recommendations)
 │   │       ├── ISeerrDiscoveryService.cs
 │   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
+│   │       ├── SeerrRequestResult.cs     # Explicit submitted/already-requested intent outcome
+│   │       ├── SeerrRequestCoordinator.cs # Per-title async coordination, independent cancellation and idle-lock disposal
+│   │       ├── SeerrTitleStatus.cs       # Status-only detail parsing, separate from scoring enrichment and certification
 │   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
 │   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 38-feature vector for TMDb items
 │   │       ├── DiscoverySelection.cs                # Personal relevance floor, genre diversity and collection saturation

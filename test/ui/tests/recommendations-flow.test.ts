@@ -124,8 +124,8 @@ describe('discovery request through the profile popup', () => {
     ...fullRoutes(),
   });
 
-  test.each([false, undefined])('unverified and legacy cards do not start the request flow (%s)', async verified => {
-    const routes = fullRoutes();
+  test.each([false, undefined])('unverified and legacy cards start the normal request flow (%s)', async verified => {
+    const routes = popupRoutes([{ id: 0, profiles: [{ id: 4, name: 'HD' }] }], { 'Discovery/Request': { Success: true, AlreadyRequested: true } });
     routes['JellyfinHelper/Discovery'][0].Recommendations[0].AvailabilityVerified = verified;
     const calls = ajaxRouter(routes);
     document.body.innerHTML = '<div id="recsContent"></div>';
@@ -133,12 +133,18 @@ describe('discovery request through the profile popup', () => {
     await flush();
     const card = document.querySelector('#discoveryGrid .discovery-card') as HTMLElement;
     expect(card).not.toBeNull();
-    expect(card.querySelector('.discovery-request-btn')).toBeNull();
-    expect(card.querySelector('.discovery-availability')!.textContent).toBe('Unchecked');
-    card.click();
+    const button = card.querySelector('.discovery-request-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(card.querySelector('.discovery-availability')).toBeNull();
+    button.click();
+    await flush();
+    expect(document.getElementById('seerrUserPopup')).not.toBeNull();
+    (document.querySelector('.discovery-popup-user') as HTMLButtonElement).click();
     await flush();
     expect(document.getElementById('seerrUserPopup')).toBeNull();
-    expect(calls.some(call => call.url.includes('Discovery/Services') || call.url.includes('Discovery/Request'))).toBe(false);
+    expect(calls.filter(call => call.url.includes('Discovery/Request'))).toHaveLength(1);
+    expect(button.classList.contains('discovery-request-done')).toBe(true);
+    expect(document.querySelector('.jfh-toast')!.textContent).toContain('Title has already been requested');
   });
 
   test('profile click submits with server, profile and folder', async () => {

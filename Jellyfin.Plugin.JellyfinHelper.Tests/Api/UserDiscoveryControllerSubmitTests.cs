@@ -173,7 +173,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, 5, 20, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 5, ProfileId = 20, RootFolder = "   " };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -333,7 +333,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, 1, 10, "/movies/hd", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -354,7 +354,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -378,7 +378,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((false, "Seerr HTTP 500"));
+            .ReturnsAsync(new SeerrRequestResult(false, "Seerr HTTP 500"));
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -400,7 +400,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
         _feedbackStoreMock
             .Setup(f => f.RecordRequested(userId, 100, "movie"))
             .Throws(new InvalidOperationException("simulated IO failure"));
@@ -430,7 +430,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
         _cache.Dispose();
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
@@ -564,7 +564,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var controller = CreateController(userId);
 
@@ -592,7 +592,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         const int concurrency = 16;
         var start = new TaskCompletionSource();
@@ -651,7 +651,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var first = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         Assert.Equal(201, Assert.IsType<ObjectResult>(first.Result).StatusCode);
@@ -685,7 +685,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "OK"));
+            .ReturnsAsync(new SeerrRequestResult(true, "OK"));
 
         var resultA = await CreateController(userA).SubmitMyRequest(dto, CancellationToken.None);
         var resultB = await CreateController(userB).SubmitMyRequest(dto, CancellationToken.None);
@@ -782,7 +782,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -807,7 +807,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         // Seed a stale rate-limit entry: the stored timestamp is 30s old (past the 10s window). Use a long absolute TTL so the cache entry itself is still present when the controller reads it.
         var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
@@ -835,7 +835,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"));
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"));
 
         // Seed a rate-limit entry that expires almost immediately, then wait past its TTL so IMemoryCache evicts it.
         var rateLimitKey = UserDiscoveryController.BuildRateLimitKey(userId);
@@ -867,7 +867,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(42);
         _discoveryMock
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, null, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((true, "queued"))
+            .ReturnsAsync(new SeerrRequestResult(true, "queued"))
             .Verifiable();
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", SeerrUserId = 9999 };

@@ -12,7 +12,7 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
 
 const discoveryLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
   const translations = JSON.parse(source('i18n/' + language + '.json'));
-  return { language, strings: Object.fromEntries(['discoveryAvailabilityUnknown', 'discoveryAvailabilityUnknownHint', 'discoveryDismiss', 'discoveryColdStart']
+  return { language, strings: Object.fromEntries(['discoveryRequest', 'discoveryAlreadyRequested', 'discoveryDismiss', 'discoveryColdStart']
     .map(key => [key, translations[key]])) };
 });
 
@@ -37,7 +37,7 @@ function discoveryFixtureScript(script: string): string {
   const matches = script.match(anchor);
   if (matches?.length !== 1) throw new Error('Expected exactly one Discovery lifecycle initialization anchor');
   return script.replace(anchor, () => `    window.fixtureDiscovery = {
-         renderCards, injectStyles, consumeDiscoveryItem,
+         renderCards, injectStyles, consumeDiscoveryItem, submitRequest,
          renderLocalizedCards: function (container, recommendations, strings) {
              _strings = strings;
              renderCards(container, { Recommendations: recommendations });
@@ -91,7 +91,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-      + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
+     + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, handleDiscoveryRequestResponse, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -309,7 +309,7 @@ for (const width of [320, 1280]) {
       await expect(button).toHaveAttribute('aria-expanded', 'true');
     });
 
-    test(`Discovery ${width}px ${colorScheme}: unverified availability wraps without squeezing dismiss controls`, async ({ page }) => {
+    test(`Discovery ${width}px ${colorScheme}: missing enrichment keeps usable Request and Dismiss controls`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await discovery(page);
@@ -321,30 +321,33 @@ for (const width of [320, 1280]) {
               recommendations.map(candidate => ({ ...candidate, AvailabilityVerified: verified })), locale.strings);
           }, { recommendations: discoveryRecommendations, locale, verified });
           const card = page.locator('.jfh-discovery-card').first();
-          const status = card.locator('.jfh-discovery-availability');
+          const request = card.locator('[data-jfh-action="request"]');
           const dismiss = card.locator('[data-jfh-action="dismiss"]');
-          await expect(status).toBeVisible();
-          await expect(status).toHaveText(locale.strings.discoveryAvailabilityUnknown);
-          await expect(status).toHaveAttribute('title', locale.strings.discoveryAvailabilityUnknownHint);
+          await expect(request).toBeVisible();
+          await expect(request).toBeEnabled();
+          await expect(request).toHaveText(locale.strings.discoveryRequest);
           await expect(dismiss).toBeEnabled();
-          await expect(card.locator('[data-jfh-action="request"]')).toHaveCount(0);
+          await expect(card.locator('.jfh-discovery-availability')).toHaveCount(0);
           const layout = await card.evaluate(element => {
             const row = element.querySelector('.jfh-discovery-btn-row')!;
-            const status = row.querySelector('.jfh-discovery-availability')!;
+            const request = row.querySelector('[data-jfh-action="request"]')!;
             const dismiss = row.querySelector('[data-jfh-action="dismiss"]')!;
             const rowBox = row.getBoundingClientRect();
-            const statusBox = status.getBoundingClientRect();
+            const requestBox = request.getBoundingClientRect();
             const dismissBox = dismiss.getBoundingClientRect();
             return { cardOverflow: element.scrollWidth - element.clientWidth, rowOverflow: row.scrollWidth - row.clientWidth,
-              statusOverflow: status.scrollWidth - status.clientWidth, dismissOverflow: dismiss.scrollWidth - dismiss.clientWidth,
-              statusBottom: statusBox.bottom, dismissTop: dismissBox.top, rowWidth: rowBox.width, dismissWidth: dismissBox.width };
+              requestOverflow: request.scrollWidth - request.clientWidth, dismissOverflow: dismiss.scrollWidth - dismiss.clientWidth,
+              requestRight: requestBox.right, dismissLeft: dismissBox.left, requestBottom: requestBox.bottom,
+              dismissTop: dismissBox.top, rowWidth: rowBox.width, requestWidth: requestBox.width, dismissWidth: dismissBox.width };
           });
           expect(layout.cardOverflow).toBeLessThanOrEqual(1);
           expect(layout.rowOverflow).toBeLessThanOrEqual(1);
-          expect(layout.statusOverflow).toBeLessThanOrEqual(1);
+          expect(layout.requestOverflow).toBeLessThanOrEqual(1);
           expect(layout.dismissOverflow).toBeLessThanOrEqual(1);
-          expect(layout.statusBottom).toBeLessThanOrEqual(layout.dismissTop);
-          expect(layout.dismissWidth).toBeCloseTo(layout.rowWidth, 1);
+          expect(layout.requestRight <= layout.dismissLeft || layout.requestBottom <= layout.dismissTop).toBe(true);
+          expect(layout.requestWidth).toBeGreaterThan(40);
+          expect(layout.dismissWidth).toBeGreaterThan(40);
+          expect(layout.dismissWidth).toBeLessThanOrEqual(layout.rowWidth);
           await dismiss.focus();
           await page.keyboard.press('Enter');
           await expect(page.locator('#jfhDiscoveryPopup')).toBeVisible();
@@ -355,7 +358,7 @@ for (const width of [320, 1280]) {
       }
     });
 
-    test(`dashboard ${width}px ${colorScheme}: compact unknown availability stays inside admin cards`, async ({ page }) => {
+    test(`dashboard ${width}px ${colorScheme}: Request remains usable without optional enrichment`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await dashboard(page);
@@ -371,16 +374,61 @@ for (const width of [320, 1280]) {
           host.innerHTML = (window as any).fixtureAdmin.renderLocalizedDiscoveryCard({ ...candidate, AvailabilityVerified: false }, locale.strings);
         }, { candidate: discoveryRecommendations[0], locale });
         const card = page.locator('#fixtureAvailabilityCards .discovery-card');
-        const status = card.locator('.discovery-availability');
-        await expect(status).toBeVisible();
-        await expect(status).toHaveText(locale.strings.discoveryAvailabilityUnknown);
-        await expect(status).toHaveAttribute('title', locale.strings.discoveryAvailabilityUnknownHint);
-        await expect(card.locator('.discovery-request-btn')).toHaveCount(0);
-        expect(await status.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+        const request = card.locator('.discovery-request-btn');
+        await expect(request).toBeVisible();
+        await expect(request).toBeEnabled();
+        await expect(request).toContainText(locale.strings.discoveryRequest);
+        await expect(card.locator('.discovery-availability')).toHaveCount(0);
+        expect(await request.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
         expect(await card.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
         const box = await card.boundingBox();
         expect(box!.x).toBeGreaterThanOrEqual(0);
         expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      }
+    });
+  }
+}
+
+for (const view of ['sidebar', 'admin'] as const) {
+  for (const outcome of ['duplicate', 'failure'] as const) {
+    test(`${view}: ${outcome} request outcome preserves the correct toast and card lifecycle`, async ({ page }) => {
+      await page.clock.install();
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      if (view === 'sidebar') await discovery(page);
+      else await dashboard(page);
+      await page.evaluate(({ candidate, view, outcome }) => {
+        const result = { Success: outcome === 'duplicate', AlreadyRequested: true, Message: 'Seerr status check failed' };
+        if (view === 'sidebar') {
+          const api = (window as any).ApiClient;
+          api.ajax = async () => result;
+          const fixture = (window as any).fixtureDiscovery;
+          fixture.renderLocalizedCards(document.getElementById('cards'), [{ ...candidate, AvailabilityVerified: false }],
+            { discoveryAlreadyRequested: 'Titel wurde bereits angefragt' });
+          fixture.submitRequest(candidate.TmdbId, candidate.MediaType, null, null, null, document.querySelector('[data-jfh-action="request"]'));
+        } else {
+          document.getElementById('discoveryCount')?.remove();
+          const host = document.createElement('div');
+          host.id = 'fixtureRequests';
+          host.innerHTML = '<div class="discovery-grid">' + (window as any).fixtureAdmin.renderLocalizedDiscoveryCard(
+            { ...candidate, AvailabilityVerified: false }, { discoveryAlreadyRequested: 'Titel wurde bereits angefragt' }) + '</div><span id="discoveryCount">1</span>';
+          document.getElementById('JellyfinHelperConfigPage')!.prepend(host);
+          (window as any).fixtureAdmin.handleDiscoveryRequestResponse(result, host.querySelector('.discovery-request-btn'), candidate.TmdbId, candidate.MediaType);
+        }
+      }, { candidate: discoveryRecommendations[0], view, outcome });
+      const card = page.locator(view === 'sidebar' ? '.jfh-discovery-card' : '#fixtureRequests .discovery-card');
+      const toast = page.locator(view === 'sidebar' ? '.jfh-discovery-toast' : '.jfh-toast');
+      if (outcome === 'duplicate') {
+        await expect(toast).toContainText('Titel wurde bereits angefragt');
+        await expect(card.locator(view === 'sidebar' ? '[data-jfh-action="request"]' : '.discovery-request-btn')).toBeDisabled();
+        await page.clock.runFor(5400);
+        await expect(card).toHaveCount(0);
+        if (view === 'admin') await expect(page.locator('#discoveryCount')).toHaveText('0');
+      } else {
+        await expect(toast.filter({ hasText: 'Titel wurde bereits angefragt' })).toHaveCount(0);
+        await page.clock.runFor(5400);
+        await expect(card).toBeVisible();
+        await expect(card.locator(view === 'sidebar' ? '[data-jfh-action="request"]' : '.discovery-request-btn')).toBeEnabled();
+        if (view === 'admin') await expect(page.locator('#discoveryCount')).toHaveText('1');
       }
     });
   }

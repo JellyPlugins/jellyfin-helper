@@ -101,7 +101,7 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public bool AlreadyRequested { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether provider details verified availability before offering a Request action. Missing legacy data remains unverified.</summary>
+    /// <summary>Gets or sets a value indicating whether the selected title's Seerr status was checked during generation. This is not a Request permission or an age certification.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public bool AvailabilityVerified { get; set; }
 

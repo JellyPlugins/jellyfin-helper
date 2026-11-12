@@ -76,8 +76,8 @@ public interface ISeerrDiscoveryService
     /// <param name="profileId">Optional quality profile ID override.</param>
     /// <param name="rootFolder">Optional root folder path override.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A tuple containing a success flag and a descriptive message.</returns>
-    Task<(bool Success, string Message)> SubmitRequestAsync(
+    /// <returns>The submission outcome, distinguishing a confirmed already-requested intent.</returns>
+    Task<SeerrRequestResult> SubmitRequestAsync(
         int tmdbId,
         string mediaType,
         int? seerrUserId,

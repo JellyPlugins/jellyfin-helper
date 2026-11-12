@@ -58,6 +58,19 @@ public sealed class DiscoverySelectionTests
     }
 
     [Fact]
+    public void Select_SortsAfterDiverseSelectionWithoutReplacingItsMembership()
+    {
+        var first = Candidate(1, 0.9, genre: "Animation");
+        var similar = Candidate(2, 0.89, genre: "Animation");
+        var different = Candidate(3, 0.85, genre: "Crime");
+        var excluded = Candidate(4, 0.7, genre: "Animation");
+        var selected = DiscoverySelection.Select([first, similar, different, excluded], 3);
+        Assert.Equal([1, 2, 3], selected.Select(item => item.TmdbId));
+        Assert.Equal([0.9, 0.89, 0.85], selected.Select(item => item.Score));
+        Assert.Equal([3, 2, 1], DiscoverySelection.Select([different, similar, first], 3, preserveSourceRank: true).Select(item => item.TmdbId));
+    }
+
+    [Fact]
     public void Select_ColdStartDoesNotInventPersonalEvidence()
     {
         var candidate = Candidate(1, 0.01);

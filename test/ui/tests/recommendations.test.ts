@@ -155,7 +155,7 @@ describe('renderRecommendationCard clamps and escapes', () => {
 });
 
 describe('renderDiscoveryCard hardens untrusted fields', () => {
-  test.each(['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'])('compact availability labels retain their full explanation in both views (%s)', async language => {
+  test.each(['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'])('missing optional metadata keeps localized Request actions in both views (%s)', async language => {
     const strings = JSON.parse(readFileSync(join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper/i18n', language + '.json'), 'utf8'));
     ajaxRouter({ Translations: strings });
     (globalThis as any).ApiClient.getCurrentUserId = () => 'u1';
@@ -168,21 +168,18 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     admin.innerHTML = ui.renderDiscoveryCard(candidate, 0);
     const user = document.createElement('div');
     sidebar.renderCards(user, { Recommendations: [candidate] });
-    expect(strings.discoveryAvailabilityUnknown.length).toBeLessThan(strings.discoveryAvailabilityUnknownHint.length);
-    for (const [container, selector] of [[admin, '.discovery-availability'], [user, '.jfh-discovery-availability']] as const) {
-      const status = container.querySelector(selector)!;
-      expect(status.textContent).toBe(strings.discoveryAvailabilityUnknown);
-      expect(status.getAttribute('title')).toBe(strings.discoveryAvailabilityUnknownHint);
-      expect(status.getAttribute('aria-label')).toBe(strings.discoveryAvailabilityUnknownHint);
-      expect(container.querySelector('.discovery-request-btn, [data-jfh-action="request"]')).toBeNull();
+    for (const container of [admin, user]) {
+      const button = container.querySelector('.discovery-request-btn, [data-jfh-action="request"]') as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toContain(strings.discoveryRequest);
+      expect(container.querySelector('.discovery-availability, .jfh-discovery-availability')).toBeNull();
     }
     expect((user.querySelector('[data-jfh-action="dismiss"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  test('compact availability labels and tooltip explanations escape hostile translations in both views', async () => {
+  test('Request actions escape hostile translations in both views', async () => {
     const label = '<img src=x onerror=alert(1)>';
-    const hint = '\"><img src=x onerror=alert(2)>';
-    ajaxRouter({ Translations: { discoveryAvailabilityUnknown: label, discoveryAvailabilityUnknownHint: hint } });
+    ajaxRouter({ Translations: { discoveryRequest: label } });
     (globalThis as any).ApiClient.getCurrentUserId = () => 'u1';
     ui.loadTranslations(() => {});
     const sidebar = freshDiscoveryHelpers();
@@ -193,11 +190,8 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     admin.innerHTML = ui.renderDiscoveryCard(candidate, 0);
     const user = document.createElement('div');
     sidebar.renderCards(user, { Recommendations: [candidate] });
-    for (const [container, selector] of [[admin, '.discovery-availability'], [user, '.jfh-discovery-availability']] as const) {
-      const status = container.querySelector(selector)!;
-      expect(status.textContent).toBe(label);
-      expect(status.getAttribute('title')).toBe(hint);
-      expect(status.getAttribute('aria-label')).toBe(hint);
+    for (const container of [admin, user]) {
+      expect(container.querySelector('.discovery-request-btn, [data-jfh-action="request"]')!.textContent).toContain(label);
       expect(container.querySelector('[onerror]')).toBeNull();
       expect(container.querySelector('img')).toBeNull();
     }
@@ -260,16 +254,14 @@ describe('renderDiscoveryCard hardens untrusted fields', () => {
     expect(el.querySelector('.discovery-availability')).toBeNull();
   });
 
-  test.each([false, undefined, null, 'true', 1])('unverified and legacy availability omit the Request action (%j)', (verified) => {
+  test.each([false, undefined, null, 'true', 1])('unverified and legacy availability do not gate Request actions (%j)', (verified) => {
     const el = document.createElement('div');
     el.innerHTML = ui.renderDiscoveryCard({ Title: 'T', Score: 0.5, AvailabilityVerified: verified, MediaType: 'movie', TmdbId: 7 }, 0);
-    expect(el.querySelector('.discovery-request-btn')).toBeNull();
-    expect(el.querySelector('[data-tmdb-id]')).toBeNull();
-    const status = el.querySelector('.discovery-availability')!;
-    expect(status.textContent).toBe('Unchecked');
-    expect(status.getAttribute('title')).toBe('Availability not checked');
-    expect(status.getAttribute('aria-label')).toBe('Availability not checked');
-    expect(status.getAttribute('role')).toBe('note');
+    const button = el.querySelector('.discovery-request-btn') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.tmdbId).toBe('7');
+    expect(button.dataset.mediaType).toBe('movie');
+    expect(el.querySelector('.discovery-availability')).toBeNull();
   });
 
   test('unparseable tmdb ids zero out', () => {
@@ -305,6 +297,27 @@ describe('request response handling', () => {
     ui.handleDiscoveryRequestResponse({ Success: false }, btn, 5, 'movie');
     expect(btn.disabled).toBe(false);
     expect(btn.textContent).toMatch(/fail/i);
+  });
+
+  test('confirmed duplicate shows a toast and consumes the card like a successful request', async () => {
+    const btn = buttonInGrid();
+    ui.handleDiscoveryRequestResponse({ Success: true, AlreadyRequested: true }, btn, 5, 'movie');
+    expect(document.querySelector('.jfh-toast')!.textContent).toContain('Title has already been requested');
+    expect(btn.disabled).toBe(true);
+    expect(btn.classList.contains('discovery-request-done')).toBe(true);
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(document.querySelector('.discovery-card')).toBeNull();
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('2');
+  });
+
+  test('an error mentioning a duplicate does not consume the card or show a success toast', async () => {
+    const btn = buttonInGrid();
+    ui.handleDiscoveryRequestResponse({ Success: false, AlreadyRequested: true, Message: 'already requested' }, btn, 5, 'movie');
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(document.querySelector('.jfh-toast')).toBeNull();
+    expect(document.querySelector('.discovery-card')).not.toBeNull();
+    expect(document.getElementById('discoveryCount')!.textContent).toBe('3');
+    expect(btn.classList.contains('discovery-request-done')).toBe(false);
   });
 
   test.each([null, undefined, false, 0, '', { Success: 0 }])('falsy response %s stays on the error path', (response) => {

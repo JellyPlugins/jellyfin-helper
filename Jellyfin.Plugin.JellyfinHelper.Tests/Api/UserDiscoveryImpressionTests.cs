@@ -83,20 +83,23 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ActionsWithoutImpressions_UseTheExactOwnDeliveryInsteadOfANewerPool(bool requested)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ActionsWithoutImpressions_UseTheExactOwnDeliveryInsteadOfANewerPool(bool requested, bool duplicate)
     {
         var user = Guid.NewGuid();
         var generation = DateTime.UtcNow.AddDays(-2);
         var first = await SaveAndDeliver(user, generation, 0.3);
         await SaveAndDeliver(user, generation.AddDays(1), 0.8);
-        ConfigureAcceptedRequests();
+        ConfigureAcceptedRequests(duplicate);
         var controller = Controller(user);
         var result = requested
             ? (await controller.SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 1, DeliveryId = first.DeliveryId }, CancellationToken.None)).Result
             : controller.DismissItem(new DiscoveryDismissDto { TmdbId = 1, DeliveryId = first.DeliveryId }).Result;
-        Assert.True(Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(result, exactMatch: false).Value).Success);
+        var body = Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(result, exactMatch: false).Value);
+        Assert.True(body.Success);
+        Assert.Equal(duplicate, body.AlreadyRequested);
         if (requested)
         {
             _feedback.Verify(store => store.RecordRequested(user, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
@@ -149,12 +152,12 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
         _discovery.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private void ConfigureAcceptedRequests()
+    private void ConfigureAcceptedRequests(bool duplicate = false)
     {
         _discovery.Setup(service => service.GetUserRequestPermissionsAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
         _discovery.Setup(service => service.ResolveSeerrUserIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(10);
         _discovery.Setup(service => service.VerifyRequestForUserAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((true, true));
-        _discovery.Setup(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync((true, "accepted"));
+        _discovery.Setup(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>())).ReturnsAsync(new SeerrRequestResult(true, "accepted") { AlreadyRequested = duplicate });
     }
 
     [Fact]
@@ -260,6 +263,60 @@ public sealed class UserDiscoveryImpressionTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(Controller(user).RecordImpressions(payload));
         _feedback.Verify(store => store.RecordImpressions(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DuplicateIntents_RecordEachAuthenticatedUsersOwnImmutableDeliveryAndConsumeOnlyTheirCard()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var generation = DateTime.UtcNow.AddDays(-1);
+        Assert.True(_cache.Save([
+            new DiscoveryResult { UserId = first, GeneratedAt = generation, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.3 } }] },
+            new DiscoveryResult { UserId = second, GeneratedAt = generation, Recommendations = [new DiscoveryRecommendation { TmdbId = 1, ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.8 } }] }
+        ]));
+        var firstDelivery = await Deliver(Controller(first));
+        var secondDelivery = await Deliver(Controller(second));
+        ConfigureAcceptedRequests(duplicate: true);
+
+        var firstResponse = await Controller(first).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 1, DeliveryId = firstDelivery.DeliveryId }, CancellationToken.None);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(firstResponse.Result).StatusCode);
+        var cacheAfterFirst = await _cache.LoadAsync(CancellationToken.None);
+        Assert.True(cacheAfterFirst.Single(pool => pool.UserId == first).Recommendations.Single().AlreadyRequested);
+        Assert.False(cacheAfterFirst.Single(pool => pool.UserId == second).Recommendations.Single().AlreadyRequested);
+        var secondResponse = await Controller(second).SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 1, DeliveryId = secondDelivery.DeliveryId }, CancellationToken.None);
+        Assert.True(Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(secondResponse.Result).Value).AlreadyRequested);
+        _feedback.Verify(store => store.RecordRequested(first, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), generation), Times.Once);
+        _feedback.Verify(store => store.RecordRequested(second, It.Is<DiscoveryRecommendation>(item => BitConverter.DoubleToInt64Bits(item.ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.8)), generation), Times.Once);
+        _feedback.Verify(store => store.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("request")]
+    [InlineData("duplicate")]
+    [InlineData("dismiss")]
+    public async Task ConsumedCard_BackfillsFromTheSortedReserveWithoutReorderingSurvivors(string action)
+    {
+        var user = Guid.NewGuid();
+        var generation = DateTime.UtcNow.AddDays(-1);
+        var dismissed = new HashSet<(int, string)>();
+        _feedback.Setup(store => store.GetDismissedItems(user)).Returns(dismissed);
+        _feedback.Setup(store => store.RecordDismissed(user, It.IsAny<DiscoveryRecommendation>(), generation))
+            .Callback<Guid, DiscoveryRecommendation, DateTime>((_, item, _) => dismissed.Add((item.TmdbId, item.MediaType)));
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, GeneratedAt = generation,
+            Recommendations = Enumerable.Range(1, 20).Select(id => new DiscoveryRecommendation { TmdbId = id, Score = 1.0 - id * 0.01 }).ToList() }]));
+        var controller = Controller(user);
+        var first = await Deliver(controller);
+        Assert.Equal(Enumerable.Range(1, 10), first.Recommendations.Select(item => item.TmdbId));
+        ConfigureAcceptedRequests(duplicate: action == "duplicate");
+        var result = action == "dismiss"
+            ? controller.DismissItem(new DiscoveryDismissDto { TmdbId = 4, DeliveryId = first.DeliveryId }).Result
+            : (await controller.SubmitMyRequest(new DiscoveryRequestDto { TmdbId = 4, DeliveryId = first.DeliveryId }, CancellationToken.None)).Result;
+        Assert.True(Assert.IsType<RequestResult>(Assert.IsType<ObjectResult>(result, exactMatch: false).Value).Success);
+        var next = await Deliver(controller);
+        Assert.Equal([1, 2, 3, 5, 6, 7, 8, 9, 10, 11], next.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(next.Recommendations.OrderByDescending(item => item.Score).Select(item => item.TmdbId), next.Recommendations.Select(item => item.TmdbId));
+        Assert.True(next.Recommendations[^1].Score <= first.Recommendations[^1].Score);
     }
 
     [Fact]
