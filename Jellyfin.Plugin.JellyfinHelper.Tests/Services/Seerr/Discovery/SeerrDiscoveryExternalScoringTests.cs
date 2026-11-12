@@ -544,13 +544,13 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var gate = typeof(SeerrDiscoveryService).GetMethod("ThrowIfStatusBudgetExpired", BindingFlags.NonPublic | BindingFlags.Static)!;
         // Model a delayed CancelAfter callback deterministically, without sleeping or relaxing a gate.
         var rejected = Assert.Throws<TargetInvocationException>(() => gate.Invoke(null, [budget, deadline]));
-        Assert.IsAssignableFrom<OperationCanceledException>(rejected.InnerException);
+        Assert.IsType<OperationCanceledException>(rejected.InnerException, exactMatch: false);
         Assert.True(budget.IsCancellationRequested);
 
         var handler = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, """{"id":101,"mediaInfo":null}""");
         using var client = new System.Net.Http.HttpClient(handler.Object);
         var fetch = typeof(SeerrDiscoveryService).GetMethod("FetchTitleStatusAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        var read = Assert.IsAssignableFrom<Task<SeerrTitleStatus>>(fetch.Invoke(service, [client, new Uri("https://seerr.example.com/"), "test-key", 101, "movie", budget.Token]));
+        var read = Assert.IsType<Task<SeerrTitleStatus>>(fetch.Invoke(service, [client, new Uri("https://seerr.example.com/"), "test-key", 101, "movie", budget.Token]), exactMatch: false);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => read);
         handler.Protected().Verify("SendAsync", Times.Never(), ItExpr.IsAny<System.Net.Http.HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>());
     }

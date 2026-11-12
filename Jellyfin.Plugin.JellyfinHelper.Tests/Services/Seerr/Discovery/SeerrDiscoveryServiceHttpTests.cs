@@ -234,6 +234,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [InlineData(true, "tv")]
     public async Task SubmitRequestAsync_SimultaneousUsers_OnlyPostOnceEvenWhenDetailsLag(bool secondCheckFails, string mediaType)
     {
+        ArgumentNullException.ThrowIfNull(mediaType);
         var enteredPost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releasePost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var checks = 0;
