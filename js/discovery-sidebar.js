@@ -263,13 +263,11 @@
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
             '.jfh-discovery-local-score { display: inline-block; margin-left: 0.4em; padding: 0 0.4em; border-radius: 3px; background: rgba(255,255,255,0.1); font-size: 0.9em; opacity: 0.85; white-space: nowrap; vertical-align: baseline; }' +
             '.jfh-discovery-btn-row { margin-top: auto; display: flex; flex-wrap: wrap; gap: 0.4em; align-items: stretch; }' +
-            // A quiet full-width status line must not squeeze the remaining dismiss button.
-            '.jfh-discovery-availability { flex: 1 1 100%; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 0.15em 0; font-size: 0.75em; line-height: 1.3; color: var(--color-text-muted, #ccc); text-align: center; white-space: normal; overflow-wrap: anywhere; }' +
             // box-sizing + a fixed min-height keep every button state (Request / Requesting… / ✓ Requested /
             // Failed) exactly the same size, so swapping the label never changes the button's height or width
             // and the state transition doesn't flicker. The request button spans the full row (its dismiss
             // sibling is hidden for the duration), so these labels stay single-line.
-            '.jfh-discovery-btn { flex: 1; box-sizing: border-box; min-height: 2.6em; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
+            '.jfh-discovery-btn { flex: 1; box-sizing: border-box; min-height: 2.6em; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; overflow-wrap: anywhere; text-align: center; min-width: 0; }' +
             '@media (hover:hover) and (pointer:fine) { .jfh-discovery-btn:hover:not(:disabled):not(.jfh-discovery-btn-dismiss) { background: #006487; } }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
@@ -1135,7 +1133,7 @@
     }
 
     function discoveryImpressionItem(card) {
-        // Availability only gates requesting; visible recommendations still carry delivery evidence.
+        // Status checks never gate visibility feedback; recommendations carry their own delivery evidence.
         // Read identity from the card, not from optional action buttons.
         var id = Number.parseInt(card.dataset.tmdb, 10);
         var type = card.dataset.type;
@@ -1321,13 +1319,12 @@
 
     function renderSidebarActionsHtml(r, mediaType) {
         var request;
-        if (r.AlreadyRequested || r.AvailabilityVerified === true) {
+        if (mediaType === 'movie' || mediaType === 'tv') {
             var text = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var cls = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             request = '<button type="button" class="' + cls + '" data-jfh-action="request" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + (r.AlreadyRequested ? ' disabled' : '') + '>' + esc(text) + '</button>';
         } else {
-            var hint = t('discoveryAvailabilityUnknownHint', 'Availability not checked');
-            request = '<span class="jfh-discovery-availability" role="note" title="' + esc(hint) + '" aria-label="' + esc(hint) + '">' + esc(t('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
+            request = '';
         }
         var dismiss = r.AlreadyRequested ? '' : '<button type="button" class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-jfh-action="dismiss" data-tmdb="' + (Number.parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
         return request + dismiss;
@@ -1653,6 +1650,7 @@
         }).then(function (result) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
             if (result?.Success) {
+                if (result.AlreadyRequested === true) showToast(t('discoveryAlreadyRequested', 'Title has already been requested'));
                 consumeDiscoveryItem(tmdbId, mediaType);
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
