@@ -86,8 +86,7 @@ public class MediaStatisticsController : ControllerBase
             SetLastScanTime(now);
         }
 
-        MediaStatisticsResult result;
-        result = _statisticsService.CalculateStatistics();
+        var result = _statisticsService.CalculateStatistics();
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);
