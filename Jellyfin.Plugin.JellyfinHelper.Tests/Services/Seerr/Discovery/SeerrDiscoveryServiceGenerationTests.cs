@@ -600,6 +600,52 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Fact]
+    public async Task FreshOwnPool_PreservesDiverseMembershipAndScoreOrderThroughDiskCacheAndApi()
+    {
+        var profile = NewProfile();
+        profile.MaxParentalRating = 18;
+        profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10, ["Crime"] = 10, ["Drama"] = 10 };
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((Available: true, MaximumRating: (int?)18));
+
+        var highIds = Enumerable.Range(91000, 19).ToArray();
+        var lowIds = Enumerable.Range(91100, 18).ToArray();
+        RegisterRoute("/genre/28?page=1", [28], highIds.Select(id => Candidate(id, 9)).ToArray());
+        RegisterRoute("/genre/80?page=1", [80], lowIds.Where((_, index) => index % 2 == 0).Select(id => Candidate(id, 8)).ToArray());
+        RegisterRoute("/genre/18?page=1", [18], lowIds.Where((_, index) => index % 2 != 0).Select(id => Candidate(id, 8)).ToArray());
+        foreach (var id in highIds.Concat(lowIds))
+        {
+            var collection = highIds.Contains(id) ? "{\"id\":99,\"name\":\"High-rated saga\"}" : "null";
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK,
+                $$"""{"id":{{id}},"collection":{{collection}},"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"6"}]}] } }""");
+        }
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var inMemory = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        using var diskCache = new DiscoveryCacheService(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryCacheService>>(), _cacheFilePath);
+        var fromDisk = Assert.Single(await diskCache.LoadAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(20, inMemory.Recommendations.Count);
+        Assert.Equal(2, inMemory.Recommendations.Count(item => item.TmdbCollectionId == 99));
+        Assert.Equal(lowIds, inMemory.Recommendations.Where(item => item.TmdbCollectionId != 99).Select(item => item.TmdbId).OrderBy(id => id));
+        Assert.Equal(inMemory.Recommendations.OrderByDescending(item => item.Score).Select(item => item.TmdbId), inMemory.Recommendations.Select(item => item.TmdbId));
+        Assert.True(inMemory.Recommendations.Where(item => item.TmdbCollectionId == 99).Min(item => item.Score)
+            > inMemory.Recommendations.Where(item => item.TmdbCollectionId != 99).Max(item => item.Score));
+        Assert.Equal(inMemory.Recommendations.Select(item => item.TmdbId), fromDisk.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(inMemory.Recommendations.Select(item => BitConverter.DoubleToInt64Bits(item.Score)), fromDisk.Recommendations.Select(item => BitConverter.DoubleToInt64Bits(item.Score)));
+        Assert.Equal(inMemory.Recommendations.Select(item => item.ScoringFeatures!.ToVector()), fromDisk.Recommendations.Select(item => item.ScoringFeatures!.ToVector()));
+
+        var controller = new Jellyfin.Plugin.JellyfinHelper.Api.DiscoveryController(diskCache, _sut, _feedbackStore.Object,
+            Mock.Of<ILogger<Jellyfin.Plugin.JellyfinHelper.Api.DiscoveryController>>());
+        var response = await controller.GetDiscoveryResults(cancellationToken: TestContext.Current.CancellationToken);
+        var delivered = Assert.Single(Assert.IsType<IReadOnlyList<DiscoveryResult>>(
+            Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(response.Result).Value, exactMatch: false));
+        Assert.Equal(fromDisk.Recommendations.Take(10).Select(item => item.TmdbId), delivered.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(delivered.Recommendations.OrderByDescending(item => item.Score).Select(item => item.TmdbId), delivered.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(fromDisk.GeneratedAt, delivered.GeneratedAt);
+    }
+
+    [Fact]
     public async Task SlowOptionalDetails_RespectTheSharedDeadlineAndStillProduceRecommendations()
     {
         var profile = NewProfile();

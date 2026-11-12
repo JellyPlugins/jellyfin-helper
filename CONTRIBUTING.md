@@ -95,34 +95,14 @@ Keep translation keys consistent with `en.json`. Unknown custom genres remain av
 Recommendation tests cover raw, localized and canonical inputs at both training and inference boundaries.
 Weight schemas remain v5; real API histories and credentials must never be committed as test fixtures.
 
-Discovery caches created before certification-country provenance was recorded are not served to restricted users
-until normal regeneration verifies ratings under the current Jellyfin country policy. Existing valid v5 model files
-remain loadable. BoxSet libraries are optional: franchise IDs work without them; progression requires real membership.
-External own-tag/studio preferences share the library/training eligibility rules, including synthetic series favorites.
-Optional detail enrichment is limited to the pre-scoring top 20 and one eight-second pass; required age checks remain fail-closed.
-Required certification enrichment has its own 30-second deadline, including external/Trakt entry points.
-An incomplete required pass without safe replacements preserves the prior pool as a transient failure.
-After final scoring/diverse selection, Seerr status checks cover the selected pool and any replacements
-under a separate eight-second deadline. These fresh reads never rewrite prediction-time feature snapshots.
-Queued status reads check a monotonic deadline as well as cancellation, so delayed timer callbacks under
-coverage/CI load cannot start HTTP work after that deadline.
-Missing optional enrichment does not disable Request. Trakt retains source order and requires verified status;
-own lists retain diverse membership and display descending final Match scores.
-Request submission checks status freshly and serializes the same TMDb ID/media type per Seerr instance.
-Only movie title statuses short-circuit submission. TV requests always let Seerr filter the "all" payload
-per season, unless the coordinator confirms an identical request was submitted while waiting.
-Seerr's deleted media status (7) is valid and requestable again; blocklisted titles (6) are not duplicate intent.
-A confirmed existing request is successful current-user intent (localized toast, positive feedback using
-that user's original delivery snapshot, normal card consumption). Ownership alone, permissions,
-certification, malformed responses and transport failures never become successful duplicate feedback.
-Personal studio/tag/person/franchise evidence does not require genre metadata. Provider alias updates invalidate
-derived genre preferences, exposure and engagement inputs before final scoring.
-Live metadata maps distinguish a confirmed empty list (clear stale cache values) from an absent entry (unknown;
-keep prior metadata). Legacy franchise names contribute to stable IDs only when history confirms an unambiguous mapping.
-Display aliases do not participate in identity normalization. Episode snapshots retain separate own/parent tags and
-studios, so known empty parent metadata does not resurrect stale inherited values. Organic series features reuse
-historical, self-excluded collection counts and the actual parent-series lifecycle. Missing genre evidence disables
-the mismatch penalty without adding vector slots or changing the v5 weight schema.
+- Sort the final filtered, diverse own pool by score; preserve Trakt source order and playlist engine order.
+- Restricted profiles require verified current-country certifications; fail closed (30-second budget).
+- Optional enrichment: top 20 / eight seconds. Selected-title status checks: separate eight-second deadline.
+- Recheck requests and coordinate TMDb ID/media type; Seerr decides TV seasons. Enrichment never gates Request.
+- Only confirmed duplicate intent earns feedback from the current user's original snapshot; errors and ownership do not.
+- After successful card removal, fetch fresh delivery-bound reserve cards; never automatically repeat an action.
+- Keep unknown/empty metadata distinct, episode/parent provenance separate, and prediction snapshots immutable.
+- Franchise IDs need no BoxSets; progression requires real, self-excluded membership.
 
 ### Running Tests
 

@@ -72,6 +72,66 @@ describe('Discovery delivery-bound impressions', () => {
       Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Movie 1', Score: 0.7, Genres: ['Drama'], AlreadyRequested: false, AvailabilityVerified: true, ...overrides }] };
   }
 
+  test.each(['request', 'duplicate', 'dismiss'])('%s removal fetches and signs the next reserve card without repeating the action', async action => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const endpoint = root + (action === 'dismiss' ? '/Dismiss' : '/Request');
+    const next = { DeliveryId: SECOND, DeliveryExpiresAtUtc: new Date(Date.now() + 300_000).toISOString(),
+      Recommendations: [2, 3].map(id => ({ TmdbId: id, MediaType: 'movie', Title: `Movie ${id}`, Score: 0.9 - id * 0.1, Genres: ['Drama'] })) };
+    calls = ajaxRouter({ [root]: next, [endpoint]: { Success: true, AlreadyRequested: action === 'duplicate' }, '/Impressions': undefined });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'user-1';
+    render(FIRST, [1, 2]);
+    const button = host.querySelector(action === 'dismiss' ? '[data-jfh-action="dismiss"]' : '[data-jfh-action="request"]');
+    if (action === 'dismiss') ui.executeDismiss(1, 'movie', button);
+    else ui.submitRequest(1, 'movie', null, null, null, button);
+    await flush();
+    expect(calls.filter(call => call.method === 'GET')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(action === 'dismiss' ? 300 : 5300);
+    expect(calls.filter(call => call.method === 'GET' && call.url === root)).toHaveLength(1);
+    expect(calls.filter(call => call.method === 'POST' && call.url === endpoint)).toHaveLength(1);
+    expect(Array.from(host.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.tmdb)).toEqual(['2', '3']);
+    expect((host.querySelector('[data-tmdb="3"]') as any)._jfhDeliveryId).toBe(SECOND);
+    await show();
+    expect(posts().at(-1)!.body).toEqual({ DeliveryId: SECOND, Items: [{ TmdbId: 2, MediaType: 'movie' }, { TmdbId: 3, MediaType: 'movie' }] });
+  });
+
+  test('failed request does not remove a card or fetch reserve cards', async () => {
+    const root = '/JellyfinHelper/Discovery/My';
+    calls = ajaxRouter({ [root + '/Request']: { Success: false, Message: 'Seerr status check failed' } });
+    (globalThis as any).ApiClient.getCurrentUserId = () => 'user-1';
+    render(FIRST, [1, 2]);
+    ui.submitRequest(1, 'movie', null, null, null, host.querySelector('[data-jfh-action="request"]'));
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(host.querySelectorAll('.jfh-discovery-card')).toHaveLength(2);
+    expect(calls.filter(call => call.method === 'GET')).toHaveLength(0);
+  });
+
+  test('a second removal during a pending refill gets a fresh delivery instead of losing the backfill', async () => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const next = { DeliveryId: SECOND, Recommendations: [3, 4].map(id => ({ TmdbId: id, MediaType: 'movie', Title: `Movie ${id}`, Score: 0.9 - id * 0.1 })) };
+    calls = ajaxRouter({ [root]: next, [root + '/Dismiss']: { Success: true } });
+    const client = (globalThis as any).ApiClient;
+    client.getCurrentUserId = () => 'user-1';
+    const ajax = client.ajax;
+    let completeFirst!: (value: unknown) => void;
+    const first = new Promise(resolve => { completeFirst = resolve; });
+    let gets = 0;
+    client.ajax = (options: any) => {
+      const result = ajax(options);
+      return options.type === 'GET' && ++gets === 1 ? first : result;
+    };
+    render(FIRST, [1, 2]);
+    ui.executeDismiss(1, 'movie', host.querySelector('[data-tmdb="1"] [data-jfh-action="dismiss"]'));
+    await vi.advanceTimersByTimeAsync(300);
+    ui.executeDismiss(2, 'movie', host.querySelector('[data-tmdb="2"] [data-jfh-action="dismiss"]'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(gets).toBe(1);
+    completeFirst(next);
+    await flush();
+    expect(gets).toBe(2);
+    expect(Array.from(host.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.tmdb)).toEqual(['3', '4']);
+    expect(ui.getCachedDiscoveryResult().DeliveryId).toBe(SECOND);
+  });
+
   test('reports only the visible delivery and deduplicates successful visibility callbacks', async () => {
     render(FIRST);
     await show();
