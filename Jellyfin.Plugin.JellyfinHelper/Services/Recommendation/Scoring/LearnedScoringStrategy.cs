@@ -328,6 +328,87 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
     }
 
+    /// <summary>Creates a detached continuing fit, preserving coordinates and generation without a persistence path.</summary>
+    /// <returns>An independently mutable challenger. Unlike a new personal seed, its generation is not reset.</returns>
+    internal LearnedScoringStrategy CreateChallenger()
+    {
+        var challenger = new LearnedScoringStrategy(logger: _logger);
+        lock (_syncRoot)
+        {
+            challenger._weights = (double[])_weights.Clone();
+            challenger._bias = _bias;
+            challenger._featureMeans = CopyOptional(_featureMeans);
+            challenger._featureStdDevs = CopyOptional(_featureStdDevs);
+            challenger._imputationMeans = CopyOptional(_imputationMeans);
+            challenger._trainingGeneration = _trainingGeneration;
+            challenger._hasTrainedWeights = _hasTrainedWeights;
+            challenger._lastValidationLoss = _lastValidationLoss;
+            challenger._lastBaselineValidationLoss = _lastBaselineValidationLoss;
+            challenger._lastPrecisionAtK = _lastPrecisionAtK;
+            challenger._lastRecallAtK = _lastRecallAtK;
+            challenger._lastNdcgAtK = _lastNdcgAtK;
+        }
+
+        return challenger;
+    }
+
+    /// <summary>Captures immutable prediction coordinates independently of later training or caller-owned exports.</summary>
+    /// <returns>A title-independent predictor using the same inference arithmetic as this strategy.</returns>
+    internal PredictionSnapshot CapturePredictionSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return new PredictionSnapshot(new WeightsData
+            {
+                Weights = _weights,
+                Bias = _bias,
+                FeatureMeans = _featureMeans,
+                FeatureStdDevs = _featureStdDevs,
+                ImputationMeans = _imputationMeans,
+                TrainingGeneration = _trainingGeneration,
+                Version = CurrentWeightsVersion
+            });
+        }
+    }
+
+    /// <summary>Reconstructs a detached accepted v5 model from validated compound-model parameters.</summary>
+    /// <param name="data">Serialized v5 coordinates, never adopted by reference.</param>
+    /// <returns>A detached model, or null for incompatible or nonfinite parameters.</returns>
+    internal static LearnedScoringStrategy? FromParameters(WeightsData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (!IsValidParameters(data))
+        {
+            return null;
+        }
+
+        var copied = new PredictionSnapshot(data).ExportParameters();
+        return new LearnedScoringStrategy
+        {
+            _weights = copied.Weights,
+            _bias = copied.Bias,
+            _featureMeans = copied.FeatureMeans,
+            _featureStdDevs = copied.FeatureStdDevs,
+            _imputationMeans = copied.ImputationMeans,
+            _trainingGeneration = copied.TrainingGeneration,
+            _hasTrainedWeights = true,
+            _hasPersistedWeights = true
+        };
+    }
+
+    /// <summary>Checks the same v5 dimensions and finite coordinates required by the legacy loader.</summary>
+    /// <param name="data">Parameters to validate before constructing a model.</param>
+    /// <returns>Whether the complete model coordinates are usable.</returns>
+    internal static bool IsValidParameters(WeightsData data)
+        => data.Version == CurrentWeightsVersion && data.Weights is { Length: CandidateFeatures.FeatureCount }
+            && AllFinite(data.Weights) && double.IsFinite(data.Bias)
+            && (data.FeatureMeans is null) == (data.FeatureStdDevs is null)
+            && ValidOptionalCoordinates(data.FeatureMeans) && ValidOptionalCoordinates(data.FeatureStdDevs)
+            && ValidOptionalCoordinates(data.ImputationMeans);
+
+    private static bool ValidOptionalCoordinates(double[]? coordinates)
+        => coordinates is null || (coordinates.Length == CandidateFeatures.FeatureCount && AllFinite(coordinates));
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
@@ -342,20 +423,27 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
             lock (_syncRoot)
             {
-                features.WriteForModel(vector, _imputationMeans);
-                // Apply Z-score standardization if statistics are available
-                if (_featureMeans is not null && _featureStdDevs is not null)
-                {
-                    StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
-                }
-
-                return Math.Clamp(ScoringHelper.ComputeRawScore(vector, _weights, _bias), 0.0, 1.0);
+                return ComputePrediction(features, vector, _weights, _bias, _featureMeans, _featureStdDevs, _imputationMeans);
             }
         }
         finally
         {
             ArrayPool<double>.Shared.Return(vector);
         }
+    }
+
+    private static double[]? CopyOptional(double[]? values) => values is null ? null : (double[])values.Clone();
+
+    private static double ComputePrediction(
+        CandidateFeatures features, double[] vector, double[] weights, double bias, double[]? means, double[]? standardDeviations, double[]? imputationMeans)
+    {
+        features.WriteForModel(vector, imputationMeans);
+        if (means is not null && standardDeviations is not null)
+        {
+            StandardizeSingleVector(vector, means, standardDeviations);
+        }
+
+        return Math.Clamp(ScoringHelper.ComputeRawScore(vector, weights, bias), 0.0, 1.0);
     }
 
     /// <inheritdoc />
@@ -1235,6 +1323,68 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Any catch above means the weights are not persisted; report that so callers do not treat the
         // in-memory weights as durably saved.
         return false;
+    }
+
+    /// <summary>Immutable inference state with no mutable optimizer or persistence ownership.</summary>
+    internal sealed class PredictionSnapshot : IScoringStrategy
+    {
+        private readonly WeightsData _data;
+
+        internal PredictionSnapshot(WeightsData capturedData)
+        {
+            ArgumentNullException.ThrowIfNull(capturedData);
+            _data = new WeightsData
+            {
+                Weights = (double[])capturedData.Weights.Clone(),
+                Bias = capturedData.Bias,
+                FeatureMeans = CopyOptional(capturedData.FeatureMeans),
+                FeatureStdDevs = CopyOptional(capturedData.FeatureStdDevs),
+                ImputationMeans = CopyOptional(capturedData.ImputationMeans),
+                TrainingGeneration = capturedData.TrainingGeneration,
+                UpdatedAt = capturedData.UpdatedAt,
+                Version = capturedData.Version
+            };
+        }
+
+        /// <inheritdoc />
+        public string Name => "Learned (Adaptive ML)";
+
+        /// <inheritdoc />
+        public string NameKey => "strategyLearned";
+
+        /// <inheritdoc />
+        public double Score(CandidateFeatures features)
+        {
+            ArgumentNullException.ThrowIfNull(features);
+            var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
+            try
+            {
+                Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
+                return ComputePrediction(features, vector, _data.Weights, _data.Bias, _data.FeatureMeans, _data.FeatureStdDevs, _data.ImputationMeans);
+            }
+            finally
+            {
+                ArrayPool<double>.Shared.Return(vector);
+            }
+        }
+
+        /// <inheritdoc />
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+            => ScoringHelper.BuildMarginalExplanation(features, Score, Name);
+
+        /// <summary>Exports independent v5 parameter arrays, never the predictor's backing arrays.</summary>
+        /// <returns>A mutable serialization copy.</returns>
+        internal WeightsData ExportParameters() => new()
+        {
+            Weights = (double[])_data.Weights.Clone(),
+            Bias = _data.Bias,
+            FeatureMeans = CopyOptional(_data.FeatureMeans),
+            FeatureStdDevs = CopyOptional(_data.FeatureStdDevs),
+            ImputationMeans = CopyOptional(_data.ImputationMeans),
+            TrainingGeneration = _data.TrainingGeneration,
+            UpdatedAt = _data.UpdatedAt,
+            Version = _data.Version
+        };
     }
 
     /// <summary>

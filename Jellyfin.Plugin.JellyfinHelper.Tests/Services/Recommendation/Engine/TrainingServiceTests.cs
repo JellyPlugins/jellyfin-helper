@@ -229,9 +229,9 @@ public class TrainingServiceTests
         using var service = CreateSut();
         var registry = new Mock<IPerUserEnsembleRegistry>();
         var method = typeof(TrainingService).GetMethod("TrainPerUserModels", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        method.Invoke(service, [registry.Object, rows, TestContext.Current.CancellationToken]);
+        method.Invoke(service, [registry.Object, rows, TestContext.Current.CancellationToken, null]);
         registry.Verify(value => value.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()), Times.Never);
-        registry.Verify(value => value.EvictPerUserModel(user), Times.Once);
+        registry.Verify(value => value.EvictPerUserModel(user), Times.Never);
         Assert.Equal(6, rows.Select(row => row.ObservationId).Distinct().Count());
     }
 
@@ -268,6 +268,98 @@ public class TrainingServiceTests
 
         registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(Guid.Empty), Times.Never);
         registryMock.Verify(r => r.GetOrCreateTrainableEnsembleForUser(userId), Times.Once);
+    }
+
+    [Fact]
+    public void TrainPerUser_UnreadableGlobalAcceptanceLedgerCannotSeedPersonalModels()
+    {
+        var user = Guid.NewGuid();
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([CreateLargeProfile(user, 30)]);
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([]);
+        var directory = Path.Join(Path.GetTempPath(), "jfh-global-ledger-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var statePath = Path.Join(directory, "ensemble_state.json");
+            using var global = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath);
+            File.WriteAllText(AcceptedModelStore.GetLedgerPath(statePath)!, "unreadable-acceptance-ledger");
+            var registry = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
+            registry.Setup(value => value.GlobalEnsemble).Returns(global);
+            using var service = CreateSut();
+            Assert.False(service.TrainPerUser(registry.Object, [CreateLargeResult(user, 30, DateTime.UtcNow)], cancellationToken: TestContext.Current.CancellationToken));
+            Assert.Equal("AcceptanceLedgerUnavailable", global.LastAdmission!.Reason);
+            registry.Verify(value => value.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()), Times.Never);
+            Assert.Equal(0, global.TrainingExampleCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PersonalSeedExclusionsContainOnlyThatUsersCurrentHoldoutIdentities()
+    {
+        var user = Guid.NewGuid();
+        var profile = CreateLargeProfile(user, 40);
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([]);
+        var unrelated = Enumerable.Range(1, 5000).Select(value => new Guid(value, 42, 0, new byte[8])).ToArray();
+        var own = profile.WatchedItems.Select(item => TrainingExample.CreateLibraryObservationId(user, item.ItemId)).ToArray();
+        using var global = new EnsembleScoringStrategy();
+        typeof(EnsembleScoringStrategy).GetField("_acceptedBundle", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(global, new AcceptedModelBundle { AcceptanceObservationIds = unrelated.Concat(own).ToArray() });
+        using var personal = new EnsembleScoringStrategy();
+        var registry = new Mock<IPerUserEnsembleRegistry>();
+        registry.Setup(value => value.GlobalEnsemble).Returns(global);
+        registry.Setup(value => value.GetOrCreateTrainableEnsembleForUser(user)).Returns(personal);
+        using var service = CreateSut();
+        service.TrainPerUser(registry.Object, [CreateLargeResult(user, 40, DateTime.UtcNow)], cancellationToken: TestContext.Current.CancellationToken);
+        var excluded = Assert.IsType<HashSet<Guid>>(typeof(EnsembleScoringStrategy).GetField("_seedAcceptanceObservations", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(personal));
+        Assert.True(excluded.Count <= own.Length);
+        Assert.Empty(excluded.Intersect(unrelated));
+        Assert.All(excluded, id => Assert.True(new TrainingExample { Features = new CandidateFeatures(), ObservationId = id, HasStableObservationId = true }.IsPermanentHoldout));
+    }
+
+    [Theory]
+    [InlineData("generated", false)]
+    [InlineData("impression", true)]
+    [InlineData("request", true)]
+    [InlineData("dismiss", true)]
+    [InlineData("watch", true)]
+    public void RetirementActivityCountsObservedActionsButNotGeneratedRecommendations(string signal, bool active)
+    {
+        var user = Guid.NewGuid();
+        var old = DateTime.UtcNow.AddDays(-90);
+        var recent = DateTime.UtcNow.AddHours(-1);
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, LastActivityDate = old }]);
+        var entry = new DiscoveryFeedbackEntry { ShownAtUtc = recent };
+        switch (signal)
+        {
+            case "impression": entry.ImpressionAtUtc = recent; break;
+            case "request": entry.RequestedAtUtc = recent; break;
+            case "dismiss": entry.DismissedAtUtc = recent; break;
+            case "watch": entry.WatchedAtUtc = recent; break;
+        }
+
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([new DiscoveryFeedbackResult { UserId = user, Entries = [entry] }]);
+        var registry = new Mock<IPerUserEnsembleRegistry>();
+        IReadOnlyDictionary<Guid, DateTime?>? observed = null;
+        registry.Setup(value => value.EvictInactiveModels(It.IsAny<DateTime>(), It.IsAny<IReadOnlyDictionary<Guid, DateTime?>>()))
+            .Callback<DateTime, IReadOnlyDictionary<Guid, DateTime?>>((_, activity) => observed = activity);
+        using var service = CreateSut();
+        Assert.Equal(0, service.RetireStaleModels(registry.Object));
+        Assert.Equal(active ? recent : old, observed![user]);
+    }
+
+    [Fact]
+    public void RetirementCannotDeleteModelsWhenObservedDiscoveryActivityIsUnavailable()
+    {
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = Guid.NewGuid(), LastActivityDate = DateTime.UtcNow.AddDays(-90) }]);
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Throws<IOException>();
+        var registry = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
+        using var service = CreateSut();
+        Assert.Equal(0, service.RetireStaleModels(registry.Object));
+        registry.Verify(value => value.EvictInactiveModels(It.IsAny<DateTime>(), It.IsAny<IReadOnlyDictionary<Guid, DateTime?>>()), Times.Never);
     }
 
     [Fact]
@@ -573,12 +665,21 @@ public class TrainingServiceTests
     /// <summary>
     ///     Builds a large watch profile with N distinct watched items across several genres, which - combined with N recommendations per user - produces enough training examples to trigger the held-out validation split path (>= 20 examples).
     /// </summary>
-    [Fact]
-    public void RetireStaleModels_ModelIdleBeyondWindow_RetiredWithInfoLog()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void RetireStaleModels_UsesUserActivityRatherThanPromotionAge(bool stillActive, bool sessionActive)
     {
         // A user builds a per-user model, then goes quiet for longer than the idle window. RetireStaleModels
         // runs the age sweep independently of training, so it must retire the stale model and log the retirement.
         var idleUser = Guid.NewGuid();
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
+        {
+            UserId = idleUser,
+            LastActivityDate = DateTime.UtcNow.AddDays(stillActive ? -1 : -(EngineConstants.PerUserModelMaxIdleDays + 5)),
+            LastSessionActivityDate = sessionActive ? DateTime.UtcNow.AddDays(-1) : null
+        }]);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         var dataPath = Path.Join(Path.GetTempPath(), "jfh-trainperuser-idle-" + Guid.NewGuid().ToString("N"));
@@ -602,10 +703,9 @@ public class TrainingServiceTests
                 _pluginLogMock.Object);
             using var sut = CreateSut();
 
-            // Data-rich run for the idle user creates their per-user model.
-            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
-                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(idleUser, watchedCount: 30) });
-            sut.TrainPerUser(registry, new[] { CreateLargeResult(idleUser, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
+            // Age retirement is tested against a real legacy checkpoint, not a homogeneous batch
+            // that the independent admission contract correctly refuses to promote.
+            SeedLegacyCheckpoint(registry, idleUser);
             Assert.True(registry.HasPerUserModel(idleUser));
 
             // Rewind the idle user's persisted last-trained time to well beyond the idle window so the sweep
@@ -619,15 +719,16 @@ public class TrainingServiceTests
 
             var retired = sut.RetireStaleModels(registry);
 
-            Assert.Equal(1, retired);
-            Assert.False(registry.HasPerUserModel(idleUser));
-            Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{idleUser:N}.json")));
+            var retained = stillActive || sessionActive;
+            Assert.Equal(retained ? 0 : 1, retired);
+            Assert.Equal(retained, registry.HasPerUserModel(idleUser));
+            Assert.Equal(retained, File.Exists(Path.Join(dataPath, $"ml_weights_{idleUser:N}.json")));
             _pluginLogMock.Verify(
                 l => l.LogInfo(
                     It.IsAny<string>(),
                     It.Is<string>(m => m.Contains("Retired") && m.Contains("per-user model")),
                     It.IsAny<ILogger>()),
-                Times.Once);
+                retained ? Times.Never() : Times.Once());
         }
         finally
         {
@@ -1040,10 +1141,16 @@ public class TrainingServiceTests
             var trained = sut.TrainPerUser(registry, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.True(trained);
-            // Both users cleared the threshold on their full slices, so both must have a dedicated per-user
-            // model persisted despite the global pass subsampling the pooled set.
-            Assert.True(registry.HasPerUserModel(userA));
-            Assert.True(registry.HasPerUserModel(userB));
+            // Their full observed slices must reach fitting, but positive-only evidence cannot fabricate
+            // an approved personal model. Maturity and assessment prove they were not starved by sampling.
+            var a = registry.GetOrCreateTrainableEnsembleForUser(userA);
+            var b = registry.GetOrCreateTrainableEnsembleForUser(userB);
+            Assert.True(a.TrainingExampleCount >= PerUserEnsembleRegistry.PerUserModelThreshold);
+            Assert.True(b.TrainingExampleCount >= PerUserEnsembleRegistry.PerUserModelThreshold);
+            Assert.NotNull(a.LastAdmission);
+            Assert.NotNull(b.LastAdmission);
+            Assert.False(registry.HasPerUserModel(userA));
+            Assert.False(registry.HasPerUserModel(userB));
         }
         finally
         {
@@ -1167,7 +1274,7 @@ public class TrainingServiceTests
     }
 
     [Fact]
-    public void TrainPerUser_UserDropsBelowThresholdAfterHavingModel_EvictsAndFallsBackToGlobal()
+    public void TrainPerUser_UserDropsBelowFitThreshold_RetainsTheIncumbentWithoutRefitting()
     {
         // A user who built a per-user model on a data-rich run and then falls below the threshold on a later
         // run must not keep scoring on the stale personal fit: the model is evicted so the user resolves back
@@ -1196,21 +1303,21 @@ public class TrainingServiceTests
                 _pluginLogMock.Object);
             using var sut = CreateSut();
 
-            // Data-rich run: the user clears the threshold and gets a dedicated per-user model.
-            _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
-                .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 30) });
-            sut.TrainPerUser(registry, new[] { CreateLargeResult(user, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
+            SeedLegacyCheckpoint(registry, user);
             Assert.True(registry.HasPerUserModel(user));
             Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
+            var incumbent = registry.GetScoringStrategyForUser(user);
+            var weightsPath = Path.Join(dataPath, $"ml_weights_{user:N}.json");
+            var before = File.ReadAllBytes(weightsPath);
 
             // Later lean run: the same user falls below the threshold, so the model is evicted.
             _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
                 .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) });
             sut.TrainPerUser(registry, new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);
 
-            Assert.False(registry.HasPerUserModel(user));
-            Assert.False(File.Exists(Path.Join(dataPath, $"ml_weights_{user:N}.json")));
-            Assert.Same(global, registry.GetScoringStrategyForUser(user));
+            Assert.True(registry.HasPerUserModel(user));
+            Assert.Equal(before, File.ReadAllBytes(weightsPath));
+            Assert.Same(incumbent, registry.GetScoringStrategyForUser(user));
         }
         finally
         {
@@ -1227,5 +1334,22 @@ public class TrainingServiceTests
                 // Best-effort temp cleanup.
             }
         }
+    }
+    private static void SeedLegacyCheckpoint(IPerUserEnsembleRegistry registry, Guid user)
+    {
+        var fit = Enumerable.Range(0, 80).Select(index => new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = index % 2 == 0 ? .9 : .05, CombinedCriticScore = index % 2 == 0 ? .85 : .1 },
+            Label = index % 2 == 0 ? 1 : 0,
+            HasStableObservationId = true,
+            UserId = user
+        }).ToArray();
+        var evaluation = Enumerable.Range(0, 20).Select(index => new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = index % 2 == 0 ? .9 : .05, CombinedCriticScore = index % 2 == 0 ? .85 : .1 },
+            Label = index % 2 == 0 ? 1 : 0,
+            UserId = user
+        }).ToArray();
+        Assert.True(registry.GetOrCreateTrainableEnsembleForUser(user).Train(fit, evaluation));
     }
 }

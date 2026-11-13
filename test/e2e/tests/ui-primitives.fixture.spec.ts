@@ -110,6 +110,39 @@ async function discovery(page: Page) {
   }, discoveryRecommendations);
 }
 
+test('requested-card success animation stays in its source on immediate Trakt switches', async ({ page }) => {
+  await discovery(page);
+  await page.evaluate(() => {
+    const pool = (ids: number[]) => ({ DeliveryId: '00000000-0000-0000-0000-000000000001',
+      Recommendations: ids.map(id => ({ TmdbId: id, MediaType: 'movie', Title: 'Movie ' + id, Score: 0.8 })) });
+    const api = (window as any).ApiClient;
+    (window as any).fixtureRequests = [];
+    api.ajax = async (options: any) => {
+      (window as any).fixtureRequests.push(options);
+      if (options.url.endsWith('/Request')) return { Success: true };
+      if (options.url.includes('RequestPermissions')) return { CanRequest: true, Profiles: [] };
+      if (options.url.endsWith('/Trakt/Trending')) return pool([4, 2]);
+      if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool([3, 2]) };
+      return pool([1, 2]);
+    };
+    (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
+  });
+  await page.locator('.jfh-discovery-card[data-tmdb="1"] [data-jfh-action="request"]').click();
+  await expect(page.locator('.jfh-discovery-btn-done')).toBeVisible();
+  await page.locator('[data-tab="trakt"]').click();
+  const cards = page.locator('.jfh-discovery-tab-host .jfh-discovery-card');
+  await expect(cards).toHaveCount(2);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['3', '2']);
+  await page.locator('[data-tab="trending"]').click();
+  await expect(cards).toHaveCount(2);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  // Observe beyond the original 5-second deadline; the old callback must not refill the current source.
+  const requests = await page.evaluate(() => (window as any).fixtureRequests.length);
+  await page.waitForTimeout(5300);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  expect(await page.evaluate(() => (window as any).fixtureRequests.length)).toBe(requests);
+});
+
 async function controlSizes(page: Page, selector: string) {
   return page.locator(selector).evaluateAll(elements => elements.map(element => {
     const rect = element.getBoundingClientRect();

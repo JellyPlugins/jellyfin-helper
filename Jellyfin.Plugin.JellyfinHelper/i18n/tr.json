@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Kişisel model",
+  "recsEnsembleModelGlobal": "Genel model",
+  "recsEnsembleStoredTarget": "Kaydedilmiş ML hedef payı",
   "genre.12": "Macera",
   "genre.14": "Fantastik",
   "genre.16": "Animasyon",

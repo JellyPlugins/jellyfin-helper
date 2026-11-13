@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Personal model",
+  "recsEnsembleModelGlobal": "Global model",
+  "recsEnsembleStoredTarget": "Stored ML target",
   "genre.12": "Adventure",
   "genre.14": "Fantasy",
   "genre.16": "Animation",

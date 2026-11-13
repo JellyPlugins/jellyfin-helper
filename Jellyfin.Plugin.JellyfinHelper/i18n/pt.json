@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Modelo pessoal",
+  "recsEnsembleModelGlobal": "Modelo global",
+  "recsEnsembleStoredTarget": "Meta de ML guardada",
   "genre.12": "Aventura",
   "genre.14": "Fantasia",
   "genre.16": "Animação",

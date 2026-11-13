@@ -324,6 +324,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             UserId = user.Id,
             UserName = user.Username,
+            LastSessionActivityDate = user.LastActivityDate,
             MaxParentalRating = user.MaxParentalRatingScore
         };
 

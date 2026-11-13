@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Modèle personnel",
+  "recsEnsembleModelGlobal": "Modèle global",
+  "recsEnsembleStoredTarget": "Part ML cible enregistrée",
   "genre.12": "Aventure",
   "genre.14": "Fantastique",
   "genre.16": "Animation",

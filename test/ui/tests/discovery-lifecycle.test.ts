@@ -191,6 +191,77 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test.each(['trakt', 'trending'])('a requested card never follows the user into %s during its success timeout', async tab => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const pool = (ids: number[]) => ({ DeliveryId: '00000000-0000-0000-0000-000000000001',
+      Recommendations: ids.map(id => ({ Title: 'Movie ' + id, TmdbId: id, MediaType: 'movie', Score: 0.8, Genres: [] })) });
+    const client = clientDocument({ modern, responses: {
+      [root]: () => Promise.resolve(pool([1, 2])),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: pool([3, 2]) }),
+      [trendingPath]: () => Promise.resolve(pool([4, 2])),
+      [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: [] }),
+      [root + '/Request']: () => Promise.resolve({ Success: true }),
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const button = client.panel()!.querySelector('[data-tmdb="1"] [data-jfh-action="request"]') as HTMLElement;
+    button.click();
+    await settle();
+    expect(client.panel()!.querySelector('[data-tmdb="1"].jfh-discovery-card .jfh-discovery-btn-done')).not.toBeNull();
+    (client.panel()!.querySelector('[data-tab="' + tab + '"]') as HTMLElement).click();
+    await settle();
+    const cards = () => Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.tmdb);
+    const expected = tab === 'trakt' ? ['3', '2'] : ['4', '2'];
+    expect(cards()).toEqual(expected);
+    const requestsBeforeTimeout = client.requests().length;
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(cards()).toEqual(expected);
+    expect(client.requests()).toHaveLength(requestsBeforeTimeout);
+    expect(client.requests().filter(request => request.url === root + '/Request')).toHaveLength(1);
+  });
+
+  test.each(['success', 'duplicate', 'failure'])('a late %s response after switching away and back never mutates replacement cards', async outcome => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const pending = deferred<unknown>();
+    const pool = () => ({ DeliveryId: '00000000-0000-0000-0000-000000000001', Recommendations: [
+      { Title: 'Requested movie', TmdbId: 1, MediaType: 'movie', Score: 0.8 },
+      { Title: 'TV with same numeric ID', TmdbId: 1, MediaType: 'tv', Score: 0.7 },
+      { Title: 'Another movie', TmdbId: 2, MediaType: 'movie', Score: 0.6 },
+    ] });
+    const client = clientDocument({ modern, responses: {
+      [root]: () => Promise.resolve(pool()),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: pool() }),
+      [trendingPath]: () => Promise.resolve(pool()),
+      [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: [] }),
+      [root + '/Request']: () => pending.promise,
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const original = client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')!;
+    (original.querySelector('[data-jfh-action="request"]') as HTMLElement).click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="trakt"]') as HTMLElement).click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="own"]') as HTMLElement).click();
+    await settle();
+    const replacement = client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')!;
+    expect(replacement).not.toBe(original);
+    pending.resolve({ Success: outcome !== 'failure', AlreadyRequested: outcome === 'duplicate' });
+    await settle();
+    await vi.advanceTimersByTimeAsync(5300);
+    expect(client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')).toBe(replacement);
+    expect(replacement.querySelector('.jfh-discovery-btn-done, .jfh-discovery-btn-failed')).toBeNull();
+    expect(client.requests().filter(request => request.url === root + '/Request')).toHaveLength(1);
+    (client.panel()!.querySelector('[data-tab="trending"]') as HTMLElement).click();
+    await settle();
+    const keys = Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey);
+    expect(keys).toEqual(outcome === 'failure' ? ['movie-1', 'tv-1', 'movie-2'] : ['tv-1', 'movie-2']);
+  });
+
   test('a clean login route opens Discovery on the first authenticated Home visit without a reload', async () => {
     const client = clientDocument({ modern, hash: '#/login.html', initialUser: '' });
     await settle();

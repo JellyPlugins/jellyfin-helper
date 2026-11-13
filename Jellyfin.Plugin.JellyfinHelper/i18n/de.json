@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Eigenes Modell",
+  "recsEnsembleModelGlobal": "Globales Modell",
+  "recsEnsembleStoredTarget": "Gespeicherter ML-Zielanteil",
   "genre.12": "Abenteuer",
   "genre.14": "Fantasy",
   "genre.16": "Animation",

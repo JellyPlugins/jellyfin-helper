@@ -692,6 +692,7 @@
         bindDiscoveryTabHandlers(container);
 
         var host = container.querySelector('.jfh-discovery-tab-host');
+        setDiscoverySource(host);
         host.id = 'jfh-discovery-subtab-panel';
         window.JellyfinHelperUi.syncTabs(list, '.jfh-discovery-tab', list.querySelector('.jfh-discovery-tab-active'), function () { return host; });
         host.hidden = false;
@@ -1014,8 +1015,24 @@
         host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
     }
 
-    function renderCards(container, userDiscovery) {
+    // Cards and their interaction/animation state belong to one source. Same-source refreshes
+    // reconcile in place; source changes must not transplant a pending or completed request.
+    function setDiscoverySource(container) {
+        if (container._jfhDiscoverySource && container._jfhDiscoverySource !== _activeTab) {
+            container._jfhImpressionObserver?.disconnect();
+            if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+            container._jfhImpressionTimer = null;
+            container._jfhPendingRefill = null;
+            for (var card of container.querySelectorAll('.jfh-discovery-card')) {
+                if (card._jfhConsumeTimer) clearTimeout(card._jfhConsumeTimer);
+            }
+            container.innerHTML = '';
+        }
         container._jfhDiscoverySource = _activeTab;
+    }
+
+    function renderCards(container, userDiscovery) {
+        setDiscoverySource(container);
         container.classList.add('jfh-ui-surface');
         var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
             return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
@@ -1645,6 +1662,9 @@
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
         var request = captureDiscoveryRequest();
+        var card = btn.closest('.jfh-discovery-card');
+        var deliveryContainer = card?.closest('.jfh-ui-surface');
+        var deliverySource = deliveryContainer?._jfhDiscoverySource;
         btn.disabled = true;
         btn.textContent = t('discoveryRequesting', 'Requesting...');
         var payload = { TmdbId: tmdbId, MediaType: mediaType };
@@ -1671,14 +1691,13 @@
                 var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
                 if (dismissBtn) dismissBtn.style.display = 'none';
                 // After 5 seconds: fade out and remove the card (consumed from pool)
-                var card = btn.closest('.jfh-discovery-card');
-                if (card) {
+                if (card?.isConnected && deliveryContainer?._jfhDiscoverySource === deliverySource) {
                     card._jfhConsuming = true;
                     var scopeEl = card.closest('.jfh-discovery-container');
-                    var deliveryContainer = card.closest('.jfh-ui-surface');
-                    var deliverySource = deliveryContainer?._jfhDiscoverySource;
-                    setTimeout(function () {
-                        if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+                    card._jfhConsumeTimer = setTimeout(function () {
+                        card._jfhConsumeTimer = null;
+                        if (!card.isConnected || !isSameDiscoverySession(request) || _discoveryDisabled
+                            || deliveryContainer?._jfhDiscoverySource !== deliverySource) return;
                         window.JellyfinHelperUi.removeCard(card, function () {
                             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                             if (deliveryContainer && deliveryContainer._jfhDiscoverySource === deliverySource) {

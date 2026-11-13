@@ -184,4 +184,51 @@ public sealed class EnsembleDiagnosticsTests : IDisposable
         Assert.Equal(first, second);
         Assert.Equal(first.TrainingExampleCount, ensemble.TrainingExampleCount);
     }
+
+    [Theory]
+    [InlineData(0.55, 0.0, false, true, 0.55, 0.44, 0.11)]
+    [InlineData(0.55, 0.12, false, true, 0.67, 0.536, 0.134)]
+    [InlineData(0.55, -0.12, false, true, 0.43, 0.344, 0.086)]
+    [InlineData(0.7, 0.12, false, true, 0.75, 0.6, 0.15)]
+    [InlineData(0.3, -0.12, false, true, 0.3, 0.24, 0.06)]
+    [InlineData(0.55, 0.12, true, true, 0.0, 0.0, 0.0)]
+    [InlineData(0.55, -0.12, true, false, 0.0, 0.0, 0.0)]
+    [InlineData(0.55, 0.12, false, false, 0.67, 0.67, 0.0)]
+    [InlineData(0.55, 1e-11, false, true, 0.55, 0.44, 0.11)]
+    public void EffectiveShares_MatchActualScoringWithoutMutatingPersistedState(
+        double alpha, double offset, bool frozen, bool hasNeural, double expectedAlpha, double expectedLearned, double expectedNeural)
+    {
+        File.WriteAllText(StatePath, SerializeState(new
+        {
+            SchemaVersion = EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion,
+            Alpha = alpha,
+            TrainingExampleCount = 500,
+            ObservedTrainingIds = Enumerable.Range(1, 500).Select(index => new Guid(index, 0, 0, new byte[8])).ToArray(),
+            NeuralBeta = 0.2,
+            QualityGateFrozen = frozen,
+            MetricsHistory = Array.Empty<object>()
+        }));
+        var before = File.ReadAllBytes(StatePath);
+        using var neural = hasNeural ? new NeuralScoringStrategy() : null;
+        if (neural is not null)
+        {
+            Assert.True(neural.Train(CleanExamples(100), CleanExamples(40, seed: 43)));
+        }
+
+        using var ensemble = BuildSut(neural);
+        var snapshot = ensemble.GetDiagnosticsSnapshot() with { AlphaOffset = offset };
+        Assert.Equal(expectedAlpha, snapshot.EffectiveAlpha, 12);
+        Assert.Equal(expectedLearned, snapshot.LearnedShare, 12);
+        Assert.Equal(expectedNeural, snapshot.NeuralShare, 12);
+        Assert.Equal(1.0, snapshot.HeuristicShare + snapshot.LearnedShare + snapshot.NeuralShare, 12);
+
+        // Independent component scores and literal coefficients, not the production blend helper.
+        var features = new CandidateFeatures { GenreSimilarity = 0.8, CombinedCriticScore = 0.6, RecencyScore = 0.4 };
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var learned = new LearnedScoringStrategy(WeightsPath);
+        var expectedScore = (1.0 - expectedAlpha) * heuristic.Score(features)
+            + expectedLearned * learned.Score(features) + expectedNeural * (neural?.Score(features) ?? 0);
+        Assert.Equal(expectedScore, ensemble.ScoreWithOffset(features, offset), 12);
+        Assert.Equal(before, File.ReadAllBytes(StatePath));
+    }
 }

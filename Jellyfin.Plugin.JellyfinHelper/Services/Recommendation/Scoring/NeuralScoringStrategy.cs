@@ -494,6 +494,158 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
+    /// <summary>Copies a continuing optimizer and its coordinates into a detached, non-persisting challenger.</summary>
+    /// <returns>A continuing training copy, or null when the source is already disposed.</returns>
+    internal NeuralScoringStrategy? CreateChallenger()
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+
+        try
+        {
+            var challenger = new NeuralScoringStrategy(logger: _logger);
+            CopyPredictionFieldsTo(challenger);
+            CopyAdamFieldsTo(challenger);
+            challenger._trainingGeneration = _trainingGeneration;
+            challenger._hasTrainedWeights = _hasTrainedWeights;
+            lock (_syncRoot)
+            {
+                challenger._lastValidationLoss = _lastValidationLoss;
+                challenger._lastBaselineValidationLoss = _lastBaselineValidationLoss;
+                challenger._lastPrecisionAtK = _lastPrecisionAtK;
+                challenger._lastRecallAtK = _lastRecallAtK;
+                challenger._lastNdcgAtK = _lastNdcgAtK;
+            }
+
+            return challenger;
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
+
+    /// <summary>Captures resource-free immutable inference parameters, independent of later fitting or disposal.</summary>
+    /// <returns>A pinned predictor, or null for a disposed source.</returns>
+    internal PredictionSnapshot? CapturePredictionSnapshot()
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        try
+        {
+            _rwLock.EnterReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new PredictionSnapshot(new NeuralWeightsData
+            {
+                WeightsIH = _weightsIH,
+                BiasH1 = _biasH1,
+                WeightsH1H2 = _weightsH1H2,
+                BiasH2 = _biasH2,
+                WeightsH2H3 = _weightsH2H3,
+                BiasH3 = _biasH3,
+                WeightsH3H4 = _weightsH3H4,
+                BiasH4 = _biasH4,
+                WeightsH4O = _weightsH4O,
+                BiasOutput = _biasOutput,
+                FeatureMeans = _featureMeans,
+                FeatureStdDevs = _featureStdDevs,
+                ImputationMeans = _imputationMeans,
+                TrainingGeneration = _trainingGeneration,
+                Version = CurrentWeightsVersion
+            });
+        }
+        finally
+        {
+            _rwLock.ExitReadLock();
+        }
+    }
+
+    /// <summary>Loads independent v5 model coordinates without adopting caller arrays or a legacy persistence path.</summary>
+    /// <param name="data">The accepted neural parameters.</param>
+    /// <returns>A detached model, or null for an incompatible model.</returns>
+    internal static NeuralScoringStrategy? FromParameters(NeuralWeightsData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (!IsValidParameters(data))
+        {
+            return null;
+        }
+
+        var model = new NeuralScoringStrategy();
+        model.ApplyLoadedWeights(new PredictionSnapshot(data).ExportParameters());
+        return model;
+    }
+
+    /// <summary>Requires both the legacy v5 shape contract and finite values before restoring a bundle.</summary>
+    /// <param name="data">Complete neural parameters.</param>
+    /// <returns>Whether constructing a model from these coordinates is safe.</returns>
+    internal static bool IsValidParameters(NeuralWeightsData data) => IsValidWeightsData(data) && !HasNonFiniteWeights(data);
+
+    private static double[]? CopyOptional(double[]? values) => values is null ? null : (double[])values.Clone();
+
+    private void CopyPredictionFieldsTo(NeuralScoringStrategy target)
+    {
+        target._weightsIH = (double[])_weightsIH.Clone();
+        target._biasH1 = (double[])_biasH1.Clone();
+        target._weightsH1H2 = (double[])_weightsH1H2.Clone();
+        target._biasH2 = (double[])_biasH2.Clone();
+        target._weightsH2H3 = (double[])_weightsH2H3.Clone();
+        target._biasH3 = (double[])_biasH3.Clone();
+        target._weightsH3H4 = (double[])_weightsH3H4.Clone();
+        target._biasH4 = (double[])_biasH4.Clone();
+        target._weightsH4O = (double[])_weightsH4O.Clone();
+        target._biasOutput = _biasOutput;
+        target._featureMeans = CopyOptional(_featureMeans);
+        target._featureStdDevs = CopyOptional(_featureStdDevs);
+        target._imputationMeans = CopyOptional(_imputationMeans);
+    }
+
+    private void CopyAdamFieldsTo(NeuralScoringStrategy target)
+    {
+        target._adamTimestep = _adamTimestep;
+        target._mWIH = CopyOptional(_mWIH);
+        target._mWH1H2 = CopyOptional(_mWH1H2);
+        target._mWH2H3 = CopyOptional(_mWH2H3);
+        target._mWH3H4 = CopyOptional(_mWH3H4);
+        target._mWH4O = CopyOptional(_mWH4O);
+        target._mBH1 = CopyOptional(_mBH1);
+        target._mBH2 = CopyOptional(_mBH2);
+        target._mBH3 = CopyOptional(_mBH3);
+        target._mBH4 = CopyOptional(_mBH4);
+        target._mBO = _mBO;
+        target._vWIH = CopyOptional(_vWIH);
+        target._vWH1H2 = CopyOptional(_vWH1H2);
+        target._vWH2H3 = CopyOptional(_vWH2H3);
+        target._vWH3H4 = CopyOptional(_vWH3H4);
+        target._vWH4O = CopyOptional(_vWH4O);
+        target._vBH1 = CopyOptional(_vBH1);
+        target._vBH2 = CopyOptional(_vBH2);
+        target._vBH3 = CopyOptional(_vBH3);
+        target._vBH4 = CopyOptional(_vBH4);
+        target._vBO = _vBO;
+    }
+
     private double ComputeLockedVectorScore(double[] vector)
     {
         PrepareThreadLocalHiddenBuffers();
@@ -2243,6 +2395,86 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         Random Rng,
         double KeepProbability,
         double InvKeepScale);
+
+    /// <summary>A pinned model with no training, mutable parameter exports, locks or disposal ownership.</summary>
+    internal sealed class PredictionSnapshot : IScoringStrategy
+    {
+        private readonly NeuralWeightsData _data;
+
+        internal PredictionSnapshot(NeuralWeightsData capturedData)
+        {
+            ArgumentNullException.ThrowIfNull(capturedData);
+            _data = CloneParameters(capturedData);
+        }
+
+        /// <inheritdoc />
+        public string Name => "Neural (Adaptive MLP)";
+
+        /// <inheritdoc />
+        public string NameKey => "strategyNeural";
+
+        /// <inheritdoc />
+        public double Score(CandidateFeatures features)
+        {
+            ArgumentNullException.ThrowIfNull(features);
+            var vector = GetThreadLocalInputBuffer();
+            features.WriteForModel(vector, _data.ImputationMeans);
+            PrepareThreadLocalHiddenBuffers();
+            if (_data.FeatureMeans is not null && _data.FeatureStdDevs is not null)
+            {
+                LearnedScoringStrategy.StandardizeSingleVector(vector, _data.FeatureMeans, _data.FeatureStdDevs);
+            }
+
+            return ScoringHelper.GuardScore(ForwardPass(
+                vector,
+                _data.WeightsIH,
+                _data.BiasH1,
+                _data.WeightsH1H2,
+                _data.BiasH2,
+                _data.WeightsH2H3,
+                _data.BiasH3,
+                _data.WeightsH3H4,
+                _data.BiasH4,
+                _data.WeightsH4O,
+                _data.BiasOutput,
+                _tlsH1Pre,
+                _tlsH1Act,
+                _tlsH2Pre,
+                _tlsH2Act,
+                _tlsH3Pre,
+                _tlsH3Act,
+                _tlsH4Pre,
+                _tlsH4Act));
+        }
+
+        /// <inheritdoc />
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+            => ScoringHelper.BuildMarginalExplanation(features, Score, Name);
+
+        /// <summary>Exports independent v5 arrays without leaking mutable references from the pinned model.</summary>
+        /// <returns>A mutable serialization copy.</returns>
+        internal NeuralWeightsData ExportParameters() => CloneParameters(_data);
+
+        private static NeuralWeightsData CloneParameters(NeuralWeightsData source) => new()
+        {
+            WeightsIH = (double[])source.WeightsIH.Clone(),
+            BiasH1 = (double[])source.BiasH1.Clone(),
+            WeightsH1H2 = (double[])source.WeightsH1H2.Clone(),
+            BiasH2 = (double[])source.BiasH2.Clone(),
+            WeightsH2H3 = (double[])source.WeightsH2H3.Clone(),
+            BiasH3 = (double[])source.BiasH3.Clone(),
+            WeightsH3H4 = (double[])source.WeightsH3H4.Clone(),
+            BiasH4 = (double[])source.BiasH4.Clone(),
+            WeightsH4O = (double[])source.WeightsH4O.Clone(),
+            BiasOutput = source.BiasOutput,
+            FeatureMeans = CopyOptional(source.FeatureMeans),
+            FeatureStdDevs = CopyOptional(source.FeatureStdDevs),
+            ImputationMeans = CopyOptional(source.ImputationMeans),
+            TrainingGeneration = source.TrainingGeneration,
+            UpdatedAt = source.UpdatedAt,
+            Version = source.Version
+        };
+    }
 
     /// <summary>Serializable container for persisted neural network weights.</summary>
     internal sealed class NeuralWeightsData

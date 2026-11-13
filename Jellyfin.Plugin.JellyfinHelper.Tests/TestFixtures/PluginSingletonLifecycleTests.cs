@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
 
@@ -56,6 +57,18 @@ public sealed class PluginSingletonLifecycleTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
 
         Assert.Same(first, Plugin.Instance);
+    }
+
+    [Fact]
+    public void InitializePluginInstance_RepairsAMissingConfigurationWithoutReplacingTheInstance()
+    {
+        ControllerTestFactory.InitializePluginInstance();
+        var instance = Plugin.Instance!;
+        typeof(MediaBrowser.Common.Plugins.BasePlugin<PluginConfiguration>).GetProperty("Configuration")!.SetValue(instance, null);
+        Assert.Null(instance.Configuration);
+        ControllerTestFactory.InitializePluginInstance();
+        Assert.Same(instance, Plugin.Instance);
+        Assert.NotNull(Plugin.Instance!.Configuration);
     }
 
     [Fact]

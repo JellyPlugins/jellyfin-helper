@@ -80,7 +80,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         _globalEnsemble = globalEnsemble;
         _sharedNeural = sharedNeural;
-        _dataPath = dataPath;
+        _dataPath = string.IsNullOrEmpty(dataPath) ? null : dataPath;
         _blendBounds = blendBounds;
         _pluginLog = pluginLog;
         _fileSystem = fileSystem ?? new FileSystem();
@@ -112,7 +112,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // below the training threshold has no file and must score with the global model (byte-identical to
         // the previous global-only behaviour), so the read path never creates an empty per-user model.
         var weightsPath = GetLearnedWeightsPath(userId);
-        if (_dataPath is null || weightsPath is null || !_fileSystem.File.Exists(weightsPath))
+        if (_dataPath is null || weightsPath is null || !HasModelFile(userId))
         {
             return _globalEnsemble;
         }
@@ -123,7 +123,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // between the check above and the build here, leaving a freshly warm-started ensemble cached for a user
         // who should be back on the global model. If the file has since gone, discard that entry so eviction
         // wins and the user falls back to the global model rather than lingering on a stray per-user instance.
-        if (!_fileSystem.File.Exists(weightsPath) && _perUser.TryRemove(userId, out var stray))
+        if (!HasModelFile(userId) && _perUser.TryRemove(userId, out var stray))
         {
             if (stray.IsValueCreated)
             {
@@ -226,6 +226,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             {
                 PruneIfOrphan(file, live);
             }
+
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json.acceptance-ledger.txt"))
+            {
+                PruneIfOrphan(file, live);
+            }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -242,9 +247,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         }
 
         var hadCached = _perUser.ContainsKey(userId);
-        var learnedPath = GetLearnedWeightsPath(userId);
         var statePath = GetEnsembleStatePath(userId);
-        var hadFiles = (learnedPath is not null && _fileSystem.File.Exists(learnedPath))
+        var hadFiles = HasModelFile(userId)
                        || (statePath is not null && _fileSystem.File.Exists(statePath));
 
         if (!hadCached && !hadFiles)
@@ -261,6 +265,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
     /// <inheritdoc />
     public int EvictStaleModels(DateTime cutoffUtc)
+        => EvictInactiveModelsCore(cutoffUtc, null);
+
+    /// <inheritdoc />
+    public int EvictInactiveModels(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?> lastActivityUtc)
+    {
+        ArgumentNullException.ThrowIfNull(lastActivityUtc);
+        return EvictInactiveModelsCore(cutoffUtc, lastActivityUtc);
+    }
+
+    private int EvictInactiveModelsCore(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
     {
         if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
@@ -275,9 +289,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             // training pass never revisits, so they are usually not materialized this session and only exist
             // on disk. The state file's last-trained time drives the decision, so a user retrained within the
             // window (which rewrites that time) is never seen as stale here.
-            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            var processed = new HashSet<Guid>();
+            var modelFiles = _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json")
+                .Concat(_fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json.accepted-model.json")).ToArray();
+            foreach (var file in modelFiles)
             {
-                evicted += EvictStaleWeightsFile(file, cutoffUtc) ? 1 : 0;
+                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+                if (match.Success && Guid.TryParseExact(match.Groups["id"].Value, "N", out var id) && processed.Add(id))
+                {
+                    evicted += EvictStaleWeightsFile(file, cutoffUtc, lastActivityUtc) ? 1 : 0;
+                }
             }
 
             // A state file with no companion weights file is not a model the read path can ever rebuild, so it
@@ -300,8 +321,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <summary>Evicts one stale weights file, counting it only when deletion is confirmed.</summary>
     /// <param name="file">The per-user weights file.</param>
     /// <param name="cutoffUtc">The oldest acceptable last-trained time.</param>
+    /// <param name="lastActivityUtc">Authoritative observed activity, or null for legacy compatibility only.</param>
     /// <returns>True when the stale model was removed.</returns>
-    private bool EvictStaleWeightsFile(string file, DateTime cutoffUtc)
+    private bool EvictStaleWeightsFile(string file, DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
     {
         var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
         if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
@@ -309,11 +331,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        var lastTrained = ResolveLastTrainedUtc(id, file);
+        var lastTrained = lastActivityUtc is null ? ResolveLastTrainedUtc(id, file) : lastActivityUtc.TryGetValue(id, out var activity) ? activity : null;
         if (lastTrained is null)
         {
             // Unknown age must not delete a possibly healthy model after a transient metadata failure.
-            _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: last-trained time could not be resolved.", logger: _logger);
+            _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: activity/legacy age is unknown.", logger: _logger);
             return false;
         }
 
@@ -322,7 +344,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+        _pluginLog.LogInfo(LogSource, $"Evicted inactive per-user model for user {id:N} (activity before {cutoffUtc:O}).", _logger);
         return true;
     }
 
@@ -330,14 +352,18 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <param name="file">The per-user ensemble state file.</param>
     private void RemoveOrphanedEnsembleState(string file)
     {
+        if (file.EndsWith(".assessment.json", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
         if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
         {
             return;
         }
 
-        var weightsPath = GetLearnedWeightsPath(id);
-        if (weightsPath is not null && _fileSystem.File.Exists(weightsPath))
+        if (HasModelFile(id))
         {
             return;
         }
@@ -396,7 +422,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         lock (_blendBoundsLock)
         {
             var bounds = _blendBounds;
-            return new EnsembleScoringStrategy(
+            var ensemble = new EnsembleScoringStrategy(
                 learned,
                 _sharedHeuristic,
                 _sharedNeural,
@@ -406,6 +432,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                 bounds.GenrePenaltyFloor,
                 _logger,
                 ownsNeural: false);
+            ensemble.SetSharedPredictionProvider(_globalEnsemble.GetAcceptedNeuralPrediction);
+            return ensemble;
         }
     }
 
@@ -460,7 +488,9 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // or discards its freshly built instance on the re-check. Removing the cache entry first would leave
         // that ordering open to a stray rebuild that outlives the eviction.
         var weightsPath = GetLearnedWeightsPath(userId);
-        foreach (var path in new[] { weightsPath, GetEnsembleStatePath(userId) })
+        var statePath = GetEnsembleStatePath(userId);
+        var bundlePath = AcceptedModelStore.GetBundlePath(statePath);
+        foreach (var path in new[] { weightsPath, statePath, bundlePath, statePath is null ? null : statePath + ".assessment.json", bundlePath is null ? null : bundlePath + ".history.0.json", bundlePath is null ? null : bundlePath + ".history.1.json" })
         {
             if (path is null)
             {
@@ -487,7 +517,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         // The weights file is the source of truth for a per-user model. If a delete failure left it on disk the
         // model is not actually retired and the read path can rebuild it, so report that back to the caller.
-        return weightsPath is null || !_fileSystem.File.Exists(weightsPath);
+        return !HasModelFile(userId);
     }
 
     /// <summary>
@@ -502,6 +532,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private DateTime? ResolveLastTrainedUtc(Guid userId, string weightsFile)
     {
         var statePath = GetEnsembleStatePath(userId);
+        var acceptedPath = AcceptedModelStore.GetBundlePath(statePath);
+        if (acceptedPath is not null && _fileSystem.File.Exists(acceptedPath))
+        {
+            // An accepted training date is not evidence of user inactivity. Production supplies activity
+            // separately; compatibility callers without it must retain an independently accepted model.
+            return null;
+        }
+
         if (statePath is not null && _fileSystem.File.Exists(statePath))
         {
             try
@@ -539,6 +577,13 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             ? null
             : Path.Join(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ml_weights_{userId:N}.json"));
 
+    private bool HasModelFile(Guid userId)
+    {
+        var weights = GetLearnedWeightsPath(userId);
+        var bundle = AcceptedModelStore.GetBundlePath(GetEnsembleStatePath(userId));
+        return (weights is not null && _fileSystem.File.Exists(weights)) || (bundle is not null && _fileSystem.File.Exists(bundle));
+    }
+
     /// <summary>Builds the per-user ensemble-state path, or null when no data path is configured.</summary>
     /// <param name="userId">The user id.</param>
     /// <returns>The path, or null.</returns>
@@ -552,7 +597,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     ///     Anchored so the unsuffixed global files (<c>ml_weights.json</c>, <c>ensemble_state.json</c>) never match.
     /// </summary>
     /// <returns>The compiled regex.</returns>
-    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_(?<id>[0-9a-fA-F]{32})\.json$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_(?<id>[0-9a-fA-F]{32})\.json(?:\.(?:accepted-model\.json(?:\.history\.[01]\.json)?|assessment\.json|acceptance-ledger\.txt))?$", RegexOptions.CultureInvariant)]
     private static partial Regex PerUserFileIdPattern();
 
     /// <summary>
@@ -563,5 +608,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     {
         [JsonPropertyName("UpdatedAt")]
         public string? UpdatedAt { get; set; }
+
+        public DateTime? TrainedAtUtc { get; set; }
     }
 }
