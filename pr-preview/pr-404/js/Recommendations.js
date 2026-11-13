@@ -186,56 +186,54 @@ function ensembleShareHtml(nameKey, nameFallback, valueHtml) {
     return escHtml(T(nameKey, nameFallback)) + ' <strong class="recs-ensemble-val">' + valueHtml + '</strong>';
 }
 
-function renderEnsembleDiagnostics(host, data) {
-    host.removeAttribute('aria-busy');
-    if (!data || data.Available === false) {
-        host.innerHTML = '';
-        return;
-    }
+function ensembleBlendFactor(data, effectiveKey, storedKey, enabled) {
+    if (!enabled) return 0;
+    var factor = data[effectiveKey];
+    if (!Number.isFinite(factor)) factor = data[storedKey];
+    if (!Number.isFinite(factor)) return 0;
+    return Math.max(0, Math.min(1, factor));
+}
 
-    // Turn the raw blend factors into the three shares an admin can actually read. The score blends
-    // ML against the heuristic by alpha, and within the ML part the neural engine takes the fraction beta:
-    //   heuristic = 1 - alpha, machine learning = alpha * (1 - beta), neural = alpha * beta.
-    var alpha = Number.isFinite(data.EffectiveAlpha) ? data.EffectiveAlpha : data.Alpha;
-    alpha = data.QualityGateFrozen ? 0 : Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 0));
-    var beta = Number.isFinite(data.EffectiveNeuralBeta) ? data.EffectiveNeuralBeta : data.NeuralBeta;
-    beta = data.NeuralEnabled ? Math.max(0, Math.min(1, Number.isFinite(beta) ? beta : 0)) : 0;
+function ensemblePreciseShareText(units) {
+    var text = (units / 100).toFixed(2);
+    if (text.endsWith('.00')) text = text.slice(0, -3);
+    else if (text.endsWith('0')) text = text.slice(0, -1);
+    return text + '%';
+}
 
-    var heuristicShare = 1 - alpha;
-    var mlShare = alpha * (1 - beta);
+function ensembleCompositionHtml(data) {
+    var alpha = ensembleBlendFactor(data, 'EffectiveAlpha', 'Alpha', !data.QualityGateFrozen);
+    var beta = ensembleBlendFactor(data, 'EffectiveNeuralBeta', 'NeuralBeta', data.NeuralEnabled);
     var neuralShare = alpha * beta;
-
     // Largest-remainder rounding at 0.01% precision keeps the displayed composition at 100%.
-    var rawUnits = [heuristicShare, mlShare, neuralShare].map(function (share) { return share * 10000; });
+    var rawUnits = [1 - alpha, alpha * (1 - beta), neuralShare].map(function (share) { return share * 10000; });
     var units = rawUnits.map(Math.floor);
     var order = [0, 1, 2].sort(function (a, b) { return (rawUnits[b] - units[b]) - (rawUnits[a] - units[a]) || a - b; });
     var remainder = 10000 - units.reduce(function (sum, value) { return sum + value; }, 0);
     for (var i = 0; i < remainder; i++) units[order[i % 3]]++;
-    var values = units.map(function (value) { return (value / 100).toFixed(2).replace(/\.?0+$/, '') + '%'; });
+    var values = units.map(ensemblePreciseShareText);
     // An arbitrarily small but positive Neural coefficient is participating, not "off".
-    var neuralValue = neuralShare > 0 ? (units[2] ? values[2] : '&lt;0.01%') : escHtml(T('recsEnsembleOff', 'off'));
-
-    var composition = [
+    var neuralValue = escHtml(T('recsEnsembleOff', 'off'));
+    if (neuralShare > 0) neuralValue = units[2] ? values[2] : '&lt;0.01%';
+    return [
         ensembleShareHtml('recsEnsembleHeuristic', 'Heuristic', values[0]),
         ensembleShareHtml('recsEnsembleMl', 'Machine Learning', values[1]),
         ensembleShareHtml('recsEnsembleNeural', 'Neural Engine', neuralValue)
     ].join(' <span class="recs-ensemble-sep">\u00B7</span> ');
+}
 
-    var label;
-    var modelScope = data.IsPerUser
-        ? T('recsEnsembleModelPersonal', 'Personal model')
-        : T('recsEnsembleModelGlobal', 'Global model');
+function ensembleModelLabel(data, modelScope) {
     if (data.IsPerUser || data.UserName) {
         // This user has an individually trained model. Use their name when the backend supplied it, otherwise
         // a neutral term so the per-user status is never mislabelled as the shared global model.
         var who = data.UserName ? String(data.UserName) : T('recsEnsembleThisUser', 'this user');
         var userLabel = T('recsEnsembleStrategyPerUser', 'Recommendation strategy for {0}:').replace('{0}', function () { return who; });
-        label = escHtml(userLabel.replace(/[:：]\s*$/, '') + ' — ' + modelScope + ':');
-    } else {
-        // Cold-start / below threshold: this user still scores on the shared global model.
-        label = escHtml(modelScope + ':');
+        return escHtml(userLabel.replace(/[:：]\s*$/, '') + ' — ' + modelScope + ':');
     }
+    return escHtml(modelScope + ':');
+}
 
+function ensembleStatusSummary(data) {
     // Second line: the plain-language maturity status, not the raw sigmoid internals. The trend arrives as
     // its backend enum name (Improving/Stable/Degrading/InsufficientData); translate it rather than showing
     // the raw English token.
@@ -251,10 +249,21 @@ function renderEnsembleDiagnostics(host, data) {
     var status = data.QualityGateFrozen
         ? escHtml(T('recsEnsembleStatusFrozen', 'frozen'))
         : trendText;
-    var summary = escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
+    return escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
         + ' <span class="recs-ensemble-sep">\u00B7</span> '
         + escHtml(T('recsEnsembleStatus', 'Status')) + ' <span class="recs-ensemble-trend">' + status + '</span>';
+}
 
+function renderEnsembleDiagnostics(host, data) {
+    host.removeAttribute('aria-busy');
+    if (!data || data.Available === false) {
+        host.innerHTML = '';
+        return;
+    }
+    var modelScope = data.IsPerUser ? T('recsEnsembleModelPersonal', 'Personal model') : T('recsEnsembleModelGlobal', 'Global model');
+    var label = ensembleModelLabel(data, modelScope);
+    var composition = ensembleCompositionHtml(data);
+    var summary = ensembleStatusSummary(data);
     var details = T('recsEnsembleStoredTarget', 'Stored ML target') + ': ' + ensembleShareText(Number.isFinite(data.Alpha) ? data.Alpha : 0)
         + ' · Δα: ' + (Number.isFinite(data.AlphaOffset) ? (data.AlphaOffset * 100).toFixed(2) : '0') + '%';
     details += ' · ' + modelScope;
