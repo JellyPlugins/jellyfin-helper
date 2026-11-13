@@ -1684,12 +1684,8 @@
             if (result?.Success) {
                 if (result.AlreadyRequested === true) showToast(t('discoveryAlreadyRequested', 'Title has already been requested'));
                 consumeDiscoveryItem(tmdbId, mediaType);
-                btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
-                btn.classList.add('jfh-discovery-btn-done');
-                // Hide dismiss button in the same row
-                var row = btn.closest('.jfh-discovery-btn-row');
-                var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
-                if (dismissBtn) dismissBtn.style.display = 'none';
+                markDiscoveryRequestDone(btn);
+                updateVisibleRequestedCards(tmdbId, mediaType, card);
                 // After 5 seconds: fade out and remove the card (consumed from pool)
                 if (card?.isConnected && deliveryContainer?._jfhDiscoverySource === deliverySource) {
                     card._jfhConsuming = true;
@@ -1720,6 +1716,26 @@
             var serverMessage = extractErrorMessage(err);
             showToast(getUserFriendlyErrorMessage(serverMessage));
             setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
+        });
+    }
+
+    function markDiscoveryRequestDone(btn) {
+        if (!btn) return;
+        btn.disabled = true;
+        btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
+        btn.classList.add('jfh-discovery-btn-done');
+        var row = btn.closest('.jfh-discovery-btn-row');
+        var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
+        if (dismissBtn) dismissBtn.style.display = 'none';
+    }
+
+    // Update the same typed title in the current view, never the detached origin's removal timer.
+    function updateVisibleRequestedCards(tmdbId, mediaType, origin) {
+        var key = discoveryCardKey(tmdbId, mediaType);
+        document.querySelectorAll('.jfh-discovery-card').forEach(function (card) {
+            if (card !== origin && discoveryCardKey(card.dataset.tmdb, card.dataset.type) === key) {
+                markDiscoveryRequestDone(card.querySelector('[data-jfh-action="request"]'));
+            }
         });
     }
 

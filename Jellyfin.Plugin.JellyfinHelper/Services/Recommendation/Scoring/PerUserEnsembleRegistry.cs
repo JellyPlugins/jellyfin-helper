@@ -297,7 +297,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                 var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
                 if (match.Success && Guid.TryParseExact(match.Groups["id"].Value, "N", out var id) && processed.Add(id))
                 {
-                    evicted += EvictStaleWeightsFile(file, cutoffUtc, lastActivityUtc) ? 1 : 0;
+                    evicted += EvictStaleWeightsFile(id, file, cutoffUtc, lastActivityUtc) ? 1 : 0;
                 }
             }
 
@@ -319,19 +319,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     }
 
     /// <summary>Evicts one stale weights file, counting it only when deletion is confirmed.</summary>
+    /// <param name="id">The user identity already validated by the filename scan.</param>
     /// <param name="file">The per-user weights file.</param>
     /// <param name="cutoffUtc">The oldest acceptable last-trained time.</param>
     /// <param name="lastActivityUtc">Authoritative observed activity, or null for legacy compatibility only.</param>
     /// <returns>True when the stale model was removed.</returns>
-    private bool EvictStaleWeightsFile(string file, DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
+    private bool EvictStaleWeightsFile(Guid id, string file, DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
     {
-        var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
-        if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
-        {
-            return false;
-        }
-
-        var lastTrained = lastActivityUtc is null ? ResolveLastTrainedUtc(id, file) : lastActivityUtc.TryGetValue(id, out var activity) ? activity : null;
+        var lastTrained = ResolveRetirementActivity(id, file, lastActivityUtc);
         if (lastTrained is null)
         {
             // Unknown age must not delete a possibly healthy model after a transient metadata failure.
@@ -346,6 +341,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         _pluginLog.LogInfo(LogSource, $"Evicted inactive per-user model for user {id:N} (activity before {cutoffUtc:O}).", _logger);
         return true;
+    }
+
+    private DateTime? ResolveRetirementActivity(Guid userId, string weightsFile, IReadOnlyDictionary<Guid, DateTime?>? activity)
+    {
+        if (activity is null)
+        {
+            return ResolveLastTrainedUtc(userId, weightsFile);
+        }
+
+        return activity.TryGetValue(userId, out var lastActivity) ? lastActivity : null;
     }
 
     /// <summary>Removes state-only metadata that cannot rebuild a per-user model.</summary>
@@ -608,7 +613,5 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     {
         [JsonPropertyName("UpdatedAt")]
         public string? UpdatedAt { get; set; }
-
-        public DateTime? TrainedAtUtc { get; set; }
     }
 }

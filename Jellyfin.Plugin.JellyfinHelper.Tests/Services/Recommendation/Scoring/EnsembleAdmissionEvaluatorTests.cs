@@ -249,7 +249,7 @@ public sealed class EnsembleAdmissionEvaluatorTests
 
     private static IScoringStrategy Constant(double value) => Scorer(_ => value);
 
-    private static IScoringStrategy Scorer(Func<CandidateFeatures, double> score) => new FixedScorer(score);
+    private static FixedScorer Scorer(Func<CandidateFeatures, double> score) => new FixedScorer(score);
 
     private sealed class FixedScorer(Func<CandidateFeatures, double> score) : IScoringStrategy
     {

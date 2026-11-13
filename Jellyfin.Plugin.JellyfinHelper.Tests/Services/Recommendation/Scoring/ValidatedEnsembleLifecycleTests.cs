@@ -384,6 +384,66 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
     }
 
     [Theory]
+    [InlineData("missing", false)]
+    [InlineData("missing", true)]
+    [InlineData("malformed", false)]
+    [InlineData("invalid-parameters", true)]
+    public void LostAcceptedBundleAfterLegacyReplacementCannotReactivateWithdrawnV5Weights(string damage, bool removeLegacyState)
+    {
+        var scope = "lost-promoted-" + damage + "-" + removeLegacyState;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var weightsPath = Path.Join(_directory, scope + "-ml.json");
+        var legacy = LinearBundle(inverted: true, revision: 1, DateTime.UtcNow);
+        File.WriteAllText(weightsPath, System.Text.Json.JsonSerializer.Serialize(legacy.Learned));
+        File.WriteAllText(statePath, System.Text.Json.JsonSerializer.Serialize(legacy.State));
+        var originalWeights = File.ReadAllBytes(weightsPath);
+        using (var ensemble = Create(scope))
+        {
+            var badFit = Examples(600, 301);
+            var holdout = Examples(200, 302);
+            foreach (var row in badFit)
+            {
+                row.Features.CombinedCriticScore = row.Label;
+                row.Label = .85 - row.Label;
+            }
+
+            foreach (var row in holdout) row.Features.CombinedCriticScore = row.Label;
+            Assert.True(ensemble.TrainValidated(badFit, holdout, false, TestContext.Current.CancellationToken));
+            Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+            var goodFit = Examples(600, 303);
+            var fresh = Examples(200, 304);
+            foreach (var row in goodFit.Concat(fresh)) row.Features.CombinedCriticScore = row.Label;
+            Assert.True(ensemble.TrainValidated(goodFit, fresh, false, TestContext.Current.CancellationToken));
+            Assert.True(ensemble.LastAdmission!.Accepted);
+        }
+
+        var bundlePath = AcceptedModelStore.GetBundlePath(statePath)!;
+        if (damage == "missing")
+        {
+            File.Delete(bundlePath);
+        }
+        else if (damage == "malformed")
+        {
+            File.WriteAllText(bundlePath, "{broken}");
+        }
+        else
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(bundlePath))!;
+            node["Learned"]!["Weights"] = new System.Text.Json.Nodes.JsonArray(1);
+            File.WriteAllText(bundlePath, node.ToJsonString());
+        }
+
+        if (removeLegacyState) File.Delete(statePath);
+        using var restarted = Create(scope);
+        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1);
+        var probes = Examples(24, 305).Select(row => row.Features).ToArray();
+        Assert.Equal(probes.Select(heuristic.Score), probes.Select(restarted.Score));
+        Assert.False(restarted.GetDiagnosticsSnapshot().AllowsExploration);
+        Assert.Equal(originalWeights, File.ReadAllBytes(weightsPath));
+    }
+
+    [Theory]
     [InlineData("ledger")]
     [InlineData("assessment")]
     public void FailedLegacySuppressionCommitCannotPublishSuppressionOrModifyV5Weights(string blocked)

@@ -1335,7 +1335,7 @@ public class TrainingServiceTests
             }
         }
     }
-    private static void SeedLegacyCheckpoint(IPerUserEnsembleRegistry registry, Guid user)
+    private static void SeedLegacyCheckpoint(PerUserEnsembleRegistry registry, Guid user)
     {
         var fit = Enumerable.Range(0, 80).Select(index => new TrainingExample
         {
