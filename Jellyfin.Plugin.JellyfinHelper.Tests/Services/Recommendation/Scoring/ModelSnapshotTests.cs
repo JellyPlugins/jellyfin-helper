@@ -159,6 +159,37 @@ public sealed class ModelSnapshotTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => new NeuralScoringStrategy.PredictionSnapshot(null!));
     }
 
+    [Fact]
+    public void AcceptedLearnedRestorationIsNonnullValidatedAndStillCopiesCoordinates()
+    {
+        var parameters = new LearnedScoringStrategy().CapturePredictionSnapshot().ExportParameters();
+        var restored = LearnedScoringStrategy.FromAcceptedParameters(parameters);
+        var nullableFactory = LearnedScoringStrategy.FromParameters(parameters)!;
+        var features = Examples(12, 51).Select(row => row.Features).ToArray();
+        var expected = features.Select(nullableFactory.Score).ToArray();
+        Assert.Equal(expected, features.Select(restored.Score));
+        Array.Fill(parameters.Weights, 99);
+        Assert.Equal(expected, features.Select(restored.Score));
+        Assert.Throws<ArgumentNullException>(() => LearnedScoringStrategy.FromAcceptedParameters(null!));
+        parameters.Version = 99;
+        Assert.Throws<ArgumentException>(() => LearnedScoringStrategy.FromAcceptedParameters(parameters));
+        Assert.Null(LearnedScoringStrategy.FromParameters(parameters));
+    }
+
+    [Fact]
+    public void NeuralSnapshotsAndChallengersHandleALockDisposedAfterTheFastDisposedCheck()
+    {
+        using var neural = new NeuralScoringStrategy();
+        var snapshot = neural.CapturePredictionSnapshot()!;
+        var feature = Examples(1, 52)[0].Features;
+        var expected = snapshot.Score(feature);
+        // Inject precisely the lock state a concurrent Dispose can create after the initial flag check.
+        Read<ReaderWriterLockSlim>(neural, "_rwLock").Dispose();
+        Assert.Null(neural.CapturePredictionSnapshot());
+        Assert.Null(neural.CreateChallenger());
+        Assert.Equal(expected, snapshot.Score(feature));
+    }
+
     private static T Read<T>(object instance, string field)
         => (T)instance.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(instance)!;
 
