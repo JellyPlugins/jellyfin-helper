@@ -566,6 +566,161 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
     }
 
     [Fact]
+    public void ChangedConfigurationCannotPromoteAChallengerOrSpendItsAcceptanceBlock()
+    {
+        using var ensemble = Create("stale-promotion");
+        var fit = Examples(600, 311);
+        var holdout = Examples(200, 312);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        ensemble.SetSharedPredictionProvider(() => { ensemble.Reconfigure(.1, .75, 1); return null; });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("EvaluationConfigurationChanged", ensemble.LastAdmission!.Reason);
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().ModelRevision);
+        Assert.Empty(ensemble.GetAcceptedObservationIds()!);
+        ensemble.SetSharedPredictionProvider(() => null);
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.True(ensemble.LastAdmission!.Accepted);
+    }
+
+    [Fact]
+    public void ChangedConfigurationCannotRestoreHistoryAndDoesNotSpendFreshEvidence()
+    {
+        var statePath = Path.Join(_directory, "stale-history-state.json");
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(LinearBundle(false, 1, DateTime.UtcNow.AddHours(-2))));
+        Assert.True(store.Commit(LinearBundle(true, 2, DateTime.UtcNow.AddHours(-1))));
+        var before = File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!);
+        using var ensemble = Create("stale-history");
+        var fit = Examples(600, 321);
+        var holdout = Examples(200, 322);
+        foreach (var row in fit)
+        {
+            row.Features.CombinedCriticScore = row.Label;
+            row.Label = .85 - row.Label;
+        }
+
+        foreach (var row in holdout) row.Features.CombinedCriticScore = row.Label;
+        ensemble.SetSharedPredictionProvider(() => { ensemble.Reconfigure(.1, .75, 1); return null; });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("EvaluationConfigurationChanged", ensemble.LastAdmission!.Reason);
+        Assert.Equal(before, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+        ensemble.SetSharedPredictionProvider(() => null);
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("HistoricalModelRestoredOnNewEvidence", ensemble.LastAdmission!.Reason);
+    }
+
+    [Fact]
+    public void DisposedAndConcurrentTrainingCannotStartASecondFitOrPublishAnotherModel()
+    {
+        using var ensemble = Create("concurrent-fit");
+        var fit = Examples(200, 331);
+        var holdout = Examples(100, 332);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        var refused = false;
+        ensemble.SetSharedPredictionProvider(() =>
+        {
+            refused = !ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken);
+            return null;
+        });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.True(refused);
+        Assert.Equal(1, ensemble.GetDiagnosticsSnapshot().ModelRevision);
+        ensemble.Dispose();
+        Assert.False(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void IndependentModeIgnoresLegacyOffsetsAndCohortFeedbackAndRedirectsPublicTraining()
+    {
+        using var ensemble = Create("compatibility-entry");
+        var fit = Examples(200, 341);
+        var holdout = Examples(100, 342);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var probe = fit[0].Features;
+        var score = ensemble.Score(probe);
+        Assert.Equal(score, ensemble.ScoreWithOffset(probe, .4));
+        Assert.Equal(score, ensemble.ScoreWithOffset(probe, -.4));
+        var midpoint = ensemble.SigmoidMidpointOffset;
+        ensemble.ApplyCohortFeedback([], []);
+        Assert.Equal(midpoint, ensemble.SigmoidMidpointOffset);
+        Assert.True(ensemble.Train(fit, holdout, trainNeural: false));
+        Assert.False(ensemble.LastAdmission!.Accepted);
+        Assert.Equal(1, ensemble.GetDiagnosticsSnapshot().ModelRevision);
+        Assert.Equal(score, ensemble.Score(probe));
+    }
+
+    [Theory]
+    [InlineData("oversized")]
+    [InlineData("null")]
+    [InlineData("version")]
+    [InlineData("identities")]
+    public void UnreadableAssessmentCannotGrantLegacyInfluence(string damage)
+    {
+        var scope = "bad-assessment-" + damage;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var parameters = LinearBundle(true, 1, DateTime.UtcNow).Learned;
+        File.WriteAllText(Path.Join(_directory, scope + "-ml.json"), System.Text.Json.JsonSerializer.Serialize(parameters));
+        var path = statePath + ".assessment.json";
+        var assessment = new ModelTrainingAssessment { Version = damage == "version" ? 99 : 1 };
+        if (damage == "identities") assessment.ObservedTrainingIds = null!;
+        File.WriteAllText(path, damage == "null" ? "null" : System.Text.Json.JsonSerializer.Serialize(assessment));
+        if (damage == "oversized")
+        {
+            using var file = File.OpenWrite(path);
+            file.SetLength(1024 * 1024 + 1);
+        }
+
+        using var ensemble = Create(scope);
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.Equal("UnreadableAdmissionAssessment", ensemble.LastAdmission!.Reason);
+    }
+
+    [Fact]
+    public void OlderAssessmentCannotSuppressANewerAcceptedCheckpoint()
+    {
+        var statePath = Path.Join(_directory, "older-journal-state.json");
+        Assert.True(new AcceptedModelStore(statePath).Commit(LinearBundle(false, 2, DateTime.UtcNow)));
+        var assessment = new ModelTrainingAssessment { AcceptedModelRevision = 1, HeuristicFallbackRequired = true, LegacyModelSuppressed = true };
+        File.WriteAllText(statePath + ".assessment.json", System.Text.Json.JsonSerializer.Serialize(assessment));
+        using var ensemble = Create("older-journal");
+        Assert.Equal(2, ensemble.GetDiagnosticsSnapshot().ModelRevision);
+        Assert.Equal(.75, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.False(ensemble.IsQualityGateFrozen);
+    }
+
+    [Fact]
+    public void ConfigurationIdentityUsesExactCopiedValuesRatherThanAnEpsilon()
+    {
+        using var ensemble = Create("exact-configuration");
+        var original = ensemble.CaptureEvaluationConfiguration();
+        ensemble.Reconfigure(.3, .75, 1);
+        Assert.Equal(original.Revision, ensemble.CaptureEvaluationConfiguration().Revision);
+        ensemble.Reconfigure(.3, Math.BitIncrement(.75), 1);
+        Assert.True(ensemble.CaptureEvaluationConfiguration().Revision > original.Revision);
+        Assert.False(ScoringHelper.SameConfigurationValue(.75, Math.BitIncrement(.75)));
+    }
+
+    [Fact]
+    public void ValidationAdaptersExposeConsistentMetadataAndPinnedMarginalExplanations()
+    {
+        var source = new LearnedScoringStrategy().CapturePredictionSnapshot();
+        var feature = new CandidateFeatures { GenreSimilarity = .1, CombinedCriticScore = .8, RecencyScore = .7 };
+        var type = typeof(EnsembleScoringStrategy).GetNestedType("PenalizedPredictor", System.Reflection.BindingFlags.NonPublic)!;
+        var adapter = (IScoringStrategy)Activator.CreateInstance(type, [source, .2])!;
+        Assert.Equal(source.Name, adapter.Name);
+        Assert.Equal(source.NameKey, adapter.NameKey);
+        Assert.Equal(adapter.Score(feature), adapter.ScoreWithExplanation(feature).FinalScore);
+        var prediction = new AcceptedPrediction(new HeuristicScoringStrategy(genrePenaltyFloor: 1), source, null, new AdmissionMixture(.5, 0), 0);
+        type = typeof(EnsembleScoringStrategy).GetNestedType("PinnedMixturePredictor", System.Reflection.BindingFlags.NonPublic)!;
+        adapter = (IScoringStrategy)Activator.CreateInstance(type, [prediction, .75, .2])!;
+        Assert.Equal("Pinned incumbent", adapter.Name);
+        Assert.Equal("strategyEnsemble", adapter.NameKey);
+        Assert.Equal(prediction.Score(feature, .75, .2), adapter.Score(feature));
+        Assert.Equal(adapter.Score(feature), adapter.ScoreWithExplanation(feature).FinalScore);
+    }
+
+    [Fact]
     public void CheckpointFailureDoesNotPublishTheApprovedCandidate()
     {
         using var ensemble = Create("write-failure");
