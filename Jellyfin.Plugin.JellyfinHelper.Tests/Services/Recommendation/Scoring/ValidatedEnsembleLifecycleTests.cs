@@ -609,6 +609,84 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.Equal("HistoricalModelRestoredOnNewEvidence", ensemble.LastAdmission!.Reason);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AcceptedWithdrawalAndHistoryStorageFailuresKeepTheCurrentPrediction(bool historical)
+    {
+        var scope = historical ? "history-write-failure" : "withdraw-write-failure";
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var store = new AcceptedModelStore(statePath);
+        if (historical) Assert.True(store.Commit(LinearBundle(false, 1, DateTime.UtcNow.AddHours(-2))));
+        var revision = historical ? 2 : 1;
+        Assert.True(store.Commit(LinearBundle(true, revision, DateTime.UtcNow.AddHours(-1))));
+        using var ensemble = Create(scope);
+        var fit = Examples(600, 351);
+        var holdout = Examples(200, 352);
+        foreach (var row in fit)
+        {
+            row.Features.CombinedCriticScore = row.Label;
+            row.Label = .85 - row.Label;
+        }
+
+        foreach (var row in holdout) row.Features.CombinedCriticScore = row.Label;
+        var before = holdout.Select(row => ensemble.Score(row.Features)).ToArray();
+        ensemble.SetSharedPredictionProvider(() =>
+        {
+            var path = AcceptedModelStore.GetBundlePath(statePath)!;
+            File.Delete(path);
+            Directory.CreateDirectory(path);
+            return null;
+        });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("CheckpointCommitFailed", ensemble.LastAdmission!.Reason);
+        Assert.Equal(before, holdout.Select(row => ensemble.Score(row.Features)));
+        Assert.Equal(revision, ensemble.GetDiagnosticsSnapshot().ModelRevision);
+        Assert.False(ensemble.IsQualityGateFrozen);
+    }
+
+    [Theory]
+    [InlineData("promotion")]
+    [InlineData("withdrawal")]
+    [InlineData("history")]
+    public void DisposalDuringEvaluationNeverCommitsAPromotionWithdrawalOrRollback(string operation)
+    {
+        var scope = "disposed-" + operation;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var store = new AcceptedModelStore(statePath);
+        if (operation == "history") Assert.True(store.Commit(LinearBundle(false, 1, DateTime.UtcNow.AddHours(-2))));
+        if (operation != "promotion") Assert.True(store.Commit(LinearBundle(true, 2, DateTime.UtcNow.AddHours(-1))));
+        using var ensemble = Create(scope);
+        var fit = Examples(600, 361);
+        var holdout = Examples(200, 362);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        if (operation != "promotion") foreach (var row in fit) row.Label = .85 - row.Label;
+        var before = store.Read()?.Revision ?? 0;
+        ensemble.SetSharedPredictionProvider(() => { ensemble.Dispose(); return null; });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal(before, store.Read()?.Revision ?? 0);
+        Assert.False(store.Read()?.Retired ?? false);
+    }
+
+    [Fact]
+    public void PersonalNeuralBorrowingPinsTheAcceptedGlobalVersionWithoutOwningItsResources()
+    {
+        using var global = Create("borrow-global");
+        Assert.True(global.TrainValidated(Examples(600, 371), Examples(400, 372), true, TestContext.Current.CancellationToken));
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+        var statePath = Path.Join(_directory, "borrow-personal-state.json");
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, statePath, genrePenaltyFloor: 1, ownsNeural: false);
+        personal.SetSharedPredictionProvider(global.GetAcceptedNeuralPrediction);
+        Assert.True(personal.TrainValidated(Examples(600, 373), Examples(400, 374), false, TestContext.Current.CancellationToken));
+        Assert.True(personal.GetDiagnosticsSnapshot().NeuralShare > 0);
+        var probe = Examples(1, 375)[0].Features;
+        var score = personal.Score(probe);
+        using var restarted = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, statePath, genrePenaltyFloor: 1, ownsNeural: false);
+        Assert.Equal(score, restarted.Score(probe));
+        personal.Dispose();
+        Assert.NotNull(global.GetAcceptedNeuralPrediction());
+    }
+
     [Fact]
     public void DisposedAndConcurrentTrainingCannotStartASecondFitOrPublishAnotherModel()
     {

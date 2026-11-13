@@ -142,10 +142,19 @@ test('requested-card success animation stays in its source on immediate Trakt sw
   await expect(cards).toHaveCount(2);
   expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
   // Observe beyond the original 5-second deadline; the old callback must not refill the current source.
-  const requests = await page.evaluate(() => (window as any).fixtureRequests.length);
+  const beforeRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
+  const actions = (requests: any[]) => requests.filter(request => !request.url.endsWith('/Impressions')).map(request => request.type + ' ' + request.url);
   await page.clock.fastForward(5300);
   expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
-  expect(await page.evaluate(() => (window as any).fixtureRequests.length)).toBe(requests);
+  const afterRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
+  expect(actions(afterRequests)).toEqual(actions(beforeRequests));
+  // Native IntersectionObserver callbacks can arrive during clock advancement, but only for this source.
+  const impressions = afterRequests.slice(beforeRequests.length).filter((request: any) => request.url.endsWith('/Impressions'));
+  for (const request of impressions) {
+    for (const item of JSON.parse(request.data).Items) {
+      expect(['movie-4', 'movie-2']).toContain(item.MediaType + '-' + item.TmdbId);
+    }
+  }
 });
 
 async function controlSizes(page: Page, selector: string) {

@@ -1025,6 +1025,7 @@
             container._jfhPendingRefill = null;
             for (var card of container.querySelectorAll('.jfh-discovery-card')) {
                 if (card._jfhConsumeTimer) clearTimeout(card._jfhConsumeTimer);
+                card._jfhConsumeTimer = null;
             }
             container.innerHTML = '';
         }
