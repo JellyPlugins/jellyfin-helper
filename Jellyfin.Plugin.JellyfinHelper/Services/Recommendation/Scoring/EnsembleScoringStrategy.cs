@@ -435,7 +435,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
 
         lock (_syncRoot)
         {
-            if (_alphaMin != newMin || _alphaMax != newMax || _genrePenaltyFloor != newFloor)
+            if (!ScoringHelper.SameConfigurationValue(_alphaMin, newMin) || !ScoringHelper.SameConfigurationValue(_alphaMax, newMax) || !ScoringHelper.SameConfigurationValue(_genrePenaltyFloor, newFloor))
             {
                 _configurationRevision++;
             }
@@ -955,6 +955,12 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <param name="utility">Actual independently evaluated mixture metrics, or null for legacy fitting.</param>
     private void RecordMetricsSnapshot(double validationLoss, int exampleCount, AdmissionUtility? utility = null)
     {
+        var ndcg = utility?.CandidateNdcgAtK ?? double.NaN;
+        if (utility is null && double.IsFinite(_learned.LastBaselineValidationLoss))
+        {
+            ndcg = _learned.LastNdcgAtK;
+        }
+
         // Record metrics snapshot and analyze trend BEFORE saving state,
         // so trend-driven alpha/beta adjustments are persisted in the same write.
         _metricsHistory.Add(
@@ -964,7 +970,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 ValidationLoss = validationLoss,
                 PrecisionAtK = utility is null ? _learned.LastPrecisionAtK : utility.CandidatePrecisionAtK ?? double.NaN,
                 RecallAtK = utility is null ? _learned.LastRecallAtK : utility.CandidateRecallAtK ?? double.NaN,
-                NdcgAtK = utility is null ? (double.IsFinite(_learned.LastBaselineValidationLoss) ? _learned.LastNdcgAtK : double.NaN) : utility.CandidateNdcgAtK ?? double.NaN,
+                NdcgAtK = ndcg,
                 ExampleCount = exampleCount
             });
         const int maxHistory = 10;

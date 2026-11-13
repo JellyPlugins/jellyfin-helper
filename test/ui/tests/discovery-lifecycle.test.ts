@@ -222,7 +222,7 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(client.requests().filter(request => request.url === root + '/Request')).toHaveLength(1);
   });
 
-  test.each(['success', 'duplicate', 'failure'])('a late %s response after switching away and back never mutates replacement cards', async outcome => {
+  test.each(['success', 'duplicate', 'failure'])('a late %s response updates the visible typed title without transplanting the original timer', async outcome => {
     const root = '/JellyfinHelper/Discovery/My';
     const pending = deferred<unknown>();
     const pool = () => ({ DeliveryId: '00000000-0000-0000-0000-000000000001', Recommendations: [
@@ -252,9 +252,21 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(replacement).not.toBe(original);
     pending.resolve({ Success: outcome !== 'failure', AlreadyRequested: outcome === 'duplicate' });
     await settle();
+    const replacementRequest = replacement.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    if (outcome === 'failure') {
+      expect(replacementRequest.disabled).toBe(false);
+      expect(replacement.querySelector('.jfh-discovery-btn-done, .jfh-discovery-btn-failed')).toBeNull();
+    } else {
+      expect(replacementRequest.disabled).toBe(true);
+      expect(replacementRequest.classList.contains('jfh-discovery-btn-done')).toBe(true);
+      expect((replacement as any)._jfhConsumeTimer).toBeFalsy();
+      replacementRequest.click();
+      await settle();
+    }
+    const television = client.panel()!.querySelector('.jfh-discovery-card[data-type="tv"][data-tmdb="1"]')!;
+    expect((television.querySelector('[data-jfh-action="request"]') as HTMLButtonElement).disabled).toBe(false);
     await vi.advanceTimersByTimeAsync(5300);
     expect(client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')).toBe(replacement);
-    expect(replacement.querySelector('.jfh-discovery-btn-done, .jfh-discovery-btn-failed')).toBeNull();
     expect(client.requests().filter(request => request.url === root + '/Request')).toHaveLength(1);
     (client.panel()!.querySelector('[data-tab="trending"]') as HTMLElement).click();
     await settle();

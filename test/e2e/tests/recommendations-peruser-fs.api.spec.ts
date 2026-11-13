@@ -248,7 +248,7 @@ test.describe.serial('per-user recommendation model files', () => {
     const dir = resolveDataDir();
     const assessment = JSON.parse(readContainerFile(`${dir}/ensemble_state.json.assessment.json`));
     expect(assessment.TrainingExampleCount).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
-    expect(assessment.ObservedTrainingIds.length).toBe(assessment.TrainingExampleCount);
+    expect(assessment.ObservedTrainingIds).toHaveLength(assessment.TrainingExampleCount);
     expect(assessment.Decision.Accepted).toBe(false);
     expect(assessment.Decision.Utility.CandidateLoss).toBeNull();
     expect(containerFileExists(`${dir}/ensemble_state.json.accepted-model.json`), 'positive-only fitting seed cannot manufacture an accepted checkpoint').toBe(false);

@@ -15,6 +15,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <content>Detached challenger fitting and atomic, scope-bound independent model promotion.</content>
 public sealed partial class EnsembleScoringStrategy
 {
+    private const string CheckpointCommitFailure = "CheckpointCommitFailed";
+    private const string AssessmentSuffix = ".assessment.json";
     private static readonly JsonSerializerOptions AssessmentJsonOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
     private readonly HashSet<Guid> _spentAcceptanceObservations = [];
     private int _validationTraining;
@@ -144,57 +146,22 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration);
-        LearnedScoringStrategy challenger;
-        NeuralScoringStrategy? neuralChallenger;
-        double alphaCap;
-        double neuralCap;
-        double floor;
-        EvaluationConfiguration configuration;
-        AcceptedPrediction incumbent;
-        lock (_syncRoot)
+        var context = PrepareChallengers(fit, trainNeural, now);
+        using (context.Neural)
         {
-            EnableIndependentAdmission();
-            incumbent = _acceptedPrediction!;
-            challenger = LearnedStrategy.CreateChallenger();
-            neuralChallenger = trainNeural && _ownsNeural ? (_acceptedNeuralTrainer ?? _neural)?.CreateChallenger() : null;
-            UpdateObservedMaturity(fit.Where(row => row.IsObserved && row.HasStableObservationId).Select(row => row.ObservationId).Distinct().ToArray());
-            alphaCap = ComputeSigmoidAlpha(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
-            neuralCap = alphaCap * NeuralMaxBetaFraction * Math.Clamp((_trainingExampleCount - NeuralActivationThreshold) / 100.0, 0, 1);
-            floor = _genrePenaltyFloor;
-            configuration = CaptureEvaluationConfiguration();
-            SaveAssessment(now);
-        }
-
-        using (neuralChallenger)
-        {
-            if (!challenger.Train(fit, calibration))
+            if (!context.Learned.Train(fit, calibration))
             {
                 return false;
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-            var neuralFitted = neuralChallenger?.Train(fit, calibration) == true;
-            cancellationToken.ThrowIfCancellationRequested();
-            var neural = (neuralFitted ? neuralChallenger?.CapturePredictionSnapshot() : null) ?? _sharedPredictionProvider?.Invoke() ?? incumbent.Neural;
-            var learned = challenger.CapturePredictionSnapshot();
+            var candidates = CaptureFittedCandidates(context, fit, calibration, cancellationToken);
             var used = spent.Concat(_seedAcceptanceObservations).ToHashSet();
             var freshAcceptance = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance.Where(row => !used.Contains(row.ObservationId)));
-            var models = new AdmissionModels(
-                new PenalizedPredictor(_heuristic, floor),
-                new PenalizedPredictor(learned, floor),
-                neural is null ? null : new PenalizedPredictor(neural, floor),
-                incumbent.Mixture.Alpha > 0 ? new PinnedMixturePredictor(incumbent, configuration.Maximum, floor) : null);
-            var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, freshAcceptance, models, now, alphaCap, neuralCap);
-            lock (_syncRoot)
-            {
-                _lastAdmission = decision;
-                RecordMetricsSnapshot(decision.Utility.CandidateLoss ?? double.NaN, fit.Count, decision.Utility);
-                SaveAssessment(now);
-            }
+            var models = BuildAdmissionModels(context, candidates);
+            var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, freshAcceptance, models, now, context.Bounds.AlphaCap, context.Bounds.NeuralCap);
+            RecordAdmissionAttempt(decision, fit.Count, now);
 
-            var attempted = new AcceptedPrediction(_heuristic, learned, neural, decision.Candidate, neuralCap);
-            var candidateCalibration = EnsembleAdmissionEvaluator.EvaluateFixedVersion(calibration, models.Heuristic, new PinnedMixturePredictor(attempted, configuration.Maximum, floor), models.Incumbent ?? models.Heuristic, now);
-            var restoration = TryRestoreHistoricalModel(new RestorationContext(calibration, freshAcceptance, incumbent, floor, now, candidateCalibration?.CandidateLoss ?? double.PositiveInfinity, models.Learned, configuration), cancellationToken);
+            var restoration = TryRestoreAgainstChallenger(context, candidates, decision, calibration, freshAcceptance, models, now, cancellationToken);
             if (restoration == HistoricalRestoration.Restored)
             {
                 return true;
@@ -202,20 +169,95 @@ public sealed partial class EnsembleScoringStrategy
 
             if (!decision.Accepted || restoration == HistoricalRestoration.SelectedRejected)
             {
-                var withdrawal = models.Incumbent is null ? null : EnsembleAdmissionEvaluator.EvaluateWithdrawal(freshAcceptance, models.Heuristic, models.Incumbent, now);
-                if (withdrawal is not null)
-                {
-                    CommitWithdrawal(incumbent, withdrawal, freshAcceptance, configuration, cancellationToken);
-                }
+                TryWithdrawOnFreshEvidence(context, freshAcceptance, models, now, cancellationToken);
 
                 return true;
             }
 
             cancellationToken.ThrowIfCancellationRequested();
             // A useful linear refresh is not permission to publish an unvalidated Neural refresh.
-            var acceptedNeural = decision.Candidate.Neural > 0 ? neural : incumbent.Neural;
-            var acceptedNeuralTrainer = decision.Candidate.Neural > 0 && neuralFitted ? neuralChallenger : null;
-            return CommitAcceptedChallenger(new TrainedCandidates(challenger, acceptedNeuralTrainer, learned, acceptedNeural), decision, freshAcceptance, new PromotionBounds(alphaCap, neuralCap, floor, configuration), cancellationToken);
+            var accepted = candidates;
+            if (decision.Candidate.Neural <= 0)
+            {
+                accepted = candidates with { NeuralTrainer = null, Neural = context.Incumbent.Neural };
+            }
+
+            return CommitAcceptedChallenger(accepted, decision, freshAcceptance, context.Bounds, cancellationToken);
+        }
+    }
+
+    private ChallengerContext PrepareChallengers(IReadOnlyList<TrainingExample> fit, bool trainNeural, DateTime evaluatedAt)
+    {
+        lock (_syncRoot)
+        {
+            EnableIndependentAdmission();
+            var learned = LearnedStrategy.CreateChallenger();
+            var neural = trainNeural && _ownsNeural ? (_acceptedNeuralTrainer ?? _neural)?.CreateChallenger() : null;
+            UpdateObservedMaturity(fit.Where(row => row.IsObserved && row.HasStableObservationId).Select(row => row.ObservationId).Distinct().ToArray());
+            var alphaCap = ComputeSigmoidAlpha(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
+            var neuralCap = alphaCap * NeuralMaxBetaFraction * Math.Clamp((_trainingExampleCount - NeuralActivationThreshold) / 100.0, 0, 1);
+            var configuration = CaptureEvaluationConfiguration();
+            SaveAssessment(evaluatedAt);
+            return new ChallengerContext(learned, neural, _acceptedPrediction!, new PromotionBounds(alphaCap, neuralCap, configuration.Floor, configuration));
+        }
+    }
+
+    private TrainedCandidates CaptureFittedCandidates(ChallengerContext context, IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        NeuralScoringStrategy? fittedNeural = null;
+        NeuralScoringStrategy.PredictionSnapshot? neural = null;
+        if (context.Neural is { } challenger && challenger.Train(fit, calibration))
+        {
+            fittedNeural = challenger;
+            neural = challenger.CapturePredictionSnapshot();
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        neural ??= _sharedPredictionProvider?.Invoke() ?? context.Incumbent.Neural;
+        return new TrainedCandidates(context.Learned, fittedNeural, context.Learned.CapturePredictionSnapshot(), neural);
+    }
+
+    private AdmissionModels BuildAdmissionModels(ChallengerContext context, TrainedCandidates candidates)
+    {
+        var floor = context.Bounds.Floor;
+        return new AdmissionModels(
+            new PenalizedPredictor(_heuristic, floor),
+            new PenalizedPredictor(candidates.Learned, floor),
+            candidates.Neural is null ? null : new PenalizedPredictor(candidates.Neural, floor),
+            context.Incumbent.Mixture.Alpha > 0 ? new PinnedMixturePredictor(context.Incumbent, context.Bounds.Configuration.Maximum, floor) : null);
+    }
+
+    private void RecordAdmissionAttempt(AdmissionDecision decision, int fittingCount, DateTime evaluatedAt)
+    {
+        lock (_syncRoot)
+        {
+            _lastAdmission = decision;
+            RecordMetricsSnapshot(decision.Utility.CandidateLoss ?? double.NaN, fittingCount, decision.Utility);
+            SaveAssessment(evaluatedAt);
+        }
+    }
+
+    private HistoricalRestoration TryRestoreAgainstChallenger(ChallengerContext context, TrainedCandidates candidates, AdmissionDecision decision, IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime evaluatedAt, CancellationToken cancellationToken)
+    {
+        var configuration = context.Bounds.Configuration;
+        var attempted = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, context.Bounds.NeuralCap);
+        var calibrated = EnsembleAdmissionEvaluator.EvaluateFixedVersion(calibration, models.Heuristic, new PinnedMixturePredictor(attempted, configuration.Maximum, configuration.Floor), models.Incumbent ?? models.Heuristic, evaluatedAt);
+        var restoration = new RestorationContext(calibration, acceptance, context.Incumbent, configuration.Floor, evaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, models.Learned, configuration);
+        return TryRestoreHistoricalModel(restoration, cancellationToken);
+    }
+
+    private void TryWithdrawOnFreshEvidence(ChallengerContext context, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime evaluatedAt, CancellationToken cancellationToken)
+    {
+        if (models.Incumbent is null)
+        {
+            return;
+        }
+
+        var evidence = EnsembleAdmissionEvaluator.EvaluateWithdrawal(acceptance, models.Heuristic, models.Incumbent, evaluatedAt);
+        if (evidence is not null)
+        {
+            CommitWithdrawal(context.Incumbent, evidence, acceptance, context.Bounds.Configuration, cancellationToken);
         }
     }
 
@@ -230,7 +272,7 @@ public sealed partial class EnsembleScoringStrategy
                 return true;
             }
 
-            if (_independentAdmissionDisposed || bounds.Floor != _genrePenaltyFloor || bounds.AlphaCap > _alphaMax)
+            if (_independentAdmissionDisposed || bounds.AlphaCap > _alphaMax)
             {
                 return true;
             }
@@ -264,7 +306,7 @@ public sealed partial class EnsembleScoringStrategy
             };
             if (!new AcceptedModelStore(_statePath, _logger).Commit(bundle))
             {
-                _lastAdmission = decision with { Accepted = false, Reason = "CheckpointCommitFailed" };
+                _lastAdmission = decision with { Accepted = false, Reason = CheckpointCommitFailure };
                 SaveAssessment(DateTime.UtcNow);
                 return true;
             }
@@ -360,7 +402,7 @@ public sealed partial class EnsembleScoringStrategy
             };
             if (!new AcceptedModelStore(_statePath, _logger).Commit(retired))
             {
-                _lastAdmission = _lastAdmission! with { Accepted = false, Reason = "CheckpointCommitFailed" };
+                _lastAdmission = _lastAdmission! with { Accepted = false, Reason = CheckpointCommitFailure };
                 SaveAssessment(DateTime.UtcNow);
                 return;
             }
@@ -399,14 +441,14 @@ public sealed partial class EnsembleScoringStrategy
                 .Spend(ids, _spentAcceptanceObservations, _acceptanceLedgerRequired);
             if (!WriteAssessment(assessment))
             {
-                _lastAdmission = decision with { Reason = "CheckpointCommitFailed" };
+                _lastAdmission = decision with { Reason = CheckpointCommitFailure };
                 return;
             }
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
             _logger?.LogWarning(exception, "Legacy suppression could not be committed; legacy weights remain untouched");
-            _lastAdmission = decision with { Reason = "CheckpointCommitFailed" };
+            _lastAdmission = decision with { Reason = CheckpointCommitFailure };
             return;
         }
 
@@ -425,8 +467,11 @@ public sealed partial class EnsembleScoringStrategy
         => assessment.LegacyModelSuppressed && assessment.LegacyWithdrawalObservationIds is { Length: >= EnsembleAdmissionEvaluator.MinimumEffectiveTitles }
             && assessment.LegacyWithdrawalObservationIds.All(id => id != Guid.Empty)
             && assessment.LegacyWithdrawalObservationIds.Distinct().Count() == assessment.LegacyWithdrawalObservationIds.Length
-            && assessment.LegacyWithdrawalUtility is { LowerIncumbentImprovement: > 0, CandidateLoss: >= 0, CandidateNdcg: >= 0 and <= 1 } utility
-            && double.IsFinite(utility.LowerIncumbentImprovement.Value) && double.IsFinite(utility.CandidateLoss.Value) && double.IsFinite(utility.CandidateNdcg.Value);
+            && ValidLegacyWithdrawalUtility(assessment.LegacyWithdrawalUtility);
+
+    private static bool ValidLegacyWithdrawalUtility(AdmissionUtility? utility)
+        => utility is { LowerIncumbentImprovement: double improvement, CandidateLoss: double loss, CandidateNdcg: double ndcg }
+            && double.IsFinite(improvement) && improvement > 0 && double.IsFinite(loss) && loss >= 0 && double.IsFinite(ndcg) && ndcg is >= 0 and <= 1;
 
     private HistoricalRestoration TryRestoreHistoricalModel(RestorationContext context, CancellationToken cancellationToken)
     {
@@ -434,42 +479,77 @@ public sealed partial class EnsembleScoringStrategy
         var historical = store.ReadHistory();
         var heuristic = new PenalizedPredictor(_heuristic, context.Floor);
         var current = new PinnedMixturePredictor(context.Incumbent, context.Configuration.Maximum, context.Floor);
-        HistoricalCandidate? selected = null;
-        foreach (var bundle in historical)
-        {
-            var learned = new LearnedScoringStrategy.PredictionSnapshot(bundle.Learned);
-            var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
-            var prediction = new AcceptedPrediction(_heuristic, learned, neural, bundle.Mixture, bundle.NeuralCap);
-            var metrics = EnsembleAdmissionEvaluator.EvaluateFixedVersion(context.Calibration, heuristic, new PinnedMixturePredictor(prediction, context.Configuration.Maximum, context.Floor), current, context.ReferenceTime);
-            IScoringStrategy? noNeural = null;
-            if (bundle.Mixture.Neural > 0)
-            {
-                noNeural = EnsembleAdmissionEvaluator.CalibrateNoNeuralReference(context.Calibration, heuristic, [context.LearnedChallenger, new PenalizedPredictor(context.Incumbent.Learned, context.Floor), new PenalizedPredictor(learned, context.Floor)], context.ReferenceTime, Math.Min(bundle.AlphaCap, context.Configuration.Maximum));
-                if (noNeural is null || EnsembleAdmissionEvaluator.EvaluateFixedNeuralIncrement(context.Calibration, heuristic, new PinnedMixturePredictor(prediction, context.Configuration.Maximum, context.Floor), noNeural, context.ReferenceTime) is null)
-                {
-                    continue;
-                }
-            }
-
-            if (metrics is not null && metrics.CandidateLoss < context.CandidateCalibrationLoss && (selected is null || metrics.CandidateLoss < selected.CalibrationLoss))
-            {
-                selected = new HistoricalCandidate(bundle, prediction, metrics.CandidateLoss!.Value, noNeural);
-            }
-        }
-
+        var selected = SelectHistoricalCandidate(historical, context, heuristic, current);
         if (selected is null)
         {
             return HistoricalRestoration.NotSelected;
         }
 
+        var evidence = EvaluateHistoricalAcceptance(selected, context, heuristic, current);
+        if (evidence is null)
+        {
+            return HistoricalRestoration.SelectedRejected;
+        }
+
+        return CommitHistoricalCandidate(selected, context, evidence, store, cancellationToken);
+    }
+
+    private HistoricalCandidate? SelectHistoricalCandidate(IReadOnlyList<AcceptedModelBundle> historical, RestorationContext context, PenalizedPredictor heuristic, PinnedMixturePredictor current)
+    {
+        HistoricalCandidate? selected = null;
+        foreach (var bundle in historical)
+        {
+            var candidate = CalibrateHistoricalCandidate(bundle, context, heuristic, current);
+            if (candidate is not null && (selected is null || candidate.CalibrationLoss < selected.CalibrationLoss))
+            {
+                selected = candidate;
+            }
+        }
+
+        return selected;
+    }
+
+    private HistoricalCandidate? CalibrateHistoricalCandidate(AcceptedModelBundle bundle, RestorationContext context, PenalizedPredictor heuristic, PinnedMixturePredictor current)
+    {
+        var learned = new LearnedScoringStrategy.PredictionSnapshot(bundle.Learned);
+        var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
+        var prediction = new AcceptedPrediction(_heuristic, learned, neural, bundle.Mixture, bundle.NeuralCap);
+        var scorer = new PinnedMixturePredictor(prediction, context.Configuration.Maximum, context.Floor);
+        var metrics = EnsembleAdmissionEvaluator.EvaluateFixedVersion(context.Calibration, heuristic, scorer, current, context.ReferenceTime);
+        if (metrics?.CandidateLoss is not double loss || !(loss < context.CandidateCalibrationLoss))
+        {
+            return null;
+        }
+
+        IScoringStrategy? noNeural = null;
+        if (bundle.Mixture.Neural > 0)
+        {
+            var alternatives = new IScoringStrategy[] { context.LearnedChallenger, new PenalizedPredictor(context.Incumbent.Learned, context.Floor), new PenalizedPredictor(learned, context.Floor) };
+            noNeural = EnsembleAdmissionEvaluator.CalibrateNoNeuralReference(context.Calibration, heuristic, alternatives, context.ReferenceTime, Math.Min(bundle.AlphaCap, context.Configuration.Maximum));
+            if (noNeural is null || EnsembleAdmissionEvaluator.EvaluateFixedNeuralIncrement(context.Calibration, heuristic, scorer, noNeural, context.ReferenceTime) is null)
+            {
+                return null;
+            }
+        }
+
+        return new HistoricalCandidate(bundle, prediction, loss, noNeural);
+    }
+
+    private static AdmissionUtility? EvaluateHistoricalAcceptance(HistoricalCandidate selected, RestorationContext context, PenalizedPredictor heuristic, PinnedMixturePredictor current)
+    {
         var evidence = EnsembleAdmissionEvaluator.EvaluateFixedVersion(context.Acceptance, heuristic, new PinnedMixturePredictor(selected.Prediction, context.Configuration.Maximum, context.Floor), current, context.ReferenceTime);
         var neuralEvidence = selected.NoNeuralReference is null ? null : EnsembleAdmissionEvaluator.EvaluateFixedNeuralIncrement(context.Acceptance, heuristic, new PinnedMixturePredictor(selected.Prediction, context.Configuration.Maximum, context.Floor), selected.NoNeuralReference, context.ReferenceTime);
         if (evidence?.LowerHeuristicImprovement is not > 0 || evidence.LowerIncumbentImprovement is not > 0
             || (selected.Prediction.Mixture.Neural > 0 && neuralEvidence is null))
         {
-            return HistoricalRestoration.SelectedRejected;
+            return null;
         }
 
+        return evidence with { LowerNeuralImprovement = neuralEvidence };
+    }
+
+    private HistoricalRestoration CommitHistoricalCandidate(HistoricalCandidate selected, RestorationContext context, AdmissionUtility evidence, AcceptedModelStore store, CancellationToken cancellationToken)
+    {
         lock (_syncRoot)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -479,7 +559,7 @@ public sealed partial class EnsembleScoringStrategy
                 return HistoricalRestoration.SelectedRejected;
             }
 
-            if (_independentAdmissionDisposed || _genrePenaltyFloor != context.Floor)
+            if (_independentAdmissionDisposed)
             {
                 return HistoricalRestoration.SelectedRejected;
             }
@@ -497,7 +577,7 @@ public sealed partial class EnsembleScoringStrategy
                 Revision = (_acceptedBundle?.Revision ?? 0) + 1,
                 TrainedAtUtc = original.TrainedAtUtc,
                 AcceptanceObservationIds = ids,
-                Utility = evidence with { LowerNeuralImprovement = neuralEvidence },
+                Utility = evidence,
                 State = new EnsembleStateData
                 {
                     Alpha = original.AlphaCap,
@@ -512,7 +592,7 @@ public sealed partial class EnsembleScoringStrategy
             };
             if (!store.Commit(restored))
             {
-                _lastAdmission = _lastAdmission! with { Accepted = false, Reason = "CheckpointCommitFailed" };
+                _lastAdmission = _lastAdmission! with { Accepted = false, Reason = CheckpointCommitFailure };
                 SaveAssessment(DateTime.UtcNow);
                 return HistoricalRestoration.SelectedRejected;
             }
@@ -539,7 +619,9 @@ public sealed partial class EnsembleScoringStrategy
     }
 
     private bool ConfigurationIsCurrent(EvaluationConfiguration configuration)
-        => configuration.Revision == _configurationRevision && configuration.Maximum == _alphaMax && configuration.Floor == _genrePenaltyFloor;
+        => configuration.Revision == _configurationRevision
+            && ScoringHelper.SameConfigurationValue(configuration.Maximum, _alphaMax)
+            && ScoringHelper.SameConfigurationValue(configuration.Floor, _genrePenaltyFloor);
 
     private void RejectChangedEvaluationConfiguration()
     {
@@ -556,13 +638,7 @@ public sealed partial class EnsembleScoringStrategy
             return;
         }
 
-        var learned = LearnedScoringStrategy.FromParameters(bundle.Learned);
-        if (learned is null)
-        {
-            TryLoadAssessment();
-            return;
-        }
-
+        var learned = LearnedScoringStrategy.FromAcceptedParameters(bundle.Learned);
         _acceptedLearnedTrainer = learned;
         _acceptedNeuralTrainer = _ownsNeural && bundle.Neural is not null ? NeuralScoringStrategy.FromParameters(bundle.Neural) : null;
         var neural = bundle.Neural is null ? null : new NeuralScoringStrategy.PredictionSnapshot(bundle.Neural);
@@ -605,7 +681,7 @@ public sealed partial class EnsembleScoringStrategy
 
         try
         {
-            AtomicFile.WriteAllText(_statePath + ".assessment.json", JsonSerializer.Serialize(assessment, AssessmentJsonOptions));
+            AtomicFile.WriteAllText(_statePath + AssessmentSuffix, JsonSerializer.Serialize(assessment, AssessmentJsonOptions));
             return true;
         }
         catch (Exception exception) when (!exception.IsFatal())
@@ -617,9 +693,9 @@ public sealed partial class EnsembleScoringStrategy
 
     private void TryLoadAssessment()
     {
-        if (_statePath is null || !File.Exists(_statePath + ".assessment.json"))
+        if (_statePath is null || !File.Exists(_statePath + AssessmentSuffix))
         {
-            if (_statePath is not null && (File.Exists(AcceptedModelStore.GetLedgerPath(_statePath)) || Directory.Exists(_statePath + ".assessment.json")))
+            if (_statePath is not null && (File.Exists(AcceptedModelStore.GetLedgerPath(_statePath)) || Directory.Exists(_statePath + AssessmentSuffix)))
             {
                 RetainUntrustedLegacyFallback("MissingAdmissionAssessment");
             }
@@ -629,64 +705,90 @@ public sealed partial class EnsembleScoringStrategy
 
         try
         {
-            var path = _statePath + ".assessment.json";
-            if (new FileInfo(path).Length > 1024 * 1024)
+            var path = _statePath + AssessmentSuffix;
+            var assessment = ReadAssessment(path);
+            if (assessment is null)
             {
                 RetainUntrustedLegacyFallback("UnreadableAdmissionAssessment");
                 return;
             }
 
-            var assessment = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(path), AssessmentJsonOptions);
-            if (assessment?.Version != 1 || assessment.ObservedTrainingIds is null)
-            {
-                RetainUntrustedLegacyFallback("UnreadableAdmissionAssessment");
-                return;
-            }
-
-            UpdateObservedMaturity(assessment.ObservedTrainingIds.Where(id => id != Guid.Empty).Take(MaxTrackedObservations).ToArray());
-            if (_acceptedBundle is not null && assessment.AcceptedModelRevision < _acceptedBundle.Revision)
-            {
-                return;
-            }
-
-            _lastAdmission = assessment.Decision;
-            _acceptanceLedgerRequired |= assessment.AcceptanceLedgerRequired;
-            if (_acceptedBundle is null && assessment.HeuristicFallbackRequired)
-            {
-                _qualityGateFrozen = true;
-            }
-
-            if (assessment.LegacyModelSuppressed && !ValidLegacySuppression(assessment))
-            {
-                RetainUntrustedLegacyFallback("InvalidLegacySuppressionAssessment");
-                return;
-            }
-
-            if (_acceptedBundle is null && ValidLegacySuppression(assessment))
-            {
-                _legacyModelSuppressed = true;
-                _legacyWithdrawalUtility = assessment.LegacyWithdrawalUtility;
-                _legacyWithdrawalObservations = assessment.LegacyWithdrawalObservationIds;
-            }
-
-            if (assessment.IndependentAdmissionEnabled || assessment.Decision is not null)
-            {
-                EnableIndependentAdmission();
-            }
-
-            if (assessment.MetricsHistory is { Count: > 0 })
-            {
-                _metricsHistory.Clear();
-                _metricsHistory.AddRange(assessment.MetricsHistory.TakeLast(10));
-            }
-
-            // Assessment records deliberately cannot grant model trust or restore any coefficients.
+            ApplyAssessment(assessment);
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
             _logger?.LogWarning(exception, "Model attempt diagnostics could not be read; using model checkpoint state only");
             RetainUntrustedLegacyFallback("UnreadableAdmissionAssessment");
         }
+    }
+
+    private static ModelTrainingAssessment? ReadAssessment(string path)
+    {
+        if (new FileInfo(path).Length > 1024 * 1024)
+        {
+            return null;
+        }
+
+        var assessment = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(path), AssessmentJsonOptions);
+        return assessment?.Version == 1 && assessment.ObservedTrainingIds is not null ? assessment : null;
+    }
+
+    private void ApplyAssessment(ModelTrainingAssessment assessment)
+    {
+        UpdateObservedMaturity(assessment.ObservedTrainingIds.Where(id => id != Guid.Empty).Take(MaxTrackedObservations).ToArray());
+        if (_acceptedBundle is not null && assessment.AcceptedModelRevision < _acceptedBundle.Revision)
+        {
+            return;
+        }
+
+        _lastAdmission = assessment.Decision;
+        _acceptanceLedgerRequired |= assessment.AcceptanceLedgerRequired;
+        if (!ApplyAssessmentFallback(assessment))
+        {
+            return;
+        }
+
+        ApplyLegacySuppression(assessment);
+        if (assessment.IndependentAdmissionEnabled || assessment.Decision is not null || assessment.AcceptedModelRevision > 0)
+        {
+            EnableIndependentAdmission();
+        }
+
+        if (assessment.MetricsHistory is { Count: > 0 })
+        {
+            _metricsHistory.Clear();
+            _metricsHistory.AddRange(assessment.MetricsHistory.TakeLast(10));
+        }
+
+        // Assessment records deliberately cannot grant model trust or restore any coefficients.
+    }
+
+    private bool ApplyAssessmentFallback(ModelTrainingAssessment assessment)
+    {
+        if (_acceptedBundle is null && (assessment.HeuristicFallbackRequired || assessment.AcceptedModelRevision > 0))
+        {
+            _qualityGateFrozen = true;
+        }
+
+        if (assessment.LegacyModelSuppressed && !ValidLegacySuppression(assessment))
+        {
+            RetainUntrustedLegacyFallback("InvalidLegacySuppressionAssessment");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ApplyLegacySuppression(ModelTrainingAssessment assessment)
+    {
+        if (_acceptedBundle is not null || !ValidLegacySuppression(assessment))
+        {
+            return;
+        }
+
+        _legacyModelSuppressed = true;
+        _legacyWithdrawalUtility = assessment.LegacyWithdrawalUtility;
+        _legacyWithdrawalObservations = assessment.LegacyWithdrawalObservationIds;
     }
 
     private void RetainUntrustedLegacyFallback(string reason)
@@ -756,6 +858,8 @@ public sealed partial class EnsembleScoringStrategy
     internal readonly record struct EvaluationConfiguration(long Revision, double Maximum, double Floor);
 
     private readonly record struct PromotionBounds(double AlphaCap, double NeuralCap, double Floor, EvaluationConfiguration Configuration);
+
+    private readonly record struct ChallengerContext(LearnedScoringStrategy Learned, NeuralScoringStrategy? Neural, AcceptedPrediction Incumbent, PromotionBounds Bounds);
 
     private readonly record struct RestorationContext(IReadOnlyList<TrainingExample> Calibration, IReadOnlyList<TrainingExample> Acceptance, AcceptedPrediction Incumbent, double Floor, DateTime ReferenceTime, double CandidateCalibrationLoss, IScoringStrategy LearnedChallenger, EvaluationConfiguration Configuration);
 

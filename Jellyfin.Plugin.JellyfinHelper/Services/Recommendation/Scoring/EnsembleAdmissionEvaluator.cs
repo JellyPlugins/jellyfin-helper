@@ -37,6 +37,39 @@ internal static class EnsembleAdmissionEvaluator
         double alphaCap,
         double neuralCap)
     {
+        ValidateAdmissionInputs(calibration, acceptance, models, alphaCap, neuralCap);
+        var cal = CaptureEvidence(calibration, referenceTime);
+        var test = CaptureEvidence(acceptance, referenceTime);
+        if (cal.Select(row => (row.UserId, row.ObservationId)).Intersect(test.Select(row => (row.UserId, row.ObservationId))).Any())
+        {
+            return AdmissionDecision.Unknown("OverlappingEvidence", cal.Length, test.Length);
+        }
+
+        var plan = PrepareCalibration(cal, test.Length, models, alphaCap, neuralCap);
+        if (plan.Limitation is { } limitation)
+        {
+            return limitation;
+        }
+
+        var testUsers = MixedUsers(test).ToHashSet();
+        test = test.Where(row => plan.Users.Contains(row.UserId) && testUsers.Contains(row.UserId)).ToArray();
+        if (!HasSupport(test))
+        {
+            var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
+            return AdmissionDecision.Unknown(reason, plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
+        }
+
+        test = ScoreEvidence(test, models, neuralCap > 0);
+        if (!ValidScores(test))
+        {
+            return AdmissionDecision.Unknown("InvalidPrediction", plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
+        }
+
+        return AssessSelectedMixture(plan, test, models.Incumbent is not null);
+    }
+
+    private static void ValidateAdmissionInputs(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, double alphaCap, double neuralCap)
+    {
         ArgumentNullException.ThrowIfNull(calibration);
         ArgumentNullException.ThrowIfNull(acceptance);
         ArgumentNullException.ThrowIfNull(models);
@@ -51,33 +84,28 @@ internal static class EnsembleAdmissionEvaluator
         {
             throw new ArgumentOutOfRangeException(nameof(neuralCap));
         }
+    }
 
-        var cal = CaptureEvidence(calibration, referenceTime);
-        var test = CaptureEvidence(acceptance, referenceTime);
-        if (cal.Select(row => (row.UserId, row.ObservationId)).Intersect(test.Select(row => (row.UserId, row.ObservationId))).Any())
-        {
-            return AdmissionDecision.Unknown("OverlappingEvidence", cal.Length, test.Length);
-        }
-
+    private static CalibrationPlan PrepareCalibration(EvidenceRow[] cal, int acceptanceTitles, AdmissionModels models, double alphaCap, double neuralCap)
+    {
         // A cross-user positive/negative difference is not evidence that either user's own ranking is useful.
         var eligibleUsers = MixedUsers(cal).ToHashSet();
         if (eligibleUsers.Count == 0)
         {
-            return AdmissionDecision.Unknown("HomogeneousObservedOutcomes", cal.Length, test.Length);
+            return new CalibrationPlan(cal, eligibleUsers, default, default, AdmissionDecision.Unknown("HomogeneousObservedOutcomes", cal.Length, acceptanceTitles));
         }
 
         cal = cal.Where(row => eligibleUsers.Contains(row.UserId)).ToArray();
         if (!HasSupport(cal))
         {
-            return AdmissionDecision.Unknown("InsufficientIndependentRankingEvidence", cal.Length, test.Length);
+            return new CalibrationPlan(cal, eligibleUsers, default, default, AdmissionDecision.Unknown("InsufficientIndependentRankingEvidence", cal.Length, acceptanceTitles));
         }
 
         // Selection depends exclusively on calibration, including its user eligibility and prediction checks.
         cal = ScoreEvidence(cal, models, neuralCap > 0);
-        if (cal.Any(row => !ValidPrediction(row.Scores.Heuristic) || !ValidPrediction(row.Scores.Learned)
-            || !ValidPrediction(row.Scores.Neural) || !ValidPrediction(row.Scores.Incumbent)))
+        if (!ValidScores(cal))
         {
-            return AdmissionDecision.Unknown("InvalidPrediction", cal.Length, test.Length);
+            return new CalibrationPlan(cal, eligibleUsers, default, default, AdmissionDecision.Unknown("InvalidPrediction", cal.Length, acceptanceTitles));
         }
 
         var noNeural = Calibrate(cal, alphaCap, 0);
@@ -87,37 +115,33 @@ internal static class EnsembleAdmissionEvaluator
             selected = noNeural;
         }
 
-        var testUsers = MixedUsers(test).ToHashSet();
-        test = test.Where(row => eligibleUsers.Contains(row.UserId) && testUsers.Contains(row.UserId)).ToArray();
-        if (!HasSupport(test))
-        {
-            return AdmissionDecision.Unknown(testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence", cal.Length, test.Length) with { Candidate = selected };
-        }
+        return new CalibrationPlan(cal, eligibleUsers, selected, noNeural, null);
+    }
 
-        test = ScoreEvidence(test, models, neuralCap > 0);
-        if (test.Any(row => !ValidPrediction(row.Scores.Heuristic) || !ValidPrediction(row.Scores.Learned)
-            || !ValidPrediction(row.Scores.Neural) || !ValidPrediction(row.Scores.Incumbent)))
-        {
-            return AdmissionDecision.Unknown("InvalidPrediction", cal.Length, test.Length) with { Candidate = selected };
-        }
+    private static bool ValidScores(EvidenceRow[] rows)
+        => rows.All(row => ValidPrediction(row.Scores.Heuristic) && ValidPrediction(row.Scores.Learned)
+            && ValidPrediction(row.Scores.Neural) && ValidPrediction(row.Scores.Incumbent));
 
+    private static AdmissionDecision AssessSelectedMixture(CalibrationPlan plan, EvidenceRow[] test, bool hasIncumbent)
+    {
+        var selected = plan.Selected;
         AdmissionMixture heuristic = default;
         var lowerH = ImprovementLowerBound(test, row => row.Scores.Heuristic, row => selected.Score(row.Scores));
         var lowerN = selected.Neural > 0
-            ? ImprovementLowerBound(test, row => noNeural.Score(row.Scores), row => selected.Score(row.Scores))
+            ? ImprovementLowerBound(test, row => plan.NoNeural.Score(row.Scores), row => selected.Score(row.Scores))
             : (double?)null;
-        var lowerIncumbent = models.Incumbent is not null
+        var lowerIncumbent = hasIncumbent
             ? ImprovementLowerBound(test, row => row.Scores.Incumbent, row => selected.Score(row.Scores))
             : (double?)null;
         var accepted = lowerH > 0 && RankSafe(test, selected, heuristic)
-            && (selected.Neural <= 0 || (lowerN > 0 && HasNeuralIncrement(test, selected, noNeural)))
-            && (models.Incumbent is null || (lowerIncumbent > 0 && RankSafeAgainstIncumbent(test, selected)));
+            && (selected.Neural <= 0 || (lowerN > 0 && HasNeuralIncrement(test, selected, plan.NoNeural)))
+            && (!hasIncumbent || (lowerIncumbent > 0 && RankSafeAgainstIncumbent(test, selected)));
 
         return new AdmissionDecision(
             accepted,
             accepted ? "Accepted" : "RejectedIndependentUtility",
             selected,
-            new AdmissionEvidence(cal.Length, test.Length, EffectiveTitles(cal), EffectiveTitles(test)),
+            new AdmissionEvidence(plan.Rows.Length, test.Length, EffectiveTitles(plan.Rows), EffectiveTitles(test)),
             new AdmissionUtility(
                 Loss(test, row => selected.Score(row.Scores)),
                 MeanNdcg(test, row => selected.Score(row.Scores), FullListRankingK),
@@ -143,22 +167,16 @@ internal static class EnsembleAdmissionEvaluator
             .GroupBy(row => row.UserId).OrderBy(group => group.Key)
             .Select(group => group.OrderBy(row => row.ObservationId).ToArray()).ToArray();
         var selected = new List<TrainingExample>();
-        for (var index = 0; selected.Count < MaximumEvaluationTitles; index++)
+        var depth = users.Length == 0 ? 0 : Math.Min(users.Max(rows => rows.Length), MaximumEvaluationTitles);
+        for (var index = 0; index < depth; index++)
         {
-            var added = false;
             foreach (var user in users.Where(rows => index < rows.Length))
             {
                 selected.Add(user[index]);
-                added = true;
                 if (selected.Count == MaximumEvaluationTitles)
                 {
-                    break;
+                    return selected.ToArray();
                 }
-            }
-
-            if (!added)
-            {
-                break;
             }
         }
 
@@ -389,12 +407,12 @@ internal static class EnsembleAdmissionEvaluator
     private static bool RankSafe(EvidenceRow[] rows, AdmissionMixture candidate, AdmissionMixture reference)
         => RankSafe(rows, row => candidate.Score(row.Scores), row => reference.Score(row.Scores));
 
-    private static bool RankSafeAgainstIncumbent(EvidenceRow[] rows, AdmissionMixture candidate)
-        => RankSafe(rows, row => candidate.Score(row.Scores), row => row.Scores.Incumbent);
-
     private static bool RankSafe(EvidenceRow[] rows, Func<EvidenceRow, double> candidate, Func<EvidenceRow, double> reference)
         => rows.GroupBy(row => row.UserId).All(group => new[] { RankingMetrics.DefaultK, FullListRankingK }
             .All(k => Ndcg(group.ToArray(), candidate, k) + MetricRoundingTolerance >= Ndcg(group.ToArray(), reference, k)));
+
+    private static bool RankSafeAgainstIncumbent(EvidenceRow[] rows, AdmissionMixture candidate)
+        => RankSafe(rows, row => candidate.Score(row.Scores), row => row.Scores.Incumbent);
 
     private static double Ndcg(EvidenceRow[] rows, Func<EvidenceRow, double> score, int k)
         => RankingMetrics.ComputeNdcgAtK(rows.Select(score).ToArray(), rows.Select(row => row.Label).ToArray(), k);
@@ -490,6 +508,8 @@ internal static class EnsembleAdmissionEvaluator
             return new AdmissionMixture(start.Learned + (t * dx), start.Neural + (t * dy));
         }
     }
+
+    private sealed record CalibrationPlan(EvidenceRow[] Rows, HashSet<Guid> Users, AdmissionMixture Selected, AdmissionMixture NoNeural, AdmissionDecision? Limitation);
 
     private sealed class CalibratedNoNeuralPredictor(IScoringStrategy heuristic, IScoringStrategy learned, AdmissionMixture mixture) : IScoringStrategy
     {

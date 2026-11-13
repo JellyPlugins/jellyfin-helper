@@ -111,6 +111,7 @@ async function discovery(page: Page) {
 }
 
 test('requested-card success animation stays in its source on immediate Trakt switches', async ({ page }) => {
+  await page.clock.install();
   await discovery(page);
   await page.evaluate(() => {
     const pool = (ids: number[]) => ({ DeliveryId: '00000000-0000-0000-0000-000000000001',
@@ -129,7 +130,11 @@ test('requested-card success animation stays in its source on immediate Trakt sw
   });
   await page.locator('.jfh-discovery-card[data-tmdb="1"] [data-jfh-action="request"]').click();
   await expect(page.locator('.jfh-discovery-btn-done')).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).fixtureRequestedCard = document.querySelector('.jfh-discovery-card[data-tmdb="1"]');
+  });
   await page.locator('[data-tab="trakt"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).fixtureRequestedCard._jfhConsumeTimer)).toBeNull();
   const cards = page.locator('.jfh-discovery-tab-host .jfh-discovery-card');
   await expect(cards).toHaveCount(2);
   expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['3', '2']);
@@ -138,7 +143,7 @@ test('requested-card success animation stays in its source on immediate Trakt sw
   expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
   // Observe beyond the original 5-second deadline; the old callback must not refill the current source.
   const requests = await page.evaluate(() => (window as any).fixtureRequests.length);
-  await page.waitForTimeout(5300);
+  await page.clock.fastForward(5300);
   expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
   expect(await page.evaluate(() => (window as any).fixtureRequests.length)).toBe(requests);
 });
