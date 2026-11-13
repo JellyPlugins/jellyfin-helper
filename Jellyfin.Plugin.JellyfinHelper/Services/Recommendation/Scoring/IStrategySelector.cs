@@ -14,6 +14,13 @@ public interface IStrategySelector
     /// <returns>The alpha offset to apply during scoring.</returns>
     double GetAlphaOffset(Guid userId);
 
+    /// <summary>Gets the user's offset using an already-resolved scoring snapshot, without resolving their model again.</summary>
+    /// <remarks>The default preserves legacy selectors; the built-in selector uses the supplied snapshot directly.</remarks>
+    /// <param name="userId">The Jellyfin user ID.</param>
+    /// <param name="scoringDiagnostics">The coherent snapshot of the user's scoring model.</param>
+    /// <returns>The requested exploration adjustment.</returns>
+    double GetAlphaOffset(Guid userId, EnsembleDiagnostics scoringDiagnostics) => GetAlphaOffset(userId);
+
     /// <summary>
     ///     Gets the cohort name for the given user (for logging and result tagging).
     /// </summary>

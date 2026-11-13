@@ -187,6 +187,31 @@ public sealed class EngineInstanceTests
         harness.PerUserRegistry.Verify(r => r.GetUserModelDiagnostics(userId), Times.Once);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GetUserEnsembleDiagnostics_AppliesOffsetToTheResolvedSnapshotWithoutTrainingOrScanning(bool personal)
+    {
+        using var ensemble = new EnsembleScoringStrategy();
+        var harness = EngineTestFactory.Create(ensemble);
+        var userId = new Guid(6, 0, 0, new byte[8]);
+        var snapshot = new EnsembleDiagnostics { Alpha = 0.5, AlphaMin = 0.3, AlphaMax = 0.75 };
+        harness.PerUserRegistry.Setup(r => r.GetUserModelDiagnostics(userId)).Returns((snapshot, personal));
+        harness.StrategySelector.Setup(s => s.GetAlphaOffset(userId, snapshot)).Returns(0.12);
+
+        var (diagnostics, isPerUser) = harness.Engine.GetUserEnsembleDiagnostics(userId);
+        Assert.Equal(personal, isPerUser);
+        Assert.Equal(0.5, diagnostics!.Alpha);
+        Assert.Equal(0.12, diagnostics.AlphaOffset);
+        Assert.Equal(0.62, diagnostics.EffectiveAlpha);
+        Assert.Equal(0, snapshot.AlphaOffset);
+        harness.PerUserRegistry.Verify(r => r.GetUserModelDiagnostics(userId), Times.Once);
+        harness.PerUserRegistry.Verify(r => r.GetEnsembleForUser(It.IsAny<Guid>()), Times.Never);
+        harness.PerUserRegistry.Verify(r => r.GetOrCreateTrainableEnsembleForUser(It.IsAny<Guid>()), Times.Never);
+        harness.LibraryManager.Verify(l => l.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>()), Times.Never);
+        harness.WatchHistory.Verify(w => w.GetAllUserWatchProfiles(), Times.Never);
+    }
+
     [Fact]
     public void TrainStrategy_EmptyPreviousResults_IncrementalMode_ReturnsFalse()
     {

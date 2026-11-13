@@ -81,7 +81,7 @@ See [Configuration Page Build System](#configuration-page-build-system) for how 
 
 ### Multilingual Genre Metadata
 
-Genre names and spelling variants live in `Jellyfin.Plugin.JellyfinHelper/i18n/<language>.json`, not in C# language tables:
+Genre names and spelling variants live in `Jellyfin.Plugin.JellyfinHelper/i18n/<language>.json` tables:
 
 ```json
 "genre.12": "Adventure",
@@ -233,6 +233,27 @@ npm run test:coverage   # run + coverage gate, fails below the mark
 It runs on every PR (`ui-tests` job in `.github/workflows/pr.yml`) and nightly.
 See [`test/ui/README.md`](test/ui/README.md) for the suite map and
 [`test/ui/CONTRIBUTING.md`](test/ui/CONTRIBUTING.md) for the rules.
+
+`test/ui/tests/ensemble-effective.test.ts` pins current per-user coefficients,
+Frozen/Neural suppression, precise totals and bounded/stale diagnostic caches;
+`discovery-lifecycle.test.ts` and browser fixtures protect request-time source switches.
+
+Validated ensembles select coefficients from calibration only (including user eligibility),
+keep rejected initial fits heuristic-only after restart, and record the evaluated mixture's
+P/R/NDCG@10 rather than untouched legacy-model metrics. Unknown ranking remains unknown.
+Model archives contain the active version plus at most two older accepted versions, with
+90-day historical retention. A single checksummed `.acceptance-ledger.txt` per scope retains
+exact spent title IDs without a lifetime training cap; it grows with distinct used titles,
+not attempts, and survives idle model retirement until the account is removed. Evaluation
+blocks are deterministically user-balanced and capped at 4,096 titles before inspecting
+outcomes. Ledger corruption blocks admission, not existing predictions; write failure may
+conservatively spend a block without publishing its candidate. Legacy v5 files stay intact.
+Inactivity retirement uses observed play/session/impression/action dates, not promotion
+age; generated lists are not activity. Legacy withdrawal persists a separate suppression
+assessment without inventing an accepted bundle. Historical Neural needs fresh incremental
+utility; a rejected rollback cannot skip incumbent withdrawal. Explanations pin one model
+and bounds, and configuration revisions guard every commit. No new tuning controls are
+required: activation, fallback, mixing and rollback remain automatic.
 
 ### Test Structure
 
@@ -478,6 +499,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
+│       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v5 predictors and inference parity
+│       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
+│       │   ├── AcceptedModelStoreTests.cs                # Complete v5 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
+│       │   ├── AcceptanceObservationLedgerTests.cs       # Exact replay prevention beyond 1,000 IDs, migration, checksum failures and distinct-only growth
+│       │   ├── ValidatedEnsembleLifecycleTests.cs        # Real promotion/rollback, fresh Neural evidence, persistent legacy suppression, restart, IO/configuration races and replay
 │       │   ├── FeatureDiagnosticTests.cs                 # Every feature log slot/name/weight, including the legacy SeriesAffinity alias
 │       │   ├── MarginalExplanationTests.cs                # Exact score-removal effects instead of logit gradients; derived interactions and genre penalties remain coherent
 │       │   ├── EnsembleScoringStrategyAdvancedTests.cs # ScoreWithOffset, ApplyCohortFeedback, constructor guards
@@ -596,7 +622,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── TrashController.cs               # Trash bin API
 │   ├── ConfigurationSaveResponse.cs     # PUT /Configuration response: message + warnings list
 │   ├── ConnectionTestResponse.cs        # Arr/Seerr connection-test response: success flag + message
-│   ├── EnsembleDiagnosticsResponse.cs   # GET /Recommendations/Diagnostics/Ensemble response: live ensemble state (alpha, neural beta, quality gate, sigmoid midpoint, trend, counts) + Available flag. Static factory FromDiagnostics(EnsembleDiagnostics).
+│   ├── EnsembleDiagnosticsResponse.cs   # Read-only stored/effective user mix, coefficients, quality/maturity, and personal/global scope
 │   ├── FolderBrowserResponse.cs         # GET /Configuration/LibraryPaths response: list of LibraryPathEntry
 │   ├── LibraryEntry.cs                  # Library name + collectionType entry (used in LibraryListResponse)
 │   ├── LibraryListResponse.cs           # GET /Configuration/Libraries response: list of LibraryEntry
@@ -689,7 +715,20 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-│   │   │   ├── EnsembleDiagnostics.cs        # Immutable read-only snapshot of the ensemble's live state (alpha, neural beta, quality gate, sigmoid midpoint, trend, counts, bounds, neural-enabled)
+│   │   │   ├── EnsembleScoringStrategy.Validation.cs # Detached fitting, independent mixture approval and atomic scope-bound promotion
+│   │   │   ├── EnsembleDiagnostics.cs        # Immutable live state; effective shares use scoring's frozen/offset rules without changing model state
+│   │   │   ├── AdmissionMixture.cs           # Nonnegative coefficients with absolute ML/Neural budgets and existing blend order
+│   │   │   ├── AdmissionScores.cs            # Coherent precomputed component predictions
+│   │   │   ├── AdmissionModels.cs            # Frozen model candidates and actual incumbent reference
+│   │   │   ├── AdmissionDecision.cs          # Assessment without model mutation or persistence
+│   │   │   ├── AdmissionEvidence.cs          # Unique effective calibration/acceptance support
+│   │   │   ├── AdmissionUtility.cs           # Nullable ranking/calibration and paired improvement evidence
+│   │   │   ├── AcceptedModelBundle.cs        # One complete accepted v5 parameter/mix/evidence version
+│   │   │   ├── AcceptedModelStore.cs         # Atomic additive checkpoint; legacy v5 models remain intact on rejection or failure
+│   │   │   ├── AcceptanceObservationLedger.cs # Single checksummed exact spent-title set, separate from bounded model archives
+│   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
+│   │   │   ├── ModelTrainingAssessment.cs    # Attempt diagnostics and bounded unique maturity; never grants model trust or stamps trained weights
+│   │   │   ├── EnsembleAdmissionEvaluator.cs # Separate calibration/acceptance, paired utility screens, macro-user ranking and incumbent comparisons
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
 │   │   │   ├── CandidateFeatures.cs         # 38-feature vector with FeatureIndex enum

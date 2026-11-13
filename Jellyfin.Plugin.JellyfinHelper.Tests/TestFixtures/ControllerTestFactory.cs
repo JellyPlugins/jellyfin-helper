@@ -99,6 +99,11 @@ public static class ControllerTestFactory
     {
         if (Plugin.Instance != null)
         {
+            if (Plugin.Instance.Configuration is null)
+            {
+                ResetPluginConfiguration();
+            }
+
             return;
         }
 

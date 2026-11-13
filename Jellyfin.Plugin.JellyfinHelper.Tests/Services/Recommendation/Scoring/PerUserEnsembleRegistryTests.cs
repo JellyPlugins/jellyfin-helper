@@ -162,12 +162,18 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         }
 
         Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
+        var keptLedger = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{keep:N}.json"))!;
+        var removedLedger = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{remove:N}.json"))!;
+        File.WriteAllText(keptLedger, "kept-ledger-canary");
+        File.WriteAllText(removedLedger, "removed-ledger-canary");
 
         registry.PruneOrphans([keep]);
 
         Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{keep:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{remove:N}.json")));
+        Assert.Equal("kept-ledger-canary", File.ReadAllText(keptLedger));
+        Assert.False(File.Exists(removedLedger));
     }
 
     [Fact]
@@ -456,6 +462,8 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         // Pin the last-trained time to a fixed point in the past so the sweep is deterministic and does not
         // depend on the wall clock at test time.
         PinLastTrained(userId, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var ledgerPath = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json"))!;
+        File.WriteAllText(ledgerPath, "spent-titles-must-not-be-recycled");
 
         var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
@@ -463,6 +471,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json")));
         Assert.Same(global, registry.GetScoringStrategyForUser(userId));
+        Assert.Equal("spent-titles-must-not-be-recycled", File.ReadAllText(ledgerPath));
     }
 
     [Fact]
@@ -701,6 +710,56 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             _pluginLog.Object);
 
         Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void MemoryOnlyEvictionDoesNotProbeOrDeleteRelativeSidecarFiles(string? dataPath)
+    {
+        using var global = new EnsembleScoringStrategy();
+        var files = new Mock<IFile>();
+        files.Setup(file => file.Exists(It.IsAny<string>())).Returns(true);
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.Setup(system => system.File).Returns(files.Object);
+        using var registry = new PerUserEnsembleRegistry(global, null, dataPath, new EnsembleBlendBounds(.3, .75, .15), _pluginLog.Object, fileSystem: fileSystem.Object);
+        var user = Guid.NewGuid();
+        registry.GetOrCreateTrainableEnsembleForUser(user);
+        Assert.True(registry.EvictPerUserModel(user));
+        files.Verify(file => file.Exists(It.IsAny<string>()), Times.Never);
+        files.Verify(file => file.Delete(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void ExplicitEvictionFindsABundleOnlyModelBeforeAnyReadMaterializesIt()
+    {
+        using var global = new EnsembleScoringStrategy();
+        using var registry = new PerUserEnsembleRegistry(global, null, _dataPath, new EnsembleBlendBounds(.3, .75, .15), _pluginLog.Object);
+        var user = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{user:N}.json");
+        var parameters = new LearnedScoringStrategy().CapturePredictionSnapshot().ExportParameters();
+        parameters.TrainingGeneration = 1;
+        var bundle = new AcceptedModelBundle
+        {
+            Learned = parameters,
+            Mixture = new AdmissionMixture(.5, 0),
+            AlphaCap = .75,
+            NeuralCap = 0,
+            Revision = 1,
+            TrainedAtUtc = DateTime.UtcNow,
+            AcceptanceObservationIds = Enumerable.Range(1, 20).Select(value => new Guid(value, 0, 0, new byte[8])).ToArray(),
+            Utility = new AdmissionUtility(.02, .9, .01, null, null),
+            State = new EnsembleScoringStrategy.EnsembleStateData { Alpha = .75, QualityGateFrozen = false }
+        };
+        Assert.True(new AcceptedModelStore(statePath).Commit(bundle));
+        Assert.False(File.Exists(statePath));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{user:N}.json")));
+        Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow.AddDays(1)));
+        Assert.True(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.True(registry.EvictPerUserModel(user));
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.Same(global, registry.GetScoringStrategyForUser(user));
+        Assert.True(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
     }
 
     // Rewrites the persisted UpdatedAt stamp so the age sweep reads a fixed last-trained time instead of the

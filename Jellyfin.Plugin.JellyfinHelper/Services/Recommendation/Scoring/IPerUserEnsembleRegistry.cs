@@ -105,6 +105,12 @@ public interface IPerUserEnsembleRegistry : IDisposable
     /// <returns>The number of per-user models evicted.</returns>
     int EvictStaleModels(DateTime cutoffUtc);
 
+    /// <summary>Retires models only from independently observed user inactivity, never from lack of another promotion.</summary>
+    /// <param name="cutoffUtc">Activity before this instant is idle; unknown activity retains the model.</param>
+    /// <param name="lastActivityUtc">Current observed play/impression/action times for live users.</param>
+    /// <returns>The number of confirmed inactive models evicted.</returns>
+    int EvictInactiveModels(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?> lastActivityUtc);
+
     /// <summary>
     ///     Applies new blend bounds (alpha min/max and genre-penalty floor) to future per-user models and to
     ///     every per-user ensemble already materialized this session. Called when the configuration changes so

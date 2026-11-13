@@ -169,6 +169,32 @@ internal sealed class TrainingService : IDisposable
             var pooled = batch.Examples;
 
             SplitHeldOut(pooled, out var globalExamples, out var globalHoldout);
+            // Pin training-only priors BEFORE this cycle's global promotion. Personal acceptance must not
+            // reuse labels that just selected the global seed or shared Neural version.
+            var neuralPrior = globalEnsemble.GetAcceptedNeuralPrediction();
+            var priorAcceptance = globalEnsemble.GetAcceptedObservationIds();
+            if (priorAcceptance is null)
+            {
+                _pluginLog.LogInfo(LogSource, "Training skipped - exact acceptance reuse ledger is unavailable; existing models retained.", _logger);
+                return false;
+            }
+
+            var priorAcceptanceIds = priorAcceptance.ToHashSet();
+            var preparedModels = new Dictionary<Guid, EnsembleScoringStrategy>();
+            foreach (var group in pooled.GroupBy(example => example.UserId).Where(group => group.Key != Guid.Empty))
+            {
+                SplitHeldOut(group.ToList(), out var personalFit, out var personalHoldout);
+                if (personalFit.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().Count() < PerUserEnsembleRegistry.PerUserModelThreshold)
+                {
+                    continue;
+                }
+
+                var personal = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
+                personal.SetSharedPredictionProvider(() => neuralPrior);
+                personal.SetSeedAcceptanceObservations(personalHoldout.Select(row => row.ObservationId).Distinct().Where(priorAcceptanceIds.Contains).ToArray());
+                preparedModels[group.Key] = personal;
+            }
+
             if (incremental && globalExamples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
             {
                 globalExamples = ApplyIncrementalSampling(globalExamples, batch.PreviousResults);
@@ -179,7 +205,7 @@ internal sealed class TrainingService : IDisposable
 
             // Per-user passes train on the full per-user slices so incremental subsampling of the pooled set
             // never drops a user below the threshold or starves their model of their own recent history.
-            TrainPerUserModels(registry, pooled, cancellationToken);
+            TrainPerUserModels(registry, pooled, cancellationToken, preparedModels);
 
             return globalTrained;
         }
@@ -191,10 +217,9 @@ internal sealed class TrainingService : IDisposable
 
     /// <summary>
     ///     Retires per-user models that have gone idle beyond the configured window, independently of whether
-    ///     there was anything to train on this run. The per-user training pass only revisits users present in
-    ///     the current examples, so a user with a model on disk but no examples this cycle is otherwise never
-    ///     reconsidered. Age is measured from each model's persisted last-trained time, so a user active within
-    ///     the window is never touched and a single quiet cycle cannot evict a live user.
+    ///     there was anything to train on this run. Actual observed play/impression/action timestamps, not
+    ///     accepted-model age or generated recommendations, determine inactivity. Unknown activity retains
+    ///     the model; regular evaluations do not invent user activity or force another promotion.
     /// </summary>
     /// <param name="registry">The per-user ensemble registry.</param>
     /// <returns>The number of stale per-user models that were confirmed retired.</returns>
@@ -202,13 +227,33 @@ internal sealed class TrainingService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(registry);
 
-        var idleCutoff = DateTime.UtcNow - TimeSpan.FromDays(EngineConstants.PerUserModelMaxIdleDays);
-        var staleEvicted = registry.EvictStaleModels(idleCutoff);
+        var now = DateTime.UtcNow;
+        var activity = _watchHistoryService.GetAllUserWatchProfiles().Where(profile => profile.UserId != Guid.Empty)
+            .GroupBy(profile => profile.UserId).ToDictionary(group => group.Key, group => group.SelectMany(profile => new[] { profile.LastActivityDate, profile.LastSessionActivityDate }).Max());
+        var feedback = LoadDiscoveryFeedback();
+        if (_discoveryFeedbackStore is not null && feedback is null)
+        {
+            _pluginLog.LogInfo(LogSource, "Inactive-model retirement skipped - observed Discovery activity is unavailable.", _logger);
+            return 0;
+        }
+
+        foreach (var result in (feedback ?? []).Where(result => activity.ContainsKey(result.UserId)))
+        {
+            var lastAction = result.Entries.SelectMany(entry => new[] { entry.ImpressionAtUtc, entry.RequestedAtUtc, entry.DismissedAtUtc, entry.WatchedAtUtc })
+                .Where(stamp => stamp.HasValue && stamp.Value <= now).Max();
+            if (lastAction > activity[result.UserId] || (activity[result.UserId] is null && lastAction.HasValue))
+            {
+                activity[result.UserId] = lastAction;
+            }
+        }
+
+        var idleCutoff = now - TimeSpan.FromDays(EngineConstants.PerUserModelMaxIdleDays);
+        var staleEvicted = registry.EvictInactiveModels(idleCutoff, activity);
         if (staleEvicted > 0)
         {
             _pluginLog.LogInfo(
                 LogSource,
-                $"Retired {staleEvicted} per-user model(s) not retrained in {EngineConstants.PerUserModelMaxIdleDays} days; those users fall back to the global model.",
+                $"Retired {staleEvicted} per-user model(s) after {EngineConstants.PerUserModelMaxIdleDays} days of observed inactivity; those users fall back to the global model.",
                 _logger);
         }
 
@@ -223,14 +268,15 @@ internal sealed class TrainingService : IDisposable
     /// <param name="registry">The per-user ensemble registry.</param>
     /// <param name="pooled">The full pooled training examples (tagged with UserId, before incremental subsampling).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="preparedModels">Personal models seeded before the global promotion, when prepared by the caller.</param>
     private void TrainPerUserModels(
         IPerUserEnsembleRegistry registry,
         List<TrainingExample> pooled,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Dictionary<Guid, EnsembleScoringStrategy>? preparedModels = null)
     {
         var trainedUsers = 0;
         var skippedUsers = 0;
-        var evictedUsers = 0;
 
         foreach (var group in pooled.GroupBy(e => e.UserId))
         {
@@ -247,20 +293,15 @@ internal sealed class TrainingService : IDisposable
             SplitHeldOut(userExamples, out var userFit, out var userHoldout);
             if (userFit.Where(example => example.IsObserved).Select(example => example.ObservationId).Distinct().Count() < PerUserEnsembleRegistry.PerUserModelThreshold)
             {
-                // Below threshold: no per-user model. Evict any model this user built on a previous, richer run
-                // so they fall back to the global model rather than keep scoring on a stale personal fit; a user
-                // who never had one is untouched. Either way their recommendations stay on the global model
-                // rather than being fit on too little data.
-                if (registry.EvictPerUserModel(group.Key))
-                {
-                    evictedUsers++;
-                }
-
+                // Insufficient new fitting support is unknown, not counterevidence against an incumbent.
+                // Explicit removed-user/idle retirement remains separate from a failed or sparse fit.
                 skippedUsers++;
                 continue;
             }
 
-            var ensemble = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
+            var ensemble = preparedModels is not null && preparedModels.TryGetValue(group.Key, out var prepared)
+                ? prepared
+                : registry.GetOrCreateTrainableEnsembleForUser(group.Key);
             if (TrainStrategyOnExamples(ensemble, userFit, trainNeural: false, cancellationToken, userHoldout))
             {
                 trainedUsers++;
@@ -270,8 +311,7 @@ internal sealed class TrainingService : IDisposable
         _pluginLog.LogInfo(
             LogSource,
             $"Per-user training: {trainedUsers} users trained, {skippedUsers} below the " +
-            $"{PerUserEnsembleRegistry.PerUserModelThreshold}-example threshold (kept on the global model), " +
-            $"{evictedUsers} previously-trained users evicted after dropping below the threshold.",
+            $"{PerUserEnsembleRegistry.PerUserModelThreshold}-example fitting threshold; existing incumbents retained on sparse input.",
             _logger);
     }
 
@@ -401,7 +441,7 @@ internal sealed class TrainingService : IDisposable
         var heldOutForMetrics = heldOutSplit.Count >= 2 ? heldOutSplit : null;
         var trained = strategy switch
         {
-            EnsembleScoringStrategy ensemble => ensemble.Train(trainSplit, heldOutForMetrics, trainNeural),
+            EnsembleScoringStrategy ensemble => ensemble.TrainValidated(trainSplit, heldOutSplit, trainNeural, cancellationToken),
             ITrainableStrategy trainable => trainable.Train(trainSplit, heldOutForMetrics),
             _ => false
         };

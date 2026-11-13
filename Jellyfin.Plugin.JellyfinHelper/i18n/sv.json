@@ -1,4 +1,7 @@
 {
+  "recsEnsembleModelPersonal": "Personlig modell",
+  "recsEnsembleModelGlobal": "Global modell",
+  "recsEnsembleStoredTarget": "Sparad målandel för ML",
   "genre.12": "Äventyr",
   "genre.14": "Fantasy",
   "genre.16": "Animerat",

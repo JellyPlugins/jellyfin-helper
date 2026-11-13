@@ -285,7 +285,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         var (diagnostics, isPerUser) = _perUserRegistry.GetUserModelDiagnostics(userId);
-        return (diagnostics, isPerUser);
+        return (diagnostics with { AlphaOffset = _strategySelector.GetAlphaOffset(userId, diagnostics) }, isPerUser);
     }
 
     /// <inheritdoc />

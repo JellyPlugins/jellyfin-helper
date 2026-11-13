@@ -57,6 +57,18 @@ public sealed class WatchHistoryServiceTests
         Assert.Null(_service.GetUserWatchProfile(userId));
     }
 
+    [Fact]
+    public void SessionActivityIsKeptSeparateFromWatchedOutcomes()
+    {
+        var user = CreateTestUser("active-without-watches");
+        user.LastActivityDate = DateTime.UtcNow.AddHours(-1);
+        var profile = _service.BuildProfile(user, [], [], collectionIds: []);
+        Assert.Equal(user.LastActivityDate, profile.LastSessionActivityDate);
+        Assert.Null(profile.LastActivityDate);
+        Assert.Empty(profile.WatchedItems);
+        Assert.Equal(0, profile.WatchedMovieCount);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData(6)]
