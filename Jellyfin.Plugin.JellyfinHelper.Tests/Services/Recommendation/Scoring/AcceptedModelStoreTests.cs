@@ -189,6 +189,88 @@ public sealed class AcceptedModelStoreTests : IDisposable
         Assert.Equal(5, store.Read()!.Revision);
     }
 
+    [Fact]
+    public void OversizedReadsAndWritesFailClosedBeforeChangingTheIncumbentOrLedger()
+    {
+        var statePath = Path.Join(_directory, "size-bound.json");
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(Bundle()));
+        var path = AcceptedModelStore.GetBundlePath(statePath)!;
+        var before = File.ReadAllBytes(path);
+        var ledgerPath = AcceptedModelStore.GetLedgerPath(statePath)!;
+        var ledger = File.ReadAllBytes(ledgerPath);
+        var oversized = Bundle();
+        oversized.State.UpdatedAt = new string('x', 11 * 1024 * 1024);
+        Assert.False(store.Commit(oversized));
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.Equal(ledger, File.ReadAllBytes(ledgerPath));
+        using (var file = File.OpenWrite(path)) file.SetLength(11 * 1024 * 1024);
+        Assert.Null(store.Read());
+        Assert.Equal(ledger, File.ReadAllBytes(ledgerPath));
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("invalid")]
+    [InlineData("malformed")]
+    [InlineData("oversized")]
+    [InlineData("retired")]
+    public void UnusableArchiveSlotsNeverReplaceOrDeleteTheActiveModel(string kind)
+    {
+        var statePath = Path.Join(_directory, "bad-history.json");
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(Bundle()));
+        var activePath = AcceptedModelStore.GetBundlePath(statePath)!;
+        var before = File.ReadAllBytes(activePath);
+        var historyPath = activePath + ".history.0.json";
+        var historical = Bundle();
+        if (kind == "invalid") historical.Version = 99;
+        if (kind == "retired")
+        {
+            historical.Retired = true;
+            historical.State.QualityGateFrozen = true;
+            historical.RetirementUtility = new AdmissionUtility(.1, .8, null, null, .01);
+        }
+
+        File.WriteAllText(historyPath, kind == "null" ? "null" : JsonSerializer.Serialize(historical));
+        if (kind == "malformed") File.WriteAllText(historyPath, "{invalid-json}");
+        if (kind == "oversized")
+        {
+            using var file = File.OpenWrite(historyPath);
+            file.SetLength(11 * 1024 * 1024);
+        }
+
+        Assert.Empty(store.ReadHistory());
+        Assert.Equal(before, File.ReadAllBytes(activePath));
+        Assert.Equal(1, store.Read()!.Revision);
+    }
+
+    [Fact]
+    public void ExpiredActiveVersionIsRetainedButNotArchivedDuringAUsefulReplacement()
+    {
+        var statePath = Path.Join(_directory, "expired-active.json");
+        var store = new AcceptedModelStore(statePath);
+        var old = Bundle();
+        old.TrainedAtUtc = DateTime.UtcNow.AddDays(-91);
+        Assert.True(store.Commit(old));
+        Assert.Equal(old.TrainedAtUtc, store.Read()!.TrainedAtUtc);
+        var next = Bundle();
+        next.Revision = 2;
+        Assert.True(store.Commit(next));
+        Assert.Empty(store.ReadHistory());
+        Assert.Equal(2, store.Read()!.Revision);
+    }
+
+    [Fact]
+    public void MemoryOnlyHistoryAndJsonNullDoNotCreateAClaimedModel()
+    {
+        Assert.Empty(new AcceptedModelStore(null).ReadHistory());
+        var statePath = Path.Join(_directory, "json-null.json");
+        File.WriteAllText(AcceptedModelStore.GetBundlePath(statePath)!, "null");
+        Assert.Null(new AcceptedModelStore(statePath).Read());
+        Assert.Throws<ArgumentNullException>(() => new AcceptedModelStore(null).Commit(null!));
+    }
+
     private static AcceptedModelBundle Bundle()
     {
         var learned = new LearnedScoringStrategy();

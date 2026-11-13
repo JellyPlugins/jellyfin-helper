@@ -217,6 +217,93 @@ public sealed class EnsembleAdmissionEvaluatorTests
         Assert.Equal(cal.Select(row => expected.Score(row.Features)), cal.Select(row => actual.Score(row.Features)));
         Assert.Null(EnsembleAdmissionEvaluator.CalibrateNoNeuralReference(cal, Constant(.5), [Constant(double.NaN)], ReferenceTime, .75));
         Assert.Null(EnsembleAdmissionEvaluator.CalibrateNoNeuralReference(cal.Take(19).ToArray(), Constant(.5), [oracle], ReferenceTime, .75));
+        Assert.Equal("Calibrated no-Neural reference", actual.Name);
+        Assert.Equal("strategyEnsemble", actual.NameKey);
+        Assert.Equal(actual.Score(cal[0].Features), actual.ScoreWithExplanation(cal[0].Features).FinalScore);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(-.01)]
+    [InlineData(1.01)]
+    public void InvalidAlphaBudgetIsRejectedBeforeScoring(double alpha)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => EnsembleAdmissionEvaluator.Evaluate(Examples(20, 181), Examples(20, 182), new AdmissionModels(Constant(.5), Constant(.4)), ReferenceTime, alpha, 0));
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(-.01)]
+    [InlineData(.8)]
+    public void InvalidAbsoluteNeuralBudgetIsRejectedBeforeScoring(double neural)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => EnsembleAdmissionEvaluator.Evaluate(Examples(20, 183), Examples(20, 184), new AdmissionModels(Constant(.5), Constant(.4)), ReferenceTime, .75, neural));
+    }
+
+    [Fact]
+    public void AcceptancePredictionFailureKeepsTheCalibrationSelectedCoefficients()
+    {
+        var cal = Examples(80, 191);
+        var test = Examples(80, 192);
+        var scorer = Scorer(features => features.IsSeries ? double.NaN : features.CombinedCriticScore);
+        var valid = Evaluate(cal, test, new AdmissionModels(Constant(.5), scorer));
+        foreach (var row in test) row.Features.IsSeries = true;
+        var invalid = Evaluate(cal, test, new AdmissionModels(Constant(.5), scorer));
+        Assert.Equal(valid.Candidate, invalid.Candidate);
+        Assert.False(invalid.Accepted);
+        Assert.Equal("InvalidPrediction", invalid.Reason);
+        Assert.Null(invalid.Utility.CandidateLoss);
+    }
+
+    [Fact]
+    public void CalibrationGainWithoutExtraRankingUsefulnessSelectsNoNeuralBeforeAcceptance()
+    {
+        var rows = Examples(80, 201);
+        var test = Examples(80, 202);
+        var learned = Scorer(features => .06 + .8 * features.CombinedCriticScore);
+        var neural = Scorer(features => features.CombinedCriticScore);
+        var decision = Evaluate(rows, test, new AdmissionModels(Constant(.5), learned, neural));
+        Assert.True(decision.Accepted);
+        Assert.True(decision.Candidate.Learned > 0);
+        Assert.Equal(0, decision.Candidate.Neural);
+    }
+
+    [Fact]
+    public void GenuineInteriorCoefficientsAreSolvedWithoutAWeightGridAndPreserveWithinMlNeuralFractions()
+    {
+        var cal = Examples(80, 211);
+        var test = Examples(80, 212);
+        foreach (var rows in new[] { cal, test })
+        {
+            for (var index = 0; index < rows.Count; index++)
+            {
+                rows[index].Features.RecencyScore = (index & 1) == 0 ? .1 : .9;
+                rows[index].Features.CombinedCriticScore = (index & 2) == 0 ? .1 : .9;
+                rows[index].Label = .5 + .25 * (rows[index].Features.RecencyScore - .5) + .2 * (rows[index].Features.CombinedCriticScore - .5);
+            }
+        }
+
+        var models = new AdmissionModels(Constant(.5), Scorer(features => features.RecencyScore), Scorer(features => features.CombinedCriticScore));
+        var decision = Evaluate(cal, test, models);
+        Assert.True(decision.Accepted);
+        Assert.Equal(.25, decision.Candidate.Learned, 12);
+        Assert.Equal(.2, decision.Candidate.Neural, 12);
+        Assert.True(decision.Candidate.Beta > .4);
+        Assert.InRange(decision.Candidate.Neural, 0, .3);
+        Assert.Equal(1 - decision.Candidate.Alpha, decision.Candidate.Heuristic);
+    }
+
+    [Fact]
+    public void NonfiniteWithdrawalOrFixedVersionPredictionsCannotManufactureUtility()
+    {
+        var rows = Examples(80, 221);
+        var bad = Constant(double.NaN);
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateWithdrawal(rows, Constant(.5), bad, ReferenceTime));
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateWithdrawal(rows, bad, Constant(.5), ReferenceTime));
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateFixedVersion(rows, Constant(.5), bad, Constant(.5), ReferenceTime));
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateFixedVersion(rows, bad, Constant(.5), Constant(.5), ReferenceTime));
     }
 
     private static AdmissionDecision Evaluate(IReadOnlyList<TrainingExample> cal, IReadOnlyList<TrainingExample> test, AdmissionModels models)
