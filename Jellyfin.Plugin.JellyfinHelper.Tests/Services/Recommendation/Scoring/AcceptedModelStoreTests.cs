@@ -120,6 +120,18 @@ public sealed class AcceptedModelStoreTests : IDisposable
     [InlineData("duplicate-evidence")]
     [InlineData("missing-utility")]
     [InlineData("frozen")]
+    [InlineData("negative-alpha")]
+    [InlineData("negative-neural")]
+    [InlineData("negative-coefficient")]
+    [InlineData("missing-neural")]
+    [InlineData("missing-evidence")]
+    [InlineData("empty-evidence")]
+    [InlineData("negative-loss")]
+    [InlineData("invalid-ndcg")]
+    [InlineData("zero-improvement")]
+    [InlineData("invalid-state")]
+    [InlineData("invalid-retirement")]
+    [InlineData("non-utc")]
     public void InvalidCandidateCannotOverwriteOrLoadAsAnAcceptedModel(string corruption)
     {
         var statePath = Path.Join(_directory, "ensemble_state.json");
@@ -136,6 +148,18 @@ public sealed class AcceptedModelStoreTests : IDisposable
             case "duplicate-evidence": candidate.AcceptanceObservationIds = Enumerable.Repeat(Guid.NewGuid(), 20).ToArray(); break;
             case "missing-utility": candidate.Utility = null; break;
             case "frozen": candidate.State.QualityGateFrozen = true; break;
+            case "negative-alpha": candidate.AlphaCap = -.1; break;
+            case "negative-neural": candidate.NeuralCap = -.1; break;
+            case "negative-coefficient": candidate.Mixture = new AdmissionMixture(-.1, .1); break;
+            case "missing-neural": candidate.Neural = null; break;
+            case "missing-evidence": candidate.AcceptanceObservationIds = []; break;
+            case "empty-evidence": candidate.AcceptanceObservationIds[0] = Guid.Empty; break;
+            case "negative-loss": candidate.Utility = candidate.Utility! with { CandidateLoss = -.1 }; break;
+            case "invalid-ndcg": candidate.Utility = candidate.Utility! with { CandidateNdcg = 1.1 }; break;
+            case "zero-improvement": candidate.Utility = candidate.Utility! with { LowerHeuristicImprovement = 0 }; break;
+            case "invalid-state": candidate.State.SchemaVersion = 99; break;
+            case "invalid-retirement": candidate.Retired = true; candidate.State.QualityGateFrozen = true; break;
+            case "non-utc": candidate.TrainedAtUtc = DateTime.SpecifyKind(candidate.TrainedAtUtc, DateTimeKind.Unspecified); break;
         }
 
         Assert.False(store.Commit(candidate));

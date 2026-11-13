@@ -254,6 +254,11 @@ assessment without inventing an accepted bundle. Historical Neural needs fresh i
 utility; a rejected rollback cannot skip incumbent withdrawal. Explanations pin one model
 and bounds, and configuration revisions guard every commit. No new tuning controls are
 required: activation, fallback, mixing and rollback remain automatic.
+Regression suites also cover missing accepted checkpoints after legacy replacement,
+typed visible-card request reconciliation, storage/reader limits and disposal/configuration
+races. Configuration identity uses exact bit comparison; bootstrap resampling remains
+deterministic and is not a security random-number use. Browser timing checks use controlled
+clocks and source-bound assertions rather than fixed waits.
 
 ### Test Structure
 
