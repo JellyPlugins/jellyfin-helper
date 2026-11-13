@@ -382,6 +382,25 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             return null;
         }
 
+        return RestoreParameters(data);
+    }
+
+    /// <summary>Restores parameters promised by an accepted bundle, retaining validation but making a broken promise explicit.</summary>
+    /// <param name="data">Complete v5 coordinates from the accepted checkpoint.</param>
+    /// <returns>A detached model; invalid coordinates cannot silently fall back to legacy weights.</returns>
+    internal static LearnedScoringStrategy FromAcceptedParameters(WeightsData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (!IsValidParameters(data))
+        {
+            throw new ArgumentException("Accepted Learned parameters are invalid.", nameof(data));
+        }
+
+        return RestoreParameters(data);
+    }
+
+    private static LearnedScoringStrategy RestoreParameters(WeightsData data)
+    {
         var copied = new PredictionSnapshot(data).ExportParameters();
         return new LearnedScoringStrategy
         {
