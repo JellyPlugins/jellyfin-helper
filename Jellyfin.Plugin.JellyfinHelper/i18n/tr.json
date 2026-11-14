@@ -1,4 +1,11 @@
 {
+  "recsEnsembleModelPersonal": "Kişisel model",
+  "recsEnsembleModelGlobal": "Genel model",
+  "recsEnsembleModelPrior": "Genel modeller, kişisel karışım",
+  "recsEnsembleStatusPrior": "Genel modellerden başlangıç karışımı",
+  "recsEnsembleStatusProvisional": "Geçici — sıralama henüz doğrulanmadı",
+  "recsEnsembleStatusVerified": "Bağımsız olarak doğrulandı",
+  "recsEnsembleStoredTarget": "Kaydedilmiş ML hedef payı",
   "genre.12": "Macera",
   "genre.14": "Fantastik",
   "genre.16": "Animasyon",

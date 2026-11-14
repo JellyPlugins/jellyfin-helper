@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <remarks>
 ///     Architecture: score = (α × Learned.Score + (1 - α) × Heuristic.Score) × softPenalty(genreSimilarity) where α is computed via sigmoid: α = αMin + (αMax - αMin) / (1 + e^(-k × (n - midpoint))) but soft-dampened when the learned model's validation loss exceeds.
 /// </remarks>
-public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
+public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>
     ///     Default minimum blending factor (heuristic dominates with no training data). Set to 0.3 so that even without ML data, the learned strategy contributes 30% (using its default genre-dominant weights) for a smoother cold-start experience.
@@ -202,8 +202,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         _heuristic = heuristic;
         _logger = logger;
 
-        _statePath = statePath;
+        _statePath = string.IsNullOrEmpty(statePath) ? null : statePath;
         TryLoadState();
+        TryLoadAcceptedModel();
     }
 
     /// <summary>
@@ -301,7 +302,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Gets the underlying learned strategy (for testing/debugging).
     /// </summary>
-    internal LearnedScoringStrategy LearnedStrategy => _learned;
+    internal LearnedScoringStrategy LearnedStrategy
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _acceptedLearnedTrainer ?? _learned;
+            }
+        }
+    }
 
     /// <summary>
     ///     Gets the underlying heuristic strategy (for testing/debugging).
@@ -398,7 +408,17 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 MetricsHistoryCount = _metricsHistory.Count,
                 AlphaMin = _alphaMin,
                 AlphaMax = _alphaMax,
-                NeuralEnabled = _neural is not null
+                NeuralEnabled = _independentAdmissionEnabled ? _acceptedPrediction?.Neural is not null : _neural is not null,
+                AdmittedAlpha = _acceptedPrediction?.Resolve(_alphaMax).Alpha,
+                AdmittedNeuralBeta = _acceptedPrediction?.Resolve(_alphaMax).Beta,
+                AllowsExploration = !_independentAdmissionEnabled,
+                ModelRevision = _acceptedBundle?.Revision ?? 0,
+                ValidationLevel = GetOperatingValidationLevel(),
+                HasOwnOperatingModel = !_usesInheritedPrior && (_acceptedBundle is not null || LearnedStrategy.HasOwnWeights),
+                AdmissionReason = _lastAdmission?.Reason,
+                CalibrationTitleCount = _lastAdmission?.Evidence.CalibrationTitles ?? 0,
+                AcceptanceTitleCount = _lastAdmission?.Evidence.AcceptanceTitles ?? 0,
+                CandidateValidationLoss = _lastAdmission?.Utility.CandidateLoss
             };
         }
     }
@@ -417,6 +437,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         lock (_syncRoot)
         {
+            if (!ScoringHelper.SameConfigurationValue(_alphaMin, newMin) || !ScoringHelper.SameConfigurationValue(_alphaMax, newMax) || !ScoringHelper.SameConfigurationValue(_genrePenaltyFloor, newFloor))
+            {
+                _configurationRevision++;
+            }
+
             _alphaMin = newMin;
             _alphaMax = newMax;
             _genrePenaltyFloor = newFloor;
@@ -428,6 +453,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     public double Score(CandidateFeatures features)
     {
         ArgumentNullException.ThrowIfNull(features);
+        if (TryScoreAccepted(features, out var acceptedScore))
+        {
+            return acceptedScore;
+        }
 
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
@@ -491,6 +520,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     internal double ScoreWithOffset(CandidateFeatures features, double alphaOffset)
     {
+        if (TryScoreAccepted(features, out var acceptedScore))
+        {
+            return acceptedScore;
+        }
+
         // Fast path: no offset means standard scoring
         if (Math.Abs(alphaOffset) < 1e-10)
         {
@@ -518,6 +552,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     internal ScoreExplanation ScoreWithExplanationAndOffset(CandidateFeatures features, double alphaOffset)
     {
+        if (CaptureAcceptedExplanationScore() is { } acceptedScore)
+        {
+            return ScoringHelper.BuildMarginalExplanation(features, acceptedScore, Name);
+        }
+
         // Fast path: no offset means standard scoring
         if (Math.Abs(alphaOffset) < 1e-10)
         {
@@ -541,12 +580,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <param name="offset">The requested exploration adjustment.</param>
     /// <returns>The effective ML blend.</returns>
     private double ResolveOffsetAlpha(double offset)
-        => _qualityGateFrozen ? 0.0 : Math.Clamp(_alpha + offset, _alphaMin, _alphaMax);
+        => EnsembleDiagnostics.ResolveEffectiveAlpha(_alpha, offset, _alphaMin, _alphaMax, _qualityGateFrozen);
 
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
         ArgumentNullException.ThrowIfNull(features);
+        if (CaptureAcceptedExplanationScore() is { } acceptedScore)
+        {
+            return ScoringHelper.BuildMarginalExplanation(features, acceptedScore, Name);
+        }
 
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
@@ -670,6 +713,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         bool trainNeural)
     {
         ArgumentNullException.ThrowIfNull(examples);
+        if (_independentAdmissionEnabled)
+        {
+            return TrainValidated(examples, heldOutForMetrics ?? [], trainNeural);
+        }
 
         examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight);
         var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
@@ -907,8 +954,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     /// <param name="validationLoss">The held-out validation loss for this training round.</param>
     /// <param name="exampleCount">The number of examples this training round saw.</param>
-    private void RecordMetricsSnapshot(double validationLoss, int exampleCount)
+    /// <param name="utility">Actual independently evaluated mixture metrics, or null for legacy fitting.</param>
+    private void RecordMetricsSnapshot(double validationLoss, int exampleCount, AdmissionUtility? utility = null)
     {
+        var ndcg = utility?.CandidateNdcgAtK ?? double.NaN;
+        if (utility is null && double.IsFinite(_learned.LastBaselineValidationLoss))
+        {
+            ndcg = _learned.LastNdcgAtK;
+        }
+
         // Record metrics snapshot and analyze trend BEFORE saving state,
         // so trend-driven alpha/beta adjustments are persisted in the same write.
         _metricsHistory.Add(
@@ -916,9 +970,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             {
                 Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 ValidationLoss = validationLoss,
-                PrecisionAtK = _learned.LastPrecisionAtK,
-                RecallAtK = _learned.LastRecallAtK,
-                NdcgAtK = double.IsFinite(_learned.LastBaselineValidationLoss) ? _learned.LastNdcgAtK : double.NaN,
+                PrecisionAtK = utility is null ? _learned.LastPrecisionAtK : utility.CandidatePrecisionAtK ?? double.NaN,
+                RecallAtK = utility is null ? _learned.LastRecallAtK : utility.CandidateRecallAtK ?? double.NaN,
+                NdcgAtK = ndcg,
                 ExampleCount = exampleCount
             });
         const int maxHistory = 10;
@@ -1034,6 +1088,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         IReadOnlyList<RecommendationResult> previousResults,
         Dictionary<Guid, HashSet<Guid>> watchedItemLookup)
     {
+        if (_independentAdmissionEnabled)
+        {
+            return;
+        }
+
         // Minimum recommendations per cohort to consider the signal statistically meaningful
         const int minRecsPerCohort = 5;
 
@@ -1285,8 +1344,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double alphaMin,
         double alphaMax)
     {
-        var exponent = -AlphaSigmoidK * (trainingExampleCount - midpoint);
-        return alphaMin + ((alphaMax - alphaMin) / (1.0 + Math.Exp(exponent)));
+        return OperatingMixturePolicy.Maturity(trainingExampleCount, midpoint, alphaMin, alphaMax);
     }
 
     /// <summary>
@@ -1471,7 +1529,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     private void TrySaveState()
     {
-        if (string.IsNullOrEmpty(_statePath))
+        if (_independentAdmissionEnabled || string.IsNullOrEmpty(_statePath))
         {
             return;
         }
@@ -1532,7 +1590,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
         // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the trailing window. A mixed history (e.g.
-        var realRows = history.Where(snapshot => double.IsFinite(snapshot.ValidationLoss) && double.IsFinite(snapshot.NdcgAtK)).ToList();
+        var realRows = history.Where(snapshot => snapshot is not null && double.IsFinite(snapshot.ValidationLoss) && double.IsFinite(snapshot.NdcgAtK)).ToList();
 
         if (realRows.Count < TrendMinSnapshots)
         {
@@ -1597,6 +1655,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     public void Dispose()
     {
+        _independentAdmissionDisposed = true;
+        if (_acceptedNeuralTrainer is not null && !ReferenceEquals(_acceptedNeuralTrainer, _neural))
+        {
+            _acceptedNeuralTrainer.Dispose();
+        }
+
         if (_ownsNeural)
         {
             _neural?.Dispose();

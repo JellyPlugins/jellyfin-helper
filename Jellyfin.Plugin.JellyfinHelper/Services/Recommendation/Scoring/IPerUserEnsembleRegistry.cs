@@ -78,10 +78,10 @@ public interface IPerUserEnsembleRegistry : IDisposable
     bool HasPerUserModel(Guid userId);
 
     /// <summary>
-    ///     Deletes per-user model/state files (and evicts cached instances) for users that no longer exist,
-    ///     reconciling persisted files against the live user list. Best-effort: it never throws.
+    ///     Deletes per-user model/state/ledger files and evicts even fileless cached instances for deleted or
+    ///     disabled users, reconciling against the active user list. Best-effort: it never throws.
     /// </summary>
-    /// <param name="liveUserIds">The set of user ids that currently exist.</param>
+    /// <param name="liveUserIds">The set of existing, enabled user ids.</param>
     void PruneOrphans(IReadOnlyCollection<Guid> liveUserIds);
 
     /// <summary>
@@ -104,6 +104,12 @@ public interface IPerUserEnsembleRegistry : IDisposable
     /// <param name="cutoffUtc">Models last trained before this instant are evicted.</param>
     /// <returns>The number of per-user models evicted.</returns>
     int EvictStaleModels(DateTime cutoffUtc);
+
+    /// <summary>Retires models only from independently observed user inactivity, never from lack of another promotion.</summary>
+    /// <param name="cutoffUtc">Activity before this instant is idle; unknown activity retains the model.</param>
+    /// <param name="lastActivityUtc">Current observed play/impression/action times for live users.</param>
+    /// <returns>The number of confirmed inactive models evicted.</returns>
+    int EvictInactiveModels(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?> lastActivityUtc);
 
     /// <summary>
     ///     Applies new blend bounds (alpha min/max and genre-penalty floor) to future per-user models and to

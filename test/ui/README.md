@@ -23,15 +23,17 @@ validators are pinned without a browser.
 | Explorer helper edge cases (dimension index, filter intersection) and full behavioral coverage | `tests/codecs-explorer-interactions.test.ts`, `tests/codecs-explorer-coverage.test.ts` |
 | Arr instances render, collect, add, remove, test | `tests/arr-integration.test.ts` |
 | Recommendations cards, requests, diagnostics | `tests/recommendations.test.ts`, `tests/recommendations-flow.test.ts` |
+| Selected-user Cold/Warm prior and provisional/verified mix, Neural absence, precise rounding and bounded/stale diagnostics caches | `tests/ensemble-effective.test.ts` |
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |
 | E2E mock Seerr log control-character escaping (no network listener) | `tests/mock-seerr-log.test.ts` |
+| E2E temporary-account playlist cleanup, identity prevalidation, all-settled failure ordering and cold-start fixture isolation | `tests/playlist-fixture.test.ts` |
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Discovery impressions (opaque deliveries, refreshed/protected cards, stale acknowledgements, retries and session isolation) | `tests/discovery-impressions.test.ts` |
-| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
+| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |

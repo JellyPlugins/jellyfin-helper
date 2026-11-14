@@ -619,8 +619,7 @@ describe('ensemble diagnostics rendering variants', () => {
     });
     expect(h.textContent).toContain('Alice');
     expect(h.textContent).toContain('frozen');
-    expect(h.textContent).toContain('20%');
-    expect(h.textContent).toContain('40%');
+    expect(Array.from(h.querySelectorAll('.recs-ensemble-blend strong'), el => el.textContent)).toEqual(['100%', '0%', 'off']);
   });
 
   test('per-user model without a name uses the neutral term', () => {

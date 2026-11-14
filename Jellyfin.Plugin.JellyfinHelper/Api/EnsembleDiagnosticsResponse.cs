@@ -15,8 +15,44 @@ public sealed class EnsembleDiagnosticsResponse
     /// </summary>
     public bool Available { get; set; }
 
-    /// <summary>Gets or sets the current blending factor alpha (ML weight; (1 - alpha) is the heuristic weight).</summary>
+    /// <summary>Gets or sets the stored ML target before quality suppression and user exploration.</summary>
     public double Alpha { get; set; }
+
+    /// <summary>Gets or sets the selected user's requested exploration offset.</summary>
+    public double AlphaOffset { get; set; }
+
+    /// <summary>Gets or sets the effective ML coefficient used for scoring this user now.</summary>
+    public double EffectiveAlpha { get; set; }
+
+    /// <summary>Gets or sets the operative Neural fraction of ML, zero when Neural is absent.</summary>
+    public double EffectiveNeuralBeta { get; set; }
+
+    /// <summary>Gets or sets the current heuristic coefficient.</summary>
+    public double HeuristicShare { get; set; }
+
+    /// <summary>Gets or sets the current Learned coefficient.</summary>
+    public double LearnedShare { get; set; }
+
+    /// <summary>Gets or sets the current Neural coefficient.</summary>
+    public double NeuralShare { get; set; }
+
+    /// <summary>Gets or sets the accepted model revision, separate from fitting attempts.</summary>
+    public long ModelRevision { get; set; }
+
+    /// <summary>Gets or sets the operating evidence level; provisional participation is not verified ranking approval.</summary>
+    public string ValidationLevel { get; set; } = "Legacy";
+
+    /// <summary>Gets or sets the latest independent admission/retention reason.</summary>
+    public string? AdmissionReason { get; set; }
+
+    /// <summary>Gets or sets unique calibration title support.</summary>
+    public int CalibrationTitleCount { get; set; }
+
+    /// <summary>Gets or sets unique independent acceptance support.</summary>
+    public int AcceptanceTitleCount { get; set; }
+
+    /// <summary>Gets or sets observed candidate loss, null when no usable acceptance measurement exists.</summary>
+    public double? CandidateValidationLoss { get; set; }
 
     /// <summary>Gets or sets the current neural blending factor beta (fraction of the ML budget allocated to the neural strategy).</summary>
     public double NeuralBeta { get; set; }
@@ -50,7 +86,7 @@ public sealed class EnsembleDiagnosticsResponse
 
     /// <summary>
     ///     Gets or sets a value indicating whether these diagnostics describe a per-user model. False means
-    ///     the values come from the shared global model (the user has no dedicated model yet / cold-start).
+    ///     the coordinates come from a global prior/model; ValidationLevel distinguishes a user's bounded starting mixture.
     /// </summary>
     public bool IsPerUser { get; set; }
 
@@ -87,6 +123,18 @@ public sealed class EnsembleDiagnosticsResponse
         {
             Available = true,
             Alpha = diagnostics.Alpha,
+            AlphaOffset = diagnostics.AlphaOffset,
+            EffectiveAlpha = diagnostics.EffectiveAlpha,
+            EffectiveNeuralBeta = diagnostics.EffectiveNeuralBeta,
+            HeuristicShare = diagnostics.HeuristicShare,
+            LearnedShare = diagnostics.LearnedShare,
+            NeuralShare = diagnostics.NeuralShare,
+            ModelRevision = diagnostics.ModelRevision,
+            ValidationLevel = diagnostics.ValidationLevel,
+            AdmissionReason = diagnostics.AdmissionReason,
+            CalibrationTitleCount = diagnostics.CalibrationTitleCount,
+            AcceptanceTitleCount = diagnostics.AcceptanceTitleCount,
+            CandidateValidationLoss = diagnostics.CandidateValidationLoss,
             NeuralBeta = diagnostics.NeuralBeta,
             QualityGateFrozen = diagnostics.QualityGateFrozen,
             SigmoidMidpointOffset = diagnostics.SigmoidMidpointOffset,

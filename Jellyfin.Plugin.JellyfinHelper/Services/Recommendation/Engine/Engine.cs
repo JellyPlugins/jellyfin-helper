@@ -129,7 +129,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Read the snapshot once, expiring it past CandidateSnapshotMaxAge (its BaseItems' Genres/Studios/CommunityRating can mutate via metadata refresh, and new additions stay invisible until the next batch).
         var snapshot = GetOrRefreshLiveSnapshot();
 
-        if (!userProfile.WatchedItems.Any(w => w.HasMeaningfulInteraction()))
+        if (!userProfile.WatchedItems.Any(w => w.HasMeaningfulInteraction()) && !HasOperatingUserPrior(userId))
         {
             // Cold-start: user exists but has no watch history - return popular/trending items, reusing the batch candidates to avoid redundant library queries.
             var communityPopularity = GetOrBuildCommunityPopularity(snapshot);
@@ -241,6 +241,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return _trainingService.RetireStaleModels(_perUserRegistry);
     }
 
+    private bool HasOperatingUserPrior(Guid userId)
+        => _perUserRegistry.GetScoringStrategyForUser(userId) is EnsembleScoringStrategy ensemble && ensemble.GetOperatingPrior() is not null;
+
     private void ApplyGlobalCohortFeedback(IReadOnlyList<RecommendationResult> previousResults)
     {
         var ensemble = _perUserRegistry.GlobalEnsemble;
@@ -285,7 +288,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         var (diagnostics, isPerUser) = _perUserRegistry.GetUserModelDiagnostics(userId);
-        return (diagnostics, isPerUser);
+        return (diagnostics with { AlphaOffset = _strategySelector.GetAlphaOffset(userId, diagnostics) }, isPerUser);
     }
 
     /// <inheritdoc />
@@ -361,7 +364,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 {
                     // Combine per-user id with the shared batch generation counter for a fresh but user-stable exploration seed.
                     var batchSeed = ComputeStableSeed(profile.UserId, batchGeneration);
-                    var result = !profile.WatchedItems.Any(w => w.HasMeaningfulInteraction())
+                    var result = !profile.WatchedItems.Any(w => w.HasMeaningfulInteraction()) && !HasOperatingUserPrior(profile.UserId)
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
                             maxResultsPerUser,

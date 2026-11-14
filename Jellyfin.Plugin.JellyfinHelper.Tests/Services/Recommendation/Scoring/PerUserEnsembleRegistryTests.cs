@@ -69,6 +69,200 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
+    public void TrainedGlobalPriorGivesEachColdUserADistinctBoundedMixtureWithoutPersonalFiles()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var filesBefore = Directory.GetFiles(_dataPath);
+        using var registry = BuildRegistry(global, neural);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var first = registry.GetEnsembleForUser(firstId);
+        var second = registry.GetEnsembleForUser(secondId);
+        Assert.NotSame(global, first);
+        Assert.NotSame(first, second);
+        Assert.Same(first, registry.GetEnsembleForUser(firstId));
+        var (diagnostics, personal) = registry.GetUserModelDiagnostics(firstId);
+        Assert.False(personal);
+        Assert.Equal("GlobalPrior", diagnostics.ValidationLevel);
+        Assert.Equal(.3, diagnostics.EffectiveAlpha, 12);
+        Assert.True(diagnostics.NeuralShare > 0);
+        Assert.Equal(0, diagnostics.TrainingExampleCount);
+        Assert.Equal(1, diagnostics.HeuristicShare + diagnostics.LearnedShare + diagnostics.NeuralShare, 12);
+        Assert.False(registry.HasPerUserModel(firstId));
+        Assert.Equal(filesBefore, Directory.GetFiles(_dataPath));
+    }
+
+    [Fact]
+    public void ColdPriorRestartsWithoutInventingPersonalTrainingOrWritingWeights()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var filesBefore = Directory.GetFiles(_dataPath);
+        var id = Guid.NewGuid();
+        var feature = new CandidateFeatures { GenreSimilarity = .8, CombinedCriticScore = .7 };
+        double before;
+        using (var registry = BuildRegistry(global, neural)) before = registry.GetScoringStrategyForUser(id).Score(feature);
+        using var restarted = BuildRegistry(global, neural);
+        Assert.Equal(before, restarted.GetScoringStrategyForUser(id).Score(feature));
+        Assert.Equal("GlobalPrior", restarted.GetDiagnostics(id).ValidationLevel);
+        Assert.Equal(filesBefore, Directory.GetFiles(_dataPath));
+    }
+
+    [Fact]
+    public void PersonalWarmStartRebalancesIndependentlyAndGlobalRefreshCannotOverwriteIt()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        using var registry = BuildRegistry(global, neural);
+        var id = Guid.NewGuid();
+        var coldId = Guid.NewGuid();
+        var personal = registry.GetEnsembleForUser(id);
+        var cold = registry.GetEnsembleForUser(coldId);
+        var fit = StableExamples(72, 20);
+        var holdout = StableExamples(60, 21);
+        foreach (var row in fit.Concat(holdout)) row.UserId = id;
+        Assert.True(personal.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var before = personal.GetDiagnosticsSnapshot();
+        Assert.Equal("Provisional", before.ValidationLevel);
+        Assert.True(before.EffectiveAlpha > cold.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.True(registry.HasPerUserModel(id));
+        var coordinates = personal.LearnedStrategy.GetCurrentWeights();
+        var probe = fit[0].Features;
+        var score = personal.Score(probe);
+        TrainOperatingGlobal(global, 30);
+        Assert.Same(personal, registry.GetEnsembleForUser(id));
+        Assert.Equal(before.EffectiveAlpha, registry.GetDiagnostics(id).EffectiveAlpha);
+        Assert.Equal(before.EffectiveNeuralBeta, registry.GetDiagnostics(id).EffectiveNeuralBeta);
+        Assert.Equal(coordinates, personal.LearnedStrategy.GetCurrentWeights());
+        Assert.Equal(score, personal.Score(probe));
+        Assert.Equal(.3, registry.GetDiagnostics(coldId).EffectiveAlpha, 12);
+        Assert.Single(Directory.GetFiles(_dataPath, "ensemble_state_*.json.accepted-model.json"));
+    }
+
+    [Fact]
+    public void WithdrawalOfGlobalPriorRemovesItsInfluenceFromExistingColdUsers()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        using var registry = BuildRegistry(global, neural);
+        var id = Guid.NewGuid();
+        var personal = registry.GetEnsembleForUser(id);
+        Assert.True(personal.GetDiagnosticsSnapshot().EffectiveAlpha > 0);
+        // Configuration disabling all ML is a deterministic stand-in for an unavailable serving prior.
+        global.Reconfigure(0, 0, 1);
+        Assert.Null(global.GetOperatingPrior());
+        Assert.Same(personal, registry.GetEnsembleForUser(id));
+        Assert.Equal(0, registry.GetDiagnostics(id).EffectiveAlpha);
+        Assert.Equal(0, registry.GetDiagnostics(id).NeuralShare);
+    }
+
+    [Fact]
+    public void ServingPriorRefreshCannotOverwriteTheCoordinatorsPreCycleTrainingSeed()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        using var registry = BuildRegistry(global, neural);
+        var id = Guid.NewGuid();
+        var personal = registry.GetEnsembleForUser(id);
+        var seed = global.LearnedStrategy.CreateChallenger();
+        personal.InitializeTrainingPrior(seed);
+        var coordinates = personal.LearnedStrategy.CapturePredictionSnapshot().ExportParameters();
+        TrainOperatingGlobal(global, 40);
+        Assert.Same(personal, registry.GetEnsembleForUser(id));
+        var retained = personal.LearnedStrategy.CapturePredictionSnapshot().ExportParameters();
+        Assert.Equal(coordinates.Weights, retained.Weights);
+        Assert.Equal(coordinates.Bias, retained.Bias);
+        Assert.Equal(coordinates.FeatureMeans, retained.FeatureMeans);
+        Assert.Equal(coordinates.FeatureStdDevs, retained.FeatureStdDevs);
+        Assert.Equal(coordinates.ImputationMeans, retained.ImputationMeans);
+        Assert.Equal(0, retained.TrainingGeneration);
+        Assert.False(personal.LearnedStrategy.HasOwnWeights);
+        Assert.Equal("GlobalPrior", personal.GetDiagnosticsSnapshot().ValidationLevel);
+    }
+
+    [Theory]
+    [InlineData("memory")]
+    [InlineData("missing-directory")]
+    [InlineData("fileless")]
+    public void PruningRemovesFilelessCachedDeletedOrDisabledUsersAndRetainsLiveUsers(string storage)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var path = storage == "memory" ? null : storage == "missing-directory" ? Path.Join(_dataPath, "absent") : _dataPath;
+        using var registry = new PerUserEnsembleRegistry(global, neural, path, new EnsembleBlendBounds(.3, .75, .1), _pluginLog.Object);
+        var liveId = Guid.NewGuid();
+        var deletedId = Guid.NewGuid();
+        var disabledId = Guid.NewGuid();
+        var live = registry.GetEnsembleForUser(liveId);
+        var deleted = registry.GetEnsembleForUser(deletedId);
+        var disabled = registry.GetEnsembleForUser(disabledId);
+        Assert.NotSame(global, deleted);
+        Assert.NotSame(global, disabled);
+        // GetAllUserIds supplies only active accounts: both removed and disabled IDs are absent.
+        registry.PruneOrphans([liveId]);
+        Assert.Same(live, registry.GetEnsembleForUser(liveId));
+        Assert.NotSame(deleted, registry.GetOrCreateTrainableEnsembleForUser(deletedId));
+        Assert.NotSame(disabled, registry.GetOrCreateTrainableEnsembleForUser(disabledId));
+        var probe = StableExamples(12, 70);
+        Assert.False(deleted.TrainValidated(probe, [], false, TestContext.Current.CancellationToken));
+        Assert.False(disabled.TrainValidated(probe, [], false, TestContext.Current.CancellationToken));
+        Assert.NotNull(global.GetAcceptedNeuralPrediction());
+    }
+
+    [Fact]
+    public void PruningRemovesUnevaluatedOrphansWithoutRunningEitherLazyFactory()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = new PerUserEnsembleRegistry(global, neural, null, new EnsembleBlendBounds(.3, .75, .1), _pluginLog.Object);
+        var cached = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Lazy<EnsembleScoringStrategy>>>(
+            typeof(PerUserEnsembleRegistry).GetField("_perUser", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(registry));
+        var orphanId = Guid.NewGuid();
+        var liveId = Guid.NewGuid();
+        var factoryCalls = 0;
+        EnsembleScoringStrategy UnexpectedFactory()
+        {
+            factoryCalls++;
+            throw new InvalidOperationException("Pruning must not materialize an unused ensemble.");
+        }
+
+        var orphan = new Lazy<EnsembleScoringStrategy>(UnexpectedFactory);
+        var live = new Lazy<EnsembleScoringStrategy>(UnexpectedFactory);
+        cached[orphanId] = orphan;
+        cached[liveId] = live;
+        registry.PruneOrphans([liveId]);
+        Assert.False(cached.ContainsKey(orphanId));
+        Assert.Same(live, cached[liveId]);
+        Assert.False(orphan.IsValueCreated);
+        Assert.False(live.IsValueCreated);
+        Assert.Equal(0, factoryCalls);
+    }
+
+    private static void TrainOperatingGlobal(EnsembleScoringStrategy global, int seed = 10)
+    {
+        Assert.True(global.TrainValidated(StableExamples(300, seed), StableExamples(100, seed + 1), true, TestContext.Current.CancellationToken));
+        Assert.Equal("Provisional", global.GetDiagnosticsSnapshot().ValidationLevel);
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+    }
+
+    private static TrainingExample[] StableExamples(int count, int seed)
+        => GenerateExamples(count).Select((row, index) => new TrainingExample
+        {
+            Features = row.Features,
+            ObservationId = new Guid(index + 1, (short)seed, 0, new byte[8]),
+            HasStableObservationId = true,
+            Label = .85,
+            GeneratedAtUtc = new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        }).ToArray();
+
+    [Fact]
     public void GetOrCreateTrainableEnsembleForUser_CreatesDistinctPerUserInstance()
     {
         using var neural = new NeuralScoringStrategy();
@@ -162,12 +356,18 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         }
 
         Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
+        var keptLedger = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{keep:N}.json"))!;
+        var removedLedger = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{remove:N}.json"))!;
+        File.WriteAllText(keptLedger, "kept-ledger-canary");
+        File.WriteAllText(removedLedger, "removed-ledger-canary");
 
         registry.PruneOrphans([keep]);
 
         Assert.True(File.Exists(Path.Join(_dataPath, $"ml_weights_{keep:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{remove:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{remove:N}.json")));
+        Assert.Equal("kept-ledger-canary", File.ReadAllText(keptLedger));
+        Assert.False(File.Exists(removedLedger));
     }
 
     [Fact]
@@ -456,6 +656,8 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         // Pin the last-trained time to a fixed point in the past so the sweep is deterministic and does not
         // depend on the wall clock at test time.
         PinLastTrained(userId, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var ledgerPath = AcceptedModelStore.GetLedgerPath(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json"))!;
+        File.WriteAllText(ledgerPath, "spent-titles-must-not-be-recycled");
 
         var evicted = registry.EvictStaleModels(new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc));
 
@@ -463,6 +665,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{userId:N}.json")));
         Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{userId:N}.json")));
         Assert.Same(global, registry.GetScoringStrategyForUser(userId));
+        Assert.Equal("spent-titles-must-not-be-recycled", File.ReadAllText(ledgerPath));
     }
 
     [Fact]
@@ -701,6 +904,56 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
             _pluginLog.Object);
 
         Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void MemoryOnlyEvictionDoesNotProbeOrDeleteRelativeSidecarFiles(string? dataPath)
+    {
+        using var global = new EnsembleScoringStrategy();
+        var files = new Mock<IFile>();
+        files.Setup(file => file.Exists(It.IsAny<string>())).Returns(true);
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.Setup(system => system.File).Returns(files.Object);
+        using var registry = new PerUserEnsembleRegistry(global, null, dataPath, new EnsembleBlendBounds(.3, .75, .15), _pluginLog.Object, fileSystem: fileSystem.Object);
+        var user = Guid.NewGuid();
+        registry.GetOrCreateTrainableEnsembleForUser(user);
+        Assert.True(registry.EvictPerUserModel(user));
+        files.Verify(file => file.Exists(It.IsAny<string>()), Times.Never);
+        files.Verify(file => file.Delete(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void ExplicitEvictionFindsABundleOnlyModelBeforeAnyReadMaterializesIt()
+    {
+        using var global = new EnsembleScoringStrategy();
+        using var registry = new PerUserEnsembleRegistry(global, null, _dataPath, new EnsembleBlendBounds(.3, .75, .15), _pluginLog.Object);
+        var user = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{user:N}.json");
+        var parameters = new LearnedScoringStrategy().CapturePredictionSnapshot().ExportParameters();
+        parameters.TrainingGeneration = 1;
+        var bundle = new AcceptedModelBundle
+        {
+            Learned = parameters,
+            Mixture = new AdmissionMixture(.5, 0),
+            AlphaCap = .75,
+            NeuralCap = 0,
+            Revision = 1,
+            TrainedAtUtc = DateTime.UtcNow,
+            AcceptanceObservationIds = Enumerable.Range(1, 20).Select(value => new Guid(value, 0, 0, new byte[8])).ToArray(),
+            Utility = new AdmissionUtility(.02, .9, .01, null, null),
+            State = new EnsembleScoringStrategy.EnsembleStateData { Alpha = .75, QualityGateFrozen = false }
+        };
+        Assert.True(new AcceptedModelStore(statePath).Commit(bundle));
+        Assert.False(File.Exists(statePath));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{user:N}.json")));
+        Assert.Equal(0, registry.EvictStaleModels(DateTime.UtcNow.AddDays(1)));
+        Assert.True(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.True(registry.EvictPerUserModel(user));
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.Same(global, registry.GetScoringStrategyForUser(user));
+        Assert.True(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
     }
 
     // Rewrites the persisted UpdatedAt stamp so the age sweep reads a fixed last-trained time instead of the

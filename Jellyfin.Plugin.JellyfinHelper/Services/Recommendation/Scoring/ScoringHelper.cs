@@ -25,6 +25,13 @@ internal static class ScoringHelper
     internal static string GetFeatureName(FeatureIndex index)
         => index == FeatureIndex.SeriesAffinity ? nameof(FeatureIndex.SeriesAffinity) : index.ToString();
 
+    /// <summary>Compares copied configuration state exactly, not computed numerical approximations.</summary>
+    /// <param name="left">The previously captured setting.</param>
+    /// <param name="right">The current setting.</param>
+    /// <returns>True only for identical bits; even an adjacent representable change invalidates evaluation.</returns>
+    internal static bool SameConfigurationValue(double left, double right)
+        => BitConverter.DoubleToInt64Bits(left) == BitConverter.DoubleToInt64Bits(right);
+
     /// <summary>Explains each named signal as an actual score-space removal effect, not a logit gradient.</summary>
     /// <param name="features">The observed raw features.</param>
     /// <param name="score">A scorer pinned to a coherent model state by its caller.</param>

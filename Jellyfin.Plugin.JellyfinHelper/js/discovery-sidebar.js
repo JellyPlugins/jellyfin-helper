@@ -692,6 +692,7 @@
         bindDiscoveryTabHandlers(container);
 
         var host = container.querySelector('.jfh-discovery-tab-host');
+        setDiscoverySource(host);
         host.id = 'jfh-discovery-subtab-panel';
         window.JellyfinHelperUi.syncTabs(list, '.jfh-discovery-tab', list.querySelector('.jfh-discovery-tab-active'), function () { return host; });
         host.hidden = false;
@@ -1014,8 +1015,25 @@
         host.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
     }
 
-    function renderCards(container, userDiscovery) {
+    // Cards and their interaction/animation state belong to one source. Same-source refreshes
+    // reconcile in place; source changes must not transplant a pending or completed request.
+    function setDiscoverySource(container) {
+        if (container._jfhDiscoverySource && container._jfhDiscoverySource !== _activeTab) {
+            container._jfhImpressionObserver?.disconnect();
+            if (container._jfhImpressionTimer) clearTimeout(container._jfhImpressionTimer);
+            container._jfhImpressionTimer = null;
+            container._jfhPendingRefill = null;
+            for (var card of container.querySelectorAll('.jfh-discovery-card')) {
+                if (card._jfhConsumeTimer) clearTimeout(card._jfhConsumeTimer);
+                card._jfhConsumeTimer = null;
+            }
+            container.innerHTML = '';
+        }
         container._jfhDiscoverySource = _activeTab;
+    }
+
+    function renderCards(container, userDiscovery) {
+        setDiscoverySource(container);
         container.classList.add('jfh-ui-surface');
         var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
             return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
@@ -1426,6 +1444,10 @@
 
     function handleRequest(e) {
         var btn = e.currentTarget;
+        if (_consumedDiscoveryItems.has(discoveryCardKey(btn.dataset.tmdb, btn.dataset.type))) {
+            markDiscoveryRequestDone(btn);
+            return;
+        }
         if (btn.disabled) return;
         if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
@@ -1644,7 +1666,15 @@
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
+        // A pending request can consume a replacement card while its profile picker is still open.
+        if (_consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+            markDiscoveryRequestDone(btn);
+            return;
+        }
         var request = captureDiscoveryRequest();
+        var card = btn.closest('.jfh-discovery-card');
+        var deliveryContainer = card?.closest('.jfh-ui-surface');
+        var deliverySource = deliveryContainer?._jfhDiscoverySource;
         btn.disabled = true;
         btn.textContent = t('discoveryRequesting', 'Requesting...');
         var payload = { TmdbId: tmdbId, MediaType: mediaType };
@@ -1661,24 +1691,23 @@
             dataType: 'json'
         }).then(function (result) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (!result?.Success && _consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
             if (result?.Success) {
                 if (result.AlreadyRequested === true) showToast(t('discoveryAlreadyRequested', 'Title has already been requested'));
                 consumeDiscoveryItem(tmdbId, mediaType);
-                btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
-                btn.classList.add('jfh-discovery-btn-done');
-                // Hide dismiss button in the same row
-                var row = btn.closest('.jfh-discovery-btn-row');
-                var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
-                if (dismissBtn) dismissBtn.style.display = 'none';
+                markDiscoveryRequestDone(btn);
+                updateVisibleRequestedCards(tmdbId, mediaType, card);
                 // After 5 seconds: fade out and remove the card (consumed from pool)
-                var card = btn.closest('.jfh-discovery-card');
-                if (card) {
+                if (card?.isConnected && deliveryContainer?._jfhDiscoverySource === deliverySource) {
                     card._jfhConsuming = true;
                     var scopeEl = card.closest('.jfh-discovery-container');
-                    var deliveryContainer = card.closest('.jfh-ui-surface');
-                    var deliverySource = deliveryContainer?._jfhDiscoverySource;
-                    setTimeout(function () {
-                        if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+                    card._jfhConsumeTimer = setTimeout(function () {
+                        card._jfhConsumeTimer = null;
+                        if (!card.isConnected || !isSameDiscoverySession(request) || _discoveryDisabled
+                            || deliveryContainer?._jfhDiscoverySource !== deliverySource) return;
                         window.JellyfinHelperUi.removeCard(card, function () {
                             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
                             if (deliveryContainer && deliveryContainer._jfhDiscoverySource === deliverySource) {
@@ -1691,16 +1720,59 @@
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
                 showToast(getUserFriendlyErrorMessage(result?.Message));
-                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
+                scheduleDiscoveryRequestReset(btn, request);
             }
         }).catch(function (err) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (_consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
             if (recoverActionDelivery(btn, err, request)) return;
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
             showToast(getUserFriendlyErrorMessage(serverMessage));
-            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
+            scheduleDiscoveryRequestReset(btn, request);
+        });
+    }
+
+    function scheduleDiscoveryRequestReset(btn, request) {
+        if (btn._resetTimer) clearTimeout(btn._resetTimer);
+        btn._resetTimer = setTimeout(function () {
+            btn._resetTimer = null;
+            if (!btn.isConnected || !isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (_consumedDiscoveryItems.has(discoveryCardKey(btn.dataset.tmdb, btn.dataset.type))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
+            btn.textContent = t('discoveryRequest', 'Request');
+            btn.classList.remove('jfh-discovery-btn-failed');
+            btn.disabled = false;
+            setDismissSiblingHidden(btn, false);
+        }, 3000);
+    }
+
+    function markDiscoveryRequestDone(btn) {
+        if (!btn) return;
+        if (btn._resetTimer) clearTimeout(btn._resetTimer);
+        btn._resetTimer = null;
+        btn.classList.remove('jfh-discovery-btn-failed');
+        btn.disabled = true;
+        btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
+        btn.classList.add('jfh-discovery-btn-done');
+        var row = btn.closest('.jfh-discovery-btn-row');
+        var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
+        if (dismissBtn) dismissBtn.style.display = 'none';
+    }
+
+    // Update the same typed title in the current view, never the detached origin's removal timer.
+    function updateVisibleRequestedCards(tmdbId, mediaType, origin) {
+        var key = discoveryCardKey(tmdbId, mediaType);
+        document.querySelectorAll('.jfh-discovery-card').forEach(function (card) {
+            if (card !== origin && discoveryCardKey(card.dataset.tmdb, card.dataset.type) === key) {
+                markDiscoveryRequestDone(card.querySelector('[data-jfh-action="request"]'));
+            }
         });
     }
 

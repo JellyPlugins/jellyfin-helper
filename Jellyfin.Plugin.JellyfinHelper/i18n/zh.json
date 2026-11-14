@@ -1,4 +1,11 @@
 {
+  "recsEnsembleModelPersonal": "个人模型",
+  "recsEnsembleModelGlobal": "全局模型",
+  "recsEnsembleModelPrior": "全局先验，个人混合比例",
+  "recsEnsembleStatusPrior": "基于全局先验的初始混合比例",
+  "recsEnsembleStatusProvisional": "暂定 — 排序尚未验证",
+  "recsEnsembleStatusVerified": "已独立验证",
+  "recsEnsembleStoredTarget": "已保存的机器学习目标权重",
   "genre.12": "冒险|冒險",
   "genre.14": "奇幻",
   "genre.16": "动画|動畫",

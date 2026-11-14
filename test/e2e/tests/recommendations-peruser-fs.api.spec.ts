@@ -2,11 +2,9 @@
  * Per-user recommendation model lifecycle (filesystem behaviour).
  *
  * Proves, against the real Jellyfin 12 container, what the unit tests (mocked) cannot:
- *  - a training run persists the global ensemble blend state (ensemble_state.json), and the learned/neural
- *    weight files (ml_weights.json, neural_weights.json) appear once their example thresholds are met;
- *  - a user above the example threshold gets per-user files (ml_weights_{id}.json, ensemble_state_{id}.json)
- *    whose JSON has the expected shape;
- *  - two training runs evolve the per-user state (TrainingExampleCount does not regress; files are rewritten);
+ *  - observed positive fitting/calibration titles can produce bounded provisional v5 bundles, not verified ranking;
+ *  - personal bundles and diagnostics expose the same operating mixture and explicit evidence level;
+ *  - repeated training retains unique-title maturity without manufacturing fresh acceptance;
  *  - deleting a user and re-running the task prunes that user's per-user files while the global files remain.
  *
  * The suite runs on the HOST; the plugin writes inside the container, so file assertions go through
@@ -38,7 +36,7 @@ function resolveDataDir(): string {
   }
   // The unsuffixed global state file is the most reliable anchor: the ensemble writes it on every training
   // attempt. Fall back to the learned weights in case a future change reorders which file appears first.
-  for (const name of ['ensemble_state.json', 'ml_weights.json', 'neural_weights.json']) {
+  for (const name of ['ensemble_state.json.assessment.json', 'ensemble_state.json.accepted-model.json', 'ensemble_state.json', 'ml_weights.json', 'neural_weights.json']) {
     const hit = containerFind('/config', name).find((f) => !/_[0-9a-f]{32}\.json$/i.test(f));
     if (hit) {
       dataDir = hit.slice(0, hit.length - `/${name}`.length);
@@ -73,6 +71,7 @@ const seededPlayedIds: string[] = [];
 const seededFavoriteIds: string[] = [];
 const createdSeedFiles: Array<{ file: string; directory: string }> = [];
 const PER_USER_FIT_THRESHOLD = 12;
+const CALIBRATION_SEED_TITLES = 4;
 
 test.beforeAll(async () => {
   auth = loadAuth();
@@ -127,7 +126,7 @@ async function movieItems(): Promise<SeedMovie[]> {
     });
 }
 
-function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
+function partitionMovies(movies: SeedMovie[], partition: 'fit' | 'calibration'): SeedMovie[] {
   const user = auth.userId.replaceAll('-', '').toLowerCase();
   const seen = new Set<string>();
   return movies.filter(movie => {
@@ -135,31 +134,43 @@ function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
     const key = movie.tmdbId > 0 ? `tmdb:movie:${movie.tmdbId}` : `library:${item}`;
     if (seen.has(key)) return false;
     seen.add(key);
-    return createHash('sha256').update(`${user}:${key}`).digest().readUInt32LE(0) % 10 !== 0;
+    const identity = createHash('sha256').update(`${user}:${key}`).digest().subarray(0, 16);
+    const heldOut = identity.readUInt32LE(0) % 10 === 0;
+    if (partition === 'fit') return !heldOut;
+    return heldOut && (createHash('sha256').update(identity).digest()[0] & 1) === 0;
   });
 }
 
+function fittingMovies(movies: SeedMovie[]): SeedMovie[] { return partitionMovies(movies, 'fit'); }
+function calibrationMovies(movies: SeedMovie[]): SeedMovie[] { return partitionMovies(movies, 'calibration'); }
+
 async function ensureObservedSeed(): Promise<SeedMovie[]> {
   let movies = await movieItems();
-  if (fittingMovies(movies).length < PER_USER_FIT_THRESHOLD) {
+  const supported = () => fittingMovies(movies).length >= PER_USER_FIT_THRESHOLD && calibrationMovies(movies).length >= CALIBRATION_SEED_TITLES;
+  if (!supported()) {
     const source = movies.find(movie => containerFileExists(movie.path));
     expect(source, 'need a real playable movie to expand the isolated model fixture').toBeDefined();
     const extension = source!.path.slice(source!.path.lastIndexOf('.'));
     const run = randomUUID().slice(0, 8);
     // Copies are cheap, isolated to this suite and removed afterwards; no generated-only feedback is fabricated.
-    for (let i = 0; i < 24; i++) {
-      const title = `JFH Per User Seed ${run}-${i} (2020)`;
-      const directory = `/media/Movies/${title}`;
-      const file = `${directory}/${title}${extension}`;
-      createdSeedFiles.push({ file, directory });
-      const copied = execInContainer(`mkdir -p -- ${q(directory)} && cp -- ${q(source!.path)} ${q(file)}`);
-      expect(copied.code, copied.stderr).toBe(0);
+    for (let batch = 0; batch < 10 && !supported(); batch++) {
+      const previousCount = movies.length;
+      for (let i = 0; i < 24; i++) {
+        const title = `JFH Per User Seed ${run}-${batch * 24 + i} (2020)`;
+        const directory = `/media/Movies/${title}`;
+        const file = `${directory}/${title}${extension}`;
+        createdSeedFiles.push({ file, directory });
+        const copied = execInContainer(`mkdir -p -- ${q(directory)} && cp -- ${q(source!.path)} ${q(file)}`);
+        expect(copied.code, copied.stderr).toBe(0);
+      }
+      expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
+      await expect.poll(async () => (await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(previousCount + 24);
+      movies = await movieItems();
     }
-    expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
-    await expect.poll(async () => fittingMovies(await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
-    movies = await movieItems();
   }
-  return fittingMovies(movies).slice(0, PER_USER_FIT_THRESHOLD);
+  expect(fittingMovies(movies).length, 'permanent fitting support').toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
+  expect(calibrationMovies(movies).length, 'separate permanent calibration support').toBeGreaterThanOrEqual(CALIBRATION_SEED_TITLES);
+  return [...fittingMovies(movies).slice(0, PER_USER_FIT_THRESHOLD), ...calibrationMovies(movies).slice(0, CALIBRATION_SEED_TITLES)];
 }
 
 /** Activate recommendations only; disable every filesystem stage so the run is isolated. */
@@ -196,7 +207,7 @@ test.describe.serial('per-user recommendation model files', () => {
     // Seed a complete observed fitting slice outside the permanent holdout, without relying on generated
     // contrast candidates or an incidental recommendation pool to clear the model's fitting threshold.
     const movies = await ensureObservedSeed();
-    expect(movies.length, 'need twelve actual observed fitting titles, excluding holdouts').toBe(PER_USER_FIT_THRESHOLD);
+    expect(movies.length, 'separate observed fitting and calibration seed titles').toBe(PER_USER_FIT_THRESHOLD + CALIBRATION_SEED_TITLES);
     for (const m of movies) {
       if (!m.played) {
         const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
@@ -226,7 +237,7 @@ test.describe.serial('per-user recommendation model files', () => {
     }
   });
 
-  test('a training run persists the global ensemble state and honours the learned/neural example gates', async () => {
+  test('positive-only fitting and calibration persist provisional serving without fabricated ranking approval', async () => {
     await activateRecommendationsOnly();
 
     // Training runs off the previous run's cached results, so the very first Activate run only generates
@@ -242,10 +253,27 @@ test.describe.serial('per-user recommendation model files', () => {
     // insufficient-data branch, so with a seeded watch profile driving training this file must exist. Locate
     // it by name under /config rather than assuming its directory, since the plugin writes to its own data
     // subfolder. This also fixes the directory every later test in the group resolves against.
-    const stateHits = containerFind('/config', 'ensemble_state.json').filter((f) => !/_[0-9a-f]{32}\.json$/i.test(f));
-    expect(stateHits.length, 'global ensemble_state.json should exist after training').toBeGreaterThan(0);
+    const stateHits = containerFind('/config', 'ensemble_state.json.assessment.json');
+    expect(stateHits.length, 'global assessment should exist after fitting, without changing a weights timestamp').toBeGreaterThan(0);
 
     const dir = resolveDataDir();
+    const assessment = JSON.parse(readContainerFile(`${dir}/ensemble_state.json.assessment.json`));
+    expect(assessment.TrainingExampleCount).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
+    expect(assessment.ObservedTrainingIds).toHaveLength(assessment.TrainingExampleCount);
+    expect(assessment.Decision.Accepted).toBe(false);
+    expect(assessment.Decision.Utility.CandidateLoss).toBeNull();
+    const bundlePath = `${dir}/ensemble_state.json.accepted-model.json`;
+    expect(containerFileExists(bundlePath), 'independently seeded calibration supports bounded provisional serving').toBe(true);
+    const bundle = JSON.parse(readContainerFile(bundlePath));
+    expect(bundle.Version).toBe(2);
+    expect(bundle.IsProvisional).toBe(true);
+    expect(bundle.Utility).toBeNull();
+    expect(bundle.CalibrationTitleCount).toBeGreaterThanOrEqual(CALIBRATION_SEED_TITLES);
+    expect(bundle.CalibrationLoss).toBeLessThanOrEqual(.6);
+    expect(bundle.AcceptanceObservationIds).toEqual([]);
+    expect(bundle.Learned.Version).toBe(5);
+    expect(bundle.Learned.Weights).toHaveLength(38);
+    expect(bundle.Learned.TrainingGeneration).toBeGreaterThan(0);
     // The learned and neural weight files are written only once their own example thresholds are met (learned
     // needs at least twelve pooled examples, the neural MLP at least thirty). The smoke fixture is a couple of
     // users over a handful of playable items, which does not reliably reach those counts, so persistence is
@@ -261,7 +289,7 @@ test.describe.serial('per-user recommendation model files', () => {
     }
   });
 
-  test('per-user files appear with the expected JSON shape when a user clears the threshold', async () => {
+  test('personal provisional diagnostics match the atomic mixture without claiming independent approval', async () => {
     await activateRecommendationsOnly();
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
@@ -270,11 +298,28 @@ test.describe.serial('per-user recommendation model files', () => {
     // The eligible observed fitting slice clears the per-user example threshold, so this user's model
     // must exist. A hard assertion here (rather than a skip) keeps the per-user shape checks from silently
     // passing vacuously if the fixture ever stops driving training past the threshold.
-    expect(
-      weightFiles.length,
-      'expected at least one per-user model file after training on the seeded watch profile',
-    ).toBeGreaterThan(0);
-    expect(weightFiles).toContain(`ml_weights_${auth.userId.replaceAll('-', '').toLowerCase()}.json`);
+    const id = auth.userId.replaceAll('-', '').toLowerCase();
+    const personalAssessment = `${resolveDataDir()}/ensemble_state_${id}.json.assessment.json`;
+    expect(containerFileExists(personalAssessment), 'the complete user slice must have reached fitting').toBe(true);
+    const assessment = JSON.parse(readContainerFile(personalAssessment));
+    expect(assessment.TrainingExampleCount).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
+    expect(assessment.Decision.Accepted).toBe(false);
+    expect(weightFiles).not.toContain(`ml_weights_${id}.json`);
+    const diagnosticResponse = await ctx.get(p(`Recommendations/Diagnostics/Ensemble?userId=${auth.userId}`));
+    expect(diagnosticResponse.ok()).toBe(true);
+    const diagnostics = await diagnosticResponse.json();
+    expect(diagnostics.IsPerUser).toBe(true);
+    expect(diagnostics.ValidationLevel).toBe('Provisional');
+    expect(diagnostics.QualityGateFrozen).toBe(false);
+    expect(diagnostics.EffectiveAlpha).toBeGreaterThanOrEqual(.3);
+    expect(diagnostics.EffectiveAlpha).toBeLessThanOrEqual(.75);
+    const bundle = JSON.parse(readContainerFile(`${resolveDataDir()}/ensemble_state_${id}.json.accepted-model.json`));
+    expect(bundle.IsProvisional).toBe(true);
+    expect(bundle.Utility).toBeNull();
+    expect(bundle.AcceptanceObservationIds).toEqual([]);
+    expect(diagnostics.LearnedShare).toBeCloseTo(bundle.Mixture.Learned, 12);
+    expect(diagnostics.NeuralShare).toBeCloseTo(bundle.Mixture.Neural, 12);
+    expect(diagnostics.HeuristicShare + diagnostics.LearnedShare + diagnostics.NeuralShare).toBeCloseTo(1, 12);
 
     // Every per-user weight file must pair with an ensemble-state file for the same id.
     const dir = resolveDataDir();
@@ -309,12 +354,11 @@ test.describe.serial('per-user recommendation model files', () => {
     // Snapshot state after run N.
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
-    const before = perUserStateFiles();
-    expect(before.length, 'expected a per-user model to evolve across runs').toBeGreaterThan(0);
-
     const dir = resolveDataDir();
-    const firstId = before[0].slice('ensemble_state_'.length, -'.json'.length);
-    const firstCount = (JSON.parse(readContainerFile(`${dir}/ensemble_state_${firstId}.json`)) as {
+    const firstId = auth.userId.replaceAll('-', '').toLowerCase();
+    const assessmentPath = `${dir}/ensemble_state_${firstId}.json.assessment.json`;
+    expect(containerFileExists(assessmentPath), 'a per-user fit assessment is required, not optional').toBe(true);
+    const firstCount = (JSON.parse(readContainerFile(assessmentPath)) as {
       TrainingExampleCount?: number;
     }).TrainingExampleCount ?? 0;
 
@@ -322,7 +366,7 @@ test.describe.serial('per-user recommendation model files', () => {
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
 
-    const secondCount = (JSON.parse(readContainerFile(`${dir}/ensemble_state_${firstId}.json`)) as {
+    const secondCount = (JSON.parse(readContainerFile(assessmentPath)) as {
       TrainingExampleCount?: number;
     }).TrainingExampleCount ?? 0;
 
@@ -335,21 +379,17 @@ test.describe.serial('per-user recommendation model files', () => {
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
 
-    const existing = perUserWeightFiles();
-    expect(existing.length, 'expected a per-user model to exist before planting an orphan').toBeGreaterThan(0);
-
     const dir = resolveDataDir();
     // Plant a per-user file for a synthetic user id that is NOT in the live user list. Copying an existing
     // per-user file keeps the JSON valid; the id in the filename is what PruneOrphans reconciles against.
     const orphanWeights = `${dir}/ml_weights_${ORPHAN_ID}.json`;
     const orphanState = `${dir}/ensemble_state_${ORPHAN_ID}.json`;
-    const sample = existing[0];
-    execInContainer(`cp ${dir}/${sample} ${orphanWeights}`);
+    const legacyWeights = JSON.stringify({ Version: 5, Weights: Array(38).fill(0), Bias: 0.5, TrainingGeneration: 1 });
+    execInContainer(`printf %s ${q(legacyWeights)} > ${q(orphanWeights)}`);
     // A per-user weight file always pairs with a state file, so require it here rather than skipping the copy.
     // Otherwise the state-pruned assertion below could pass simply because the file was never planted.
-    const sampleState = perUserStateFiles()[0];
-    expect(sampleState, 'a per-user state file must exist to plant an orphan state').toBeTruthy();
-    execInContainer(`cp ${dir}/${sampleState} ${orphanState}`);
+    const legacyState = JSON.stringify({ SchemaVersion: 3, Alpha: 0.3, NeuralBeta: 0, TrainingExampleCount: 20, QualityGateFrozen: true });
+    execInContainer(`printf %s ${q(legacyState)} > ${q(orphanState)}`);
     expect(containerFileExists(orphanWeights), 'planted orphan weights file should exist').toBeTruthy();
     expect(containerFileExists(orphanState), 'planted orphan state file should exist').toBeTruthy();
 
@@ -361,6 +401,6 @@ test.describe.serial('per-user recommendation model files', () => {
     expect(containerFileExists(orphanState), 'orphan per-user state must be pruned').toBeFalsy();
     // The global blend state is never pruned. It is written on every training attempt, so unlike the
     // threshold-gated learned weights it is always present to assert against.
-    expect(containerFileExists(`${dir}/ensemble_state.json`), 'global ensemble_state.json must survive pruning').toBeTruthy();
+    expect(containerFileExists(`${dir}/ensemble_state.json.assessment.json`), 'global assessment must survive removed-user pruning').toBeTruthy();
   });
 });

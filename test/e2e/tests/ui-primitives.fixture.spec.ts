@@ -12,7 +12,7 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
 
 const discoveryLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
   const translations = JSON.parse(source('i18n/' + language + '.json'));
-  return { language, strings: Object.fromEntries(['discoveryRequest', 'discoveryAlreadyRequested', 'discoveryDismiss', 'discoveryColdStart']
+  return { language, ensembleStrings: translations, strings: Object.fromEntries(['discoveryRequest', 'discoveryAlreadyRequested', 'discoveryDismiss', 'discoveryColdStart']
     .map(key => [key, translations[key]])) };
 });
 
@@ -91,7 +91,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-     + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, handleDiscoveryRequestResponse, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
+     + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, handleDiscoveryRequestResponse, renderLocalizedEnsemble: function (data, strings) { _translations = strings; renderEnsembleDiagnostics(document.getElementById("recsEnsembleFootnote"), data); }, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -110,6 +110,101 @@ async function discovery(page: Page) {
   }, discoveryRecommendations);
 }
 
+for (const outcome of ['success', 'duplicate', 'failure']) {
+  test(`a replacement profile popup does not repost after an original ${outcome}`, async ({ page }) => {
+    await page.clock.install();
+    await discovery(page);
+    await page.evaluate(() => {
+      const pool = () => ({ DeliveryId: '00000000-0000-0000-0000-000000000001', Recommendations: [
+        { TmdbId: 1, MediaType: 'movie', Title: 'Movie', Score: 0.8 },
+      ] });
+      (window as any).fixtureRequestPosts = 0;
+      (window as any).ApiClient.ajax = async (options: any) => {
+        if (options.url.endsWith('/Request')) {
+          if (++(window as any).fixtureRequestPosts === 1) {
+            return new Promise(resolve => { (window as any).completeOriginalRequest = resolve; });
+          }
+          return { Success: true };
+        }
+        if (options.url.includes('RequestPermissions')) return { CanRequest: true,
+          Profiles: [1, 2].map(id => ({ ServerId: 1, ProfileId: id, ProfileName: 'Quality ' + id, RootFolder: '/media' })) };
+        if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool() };
+        return pool();
+      };
+      (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
+    });
+    const requestButton = page.locator('.jfh-discovery-card[data-tmdb="1"] [data-jfh-action="request"]');
+    const profile = page.locator('#jfhDiscoveryPopup .jfh-discovery-popup-item').first();
+    await requestButton.click();
+    await profile.click();
+    await expect.poll(() => page.evaluate(() => (window as any).fixtureRequestPosts)).toBe(1);
+    await page.locator('[data-tab="trakt"]').click();
+    await expect(page.locator('.jfh-discovery-tab[data-tab="trakt"]')).toHaveClass(/jfh-discovery-tab-active/);
+    await page.locator('[data-tab="own"]').click();
+    await requestButton.click();
+    await expect(profile).toBeVisible();
+    await page.evaluate(result => (window as any).completeOriginalRequest(result), {
+      Success: outcome !== 'failure', AlreadyRequested: outcome === 'duplicate',
+    });
+    if (outcome === 'failure') await expect(requestButton).toBeEnabled();
+    else await expect(requestButton).toHaveClass(/jfh-discovery-btn-done/);
+    await expect(profile).toBeVisible();
+    await profile.click();
+    await expect(page.locator('#jfhDiscoveryPopup')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).fixtureRequestPosts)).toBe(outcome === 'failure' ? 2 : 1);
+    await expect(requestButton).toHaveClass(/jfh-discovery-btn-done/);
+    await expect(requestButton).toBeDisabled();
+    await expect(page.locator('.jfh-discovery-btn-dismiss')).toBeHidden();
+  });
+}
+
+test('requested-card success animation stays in its source on immediate Trakt switches', async ({ page }) => {
+  await page.clock.install();
+  await discovery(page);
+  await page.evaluate(() => {
+    const pool = (ids: number[]) => ({ DeliveryId: '00000000-0000-0000-0000-000000000001',
+      Recommendations: ids.map(id => ({ TmdbId: id, MediaType: 'movie', Title: 'Movie ' + id, Score: 0.8 })) });
+    const api = (window as any).ApiClient;
+    (window as any).fixtureRequests = [];
+    api.ajax = async (options: any) => {
+      (window as any).fixtureRequests.push(options);
+      if (options.url.endsWith('/Request')) return { Success: true };
+      if (options.url.includes('RequestPermissions')) return { CanRequest: true, Profiles: [] };
+      if (options.url.endsWith('/Trakt/Trending')) return pool([4, 2]);
+      if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool([3, 2]) };
+      return pool([1, 2]);
+    };
+    (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
+  });
+  await page.locator('.jfh-discovery-card[data-tmdb="1"] [data-jfh-action="request"]').click();
+  await expect(page.locator('.jfh-discovery-btn-done')).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).fixtureRequestedCard = document.querySelector('.jfh-discovery-card[data-tmdb="1"]');
+  });
+  await page.locator('[data-tab="trakt"]').click();
+  await expect.poll(() => page.evaluate(() => (window as any).fixtureRequestedCard._jfhConsumeTimer)).toBeNull();
+  const cards = page.locator('.jfh-discovery-tab-host .jfh-discovery-card');
+  await expect(cards).toHaveCount(2);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['3', '2']);
+  await page.locator('[data-tab="trending"]').click();
+  await expect(cards).toHaveCount(2);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  // Observe beyond the original 5-second deadline; the old callback must not refill the current source.
+  const beforeRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
+  const actions = (requests: any[]) => requests.filter(request => !request.url.endsWith('/Impressions')).map(request => request.type + ' ' + request.url);
+  await page.clock.fastForward(5300);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  const afterRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
+  expect(actions(afterRequests)).toEqual(actions(beforeRequests));
+  // Native IntersectionObserver callbacks can arrive during clock advancement, but only for this source.
+  const impressions = afterRequests.slice(beforeRequests.length).filter((request: any) => request.url.endsWith('/Impressions'));
+  for (const request of impressions) {
+    for (const item of JSON.parse(request.data).Items) {
+      expect(['movie-4', 'movie-2']).toContain(item.MediaType + '-' + item.TmdbId);
+    }
+  }
+});
+
 async function controlSizes(page: Page, selector: string) {
   return page.locator(selector).evaluateAll(elements => elements.map(element => {
     const rect = element.getBoundingClientRect();
@@ -124,6 +219,33 @@ test('fixture bootstrap accepts formatting and rejects missing or duplicated ini
 });
 
 for (const width of [320, 1280]) {
+  test(`dashboard ${width}px: selected-user Cold/Warm mixtures and evidence status stay accurate in all locales`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await dashboard(page);
+    await page.locator('.tab-btn[data-tab="recommendations"]').click();
+    const footnote = page.locator('#recsEnsembleFootnote');
+    for (const locale of discoveryLocales) {
+      for (const [level, statusKey] of [
+        ['GlobalPrior', 'recsEnsembleStatusPrior'],
+        ['Provisional', 'recsEnsembleStatusProvisional'],
+        ['Verified', 'recsEnsembleStatusVerified'],
+      ]) {
+        await page.evaluate(({ level, strings }) => {
+          (window as any).fixtureAdmin.renderLocalizedEnsemble({ Available: true, IsPerUser: level !== 'GlobalPrior',
+            UserName: 'Selected User', Alpha: .75, EffectiveAlpha: .3, EffectiveNeuralBeta: .4,
+            NeuralEnabled: true, QualityGateFrozen: false, ValidationLevel: level, TrainingExampleCount: level === 'GlobalPrior' ? 0 : 72 }, strings);
+        }, { level, strings: locale.ensembleStrings });
+        await expect(footnote).toBeVisible();
+        expect(await footnote.locator('.recs-ensemble-blend strong').allTextContents()).toEqual(['70%', '18%', '12%']);
+        await expect(footnote.locator('.recs-ensemble-label')).toContainText('Selected User');
+        await expect(footnote.locator('.recs-ensemble-label')).toContainText(locale.ensembleStrings[level === 'GlobalPrior' ? 'recsEnsembleModelPrior' : 'recsEnsembleModelPersonal']);
+        await expect(footnote.locator('.recs-ensemble-status')).toContainText(locale.ensembleStrings[statusKey]);
+        const sizing = await footnote.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+        expect(sizing.scroll).toBeLessThanOrEqual(sizing.client + 1);
+      }
+    }
+  });
+
   test(`dashboard ${width}px: cold-start Discovery labels do not block recommendation toggles`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
     await dashboard(page);
