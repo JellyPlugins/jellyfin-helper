@@ -1043,7 +1043,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
         var context = typeof(EnsembleScoringStrategy).GetMethod("PrepareChallengers", flags)!.Invoke(personal, [fit, null, DateTime.UtcNow])!;
         if (replaceProviderAfterPreparation) personal.SetSharedPredictionProvider(global.GetAcceptedNeuralPrediction);
-        var candidates = typeof(EnsembleScoringStrategy).GetMethod("CaptureFittedCandidates", flags)!.Invoke(personal, [context, fit, Array.Empty<TrainingExample>(), TestContext.Current.CancellationToken])!;
+        var candidates = typeof(EnsembleScoringStrategy).GetMethod("CaptureFittedCandidates", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [context, fit, Array.Empty<TrainingExample>(), TestContext.Current.CancellationToken])!;
         Assert.Null(candidates.GetType().GetProperty("Neural")!.GetValue(candidates));
         Assert.Equal(1, pinnedCalls);
     }

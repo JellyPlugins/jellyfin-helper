@@ -234,10 +234,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // Cold priors are fileless, including memory-only scopes. Account removal/disablement still evicts them.
         foreach (var id in _perUser.Keys.Where(id => !live.Contains(id)))
         {
-            if (_perUser.TryRemove(id, out var cached) && cached.IsValueCreated)
-            {
-                cached.Value.Dispose();
-            }
+            RemoveCachedEnsemble(id);
         }
 
         if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
@@ -493,10 +490,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         try
         {
             _fileSystem.File.Delete(file);
-            if (_perUser.TryRemove(id, out var evicted) && evicted.IsValueCreated)
-            {
-                evicted.Value.Dispose();
-            }
+            RemoveCachedEnsemble(id);
 
             _pluginLog.LogInfo(LogSource, $"Pruned per-user model file for removed user {id:N}.", _logger);
         }
@@ -545,14 +539,19 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             }
         }
 
-        if (_perUser.TryRemove(userId, out var evicted) && evicted.IsValueCreated)
-        {
-            evicted.Value.Dispose();
-        }
+        RemoveCachedEnsemble(userId);
 
         // The weights file is the source of truth for a per-user model. If a delete failure left it on disk the
         // model is not actually retired and the read path can rebuild it, so report that back to the caller.
         return !HasModelFile(userId);
+    }
+
+    private void RemoveCachedEnsemble(Guid userId)
+    {
+        if (_perUser.TryRemove(userId, out var cached) && cached.IsValueCreated)
+        {
+            cached.Value.Dispose();
+        }
     }
 
     /// <summary>

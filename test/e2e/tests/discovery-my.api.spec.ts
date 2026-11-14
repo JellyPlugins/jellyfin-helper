@@ -2,6 +2,7 @@
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive, runCleanupTask, authHeader, API_KEY_MASK } from '../setup/api-client.ts';
+import { removeFixtureRecommendationPlaylists } from '../setup/playlist-fixture.ts';
 
 // MaxVisiblePerUser cap enforced by GetMyDiscoveryResults (SeerrDiscoveryService).
 const MAX_VISIBLE_PER_USER = 10;
@@ -19,6 +20,7 @@ interface ConfigSnapshot {
   SeerrUrl?: string;
   DiscoveryUserAccessEnabled?: boolean;
   RecommendationsTaskMode?: string;
+  SyncRecommendationsToPlaylist?: boolean;
   UseTrash?: boolean;
   TrashFolderPath?: string;
   TrashRetentionDays?: number;
@@ -40,6 +42,7 @@ test.beforeAll(async () => {
       SeerrUrl: c.SeerrUrl,
       DiscoveryUserAccessEnabled: c.DiscoveryUserAccessEnabled,
       RecommendationsTaskMode: c.RecommendationsTaskMode,
+      SyncRecommendationsToPlaylist: c.SyncRecommendationsToPlaylist,
       UseTrash: c.UseTrash,
       TrashFolderPath: c.TrashFolderPath,
       TrashRetentionDays: c.TrashRetentionDays,
@@ -100,6 +103,7 @@ async function setDiscoveryAccess(enabled: boolean) {
     headers: { 'Content-Type': 'application/json' },
     data: {
       RecommendationsTaskMode: 'Activate',
+      SyncRecommendationsToPlaylist: false,
       SeerrUrl: 'http://mock-seerr:5055',
       SeerrApiKey: 'seerr-key',
       DiscoveryUserAccessEnabled: enabled,
@@ -145,9 +149,16 @@ test.describe.serial('Discovery/My access gating', () => {
       expect(discovery.Recommendations.some(item => item.TmdbId === 97501 || item.TmdbId === 97502)).toBe(true);
       expect(discovery.Recommendations.every(item => item.ReasonKey !== 'reasonGenre' && item.ReasonKey !== 'reasonPersonNamed')).toBe(true);
     } finally {
-      await fresh?.dispose();
-      await anonymous.dispose();
-      expect((await admin.delete(`/Users/${account.Id}`)).ok(), 'cold-start account cleanup failed').toBeTruthy();
+      try {
+        await fresh?.dispose();
+        await anonymous.dispose();
+      } finally {
+        try {
+          await removeFixtureRecommendationPlaylists(admin, account.Id, name);
+        } finally {
+          expect((await admin.delete(`/Users/${account.Id}`)).ok(), 'cold-start account cleanup failed').toBeTruthy();
+        }
+      }
     }
   });
 

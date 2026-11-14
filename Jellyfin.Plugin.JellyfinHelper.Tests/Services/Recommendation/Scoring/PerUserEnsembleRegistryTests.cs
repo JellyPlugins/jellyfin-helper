@@ -216,6 +216,35 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.NotNull(global.GetAcceptedNeuralPrediction());
     }
 
+    [Fact]
+    public void PruningRemovesUnevaluatedOrphansWithoutRunningEitherLazyFactory()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        using var registry = new PerUserEnsembleRegistry(global, neural, null, new EnsembleBlendBounds(.3, .75, .1), _pluginLog.Object);
+        var cached = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Lazy<EnsembleScoringStrategy>>>(
+            typeof(PerUserEnsembleRegistry).GetField("_perUser", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(registry));
+        var orphanId = Guid.NewGuid();
+        var liveId = Guid.NewGuid();
+        var factoryCalls = 0;
+        EnsembleScoringStrategy UnexpectedFactory()
+        {
+            factoryCalls++;
+            throw new InvalidOperationException("Pruning must not materialize an unused ensemble.");
+        }
+
+        var orphan = new Lazy<EnsembleScoringStrategy>(UnexpectedFactory);
+        var live = new Lazy<EnsembleScoringStrategy>(UnexpectedFactory);
+        cached[orphanId] = orphan;
+        cached[liveId] = live;
+        registry.PruneOrphans([liveId]);
+        Assert.False(cached.ContainsKey(orphanId));
+        Assert.Same(live, cached[liveId]);
+        Assert.False(orphan.IsValueCreated);
+        Assert.False(live.IsValueCreated);
+        Assert.Equal(0, factoryCalls);
+    }
+
     private static void TrainOperatingGlobal(EnsembleScoringStrategy global, int seed = 10)
     {
         Assert.True(global.TrainValidated(StableExamples(300, seed), StableExamples(100, seed + 1), true, TestContext.Current.CancellationToken));
