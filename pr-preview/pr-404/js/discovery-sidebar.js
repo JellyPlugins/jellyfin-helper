@@ -1666,6 +1666,11 @@
     }
 
     function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
+        // A pending request can consume a replacement card while its profile picker is still open.
+        if (_consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+            markDiscoveryRequestDone(btn);
+            return;
+        }
         var request = captureDiscoveryRequest();
         var card = btn.closest('.jfh-discovery-card');
         var deliveryContainer = card?.closest('.jfh-ui-surface');
