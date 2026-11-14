@@ -21,10 +21,17 @@ export async function removeFixtureRecommendationPlaylists(ctx: FixturePlaylistC
   const expectedName = '🎬 Recommended for ' + userName;
   const managed = body.Items.filter(item => item.Name === expectedName
     || (item.Name?.startsWith(expectedName) && /^\d+$/.test(item.Name.slice(expectedName.length))));
-  for (const item of managed) {
+  const ids = managed.map(item => {
     if (!item.Id || !ITEM_ID.test(item.Id)) throw new Error('Fixture playlist has an invalid item identity');
-    const deleted = await ctx.delete(`/Items/${item.Id}`);
-    if (!deleted.ok()) throw new Error(`Fixture playlist deletion failed for ${item.Id}: ${deleted.status()}`);
+    return item.Id;
+  });
+  // Even on failure, finish every deletion before the caller tears down the owning account.
+  const results = await Promise.allSettled(ids.map(async id => {
+    const deleted = await ctx.delete(`/Items/${id}`);
+    if (!deleted.ok()) throw new Error(`Fixture playlist deletion failed for ${id}: ${deleted.status()}`);
+  }));
+  for (const result of results) {
+    if (result.status === 'rejected') throw result.reason;
   }
-  return managed.length;
+  return ids.length;
 }

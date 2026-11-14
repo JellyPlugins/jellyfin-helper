@@ -1212,12 +1212,7 @@ public sealed partial class EnsembleScoringStrategy
     private void ApplyAssessment(ModelTrainingAssessment assessment)
     {
         UpdateObservedMaturity(assessment.ObservedTrainingIds.Where(id => id != Guid.Empty).Take(MaxTrackedObservations).ToArray());
-        if (_acceptedBundle is not null && assessment.AcceptedModelRevision < _acceptedBundle.Revision)
-        {
-            return;
-        }
-
-        _lastAdmission = assessment.Decision;
+        // An interrupted post-commit journal write cannot erase earlier rejection or recovery receipts.
         _reservedOperatingInputs.UnionWith(assessment.ReservedOperatingInputDigests);
         if (_reservedOperatingInputs.Count == 0 && assessment.Decision?.Reason == "RejectedIndependentUtility")
         {
@@ -1226,6 +1221,13 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         _acceptanceLedgerRequired |= assessment.AcceptanceLedgerRequired;
+        _requiresIndependentRecovery |= assessment.IndependentRecoveryRequired;
+        if (_acceptedBundle is not null && assessment.AcceptedModelRevision < _acceptedBundle.Revision)
+        {
+            return;
+        }
+
+        _lastAdmission = assessment.Decision;
         if (!ApplyAssessmentFallback(assessment))
         {
             return;
@@ -1248,8 +1250,6 @@ public sealed partial class EnsembleScoringStrategy
 
     private bool ApplyAssessmentFallback(ModelTrainingAssessment assessment)
     {
-        // Loss of receipts blocks new provisional replacement, not the surviving incumbent's serving mix.
-        _requiresIndependentRecovery |= assessment.IndependentRecoveryRequired;
         if (_acceptedBundle is null && (assessment.HeuristicFallbackRequired || assessment.AcceptedModelRevision > 0))
         {
             _qualityGateFrozen = true;

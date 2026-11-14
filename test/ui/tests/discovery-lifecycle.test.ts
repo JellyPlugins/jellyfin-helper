@@ -191,6 +191,45 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test.each(['success', 'duplicate', 'failure'])('profile selection after an original %s cannot resubmit a consumed replacement card', async outcome => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const pending = deferred<unknown>();
+    let posts = 0;
+    const client = clientDocument({ modern, responses: {
+      [root]: () => Promise.resolve(recommendations('Movie')),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: recommendations('Trakt movie') }),
+      [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: profiles('Movie') }),
+      [root + '/Request']: () => ++posts === 1 ? pending.promise : Promise.resolve({ Success: true }),
+    } });
+    await settle();
+    const firstDialog = await openDialog(client, 'profile');
+    firstDialog.action.click();
+    await settle();
+    expect(posts).toBe(1);
+    const original = client.panel()!.querySelector('.jfh-discovery-card');
+    (client.panel()!.querySelector('[data-tab="trakt"]') as HTMLElement).click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="own"]') as HTMLElement).click();
+    await settle();
+    const replacement = client.panel()!.querySelector('.jfh-discovery-card');
+    expect(replacement).not.toBe(original);
+    const replacementDialog = await openDialog(client, 'profile');
+    pending.resolve({ Success: outcome !== 'failure', AlreadyRequested: outcome === 'duplicate' });
+    await settle();
+    const button = replacement!.querySelector('[data-jfh-action="request"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(outcome !== 'failure');
+    expect(replacementDialog.overlay.isConnected).toBe(true);
+    replacementDialog.action.click();
+    await settle();
+    expect(client.w.document.getElementById('jfhDiscoveryPopup')).toBeNull();
+    expect(posts).toBe(outcome === 'failure' ? 2 : 1);
+    expect(button.disabled).toBe(true);
+    expect(button.classList.contains('jfh-discovery-btn-done')).toBe(true);
+    expect(button.classList.contains('jfh-discovery-btn-failed')).toBe(false);
+    expect((replacement!.querySelector('.jfh-discovery-btn-dismiss') as HTMLElement).style.display).toBe('none');
+  });
+
   test.each(['application', 'transport'])('an original success cancels a replacement %s failure reset', async failure => {
     const root = '/JellyfinHelper/Discovery/My';
     const originalRequest = deferred<unknown>();
