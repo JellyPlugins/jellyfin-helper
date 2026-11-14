@@ -29,6 +29,9 @@ public sealed record EnsembleDiagnostics
     /// <summary>Gets the accepted compound-model revision, or zero for a legacy checkpoint.</summary>
     public long ModelRevision { get; init; }
 
+    /// <summary>Gets the operating evidence level, distinguishing bounded provisional serving from verified ranking.</summary>
+    public string ValidationLevel { get; init; } = "Legacy";
+
     /// <summary>Gets the latest independent admission/retention reason, when this lifecycle has evaluated a challenger.</summary>
     public string? AdmissionReason { get; init; }
 
@@ -106,6 +109,9 @@ public sealed record EnsembleDiagnostics
     ///     Gets a value indicating whether a neural sub-strategy was constructed for this ensemble.
     /// </summary>
     public bool NeuralEnabled { get; init; }
+
+    /// <summary>Gets a value indicating whether this snapshot has personal fitting coordinates rather than inherited priors.</summary>
+    internal bool HasOwnOperatingModel { get; init; }
 
     /// <summary>Resolves the same frozen and near-zero-offset rules used by scoring.</summary>
     /// <param name="alpha">The stored target.</param>

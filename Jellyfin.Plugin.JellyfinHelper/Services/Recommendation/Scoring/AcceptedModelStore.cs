@@ -147,7 +147,7 @@ internal sealed class AcceptedModelStore
                     continue;
                 }
 
-                if (!bundle.Retired)
+                if (!bundle.Retired && !bundle.IsProvisional)
                 {
                     results.Add(bundle);
                 }
@@ -166,7 +166,7 @@ internal sealed class AcceptedModelStore
     private void ArchiveBeforeReplacement(AcceptedModelBundle replacement)
     {
         var previous = Read();
-        if (previous is null || previous.Retired || replacement.Retired || previous.TrainedAtUtc == replacement.TrainedAtUtc)
+        if (previous is null || previous.Retired || previous.IsProvisional || replacement.Retired || previous.TrainedAtUtc == replacement.TrainedAtUtc)
         {
             return;
         }
@@ -184,12 +184,31 @@ internal sealed class AcceptedModelStore
     }
 
     private static bool Valid(AcceptedModelBundle bundle)
-        => bundle.Version == 1 && bundle.Revision > 0 && bundle.Learned is not null
+        => bundle.Version is 1 or 2 && bundle.Revision > 0 && bundle.Learned is not null
             && LearnedScoringStrategy.IsValidParameters(bundle.Learned)
             && (bundle.Neural is null || NeuralScoringStrategy.IsValidParameters(bundle.Neural))
-            && ValidMixture(bundle) && ValidEvidence(bundle) && ValidState(bundle)
+            && ValidMixture(bundle) && ValidState(bundle) && ValidCheckpointEvidence(bundle)
             && (!bundle.Retired || (bundle.RetirementUtility is not null && FinitePositive(bundle.RetirementUtility.LowerIncumbentImprovement)))
             && bundle.TrainedAtUtc.Kind == DateTimeKind.Utc;
+
+    private static bool ValidCheckpointEvidence(AcceptedModelBundle bundle)
+    {
+        if (!bundle.IsProvisional)
+        {
+            return ValidEvidence(bundle);
+        }
+
+        return bundle.Version == 2 && bundle.Utility is null
+            && FiniteNonnegative(bundle.CalibrationLoss)
+            && bundle.CalibrationLoss <= EnsembleScoringStrategy.ValidationLossCeiling
+            && bundle.CalibrationTitleCount >= LearnedScoringStrategy.MinExamplesPerFold
+            && bundle.State.TrainingExampleCount >= LearnedScoringStrategy.MinTrainingExamples
+            && bundle.Learned.TrainingGeneration > 0
+            && (bundle.Mixture.Neural <= 0 || bundle.Neural?.TrainingGeneration > 0)
+            && bundle.AcceptanceObservationIds is not null
+            && bundle.AcceptanceObservationIds.All(id => id != Guid.Empty)
+            && bundle.AcceptanceObservationIds.Distinct().Count() == bundle.AcceptanceObservationIds.Length;
+    }
 
     private static bool ValidMixture(AcceptedModelBundle bundle)
         => double.IsFinite(bundle.AlphaCap) && bundle.AlphaCap is >= 0 and <= 1
@@ -213,7 +232,8 @@ internal sealed class AcceptedModelStore
         => bundle.State is not null && bundle.State.SchemaVersion == EnsembleScoringStrategy.EnsembleStateData.CurrentSchemaVersion
             && bundle.State.QualityGateFrozen == bundle.Retired && double.IsFinite(bundle.State.Alpha) && bundle.State.Alpha is >= 0 and <= 1
             && double.IsFinite(bundle.State.NeuralBeta) && bundle.State.NeuralBeta is >= 0 and <= 1
-            && bundle.State.TrainingExampleCount >= 0;
+            && bundle.State.TrainingExampleCount >= 0
+            && bundle.State.MetricsHistory is not null && bundle.State.MetricsHistory.All(snapshot => snapshot is not null);
 
     private static bool FiniteNonnegative(double? value) => value.HasValue && double.IsFinite(value.Value) && value.Value >= 0;
 

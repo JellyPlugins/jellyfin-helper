@@ -143,4 +143,32 @@ describe('selected-user effective ensemble diagnostics', () => {
     expect(host.querySelector('.recs-ensemble-label')!.textContent).toBe('Recommendation strategy for User X — Personal model:');
     expect(shares(host)).toEqual(['100%', '0%', 'off']);
   });
+
+  test('cold-start priors show the selected user’s own operative composition and explicit inherited scope', () => {
+    ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .75, EffectiveAlpha: .3, EffectiveNeuralBeta: .4,
+      NeuralEnabled: true, IsPerUser: false, UserName: 'Cold user', TrainingExampleCount: 0, ValidationLevel: 'GlobalPrior' });
+    expect(shares(host)).toEqual(['70%', '18%', '12%']);
+    expect(host.querySelector('.recs-ensemble-label')!.textContent).toBe('Recommendation strategy for Cold user — Global priors, personal mixture:');
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('Starting mixture from global priors');
+    expect(host.textContent).not.toContain('frozen');
+  });
+
+  test.each([
+    ['Provisional', 'Provisional — ranking not yet verified'],
+    ['Verified', 'Independently verified'],
+  ])('personal %s status does not manufacture a frozen or verified claim', (ValidationLevel, expected) => {
+    ui.renderEnsembleDiagnostics(host, { Available: true, EffectiveAlpha: .65, EffectiveNeuralBeta: .12,
+      NeuralEnabled: true, IsPerUser: true, UserName: 'Warm user', TrainingExampleCount: 72,
+      Trend: 'InsufficientData', ValidationLevel });
+    expect(shares(host)).toEqual(['35%', '57.2%', '7.8%']);
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain(expected);
+    expect(host.querySelector('.recs-ensemble-label')!.textContent).toContain('Warm user — Personal model:');
+  });
+
+  test('actual withdrawal overrides stale provisional metadata and suppresses all ML', () => {
+    ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .7, EffectiveAlpha: 0, EffectiveNeuralBeta: .4,
+      NeuralEnabled: true, QualityGateFrozen: true, ValidationLevel: 'Provisional' });
+    expect(shares(host)).toEqual(['100%', '0%', 'off']);
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('frozen');
+  });
 });

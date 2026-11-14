@@ -23,7 +23,7 @@ validators are pinned without a browser.
 | Explorer helper edge cases (dimension index, filter intersection) and full behavioral coverage | `tests/codecs-explorer-interactions.test.ts`, `tests/codecs-explorer-coverage.test.ts` |
 | Arr instances render, collect, add, remove, test | `tests/arr-integration.test.ts` |
 | Recommendations cards, requests, diagnostics | `tests/recommendations.test.ts`, `tests/recommendations-flow.test.ts` |
-| Effective selected-user mix, Neural absence, precise rounding and bounded/stale diagnostics caches | `tests/ensemble-effective.test.ts` |
+| Selected-user Cold/Warm prior and provisional/verified mix, Neural absence, precise rounding and bounded/stale diagnostics caches | `tests/ensemble-effective.test.ts` |
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |

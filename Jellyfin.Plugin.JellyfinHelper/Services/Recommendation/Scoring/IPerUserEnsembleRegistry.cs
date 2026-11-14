@@ -78,10 +78,10 @@ public interface IPerUserEnsembleRegistry : IDisposable
     bool HasPerUserModel(Guid userId);
 
     /// <summary>
-    ///     Deletes per-user model/state files (and evicts cached instances) for users that no longer exist,
-    ///     reconciling persisted files against the live user list. Best-effort: it never throws.
+    ///     Deletes per-user model/state/ledger files and evicts even fileless cached instances for deleted or
+    ///     disabled users, reconciling against the active user list. Best-effort: it never throws.
     /// </summary>
-    /// <param name="liveUserIds">The set of user ids that currently exist.</param>
+    /// <param name="liveUserIds">The set of existing, enabled user ids.</param>
     void PruneOrphans(IReadOnlyCollection<Guid> liveUserIds);
 
     /// <summary>

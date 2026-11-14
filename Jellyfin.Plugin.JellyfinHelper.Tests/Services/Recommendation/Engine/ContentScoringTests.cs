@@ -18,8 +18,39 @@ public sealed class ContentScoringGlobalStateCollection
 ///     Tests for ContentScoring static helper methods.
 /// </summary>
 [Collection(ContentScoringGlobalStateCollection.Name)]
-public sealed class ContentScoringTests
+public sealed class ContentScoringTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData(16, 128)]
+    [InlineData(256, 512)]
+    [InlineData(1024, 512)]
+    [Trait("Category", "Profiling")]
+    public void ProfileContentNeighbourCatalogByHistoryCostWithoutChangingTheScorer(int history, int catalog)
+    {
+        var names = new[] { "Action", "Drama", "Comedy", "Thriller", "Adventure", "Science Fiction", "Mystery", "Fantasy" };
+        var genres = Enumerable.Range(0, history).Select(index => new HashSet<string>([names[index % names.Length], names[(index + 3) % names.Length]], StringComparer.OrdinalIgnoreCase)).ToArray();
+        var people = Enumerable.Range(0, history).Select(index => new HashSet<string>(["Person " + index % 128, "Person " + (index + 5) % 128], StringComparer.OrdinalIgnoreCase)).ToArray();
+        var studios = Enumerable.Range(0, history).Select(index => new HashSet<string>(["Studio " + index % 64], StringComparer.OrdinalIgnoreCase)).ToArray();
+        var candidates = Enumerable.Range(0, catalog).Select(index => (
+            Genres: new HashSet<string>([names[index % names.Length]], StringComparer.OrdinalIgnoreCase),
+            People: new HashSet<string>(["Person " + index % 128], StringComparer.OrdinalIgnoreCase),
+            Studios: new HashSet<string>(["Studio " + index % 64], StringComparer.OrdinalIgnoreCase))).ToArray();
+        _ = ContentScoring.ComputeContentNearestNeighborScore(candidates[0].Genres, candidates[0].People, candidates[0].Studios, genres, people, studios);
+        var allocation = GC.GetAllocatedBytesForCurrentThread();
+        var timer = Stopwatch.StartNew();
+        var sum = 0.0;
+        foreach (var candidate in candidates)
+        {
+            var score = ContentScoring.ComputeContentNearestNeighborScore(candidate.Genres, candidate.People, candidate.Studios, genres, people, studios);
+            Assert.InRange(score, 0, 1);
+            sum += score;
+        }
+
+        timer.Stop();
+        output.WriteLine($"Content-neighbour profile: {catalog} candidates × {history} watched titles; {timer.Elapsed.TotalMilliseconds:F2} ms; {GC.GetAllocatedBytesForCurrentThread() - allocation:N0} allocated bytes; checksum {sum:R}.");
+        Assert.True(sum > 0);
+    }
+
     // ComputePopularityScore Tests
 
     [Fact]

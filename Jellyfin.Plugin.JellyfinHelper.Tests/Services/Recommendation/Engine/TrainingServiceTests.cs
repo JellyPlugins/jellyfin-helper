@@ -1141,16 +1141,32 @@ public class TrainingServiceTests
             var trained = sut.TrainPerUser(registry, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.True(trained);
-            // Their full observed slices must reach fitting, but positive-only evidence cannot fabricate
-            // an approved personal model. Maturity and assessment prove they were not starved by sampling.
+            // Their full observed slices must reach fitting. Positive-only evidence cannot fabricate
+            // verified ranking, but sufficient permanent calibration may support a provisional personal fit.
             var a = registry.GetOrCreateTrainableEnsembleForUser(userA);
             var b = registry.GetOrCreateTrainableEnsembleForUser(userB);
             Assert.True(a.TrainingExampleCount >= PerUserEnsembleRegistry.PerUserModelThreshold);
             Assert.True(b.TrainingExampleCount >= PerUserEnsembleRegistry.PerUserModelThreshold);
             Assert.NotNull(a.LastAdmission);
             Assert.NotNull(b.LastAdmission);
-            Assert.False(registry.HasPerUserModel(userA));
-            Assert.False(registry.HasPerUserModel(userB));
+            foreach (var user in new[] { userA, userB })
+            {
+                var personal = registry.GetOrCreateTrainableEnsembleForUser(user);
+                Assert.False(personal.LastAdmission!.Accepted);
+                Assert.Null(personal.LastAdmission.Utility.CandidateLoss);
+                Assert.Null(personal.LastAdmission.Utility.CandidateNdcg);
+                var bundle = new AcceptedModelStore(Path.Join(dataPath, $"ensemble_state_{user:N}.json")).Read();
+                Assert.Equal(bundle is not null, registry.HasPerUserModel(user));
+                if (bundle is not null)
+                {
+                    Assert.True(bundle.IsProvisional);
+                    Assert.Null(bundle.Utility);
+                    Assert.Empty(bundle.AcceptanceObservationIds);
+                    Assert.True(bundle.CalibrationTitleCount >= LearnedScoringStrategy.MinExamplesPerFold);
+                    Assert.InRange(bundle.Mixture.Alpha, .3, .75);
+                    Assert.Equal("Provisional", registry.GetDiagnostics(user).ValidationLevel);
+                }
+            }
         }
         finally
         {
@@ -1276,9 +1292,8 @@ public class TrainingServiceTests
     [Fact]
     public void TrainPerUser_UserDropsBelowFitThreshold_RetainsTheIncumbentWithoutRefitting()
     {
-        // A user who built a per-user model on a data-rich run and then falls below the threshold on a later
-        // run must not keep scoring on the stale personal fit: the model is evicted so the user resolves back
-        // to the shared global ensemble. Without eviction the next score would still find the old per-user file.
+        // A sparse later fitting slice is unknown, not observed harm or inactivity. Retain the personal
+        // checkpoint and its training time; explicit deleted-account/idle retirement remains separate.
         var user = Guid.NewGuid();
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
@@ -1310,7 +1325,7 @@ public class TrainingServiceTests
             var weightsPath = Path.Join(dataPath, $"ml_weights_{user:N}.json");
             var before = File.ReadAllBytes(weightsPath);
 
-            // Later lean run: the same user falls below the threshold, so the model is evicted.
+            // Later lean run: fitting is skipped without deleting the existing incumbent.
             _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
                 .Returns(new Collection<UserWatchProfile> { CreateLargeProfile(user, watchedCount: 2) });
             sut.TrainPerUser(registry, new[] { CreateLargeResult(user, recommendationCount: 2, new DateTime(2025, 12, 8, 0, 0, 0, DateTimeKind.Utc)) }, cancellationToken: TestContext.Current.CancellationToken);

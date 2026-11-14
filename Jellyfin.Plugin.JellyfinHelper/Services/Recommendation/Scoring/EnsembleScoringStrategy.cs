@@ -408,11 +408,13 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 MetricsHistoryCount = _metricsHistory.Count,
                 AlphaMin = _alphaMin,
                 AlphaMax = _alphaMax,
-                NeuralEnabled = _neural is not null,
+                NeuralEnabled = _independentAdmissionEnabled ? _acceptedPrediction?.Neural is not null : _neural is not null,
                 AdmittedAlpha = _acceptedPrediction?.Resolve(_alphaMax).Alpha,
                 AdmittedNeuralBeta = _acceptedPrediction?.Resolve(_alphaMax).Beta,
                 AllowsExploration = !_independentAdmissionEnabled,
                 ModelRevision = _acceptedBundle?.Revision ?? 0,
+                ValidationLevel = GetOperatingValidationLevel(),
+                HasOwnOperatingModel = !_usesInheritedPrior && (_acceptedBundle is not null || LearnedStrategy.HasOwnWeights),
                 AdmissionReason = _lastAdmission?.Reason,
                 CalibrationTitleCount = _lastAdmission?.Evidence.CalibrationTitles ?? 0,
                 AcceptanceTitleCount = _lastAdmission?.Evidence.AcceptanceTitles ?? 0,
@@ -1342,8 +1344,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         double alphaMin,
         double alphaMax)
     {
-        var exponent = -AlphaSigmoidK * (trainingExampleCount - midpoint);
-        return alphaMin + ((alphaMax - alphaMin) / (1.0 + Math.Exp(exponent)));
+        return OperatingMixturePolicy.Maturity(trainingExampleCount, midpoint, alphaMin, alphaMax);
     }
 
     /// <summary>
@@ -1589,7 +1590,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
         // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the trailing window. A mixed history (e.g.
-        var realRows = history.Where(snapshot => double.IsFinite(snapshot.ValidationLoss) && double.IsFinite(snapshot.NdcgAtK)).ToList();
+        var realRows = history.Where(snapshot => snapshot is not null && double.IsFinite(snapshot.ValidationLoss) && double.IsFinite(snapshot.NdcgAtK)).ToList();
 
         if (realRows.Count < TrendMinSnapshots)
         {

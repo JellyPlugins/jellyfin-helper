@@ -230,35 +230,26 @@ npm test                # single run
 npm run test:coverage   # run + coverage gate, fails below the mark
 ```
 
+For behavioral-only local runs without instrumentation or report writes, set
+`JFH_UI_NO_COVERAGE=1` before `npm test`. The pipeline's coverage command/default is unchanged.
+
 It runs on every PR (`ui-tests` job in `.github/workflows/pr.yml`) and nightly.
 See [`test/ui/README.md`](test/ui/README.md) for the suite map and
 [`test/ui/CONTRIBUTING.md`](test/ui/CONTRIBUTING.md) for the rules.
 
 `test/ui/tests/ensemble-effective.test.ts` pins current per-user coefficients,
-Frozen/Neural suppression, precise totals and bounded/stale diagnostic caches;
+Cold/Warm prior and provisional/verified status, Frozen/Neural suppression,
+precise totals and bounded/stale diagnostic caches;
 `discovery-lifecycle.test.ts` and browser fixtures protect request-time source switches.
 
-Validated ensembles select coefficients from calibration only (including user eligibility),
-keep rejected initial fits heuristic-only after restart, and record the evaluated mixture's
-P/R/NDCG@10 rather than untouched legacy-model metrics. Unknown ranking remains unknown.
-Model archives contain the active version plus at most two older accepted versions, with
-90-day historical retention. A single checksummed `.acceptance-ledger.txt` per scope retains
-exact spent title IDs without a lifetime training cap; it grows with distinct used titles,
-not attempts, and survives idle model retirement until the account is removed. Evaluation
-blocks are deterministically user-balanced and capped at 4,096 titles before inspecting
-outcomes. Ledger corruption blocks admission, not existing predictions; write failure may
-conservatively spend a block without publishing its candidate. Legacy v5 files stay intact.
-Inactivity retirement uses observed play/session/impression/action dates, not promotion
-age; generated lists are not activity. Legacy withdrawal persists a separate suppression
-assessment without inventing an accepted bundle. Historical Neural needs fresh incremental
-utility; a rejected rollback cannot skip incumbent withdrawal. Explanations pin one model
-and bounds, and configuration revisions guard every commit. No new tuning controls are
-required: activation, fallback, mixing and rollback remain automatic.
-Regression suites also cover missing accepted checkpoints after legacy replacement,
-typed visible-card request reconciliation, storage/reader limits and disposal/configuration
-races. Configuration identity uses exact bit comparison; bootstrap resampling remains
-deterministic and is not a security random-number use. Browser timing checks use controlled
-clocks and source-bound assertions rather than fixed waits.
+Recommendation changes must preserve:
+
+- One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors and personal Warm Start fitting.
+- v5/38-feature inference, paired predictors/coefficients, permissions, child safety and protected scoring goldens.
+- Separate fitting, calibration and acceptance; only examined identities may be spent. Provisional serving is not verified ranking.
+- Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery.
+- Disabled/deleted-user cleanup, including fileless caches; current-user diagnostics must match the scoring snapshot.
+- Regression tests for Cold/Warm Start, replay, failed refreshes, restart and IO/configuration races. Browser tests use controlled clocks, not fixed waits.
 
 ### Test Structure
 
@@ -506,6 +497,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v5 predictors and inference parity
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
+│       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
 │       │   ├── AcceptedModelStoreTests.cs                # Complete v5 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
 │       │   ├── AcceptanceObservationLedgerTests.cs       # Exact replay prevention beyond 1,000 IDs, migration, checksum failures and distinct-only growth
 │       │   ├── ValidatedEnsembleLifecycleTests.cs        # Real promotion/rollback, fresh Neural evidence, persistent legacy suppression, restart, IO/configuration races and replay
@@ -714,7 +706,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)
 │   │   │   ├── IStrategySelector.cs
 │   │   │   ├── IPerUserEnsembleRegistry.cs   # Per-user ensemble registry contract (per-user models + global fallback)
-│   │   │   ├── PerUserEnsembleRegistry.cs    # Holds one ensemble per user; cold-start falls back to the shared global
+│   │   │   ├── PerUserEnsembleRegistry.cs    # One mixture per user; immutable global Cold Start priors and personal Warm Start fitting
 │   │   │   ├── EnsembleBlendBounds.cs        # Groups the per-user blend bounds (alpha min/max, genre-penalty floor) into one config-resolved value
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
@@ -734,6 +726,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
 │   │   │   ├── ModelTrainingAssessment.cs    # Attempt diagnostics and bounded unique maturity; never grants model trust or stamps trained weights
 │   │   │   ├── EnsembleAdmissionEvaluator.cs # Separate calibration/acceptance, paired utility screens, macro-user ranking and incumbent comparisons
+│   │   │   ├── OperatingMixturePolicy.cs      # Shared maturity/ramp and bounded calibration-only operational correction
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
 │   │   │   ├── CandidateFeatures.cs         # 38-feature vector with FeatureIndex enum

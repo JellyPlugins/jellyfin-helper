@@ -9,8 +9,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 public sealed class ValidatedEnsembleLifecycleTests : IDisposable
 {
     private readonly string _directory = Path.Join(Path.GetTempPath(), "jfh-validated-lifecycle-" + Guid.NewGuid().ToString("N"));
+    private readonly ITestOutputHelper _output;
 
-    public ValidatedEnsembleLifecycleTests() => Directory.CreateDirectory(_directory);
+    public ValidatedEnsembleLifecycleTests(ITestOutputHelper output)
+    {
+        _output = output;
+        Directory.CreateDirectory(_directory);
+    }
 
     public void Dispose()
     {
@@ -76,13 +81,13 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.True(ensemble.LastAdmission!.Accepted);
         var path = AcceptedModelStore.GetBundlePath(Path.Join(_directory, "replay-state.json"))!;
         var before = File.ReadAllBytes(path);
-        Assert.True(ensemble.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
+        Assert.False(ensemble.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
         Assert.False(ensemble.LastAdmission!.Accepted);
         Assert.Equal(before, File.ReadAllBytes(path));
     }
 
     [Fact]
-    public void RejectedInitialFitRemainsHeuristicOnlyAfterRestart()
+    public void PositiveOnlyInitialFitMayServeProvisionallyWithoutClaimingVerifiedRankingAndRestartsCoherently()
     {
         using var ensemble = Create("rejected-restart");
         var holdout = Examples(80, 141);
@@ -91,10 +96,13 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.False(ensemble.LastAdmission!.Accepted);
         var probes = Examples(24, 143).Select(row => row.Features).ToArray();
         var before = probes.Select(ensemble.Score).ToArray();
-        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.InRange(ensemble.GetDiagnosticsSnapshot().EffectiveAlpha, .3, .75);
+        var bundle = new AcceptedModelStore(Path.Join(_directory, "rejected-restart-state.json")).Read()!;
+        Assert.True(bundle.IsProvisional);
+        Assert.Null(bundle.Utility);
         using var restarted = Create("rejected-restart");
         Assert.Equal(before, probes.Select(restarted.Score).ToArray());
-        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.Equal(ensemble.GetDiagnosticsSnapshot().EffectiveAlpha, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
         Assert.False(restarted.GetDiagnosticsSnapshot().AllowsExploration);
         Assert.Equal(ensemble.LastAdmission, restarted.LastAdmission);
     }
@@ -127,7 +135,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.Equal(ensemble.MetricsHistoryCount, restarted.MetricsHistoryCount);
         Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData, restarted.LastTrend);
         Assert.Null(restarted.LastAdmission!.Utility.CandidateNdcgAtK);
-        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.InRange(restarted.GetDiagnosticsSnapshot().EffectiveAlpha, .3, .75);
     }
 
     [Fact]
@@ -141,7 +149,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.True(ensemble.LastAdmission!.Accepted);
         Assert.True(ensemble.GetDiagnosticsSnapshot().ModelRevision > 0);
         using var restarted = Create("large-evidence");
-        Assert.True(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.False(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
         Assert.False(restarted.LastAdmission!.Accepted);
         Assert.Equal(1, restarted.GetDiagnosticsSnapshot().ModelRevision);
     }
@@ -559,7 +567,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         var before = rows.Select(row => ensemble.Score(row.Features)).ToArray();
         var commit = typeof(EnsembleScoringStrategy).GetMethod("CommitWithdrawal", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         var incumbent = typeof(EnsembleScoringStrategy).GetField("_acceptedPrediction", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(ensemble)!;
-        commit.Invoke(ensemble, [incumbent, evidence, rows, configuration, TestContext.Current.CancellationToken]);
+        commit.Invoke(ensemble, [incumbent, evidence, rows.Select(row => row.ObservationId).ToArray(), configuration, TestContext.Current.CancellationToken]);
         Assert.Equal(before, rows.Select(row => ensemble.Score(row.Features)));
         Assert.Equal("EvaluationConfigurationChanged", ensemble.LastAdmission!.Reason);
         if (!legacyModel) Assert.Equal(1, new AcceptedModelStore(statePath).Read()!.Revision);
@@ -580,6 +588,337 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         ensemble.SetSharedPredictionProvider(() => null);
         Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
         Assert.True(ensemble.LastAdmission!.Accepted);
+    }
+
+    [Fact]
+    public void InformativeRejectedRefreshSpendsItsAcceptanceAndCannotTryAnotherGenerationAgainstIt()
+    {
+        var statePath = Path.Join(_directory, "rejected-evidence-state.json");
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(LinearBundle(false, 1, DateTime.UtcNow)));
+        using var ensemble = Create("rejected-evidence");
+        var fit = Examples(600, 411);
+        var holdout = Examples(200, 412);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        var before = File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!);
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("RejectedIndependentUtility", ensemble.LastAdmission!.Reason);
+        Assert.NotNull(ensemble.LastAdmission.Utility.CandidateLoss);
+        var used = ensemble.GetAcceptedObservationIds()!;
+        Assert.True(used.Intersect(holdout.Select(row => row.ObservationId)).Any());
+        Assert.Equal(before, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+        using var restarted = Create("rejected-evidence");
+        Assert.False(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Null(restarted.LastAdmission!.Utility.CandidateLoss);
+        Assert.Equal(before, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+    }
+
+    [Fact]
+    public void HomogeneousUnknownAssessmentDoesNotSpendUnusedAcceptance()
+    {
+        using var ensemble = Create("unknown-evidence-reservation");
+        var fit = Examples(200, 421);
+        var holdout = Examples(100, 422);
+        foreach (var row in holdout) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("ProvisionalMaturityMix", ensemble.LastAdmission!.Reason);
+        Assert.Empty(ensemble.GetAcceptedObservationIds()!);
+    }
+
+    [Fact]
+    public void IndependentlyRejectedInitialCandidateCannotEnterProvisionallyByReplayingItsSpentAcceptance()
+    {
+        using var ensemble = Create("rejected-provisional-replay");
+        var fit = Examples(200, 471);
+        var holdout = Examples(400, 472);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        foreach (var row in holdout.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0)) row.Label = .85 - row.Label;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("RejectedIndependentUtility", ensemble.LastAdmission!.Reason);
+        Assert.NotNull(ensemble.LastAdmission.Utility.CandidateLoss);
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.False(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        var assessmentPath = Path.Join(_directory, "rejected-provisional-replay-state.json.assessment.json");
+        var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+        Assert.NotEmpty(journal["ReservedOperatingInputDigests"]!.AsArray());
+        // Simulate interruption before a decision was recorded: the durable reservation still prevents entry.
+        journal["Decision"] = null;
+        File.WriteAllText(assessmentPath, journal.ToJsonString());
+        using var restarted = Create("rejected-provisional-replay");
+        Assert.False(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(Path.Join(_directory, "rejected-provisional-replay-state.json"))));
+    }
+
+    [Fact]
+    public void ReservationJournalFailureDoesNotInspectUtilityOrPermitProvisionalEntryAfterRestart()
+    {
+        using var ensemble = Create("reservation-journal-failure");
+        var fit = Examples(200, 491);
+        var holdout = Examples(400, 492);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        var assessmentPath = Path.Join(_directory, "reservation-journal-failure-state.json.assessment.json");
+        ensemble.SetSharedPredictionProvider(() =>
+        {
+            File.Delete(assessmentPath);
+            Directory.CreateDirectory(assessmentPath);
+            return null;
+        });
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("CheckpointCommitFailed", ensemble.LastAdmission!.Reason);
+        Assert.Null(ensemble.LastAdmission.Utility.CandidateLoss);
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.NotEmpty(ensemble.GetAcceptedObservationIds()!);
+        using var restarted = Create("reservation-journal-failure");
+        Assert.True(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(Path.Join(_directory, "reservation-journal-failure-state.json"))));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("corrupt")]
+    [InlineData("missing-receipts")]
+    [InlineData("missing-recovery-flag")]
+    public void LostProvisionalJournalRetainsTheIncumbentButCannotForgetRejectedReplacementReceipts(string damage)
+    {
+        var scope = "provisional-journal-" + damage;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var fitA = Examples(200, 531);
+        var holdoutA = Examples(100, 532);
+        foreach (var row in fitA.Concat(holdoutA)) row.Label = .85;
+        var fitB = Examples(200, 533);
+        var holdoutB = Examples(400, 534);
+        foreach (var row in fitB.Concat(holdoutB)) row.Features.CombinedCriticScore = row.Label;
+        foreach (var row in holdoutB.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0))
+        {
+            row.Label = row.Features.CombinedCriticScore > 0 && row.ObservationId.ToByteArray()[1] % 5 == 0 ? 0 : .85;
+        }
+
+        byte[] incumbentBytes;
+        double[] incumbentScores;
+        using (var initial = Create(scope))
+        {
+            Assert.True(initial.TrainValidated(fitA, holdoutA, false, TestContext.Current.CancellationToken));
+            Assert.Equal("Provisional", initial.GetDiagnosticsSnapshot().ValidationLevel);
+            incumbentBytes = File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!);
+            incumbentScores = holdoutB.Select(row => initial.Score(row.Features)).ToArray();
+            Assert.True(initial.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+            Assert.Equal("RejectedIndependentUtility", initial.LastAdmission!.Reason);
+            Assert.NotNull(initial.LastAdmission.Utility.CandidateLoss);
+            Assert.Equal(incumbentBytes, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+            Assert.False(new AcceptedModelStore(statePath).Read()!.Retired);
+            Assert.NotEmpty(initial.GetAcceptedObservationIds()!);
+        }
+
+        var assessmentPath = statePath + ".assessment.json";
+        if (damage == "missing")
+        {
+            File.Delete(assessmentPath);
+        }
+        else if (damage == "corrupt")
+        {
+            File.WriteAllText(assessmentPath, "{ damaged journal");
+        }
+        else
+        {
+            var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+            journal.Remove(damage == "missing-receipts" ? "ReservedOperatingInputDigests" : "IndependentRecoveryRequired");
+            File.WriteAllText(assessmentPath, journal.ToJsonString());
+        }
+        using (var restarted = Create(scope))
+        {
+            Assert.Equal(incumbentScores, holdoutB.Select(row => restarted.Score(row.Features)).ToArray());
+            Assert.True(restarted.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+            Assert.Equal(incumbentBytes, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+            Assert.Equal(incumbentScores, holdoutB.Select(row => restarted.Score(row.Features)).ToArray());
+            Assert.False(restarted.IsQualityGateFrozen);
+        }
+
+        using var restartedAgain = Create(scope);
+        Assert.True(restartedAgain.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+        Assert.Equal(incumbentBytes, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+        var recoveryFit = Examples(200, 535);
+        var recoveryHoldout = Examples(400, 536);
+        foreach (var row in recoveryFit.Concat(recoveryHoldout)) row.Features.CombinedCriticScore = row.Label;
+        Assert.True(restartedAgain.TrainValidated(recoveryFit, recoveryHoldout, false, TestContext.Current.CancellationToken));
+        Assert.True(restartedAgain.LastAdmission!.Accepted);
+        Assert.Equal("Verified", restartedAgain.GetDiagnosticsSnapshot().ValidationLevel);
+        Assert.NotNull(new AcceptedModelStore(statePath).Read()!.Utility);
+    }
+
+    [Fact]
+    public void ProvisionalMixtureRebalancesOnGrowingPersonalEvidenceWithoutClaimingVerifiedUtility()
+    {
+        using var ensemble = Create("provisional-growth");
+        var holdout = Examples(100, 431);
+        var firstFit = Examples(40, 432);
+        foreach (var row in firstFit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(firstFit, holdout, false, TestContext.Current.CancellationToken));
+        var first = ensemble.GetDiagnosticsSnapshot();
+        var laterFit = firstFit.Concat(Examples(160, 433)).ToArray();
+        foreach (var row in laterFit) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(laterFit, holdout, false, TestContext.Current.CancellationToken));
+        var later = ensemble.GetDiagnosticsSnapshot();
+        Assert.True(later.ModelRevision > first.ModelRevision);
+        Assert.True(later.EffectiveAlpha > first.EffectiveAlpha);
+        Assert.Equal("Provisional", later.ValidationLevel);
+        Assert.Null(ensemble.LastAdmission!.Utility.CandidateLoss);
+        Assert.Empty(ensemble.GetAcceptedObservationIds()!);
+        Assert.Empty(new AcceptedModelStore(Path.Join(_directory, "provisional-growth-state.json")).ReadHistory());
+    }
+
+    [Fact]
+    public void ProvisionalReplayIsBitIdenticalIncludingRestartAndInputOrderChanges()
+    {
+        using var ensemble = Create("provisional-replay");
+        var fit = Examples(100, 441);
+        var holdout = Examples(80, 442);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var path = AcceptedModelStore.GetBundlePath(Path.Join(_directory, "provisional-replay-state.json"))!;
+        var before = File.ReadAllBytes(path);
+        Assert.NotEmpty(new AcceptedModelStore(Path.Join(_directory, "provisional-replay-state.json")).Read()!.OperatingInputDigest!);
+        var scores = holdout.Select(row => ensemble.Score(row.Features)).ToArray();
+        var generation = ensemble.LearnedStrategy.CapturePredictionSnapshot().ExportParameters().TrainingGeneration;
+        var metrics = ensemble.MetricsHistoryCount;
+        Assert.False(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("UnchangedOperatingInputs", ensemble.LastAdmission!.Reason);
+        Assert.Equal(generation, ensemble.LearnedStrategy.CapturePredictionSnapshot().ExportParameters().TrainingGeneration);
+        Assert.Equal(metrics, ensemble.MetricsHistoryCount);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        using var restarted = Create("provisional-replay");
+        Assert.False(restarted.TrainValidated(fit.Reverse().ToArray(), holdout.Reverse().ToArray(), false, TestContext.Current.CancellationToken));
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.Equal(scores, holdout.Select(row => restarted.Score(row.Features)).ToArray());
+    }
+
+    [Fact]
+    public void FreshMixedAcceptancePreventsReplaySkippingEvenWhenFittingAndCalibrationAreUnchanged()
+    {
+        using var ensemble = Create("fresh-acceptance-replay");
+        var fit = Examples(300, 571);
+        var holdout = Examples(100, 572);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.False(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var acceptance = holdout.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0).ToArray();
+        foreach (var row in acceptance) row.Label = row.ObservationId.ToByteArray()[1] % 2 == 0 ? 0 : .85;
+        Assert.True(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(acceptance, DateTime.UtcNow));
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.All(acceptance, row => Assert.Contains(row.ObservationId, ensemble.GetAcceptedObservationIds()!));
+    }
+
+    [Fact]
+    public void PersonalPinnedNeuralReplaySkipsFittingWithoutChangingItsOwnCoefficients()
+    {
+        using var global = Create("personal-replay-global");
+        Assert.True(global.TrainValidated(Examples(600, 581), Examples(400, 582), true, TestContext.Current.CancellationToken));
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, ownsNeural: false);
+        personal.SetPinnedNeuralTrainingPrior(global.GetAcceptedNeuralPrediction());
+        var fit = Examples(300, 583);
+        var holdout = Examples(100, 584);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(personal.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var before = personal.GetDiagnosticsSnapshot();
+        var scores = holdout.Select(row => personal.Score(row.Features)).ToArray();
+        Assert.False(personal.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal(before.EffectiveAlpha, personal.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.Equal(before.EffectiveNeuralBeta, personal.GetDiagnosticsSnapshot().EffectiveNeuralBeta);
+        Assert.Equal(scores, holdout.Select(row => personal.Score(row.Features)).ToArray());
+    }
+
+    [Fact]
+    [Trait("Category", "Profiling")]
+    public void ProfileUnchangedNeuralReplaysAgainstTheOrdinaryFittingPath()
+    {
+        var fit = Examples(300, 591);
+        var holdout = Examples(100, 592);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        foreach (var ordinaryPath in new[] { true, false })
+        {
+            using var ensemble = Create(ordinaryPath ? "profile-ordinary" : "profile-skip");
+            Assert.True(ensemble.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
+            if (ordinaryPath) ensemble.SetSharedPredictionProvider(() => null); // Dynamic preparation uses the ordinary path.
+            var before = holdout.Select(row => ensemble.Score(row.Features)).ToArray();
+            var allocation = GC.GetAllocatedBytesForCurrentThread();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            for (var replay = 0; replay < 3; replay++)
+            {
+                Assert.Equal(ordinaryPath, ensemble.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
+            }
+
+            timer.Stop();
+            _output.WriteLine($"Replay profile ({(ordinaryPath ? "ordinary fit" : "early skip")}): {timer.Elapsed.TotalMilliseconds:F2} ms, {GC.GetAllocatedBytesForCurrentThread() - allocation:N0} allocated bytes, three replays.");
+            Assert.Equal(before, holdout.Select(row => ensemble.Score(row.Features)).ToArray());
+        }
+    }
+
+    [Fact]
+    public void WorseProvisionalFitRetainsGoodCoordinatesAndHonestTrainingTime()
+    {
+        using var ensemble = Create("provisional-retention");
+        var fit = Examples(100, 451);
+        var holdout = Examples(80, 452);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        var store = new AcceptedModelStore(Path.Join(_directory, "provisional-retention-state.json"));
+        var first = store.Read()!;
+        var badFit = Examples(100, 453);
+        foreach (var row in badFit) row.Label = .05;
+        Assert.True(ensemble.TrainValidated(badFit, holdout, false, TestContext.Current.CancellationToken));
+        var retained = store.Read()!;
+        Assert.True(retained.Revision > first.Revision);
+        Assert.NotEqual(first.OperatingInputDigest, retained.OperatingInputDigest);
+        Assert.Equal(first.Learned.Weights, retained.Learned.Weights);
+        Assert.Equal(first.Learned.Bias, retained.Learned.Bias);
+        Assert.Equal(first.Learned.FeatureMeans, retained.Learned.FeatureMeans);
+        Assert.Equal(first.Learned.ImputationMeans, retained.Learned.ImputationMeans);
+        Assert.Equal(first.Learned.TrainingGeneration, retained.Learned.TrainingGeneration);
+        Assert.Equal(first.TrainedAtUtc, retained.TrainedAtUtc);
+        Assert.True(retained.Mixture.Alpha <= first.Mixture.Alpha);
+        Assert.False(retained.Retired);
+        Assert.Null(retained.Utility);
+    }
+
+    [Fact]
+    public void InsufficientNeuralRefreshRetainsThePreviouslyTrainedPredictorInsteadOfPublishingRandomWeights()
+    {
+        using var ensemble = Create("provisional-neural-failure");
+        var fit = Examples(300, 461);
+        var holdout = Examples(100, 462);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
+        Assert.True(ensemble.GetDiagnosticsSnapshot().NeuralShare > 0);
+        var before = ensemble.GetAcceptedNeuralPrediction()!.ExportParameters();
+        var sparseFit = Examples(12, 463);
+        foreach (var row in sparseFit) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(sparseFit, holdout, true, TestContext.Current.CancellationToken));
+        var after = ensemble.GetAcceptedNeuralPrediction()!.ExportParameters();
+        Assert.Equal(before.WeightsIH, after.WeightsIH);
+        Assert.Equal(before.WeightsH4O, after.WeightsH4O);
+        Assert.Equal(before.TrainingGeneration, after.TrainingGeneration);
+        Assert.True(ensemble.GetDiagnosticsSnapshot().NeuralShare > 0);
+    }
+
+    [Fact]
+    public void ProvisionalReconfigurationRetainsGoodParametersWithinTheNewMaturityAndConfigurationCeilings()
+    {
+        using var ensemble = Create("provisional-reconfigure");
+        var fit = Examples(100, 481);
+        var holdout = Examples(80, 482);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        ensemble.Reconfigure(.2, .4, 1);
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.NotEqual("CheckpointCommitFailed", ensemble.LastAdmission!.Reason);
+        var stored = new AcceptedModelStore(Path.Join(_directory, "provisional-reconfigure-state.json")).Read()!;
+        Assert.InRange(stored.Mixture.Alpha, .2, stored.AlphaCap);
+        Assert.InRange(stored.AlphaCap, .2, .4);
+        using var restarted = Create("provisional-reconfigure");
+        restarted.Reconfigure(.2, .4, 1);
+        Assert.Equal(ensemble.GetDiagnosticsSnapshot().EffectiveAlpha, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
     }
 
     [Fact]
@@ -687,6 +1026,273 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.NotNull(global.GetAcceptedNeuralPrediction());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PinnedNullNeuralPriorCannotBorrowTheRefreshedInheritedIncumbent(bool replaceProviderAfterPreparation)
+    {
+        using var global = Create("null-prior-global");
+        Assert.True(global.TrainValidated(Examples(600, 501), Examples(400, 502), true, TestContext.Current.CancellationToken));
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, ownsNeural: false);
+        var pinnedCalls = 0;
+        personal.SetSharedPredictionProvider(() => { pinnedCalls++; return null; });
+        // A cold read happens after this cycle published its globally selected predictor.
+        personal.InitializeOperatingPrior(global.GetOperatingPrior()!);
+        var fit = Examples(200, 503);
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var context = typeof(EnsembleScoringStrategy).GetMethod("PrepareChallengers", flags)!.Invoke(personal, [fit, null, DateTime.UtcNow])!;
+        if (replaceProviderAfterPreparation) personal.SetSharedPredictionProvider(global.GetAcceptedNeuralPrediction);
+        var candidates = typeof(EnsembleScoringStrategy).GetMethod("CaptureFittedCandidates", flags)!.Invoke(personal, [context, fit, Array.Empty<TrainingExample>(), TestContext.Current.CancellationToken])!;
+        Assert.Null(candidates.GetType().GetProperty("Neural")!.GetValue(candidates));
+        Assert.Equal(1, pinnedCalls);
+    }
+
+    [Fact]
+    public void ColdInheritedMixtureStopsNeuralWhenTheGlobalCoefficientStopsEvenIfCoordinatesRemain()
+    {
+        using var global = Create("dormant-prior-global");
+        Assert.True(global.TrainValidated(Examples(600, 511), Examples(400, 512), true, TestContext.Current.CancellationToken));
+        var active = global.GetOperatingPrior()!;
+        Assert.NotNull(active.Neural);
+        using var cold = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, ownsNeural: false);
+        cold.InitializeOperatingPrior(active);
+        var before = cold.GetDiagnosticsSnapshot();
+        Assert.True(before.NeuralShare > 0);
+        var dormant = new AcceptedPrediction(global.HeuristicStrategy, active.Learned, active.Neural, new AdmissionMixture(active.Mixture.Alpha, 0), active.NeuralCap);
+        Assert.NotNull(dormant.Neural);
+        cold.InitializeOperatingPrior(dormant);
+        var after = cold.GetDiagnosticsSnapshot();
+        Assert.Equal(0, after.NeuralShare);
+        Assert.Equal(0, after.EffectiveNeuralBeta);
+        Assert.Equal(before.EffectiveAlpha, after.EffectiveAlpha);
+        Assert.Equal(after.EffectiveAlpha, after.LearnedShare);
+        Assert.Equal("GlobalPrior", after.ValidationLevel);
+        Assert.Null(cold.GetAcceptedNeuralPrediction());
+        cold.InitializeOperatingPrior(active);
+        Assert.Equal(before.NeuralShare, cold.GetDiagnosticsSnapshot().NeuralShare);
+        Assert.Equal(before.EffectiveAlpha, cold.GetDiagnosticsSnapshot().EffectiveAlpha);
+    }
+
+    [Fact]
+    public void ColdInheritedMixtureDoesNotUseDormantLearnedCoordinatesFromANeuralOnlyGlobalPrior()
+    {
+        using var global = Create("neural-only-prior-global");
+        Assert.True(global.TrainValidated(Examples(600, 521), Examples(400, 522), true, TestContext.Current.CancellationToken));
+        var active = global.GetOperatingPrior()!;
+        Assert.True(active.Mixture.Neural > 0);
+        using var cold = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), global.NeuralStrategy, ownsNeural: false);
+        cold.InitializeOperatingPrior(active);
+        var neuralOnly = new AcceptedPrediction(global.HeuristicStrategy, active.Learned, active.Neural, new AdmissionMixture(0, active.Mixture.Neural), active.NeuralCap);
+        cold.InitializeOperatingPrior(neuralOnly);
+        var diagnostics = cold.GetDiagnosticsSnapshot();
+        Assert.Equal(0, diagnostics.LearnedShare);
+        Assert.True(diagnostics.NeuralShare > 0);
+        Assert.InRange(diagnostics.NeuralShare, 0, .3);
+        Assert.Equal(1, diagnostics.HeuristicShare + diagnostics.NeuralShare, 12);
+    }
+
+    [Fact]
+    public void UsefulProvisionalRefreshWithPinnedAbsentNeuralKeepsCoefficientsAndPredictorsPaired()
+    {
+        using var ensemble = Create("paired-provisional-refresh");
+        var firstFit = Examples(300, 541);
+        var firstHoldout = Examples(100, 542);
+        foreach (var row in firstFit.Concat(firstHoldout))
+        {
+            row.Features.GenreSimilarity = .1;
+            row.Features.CombinedCriticScore = .1;
+            row.Features.RecencyScore = .1;
+            row.Features.YearProximityScore = .1;
+            row.Label = .2;
+        }
+
+        Assert.True(ensemble.TrainValidated(firstFit, firstHoldout, true, TestContext.Current.CancellationToken));
+        var store = new AcceptedModelStore(Path.Join(_directory, "paired-provisional-refresh-state.json"));
+        var before = store.Read()!;
+        Assert.True(ensemble.GetDiagnosticsSnapshot().NeuralShare > 0);
+        var fit = Examples(300, 543);
+        var holdout = Examples(100, 544);
+        foreach (var row in fit.Concat(holdout))
+        {
+            row.Features.GenreSimilarity = .1;
+            row.Features.CombinedCriticScore = .1;
+            row.Features.RecencyScore = .1;
+            row.Features.YearProximityScore = .1;
+            row.Label = .85;
+        }
+
+        ensemble.SetSharedPredictionProvider(() => null);
+        Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.NotEqual("CheckpointCommitFailed", ensemble.LastAdmission!.Reason);
+        var after = store.Read()!;
+        Assert.True(after.Revision > before.Revision);
+        Assert.True(after.Learned.Bias > before.Learned.Bias);
+        Assert.Equal(0, after.Mixture.Neural);
+        Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().NeuralShare);
+        Assert.Equal(after.Mixture.Alpha, ensemble.GetDiagnosticsSnapshot().LearnedShare);
+        Assert.Null(after.Utility);
+    }
+
+    [Theory]
+    [InlineData("promotion")]
+    [InlineData("withdrawal")]
+    [InlineData("legacy-withdrawal")]
+    [InlineData("history")]
+    public void PublicationSpendsOnlyTheAcceptanceIdentitiesActuallyExamined(string operation)
+    {
+        var scope = "examined-identities-" + operation;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var store = new AcceptedModelStore(statePath);
+        if (operation == "history") Assert.True(store.Commit(LinearBundle(false, 1, DateTime.UtcNow.AddHours(-2))));
+        if (operation is "withdrawal" or "history") Assert.True(store.Commit(LinearBundle(true, 2, DateTime.UtcNow.AddHours(-1))));
+        if (operation == "legacy-withdrawal")
+        {
+            var legacy = LinearBundle(true, 1, DateTime.UtcNow);
+            File.WriteAllText(Path.Join(_directory, scope + "-ml.json"), System.Text.Json.JsonSerializer.Serialize(legacy.Learned));
+            File.WriteAllText(statePath, System.Text.Json.JsonSerializer.Serialize(legacy.State));
+        }
+
+        var mixedUser = new Guid(1, 0, 0, new byte[8]);
+        var excludedUser = new Guid(2, 0, 0, new byte[8]);
+        var fit = Examples(600, 551);
+        var holdout = Examples(400, 552);
+        foreach (var row in fit.Concat(holdout))
+        {
+            row.UserId = mixedUser;
+            row.Features.CombinedCriticScore = row.Label;
+        }
+
+        if (operation != "promotion") foreach (var row in fit) row.Label = .85 - row.Label;
+        var excluded = Examples(100, 553);
+        foreach (var row in excluded)
+        {
+            row.UserId = excludedUser;
+            row.Label = .85;
+        }
+
+        using var ensemble = Create(scope);
+        Assert.True(ensemble.TrainValidated(fit, holdout.Concat(excluded).ToArray(), false, TestContext.Current.CancellationToken));
+        var expectedReason = operation switch
+        {
+            "promotion" => "Accepted",
+            "history" => "HistoricalModelRestoredOnNewEvidence",
+            "legacy-withdrawal" => "LegacyModelWithdrawnOnNewEvidence",
+            _ => "IncumbentWithdrawnOnNewEvidence"
+        };
+        Assert.Equal(expectedReason, ensemble.LastAdmission!.Reason);
+        var examined = holdout.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0).Select(row => row.ObservationId).ToArray();
+        if (operation == "legacy-withdrawal")
+        {
+            var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(statePath + ".assessment.json"))!.AsObject();
+            var ids = journal["LegacyWithdrawalObservationIds"]!.AsArray().Select(node => Guid.Parse(node!.GetValue<string>())).ToArray();
+            Assert.Equal(examined.Order(), ids.Order());
+        }
+        else
+        {
+            Assert.Equal(examined.Order(), store.Read()!.AcceptanceObservationIds.Order());
+        }
+
+        var spent = ensemble.GetAcceptedObservationIds()!;
+        Assert.All(examined, id => Assert.Contains(id, spent));
+        Assert.Empty(excluded.Select(row => row.ObservationId).Intersect(spent));
+    }
+
+    [Fact]
+    public async Task SlowLedgerReadDoesNotBlockInference()
+    {
+        using var ensemble = Create("slow-ledger-read");
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var reading = Task.Run(() => ensemble.GetAcceptedObservationIds((_, _) =>
+        {
+            entered.Set();
+            release.Wait(TestContext.Current.CancellationToken);
+            return [];
+        }), TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            var scoring = Task.Run(() => ensemble.Score(new CandidateFeatures { GenreSimilarity = .8 }), TestContext.Current.CancellationToken);
+            Assert.InRange(await scoring.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken), 0, 1);
+            Assert.False(release.IsSet);
+        }
+        finally
+        {
+            release.Set();
+            await reading;
+        }
+    }
+
+    [Fact]
+    public void LedgerReadRetriesRatherThanApplyingResultsFromBeforeAnInterveningPromotion()
+    {
+        using var ensemble = Create("ledger-read-revision");
+        var fit = Examples(200, 561);
+        var holdout = Examples(400, 562);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        var staleId = new Guid(999, 0, 0, new byte[8]);
+        var calls = 0;
+        var ids = ensemble.GetAcceptedObservationIds((bundle, required) =>
+        {
+            if (++calls == 1)
+            {
+                Assert.True(ensemble.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+                Assert.True(ensemble.LastAdmission!.Accepted);
+                return [staleId];
+            }
+
+            return new AcceptedModelStore(Path.Join(_directory, "ledger-read-revision-state.json")).ReadSpentAcceptanceIds(bundle, required);
+        });
+        Assert.Equal(2, calls);
+        Assert.NotNull(ids);
+        Assert.DoesNotContain(staleId, ids);
+        Assert.NotEmpty(ids);
+    }
+
+    [Fact]
+    public void RestoredNeuralSnapshotRemainsVisibleInDiagnosticsWithoutALiveNeuralTrainer()
+    {
+        var statePath = Path.Join(_directory, "snapshot-neural-state.json");
+        using (var trained = Create("snapshot-neural"))
+        {
+            Assert.True(trained.TrainValidated(Examples(600, 401), Examples(400, 402), true, TestContext.Current.CancellationToken));
+            Assert.True(trained.GetDiagnosticsSnapshot().NeuralShare > 0);
+        }
+
+        using var restored = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), neural: null, statePath: statePath, genrePenaltyFloor: 1);
+        var diagnostics = restored.GetDiagnosticsSnapshot();
+        Assert.True(diagnostics.NeuralEnabled);
+        Assert.True(diagnostics.NeuralShare > 0);
+        Assert.Equal(1, diagnostics.HeuristicShare + diagnostics.LearnedShare + diagnostics.NeuralShare, 12);
+    }
+
+    [Theory]
+    [InlineData("empty-object")]
+    [InlineData("Version")]
+    [InlineData("ObservedTrainingIds")]
+    [InlineData("IndependentAdmissionEnabled")]
+    [InlineData("HeuristicFallbackRequired")]
+    [InlineData("AcceptanceLedgerRequired")]
+    [InlineData("AcceptedModelRevision")]
+    [InlineData("LegacyModelSuppressed")]
+    public void OmittedSafetyMetadataCannotRestoreLegacyInfluence(string omitted)
+    {
+        var scope = "missing-safety-" + omitted;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var legacy = LinearBundle(true, 1, DateTime.UtcNow);
+        File.WriteAllText(Path.Join(_directory, scope + "-ml.json"), System.Text.Json.JsonSerializer.Serialize(legacy.Learned));
+        File.WriteAllText(statePath, System.Text.Json.JsonSerializer.Serialize(legacy.State));
+        var metadata = new ModelTrainingAssessment { IndependentAdmissionEnabled = true, HeuristicFallbackRequired = true };
+        var node = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(metadata))!.AsObject();
+        if (omitted == "empty-object") node.Clear();
+        else node.Remove(omitted);
+        File.WriteAllText(statePath + ".assessment.json", node.ToJsonString());
+        using var restarted = Create(scope);
+        Assert.Equal(0, restarted.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.Equal("UnreadableAdmissionAssessment", restarted.LastAdmission!.Reason);
+    }
+
     [Fact]
     public void DisposedAndConcurrentTrainingCannotStartASecondFitOrPublishAnotherModel()
     {
@@ -722,7 +1328,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         var midpoint = ensemble.SigmoidMidpointOffset;
         ensemble.ApplyCohortFeedback([], []);
         Assert.Equal(midpoint, ensemble.SigmoidMidpointOffset);
-        Assert.True(ensemble.Train(fit, holdout, trainNeural: false));
+        Assert.False(ensemble.Train(fit, holdout, trainNeural: false));
         Assert.False(ensemble.LastAdmission!.Accepted);
         Assert.Equal(1, ensemble.GetDiagnosticsSnapshot().ModelRevision);
         Assert.Equal(score, ensemble.Score(probe));
@@ -777,6 +1383,32 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         ensemble.Reconfigure(.3, Math.BitIncrement(.75), 1);
         Assert.True(ensemble.CaptureEvaluationConfiguration().Revision > original.Revision);
         Assert.False(ScoringHelper.SameConfigurationValue(.75, Math.BitIncrement(.75)));
+    }
+
+    [Theory]
+    [InlineData(double.NaN, false)]
+    [InlineData(double.PositiveInfinity, true)]
+    [InlineData(double.NegativeInfinity, false)]
+    public void HistoricalCalibrationRejectsNaNReferencesButAllowsTheUnknownChallengerSentinel(double referenceLoss, bool selected)
+    {
+        using var ensemble = Create("calibration-reference");
+        var original = LinearBundle(false, 1, DateTime.UtcNow);
+        var bad = LinearBundle(true, 2, DateTime.UtcNow);
+        var heuristic = ensemble.HeuristicStrategy;
+        var learned = new LearnedScoringStrategy.PredictionSnapshot(bad.Learned);
+        var incumbent = new AcceptedPrediction(heuristic, learned, null, bad.Mixture, bad.NeuralCap);
+        var calibration = Examples(200, 381);
+        foreach (var row in calibration) row.Features.CombinedCriticScore = row.Label;
+        var flags = System.Reflection.BindingFlags.NonPublic;
+        var contextType = typeof(EnsembleScoringStrategy).GetNestedType("RestorationContext", flags)!;
+        var context = Activator.CreateInstance(contextType, [calibration, Array.Empty<TrainingExample>(), incumbent, 1.0, DateTime.UtcNow, referenceLoss, learned, ensemble.CaptureEvaluationConfiguration()])!;
+        var heuristicType = typeof(EnsembleScoringStrategy).GetNestedType("PenalizedPredictor", flags)!;
+        var penalized = Activator.CreateInstance(heuristicType, [heuristic, 1.0])!;
+        var incumbentType = typeof(EnsembleScoringStrategy).GetNestedType("PinnedMixturePredictor", flags)!;
+        var current = Activator.CreateInstance(incumbentType, [incumbent, .75, 1.0])!;
+        var method = typeof(EnsembleScoringStrategy).GetMethod("CalibrateHistoricalCandidate", flags | System.Reflection.BindingFlags.Instance)!;
+        var candidate = method.Invoke(ensemble, [original, context, penalized, current]);
+        Assert.Equal(selected, candidate is not null);
     }
 
     [Fact]

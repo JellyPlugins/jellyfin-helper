@@ -2,11 +2,9 @@
  * Per-user recommendation model lifecycle (filesystem behaviour).
  *
  * Proves, against the real Jellyfin 12 container, what the unit tests (mocked) cannot:
- *  - a training run persists the global ensemble blend state (ensemble_state.json), and the learned/neural
- *    weight files (ml_weights.json, neural_weights.json) appear once their example thresholds are met;
- *  - a user above the example threshold gets per-user files (ml_weights_{id}.json, ensemble_state_{id}.json)
- *    whose JSON has the expected shape;
- *  - two training runs evolve the per-user state (TrainingExampleCount does not regress; files are rewritten);
+ *  - observed positive fitting/calibration titles can produce bounded provisional v5 bundles, not verified ranking;
+ *  - personal bundles and diagnostics expose the same operating mixture and explicit evidence level;
+ *  - repeated training retains unique-title maturity without manufacturing fresh acceptance;
  *  - deleting a user and re-running the task prunes that user's per-user files while the global files remain.
  *
  * The suite runs on the HOST; the plugin writes inside the container, so file assertions go through
@@ -73,6 +71,7 @@ const seededPlayedIds: string[] = [];
 const seededFavoriteIds: string[] = [];
 const createdSeedFiles: Array<{ file: string; directory: string }> = [];
 const PER_USER_FIT_THRESHOLD = 12;
+const CALIBRATION_SEED_TITLES = 4;
 
 test.beforeAll(async () => {
   auth = loadAuth();
@@ -127,7 +126,7 @@ async function movieItems(): Promise<SeedMovie[]> {
     });
 }
 
-function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
+function partitionMovies(movies: SeedMovie[], partition: 'fit' | 'calibration'): SeedMovie[] {
   const user = auth.userId.replaceAll('-', '').toLowerCase();
   const seen = new Set<string>();
   return movies.filter(movie => {
@@ -135,31 +134,43 @@ function fittingMovies(movies: SeedMovie[]): SeedMovie[] {
     const key = movie.tmdbId > 0 ? `tmdb:movie:${movie.tmdbId}` : `library:${item}`;
     if (seen.has(key)) return false;
     seen.add(key);
-    return createHash('sha256').update(`${user}:${key}`).digest().readUInt32LE(0) % 10 !== 0;
+    const identity = createHash('sha256').update(`${user}:${key}`).digest().subarray(0, 16);
+    const heldOut = identity.readUInt32LE(0) % 10 === 0;
+    if (partition === 'fit') return !heldOut;
+    return heldOut && (createHash('sha256').update(identity).digest()[0] & 1) === 0;
   });
 }
 
+function fittingMovies(movies: SeedMovie[]): SeedMovie[] { return partitionMovies(movies, 'fit'); }
+function calibrationMovies(movies: SeedMovie[]): SeedMovie[] { return partitionMovies(movies, 'calibration'); }
+
 async function ensureObservedSeed(): Promise<SeedMovie[]> {
   let movies = await movieItems();
-  if (fittingMovies(movies).length < PER_USER_FIT_THRESHOLD) {
+  const supported = () => fittingMovies(movies).length >= PER_USER_FIT_THRESHOLD && calibrationMovies(movies).length >= CALIBRATION_SEED_TITLES;
+  if (!supported()) {
     const source = movies.find(movie => containerFileExists(movie.path));
     expect(source, 'need a real playable movie to expand the isolated model fixture').toBeDefined();
     const extension = source!.path.slice(source!.path.lastIndexOf('.'));
     const run = randomUUID().slice(0, 8);
     // Copies are cheap, isolated to this suite and removed afterwards; no generated-only feedback is fabricated.
-    for (let i = 0; i < 24; i++) {
-      const title = `JFH Per User Seed ${run}-${i} (2020)`;
-      const directory = `/media/Movies/${title}`;
-      const file = `${directory}/${title}${extension}`;
-      createdSeedFiles.push({ file, directory });
-      const copied = execInContainer(`mkdir -p -- ${q(directory)} && cp -- ${q(source!.path)} ${q(file)}`);
-      expect(copied.code, copied.stderr).toBe(0);
+    for (let batch = 0; batch < 10 && !supported(); batch++) {
+      const previousCount = movies.length;
+      for (let i = 0; i < 24; i++) {
+        const title = `JFH Per User Seed ${run}-${batch * 24 + i} (2020)`;
+        const directory = `/media/Movies/${title}`;
+        const file = `${directory}/${title}${extension}`;
+        createdSeedFiles.push({ file, directory });
+        const copied = execInContainer(`mkdir -p -- ${q(directory)} && cp -- ${q(source!.path)} ${q(file)}`);
+        expect(copied.code, copied.stderr).toBe(0);
+      }
+      expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
+      await expect.poll(async () => (await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(previousCount + 24);
+      movies = await movieItems();
     }
-    expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
-    await expect.poll(async () => fittingMovies(await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
-    movies = await movieItems();
   }
-  return fittingMovies(movies).slice(0, PER_USER_FIT_THRESHOLD);
+  expect(fittingMovies(movies).length, 'permanent fitting support').toBeGreaterThanOrEqual(PER_USER_FIT_THRESHOLD);
+  expect(calibrationMovies(movies).length, 'separate permanent calibration support').toBeGreaterThanOrEqual(CALIBRATION_SEED_TITLES);
+  return [...fittingMovies(movies).slice(0, PER_USER_FIT_THRESHOLD), ...calibrationMovies(movies).slice(0, CALIBRATION_SEED_TITLES)];
 }
 
 /** Activate recommendations only; disable every filesystem stage so the run is isolated. */
@@ -196,7 +207,7 @@ test.describe.serial('per-user recommendation model files', () => {
     // Seed a complete observed fitting slice outside the permanent holdout, without relying on generated
     // contrast candidates or an incidental recommendation pool to clear the model's fitting threshold.
     const movies = await ensureObservedSeed();
-    expect(movies.length, 'need twelve actual observed fitting titles, excluding holdouts').toBe(PER_USER_FIT_THRESHOLD);
+    expect(movies.length, 'separate observed fitting and calibration seed titles').toBe(PER_USER_FIT_THRESHOLD + CALIBRATION_SEED_TITLES);
     for (const m of movies) {
       if (!m.played) {
         const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
@@ -226,7 +237,7 @@ test.describe.serial('per-user recommendation model files', () => {
     }
   });
 
-  test('a training run persists honest assessment without fabricating an accepted model from fitting-only evidence', async () => {
+  test('positive-only fitting and calibration persist provisional serving without fabricated ranking approval', async () => {
     await activateRecommendationsOnly();
 
     // Training runs off the previous run's cached results, so the very first Activate run only generates
@@ -251,7 +262,18 @@ test.describe.serial('per-user recommendation model files', () => {
     expect(assessment.ObservedTrainingIds).toHaveLength(assessment.TrainingExampleCount);
     expect(assessment.Decision.Accepted).toBe(false);
     expect(assessment.Decision.Utility.CandidateLoss).toBeNull();
-    expect(containerFileExists(`${dir}/ensemble_state.json.accepted-model.json`), 'positive-only fitting seed cannot manufacture an accepted checkpoint').toBe(false);
+    const bundlePath = `${dir}/ensemble_state.json.accepted-model.json`;
+    expect(containerFileExists(bundlePath), 'independently seeded calibration supports bounded provisional serving').toBe(true);
+    const bundle = JSON.parse(readContainerFile(bundlePath));
+    expect(bundle.Version).toBe(2);
+    expect(bundle.IsProvisional).toBe(true);
+    expect(bundle.Utility).toBeNull();
+    expect(bundle.CalibrationTitleCount).toBeGreaterThanOrEqual(CALIBRATION_SEED_TITLES);
+    expect(bundle.CalibrationLoss).toBeLessThanOrEqual(.6);
+    expect(bundle.AcceptanceObservationIds).toEqual([]);
+    expect(bundle.Learned.Version).toBe(5);
+    expect(bundle.Learned.Weights).toHaveLength(38);
+    expect(bundle.Learned.TrainingGeneration).toBeGreaterThan(0);
     // The learned and neural weight files are written only once their own example thresholds are met (learned
     // needs at least twelve pooled examples, the neural MLP at least thirty). The smoke fixture is a couple of
     // users over a handful of playable items, which does not reliably reach those counts, so persistence is
@@ -267,7 +289,7 @@ test.describe.serial('per-user recommendation model files', () => {
     }
   });
 
-  test('per-user full slices reach fitting but insufficient independent evidence stays on global fallback', async () => {
+  test('personal provisional diagnostics match the atomic mixture without claiming independent approval', async () => {
     await activateRecommendationsOnly();
     expect((await runCleanupTask(ctx)).LastExecutionResult?.Status).toBe('Completed');
     await sleep(1000);
@@ -286,8 +308,18 @@ test.describe.serial('per-user recommendation model files', () => {
     const diagnosticResponse = await ctx.get(p(`Recommendations/Diagnostics/Ensemble?userId=${auth.userId}`));
     expect(diagnosticResponse.ok()).toBe(true);
     const diagnostics = await diagnosticResponse.json();
-    expect(diagnostics.IsPerUser).toBe(false);
-    expect(diagnostics.EffectiveAlpha).toBe(0);
+    expect(diagnostics.IsPerUser).toBe(true);
+    expect(diagnostics.ValidationLevel).toBe('Provisional');
+    expect(diagnostics.QualityGateFrozen).toBe(false);
+    expect(diagnostics.EffectiveAlpha).toBeGreaterThanOrEqual(.3);
+    expect(diagnostics.EffectiveAlpha).toBeLessThanOrEqual(.75);
+    const bundle = JSON.parse(readContainerFile(`${resolveDataDir()}/ensemble_state_${id}.json.accepted-model.json`));
+    expect(bundle.IsProvisional).toBe(true);
+    expect(bundle.Utility).toBeNull();
+    expect(bundle.AcceptanceObservationIds).toEqual([]);
+    expect(diagnostics.LearnedShare).toBeCloseTo(bundle.Mixture.Learned, 12);
+    expect(diagnostics.NeuralShare).toBeCloseTo(bundle.Mixture.Neural, 12);
+    expect(diagnostics.HeuristicShare + diagnostics.LearnedShare + diagnostics.NeuralShare).toBeCloseTo(1, 12);
 
     // Every per-user weight file must pair with an ensemble-state file for the same id.
     const dir = resolveDataDir();
