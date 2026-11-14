@@ -38,6 +38,42 @@ describe('temporary-account recommendation playlist cleanup', () => {
     await expect(removeFixtureRecommendationPlaylists(ctx, USER, NAME)).rejects.toThrow('deletion failed');
   });
 
+  test.each(['http', 'transport'])('waits for every deletion before account teardown after a %s failure', async failure => {
+    let completeSecond!: (value: ReturnType<typeof response>) => void;
+    const second = new Promise<ReturnType<typeof response>>(resolve => { completeSecond = resolve; });
+    const ctx = {
+      get: vi.fn().mockResolvedValue(response({ Items: [{ Id: FIRST, Name: EXPECTED }, { Id: SECOND, Name: EXPECTED + '2' }] })),
+      delete: vi.fn((url: string) => {
+        if (url === `/Items/${FIRST}`) return failure === 'http' ? Promise.resolve(response({}, 500)) : Promise.reject(new Error('transport failure'));
+        if (url === `/Items/${SECOND}`) return second;
+        return Promise.resolve(response({}, 204));
+      }),
+    };
+    const cleanup = removeFixtureRecommendationPlaylists(ctx, USER, NAME)
+      .finally(() => ctx.delete(`/Users/${USER}`));
+    const result = cleanup.then(() => null, error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    try {
+      expect(ctx.delete).toHaveBeenCalledWith(`/Items/${SECOND}`);
+      expect(ctx.delete).not.toHaveBeenCalledWith(`/Users/${USER}`);
+    } finally {
+      completeSecond(response({}, 204));
+    }
+    const error = await result;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain(failure === 'http' ? 'deletion failed' : 'transport failure');
+    expect(ctx.delete.mock.calls).toEqual([[`/Items/${FIRST}`], [`/Items/${SECOND}`], [`/Users/${USER}`]]);
+  });
+
+  test('validates every matching identity before deleting any playlist', async () => {
+    const ctx = {
+      get: vi.fn().mockResolvedValue(response({ Items: [{ Id: FIRST, Name: EXPECTED }, { Id: '../other', Name: EXPECTED + '2' }] })),
+      delete: vi.fn().mockResolvedValue(response({}, 204)),
+    };
+    await expect(removeFixtureRecommendationPlaylists(ctx, USER, NAME)).rejects.toThrow('invalid item identity');
+    expect(ctx.delete).not.toHaveBeenCalled();
+  });
+
   test('missing Items and malformed item IDs cannot be mistaken for successful cleanup', async () => {
     const ctx = { get: vi.fn().mockResolvedValue(response({})), delete: vi.fn() };
     await expect(removeFixtureRecommendationPlaylists(ctx, USER, NAME)).rejects.toThrow('Items array');

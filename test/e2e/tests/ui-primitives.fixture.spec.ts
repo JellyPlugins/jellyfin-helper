@@ -110,6 +110,54 @@ async function discovery(page: Page) {
   }, discoveryRecommendations);
 }
 
+for (const outcome of ['success', 'duplicate', 'failure']) {
+  test(`a replacement profile popup does not repost after an original ${outcome}`, async ({ page }) => {
+    await page.clock.install();
+    await discovery(page);
+    await page.evaluate(() => {
+      const pool = () => ({ DeliveryId: '00000000-0000-0000-0000-000000000001', Recommendations: [
+        { TmdbId: 1, MediaType: 'movie', Title: 'Movie', Score: 0.8 },
+      ] });
+      (window as any).fixtureRequestPosts = 0;
+      (window as any).ApiClient.ajax = async (options: any) => {
+        if (options.url.endsWith('/Request')) {
+          if (++(window as any).fixtureRequestPosts === 1) {
+            return new Promise(resolve => { (window as any).completeOriginalRequest = resolve; });
+          }
+          return { Success: true };
+        }
+        if (options.url.includes('RequestPermissions')) return { CanRequest: true,
+          Profiles: [1, 2].map(id => ({ ServerId: 1, ProfileId: id, ProfileName: 'Quality ' + id, RootFolder: '/media' })) };
+        if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool() };
+        return pool();
+      };
+      (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
+    });
+    const requestButton = page.locator('.jfh-discovery-card[data-tmdb="1"] [data-jfh-action="request"]');
+    const profile = page.locator('#jfhDiscoveryPopup .jfh-discovery-popup-item').first();
+    await requestButton.click();
+    await profile.click();
+    await expect.poll(() => page.evaluate(() => (window as any).fixtureRequestPosts)).toBe(1);
+    await page.locator('[data-tab="trakt"]').click();
+    await expect(page.locator('.jfh-discovery-tab[data-tab="trakt"]')).toHaveClass(/jfh-discovery-tab-active/);
+    await page.locator('[data-tab="own"]').click();
+    await requestButton.click();
+    await expect(profile).toBeVisible();
+    await page.evaluate(result => (window as any).completeOriginalRequest(result), {
+      Success: outcome !== 'failure', AlreadyRequested: outcome === 'duplicate',
+    });
+    if (outcome === 'failure') await expect(requestButton).toBeEnabled();
+    else await expect(requestButton).toHaveClass(/jfh-discovery-btn-done/);
+    await expect(profile).toBeVisible();
+    await profile.click();
+    await expect(page.locator('#jfhDiscoveryPopup')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).fixtureRequestPosts)).toBe(outcome === 'failure' ? 2 : 1);
+    await expect(requestButton).toHaveClass(/jfh-discovery-btn-done/);
+    await expect(requestButton).toBeDisabled();
+    await expect(page.locator('.jfh-discovery-btn-dismiss')).toBeHidden();
+  });
+}
+
 test('requested-card success animation stays in its source on immediate Trakt switches', async ({ page }) => {
   await page.clock.install();
   await discovery(page);

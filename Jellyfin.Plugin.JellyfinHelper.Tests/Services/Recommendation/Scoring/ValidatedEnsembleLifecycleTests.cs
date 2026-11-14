@@ -748,6 +748,130 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.NotNull(new AcceptedModelStore(statePath).Read()!.Utility);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OlderAssessmentRetainsRejectedInputReceiptsAfterANewerProvisionalBundleCommit(bool legacyReceipt)
+    {
+        var scope = "older-provisional-rejection-" + legacyReceipt;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var assessmentPath = statePath + ".assessment.json";
+        var bundlePath = AcceptedModelStore.GetBundlePath(statePath)!;
+        var fitA = Examples(200, 531);
+        var holdoutA = Examples(100, 532);
+        foreach (var row in fitA.Concat(holdoutA)) row.Label = .85;
+        var fitB = Examples(200, 533);
+        var holdoutB = Examples(400, 534);
+        foreach (var row in fitB.Concat(holdoutB)) row.Features.CombinedCriticScore = row.Label;
+        foreach (var row in holdoutB.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0))
+        {
+            row.Label = row.Features.CombinedCriticScore > 0 && row.ObservationId.ToByteArray()[1] % 5 == 0 ? 0 : .85;
+        }
+
+        byte[] rejectionJournal;
+        byte[] latestBundle;
+        double[] latestScores;
+        using (var initial = Create(scope))
+        {
+            Assert.True(initial.TrainValidated(fitA, holdoutA, false, TestContext.Current.CancellationToken));
+            Assert.True(initial.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+            Assert.Equal("RejectedIndependentUtility", initial.LastAdmission!.Reason);
+            Assert.NotNull(initial.LastAdmission.Utility.CandidateLoss);
+            rejectionJournal = File.ReadAllBytes(assessmentPath);
+            var holdoutC = Examples(100, 537);
+            foreach (var row in holdoutC) row.Label = .85;
+            Assert.True(initial.TrainValidated(fitA, holdoutC, false, TestContext.Current.CancellationToken));
+            Assert.Equal(2, initial.GetDiagnosticsSnapshot().ModelRevision);
+            Assert.Equal("Provisional", initial.GetDiagnosticsSnapshot().ValidationLevel);
+            latestBundle = File.ReadAllBytes(bundlePath);
+            latestScores = holdoutB.Select(row => initial.Score(row.Features)).ToArray();
+        }
+
+        // Model publication survived; the interrupted assessment write left revision 1's rejection receipt.
+        File.WriteAllBytes(assessmentPath, rejectionJournal);
+        if (legacyReceipt)
+        {
+            var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+            journal["ReservedOperatingInputDigests"] = new System.Text.Json.Nodes.JsonArray();
+            File.WriteAllText(assessmentPath, journal.ToJsonString());
+        }
+
+        for (var restart = 0; restart < 2; restart++)
+        {
+            using var restarted = Create(scope);
+            Assert.NotEqual("RejectedIndependentUtility", restarted.LastAdmission?.Reason);
+            Assert.Equal(latestScores, holdoutB.Select(row => restarted.Score(row.Features)).ToArray());
+            if (!legacyReceipt)
+            {
+                Assert.False(restarted.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+                Assert.Equal("UnchangedOperatingInputs", restarted.LastAdmission!.Reason);
+            }
+
+            restarted.SetSharedPredictionProvider(() => null);
+            Assert.True(restarted.TrainValidated(fitB, holdoutB, false, TestContext.Current.CancellationToken));
+            Assert.Equal(latestBundle, File.ReadAllBytes(bundlePath));
+            Assert.Equal(latestScores, holdoutB.Select(row => restarted.Score(row.Features)).ToArray());
+            Assert.False(restarted.IsQualityGateFrozen);
+            var currentJournal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+            Assert.Equal(2, currentJournal["AcceptedModelRevision"]!.GetValue<long>());
+            Assert.NotEmpty(currentJournal["ReservedOperatingInputDigests"]!.AsArray());
+            if (legacyReceipt) Assert.Equal("*", currentJournal["ReservedOperatingInputDigests"]![0]!.GetValue<string>());
+        }
+    }
+
+    [Fact]
+    public void OlderAssessmentRetainsIndependentRecoveryWithoutOverridingCurrentServingState()
+    {
+        const string scope = "older-provisional-recovery";
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var assessmentPath = statePath + ".assessment.json";
+        var fit = Examples(200, 541);
+        var holdout = Examples(100, 542);
+        foreach (var row in fit.Concat(holdout)) row.Label = .85;
+        byte[] incumbentBytes;
+        double[] incumbentScores;
+        using (var initial = Create(scope))
+        {
+            Assert.True(initial.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+            incumbentBytes = File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!);
+            incumbentScores = holdout.Select(row => initial.Score(row.Features)).ToArray();
+        }
+
+        var assessment = new ModelTrainingAssessment
+        {
+            AcceptedModelRevision = 0,
+            IndependentRecoveryRequired = true,
+            HeuristicFallbackRequired = true,
+            LegacyModelSuppressed = true,
+            Decision = AdmissionDecision.Unknown("StaleDecisionMustNotReplaceCurrentDiagnostics", 0, 0)
+        };
+        File.WriteAllText(assessmentPath, System.Text.Json.JsonSerializer.Serialize(assessment));
+        for (var restart = 0; restart < 2; restart++)
+        {
+            using var restarted = Create(scope);
+            Assert.NotEqual(assessment.Decision.Reason, restarted.LastAdmission?.Reason);
+            Assert.Equal(incumbentScores, holdout.Select(row => restarted.Score(row.Features)).ToArray());
+            var freshHoldout = Examples(100, 543 + restart);
+            foreach (var row in freshHoldout) row.Label = .85;
+            Assert.True(restarted.TrainValidated(fit, freshHoldout, false, TestContext.Current.CancellationToken));
+            Assert.Equal(incumbentBytes, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+            Assert.Equal(incumbentScores, holdout.Select(row => restarted.Score(row.Features)).ToArray());
+            Assert.False(restarted.IsQualityGateFrozen);
+            var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+            Assert.True(journal["IndependentRecoveryRequired"]!.GetValue<bool>());
+        }
+
+        using var recovered = Create(scope);
+        var recoveryFit = Examples(200, 535);
+        var recoveryHoldout = Examples(400, 536);
+        foreach (var row in recoveryFit.Concat(recoveryHoldout)) row.Features.CombinedCriticScore = row.Label;
+        Assert.True(recovered.TrainValidated(recoveryFit, recoveryHoldout, false, TestContext.Current.CancellationToken));
+        Assert.True(recovered.LastAdmission!.Accepted);
+        Assert.Equal("Verified", recovered.GetDiagnosticsSnapshot().ValidationLevel);
+        var recoveredJournal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!.AsObject();
+        Assert.False(recoveredJournal["IndependentRecoveryRequired"]!.GetValue<bool>());
+    }
+
     [Fact]
     public void ProvisionalMixtureRebalancesOnGrowingPersonalEvidenceWithoutClaimingVerifiedUtility()
     {
