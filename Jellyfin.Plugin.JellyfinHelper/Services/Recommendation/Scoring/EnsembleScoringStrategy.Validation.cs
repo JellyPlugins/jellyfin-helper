@@ -162,10 +162,10 @@ public sealed partial class EnsembleScoringStrategy
         {
             if (_independentAdmissionEnabled)
             {
-                return !_qualityGateFrozen && _acceptedPrediction?.Resolve(_alphaMax).Neural > 0 ? _acceptedPrediction.Neural : null;
+                return !_qualityGateFrozen && _acceptedPrediction is { } prediction && prediction.Resolve(_alphaMax).Neural > 0 ? prediction.Neural : null;
             }
 
-            return !_qualityGateFrozen && _neuralBeta > 0 && _neural?.HasTrainedWeights == true ? _neural.CapturePredictionSnapshot() : null;
+            return !_qualityGateFrozen && _neuralBeta > 0 && _neural is { HasTrainedWeights: true } neural ? neural.CapturePredictionSnapshot() : null;
         }
     }
 
@@ -218,7 +218,7 @@ public sealed partial class EnsembleScoringStrategy
 
             var maturity = _trainingExampleCount == 0 ? _alphaMin : OperatingMixturePolicy.Maturity(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
             var alpha = Math.Min(prior.Mixture.Alpha, maturity);
-            var current = _usesInheritedPrior && _acceptedPrediction?.Mixture.Alpha > 0 ? _acceptedPrediction.Mixture : prior.Resolve(alpha);
+            var current = _usesInheritedPrior && _acceptedPrediction is { } inherited && inherited.Mixture.Alpha > 0 ? inherited.Mixture : prior.Resolve(alpha);
             var neural = prior.Mixture.Neural > 0 ? prior.Neural : null;
             if (neural is null)
             {
@@ -623,7 +623,7 @@ public sealed partial class EnsembleScoringStrategy
         }
     }
 
-    private TrainedCandidates CaptureFittedCandidates(ChallengerContext context, IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, CancellationToken cancellationToken)
+    private static TrainedCandidates CaptureFittedCandidates(ChallengerContext context, IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         NeuralScoringStrategy? fittedNeural = null;

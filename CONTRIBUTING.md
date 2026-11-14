@@ -161,6 +161,9 @@ The dedicated configuration runs the documentation guard before Chromium and
 WebKit. Fixture specs stay separate from the Jellyfin-backed UI project and do
 not wait for its API or server setup.
 
+E2E temporary accounts use `test/e2e/setup/playlist-fixture.ts` to remove their own
+recommendation playlists before account deletion; Discovery fixtures isolate playlist sync.
+
 #### Discovery tab coverage (official Trakt plugin only)
 
 The Discovery home-page tab is built into the plugin, so the e2e suite needs no
