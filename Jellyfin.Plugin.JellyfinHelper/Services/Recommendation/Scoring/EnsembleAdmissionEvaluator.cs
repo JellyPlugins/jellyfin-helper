@@ -28,6 +28,7 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="referenceTime">The fixed time for evidence eligibility and decay.</param>
     /// <param name="alphaCap">The unchanged sigmoid maturity ceiling.</param>
     /// <param name="neuralCap">The absolute Neural influence ceiling after its existing maturity ramp.</param>
+    /// <param name="reserveEvidence">Optional lifecycle reservation before informative acceptance utility is examined.</param>
     /// <returns>An immutable decision; applying or persisting it is a separate lifecycle responsibility.</returns>
     internal static AdmissionDecision Evaluate(
         IReadOnlyList<TrainingExample> calibration,
@@ -35,7 +36,8 @@ internal static class EnsembleAdmissionEvaluator
         AdmissionModels models,
         DateTime referenceTime,
         double alphaCap,
-        double neuralCap)
+        double neuralCap,
+        Func<IReadOnlyCollection<Guid>, string?>? reserveEvidence = null)
     {
         ValidateAdmissionInputs(calibration, acceptance, models, alphaCap, neuralCap);
         var cal = CaptureEvidence(calibration, referenceTime);
@@ -63,6 +65,12 @@ internal static class EnsembleAdmissionEvaluator
         if (!ValidScores(test))
         {
             return AdmissionDecision.Unknown("InvalidPrediction", plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
+        }
+
+        var reservationFailure = ReserveEvidence(test, reserveEvidence);
+        if (reservationFailure is not null)
+        {
+            return AdmissionDecision.Unknown(reservationFailure, plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
         }
 
         return AssessSelectedMixture(plan, test, models.Incumbent is not null);
@@ -126,15 +134,17 @@ internal static class EnsembleAdmissionEvaluator
     {
         var selected = plan.Selected;
         AdmissionMixture heuristic = default;
-        var lowerH = ImprovementLowerBound(test, row => row.Scores.Heuristic, row => selected.Score(row.Scores));
+        var weights = MacroWeights(test);
+        var groups = BuildResamplingGroups(test);
+        var lowerH = ImprovementLowerBound(test, row => row.Scores.Heuristic, row => selected.Score(row.Scores), weights, groups);
         var lowerN = selected.Neural > 0
-            ? ImprovementLowerBound(test, row => plan.NoNeural.Score(row.Scores), row => selected.Score(row.Scores))
+            ? ImprovementLowerBound(test, row => plan.NoNeural.Score(row.Scores), row => selected.Score(row.Scores), weights, groups)
             : (double?)null;
         var lowerIncumbent = hasIncumbent
-            ? ImprovementLowerBound(test, row => row.Scores.Incumbent, row => selected.Score(row.Scores))
+            ? ImprovementLowerBound(test, row => row.Scores.Incumbent, row => selected.Score(row.Scores), weights, groups)
             : (double?)null;
         var accepted = lowerH > 0 && RankSafe(test, selected, heuristic)
-            && (selected.Neural <= 0 || (lowerN > 0 && HasNeuralIncrement(test, selected, plan.NoNeural)))
+            && (selected.Neural <= 0 || (lowerN > 0 && HasNeuralRankingIncrement(test, selected, plan.NoNeural)))
             && (!hasIncumbent || (lowerIncumbent > 0 && RankSafeAgainstIncumbent(test, selected)));
 
         return new AdmissionDecision(
@@ -143,7 +153,7 @@ internal static class EnsembleAdmissionEvaluator
             selected,
             new AdmissionEvidence(plan.Rows.Length, test.Length, EffectiveTitles(plan.Rows), EffectiveTitles(test)),
             new AdmissionUtility(
-                Loss(test, row => selected.Score(row.Scores)),
+                Loss(test, row => selected.Score(row.Scores), weights),
                 MeanNdcg(test, row => selected.Score(row.Scores), FullListRankingK),
                 lowerH,
                 lowerN,
@@ -156,6 +166,42 @@ internal static class EnsembleAdmissionEvaluator
     }
 
     private static bool ValidPrediction(double score) => double.IsFinite(score) && score is >= 0 and <= 1;
+
+    /// <summary>Measures calibration-only serving quality without claiming independently verified discrimination.</summary>
+    /// <param name="calibration">Permanent calibration observations, never acceptance labels.</param>
+    /// <param name="models">Fixed prediction snapshots.</param>
+    /// <param name="mixture">The maturity-bounded operational mixture to measure.</param>
+    /// <param name="referenceTime">Fixed eligibility/decay time.</param>
+    /// <returns>Calibration metrics, or null if even the limited operational support is unavailable.</returns>
+    internal static ServingCalibration? EvaluateServingCalibration(IReadOnlyList<TrainingExample> calibration, AdmissionModels models, AdmissionMixture mixture, DateTime referenceTime)
+    {
+        if (mixture.Neural > 0 && models.Neural is null)
+        {
+            return null;
+        }
+
+        var rows = CaptureEvidence(calibration, referenceTime);
+        if (rows.Length < LearnedScoringStrategy.MinExamplesPerFold || EffectiveTitles(rows) + MetricRoundingTolerance < LearnedScoringStrategy.MinExamplesPerFold)
+        {
+            return null;
+        }
+
+        rows = ScoreEvidence(rows, models, models.Neural is not null);
+        if (!ValidScores(rows))
+        {
+            return null;
+        }
+
+        var mixedUsers = MixedUsers(rows).ToHashSet();
+        var rankingRows = rows.Where(row => mixedUsers.Contains(row.UserId)).ToArray();
+        return new ServingCalibration(rows.Length, Loss(rows, row => mixture.Score(row.Scores)), Loss(rows, row => row.Scores.Learned), models.Neural is null ? null : Loss(rows, row => row.Scores.Neural))
+        {
+            HeuristicLoss = Loss(rows, row => row.Scores.Heuristic),
+            IncumbentLoss = models.Incumbent is null ? null : Loss(rows, row => row.Scores.Incumbent),
+            RankingSafe = RankSafe(rankingRows, row => mixture.Score(row.Scores), row => row.Scores.Heuristic)
+                && (models.Incumbent is null || RankSafeAgainstIncumbent(rankingRows, mixture))
+        };
+    }
 
     /// <summary>Selects a deterministic, user-balanced block without inspecting outcomes or prediction quality.</summary>
     /// <param name="examples">One partition, already excluding spent acceptance identities where applicable.</param>
@@ -183,13 +229,25 @@ internal static class EnsembleAdmissionEvaluator
         return selected.ToArray();
     }
 
+    /// <summary>Checks whether fresh acceptance can inform any independent evaluation, without choosing coefficients.</summary>
+    /// <param name="examples">Fresh, unspent acceptance observations.</param>
+    /// <param name="referenceTime">Fixed eligibility/decay reference.</param>
+    /// <returns>True when there is effective mixed-outcome support; homogeneous/insufficient evidence stays unspent.</returns>
+    internal static bool HasIndependentAcceptanceSupport(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
+    {
+        var rows = CaptureEvidence(examples, referenceTime);
+        var mixed = MixedUsers(rows).ToHashSet();
+        return HasSupport(rows.Where(row => mixed.Contains(row.UserId)).ToArray());
+    }
+
     /// <summary>Tests new observed counterevidence against a pinned incumbent, independently of challenger success.</summary>
     /// <param name="acceptance">Fresh acceptance outcomes.</param>
     /// <param name="heuristic">The actual heuristic reference.</param>
     /// <param name="incumbent">Pinned current model predictions.</param>
     /// <param name="referenceTime">Fixed eligibility/decay time.</param>
+    /// <param name="reserveEvidence">Optional reservation of the observed block, including informative no-withdrawal results.</param>
     /// <returns>Withdrawal evidence, or null when harm is unknown or not established.</returns>
-    internal static AdmissionUtility? EvaluateWithdrawal(IReadOnlyList<TrainingExample> acceptance, IScoringStrategy heuristic, IScoringStrategy incumbent, DateTime referenceTime)
+    internal static AdmissionUtility? EvaluateWithdrawal(IReadOnlyList<TrainingExample> acceptance, IScoringStrategy heuristic, IScoringStrategy incumbent, DateTime referenceTime, Func<IReadOnlyCollection<Guid>, string?>? reserveEvidence = null)
     {
         var rows = CaptureEvidence(acceptance, referenceTime);
         var mixed = MixedUsers(rows).ToHashSet();
@@ -201,6 +259,11 @@ internal static class EnsembleAdmissionEvaluator
 
         rows = ScoreEvidence(rows, new AdmissionModels(heuristic, heuristic, Incumbent: incumbent), false);
         if (rows.Any(row => !ValidPrediction(row.Scores.Heuristic) || !ValidPrediction(row.Scores.Incumbent)))
+        {
+            return null;
+        }
+
+        if (ReserveEvidence(rows, reserveEvidence) is not null)
         {
             return null;
         }
@@ -220,8 +283,9 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="candidate">A fixed historical version.</param>
     /// <param name="incumbent">The current fixed version.</param>
     /// <param name="referenceTime">Fixed effective-weight reference.</param>
+    /// <param name="reserveEvidence">Optional reservation when this call evaluates acceptance rather than calibration.</param>
     /// <returns>Calibration loss or independent restoration utility; unknown support is represented by null.</returns>
-    internal static AdmissionUtility? EvaluateFixedVersion(IReadOnlyList<TrainingExample> examples, IScoringStrategy heuristic, IScoringStrategy candidate, IScoringStrategy incumbent, DateTime referenceTime)
+    internal static AdmissionUtility? EvaluateFixedVersion(IReadOnlyList<TrainingExample> examples, IScoringStrategy heuristic, IScoringStrategy candidate, IScoringStrategy incumbent, DateTime referenceTime, Func<IReadOnlyCollection<Guid>, string?>? reserveEvidence = null)
     {
         var rows = CaptureEvidence(examples, referenceTime);
         var users = MixedUsers(rows).ToHashSet();
@@ -233,6 +297,11 @@ internal static class EnsembleAdmissionEvaluator
 
         rows = ScoreEvidence(rows, new AdmissionModels(heuristic, candidate, Incumbent: incumbent), false);
         if (rows.Any(row => !ValidPrediction(row.Scores.Heuristic) || !ValidPrediction(row.Scores.Learned) || !ValidPrediction(row.Scores.Incumbent)))
+        {
+            return null;
+        }
+
+        if (ReserveEvidence(rows, reserveEvidence) is not null)
         {
             return null;
         }
@@ -293,8 +362,9 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="candidate">Fixed archived complete mixture.</param>
     /// <param name="noNeural">The fixed reference chosen on calibration.</param>
     /// <param name="referenceTime">Fixed eligibility/decay time.</param>
+    /// <param name="reserveEvidence">Optional acceptance reservation; never supplied for coefficient selection.</param>
     /// <returns>Fresh positive incremental loss evidence with ranking gain, or null when unknown/harmful/redundant.</returns>
-    internal static double? EvaluateFixedNeuralIncrement(IReadOnlyList<TrainingExample> examples, IScoringStrategy heuristic, IScoringStrategy candidate, IScoringStrategy noNeural, DateTime referenceTime)
+    internal static double? EvaluateFixedNeuralIncrement(IReadOnlyList<TrainingExample> examples, IScoringStrategy heuristic, IScoringStrategy candidate, IScoringStrategy noNeural, DateTime referenceTime, Func<IReadOnlyCollection<Guid>, string?>? reserveEvidence = null)
     {
         var rows = CaptureEvidence(examples, referenceTime);
         var users = MixedUsers(rows).ToHashSet();
@@ -306,6 +376,11 @@ internal static class EnsembleAdmissionEvaluator
 
         rows = ScoreEvidence(rows, new AdmissionModels(heuristic, candidate, Incumbent: noNeural), false);
         if (rows.Any(row => !ValidPrediction(row.Scores.Learned) || !ValidPrediction(row.Scores.Incumbent)))
+        {
+            return null;
+        }
+
+        if (ReserveEvidence(rows, reserveEvidence) is not null)
         {
             return null;
         }
@@ -334,6 +409,9 @@ internal static class EnsembleAdmissionEvaluator
                 example.Features,
                 default))
             .ToArray();
+
+    private static string? ReserveEvidence(EvidenceRow[] rows, Func<IReadOnlyCollection<Guid>, string?>? reserve)
+        => reserve?.Invoke(rows.Select(row => row.ObservationId).Distinct().ToArray());
 
     private static EvidenceRow[] ScoreEvidence(EvidenceRow[] rows, AdmissionModels models, bool scoreNeural)
         => rows.Select(row => row with
@@ -364,15 +442,16 @@ internal static class EnsembleAdmissionEvaluator
         return weights.Length == 0 ? 0 : Math.Pow(weights.Sum(), 2) / weights.Sum(weight => weight * weight);
     }
 
-    private static double Loss(EvidenceRow[] rows, Func<EvidenceRow, double> score)
+    private static double Loss(EvidenceRow[] rows, Func<EvidenceRow, double> score, double[]? weights = null)
     {
-        var weights = MacroWeights(rows);
+        weights ??= MacroWeights(rows);
         return rows.Select((row, index) => weights[index] * Math.Pow(score(row) - row.Label, 2)).Sum();
     }
 
     private static AdmissionMixture Calibrate(EvidenceRow[] rows, double alphaCap, double neuralCap)
     {
-        var form = QuadraticForm.Create(rows, MacroWeights(rows));
+        var weights = MacroWeights(rows);
+        var form = QuadraticForm.Create(rows, weights);
         var vertices = new[]
         {
             default(AdmissionMixture),
@@ -391,16 +470,19 @@ internal static class EnsembleAdmissionEvaluator
             candidates.Add(form.ProjectEdge(vertices[i], vertices[(i + 1) % vertices.Length]));
         }
 
-        var best = candidates.OrderBy(mixture => Loss(rows, row => mixture.Score(row.Scores))).First();
-        var baseline = Loss(rows, row => row.Scores.Heuristic);
-        var bestLoss = Loss(rows, row => best.Score(row.Scores));
+        var best = candidates.OrderBy(mixture => Loss(rows, row => mixture.Score(row.Scores), weights)).First();
+        var baseline = Loss(rows, row => row.Scores.Heuristic, weights);
+        var bestLoss = Loss(rows, row => best.Score(row.Scores), weights);
         var trust = baseline > 0 ? Math.Clamp((baseline - bestLoss) / baseline, 0, 1) : 0;
         return new AdmissionMixture(best.Learned * trust, best.Neural * trust);
     }
 
     private static bool HasNeuralIncrement(EvidenceRow[] rows, AdmissionMixture candidate, AdmissionMixture reference)
         => ImprovementLowerBound(rows, row => reference.Score(row.Scores), row => candidate.Score(row.Scores)) > 0
-            && RankSafe(rows, candidate, reference)
+            && HasNeuralRankingIncrement(rows, candidate, reference);
+
+    private static bool HasNeuralRankingIncrement(EvidenceRow[] rows, AdmissionMixture candidate, AdmissionMixture reference)
+        => RankSafe(rows, candidate, reference)
             && MeanNdcg(rows, row => candidate.Score(row.Scores), FullListRankingK)
                 > MeanNdcg(rows, row => reference.Score(row.Scores), FullListRankingK) + MetricRoundingTolerance;
 
@@ -423,16 +505,19 @@ internal static class EnsembleAdmissionEvaluator
     private static double MeanRankingMetric(EvidenceRow[] rows, Func<EvidenceRow, double> score, Func<double[], double[], int, double, double> metric)
         => rows.GroupBy(row => row.UserId).Average(group => metric(group.Select(score).ToArray(), group.Select(row => row.Label).ToArray(), RankingMetrics.DefaultK, RankingMetrics.DefaultRelevanceThreshold));
 
-    private static double ImprovementLowerBound(EvidenceRow[] rows, Func<EvidenceRow, double> reference, Func<EvidenceRow, double> candidate)
+    private static (double Weight, int Index)[][] BuildResamplingGroups(EvidenceRow[] rows)
+        => rows.Select((row, index) => (row.Weight, Index: index)).GroupBy(item => rows[item.Index].UserId)
+            .Select(group => group.ToArray()).ToArray();
+
+    private static double ImprovementLowerBound(EvidenceRow[] rows, Func<EvidenceRow, double> reference, Func<EvidenceRow, double> candidate, double[]? weights = null, (double Weight, int Index)[][]? groups = null)
     {
-        var weights = MacroWeights(rows);
+        weights ??= MacroWeights(rows);
         var differences = rows.Select(row => Math.Pow(reference(row) - row.Label, 2) - Math.Pow(candidate(row) - row.Label, 2)).ToArray();
         var mean = differences.Select((difference, index) => weights[index] * difference).Sum();
         var squaredWeights = weights.Sum(weight => weight * weight);
         var variance = differences.Select((difference, index) => weights[index] * Math.Pow(difference - mean, 2)).Sum() / (1 - squaredWeights);
         var standardErrorBound = mean - (StandardErrorMultiplier * Math.Sqrt(variance * squaredWeights));
-        var groups = rows.Select((row, index) => (row.Weight, Index: index)).GroupBy(item => rows[item.Index].UserId)
-            .Select(group => group.ToArray()).ToArray();
+        groups ??= BuildResamplingGroups(rows);
         // A deterministic statistical resampler, not a security or session-identity generator.
         var random = new Random(9181);
         var samples = new double[BootstrapReplicates];
@@ -507,6 +592,23 @@ internal static class EnsembleAdmissionEvaluator
             var t = denominator > 0 ? Math.Clamp(numerator / denominator, 0, 1) : 0;
             return new AdmissionMixture(start.Learned + (t * dx), start.Neural + (t * dy));
         }
+    }
+
+    /// <summary>Explicitly calibration-only metrics; not a replacement for the independent acceptance utility.</summary>
+    /// <param name="Titles">Observed unique calibration titles.</param>
+    /// <param name="MixtureLoss">Measured bounded operational loss.</param>
+    /// <param name="LearnedLoss">Learned calibration loss.</param>
+    /// <param name="NeuralLoss">Neural calibration loss, absent without a trained predictor.</param>
+    internal sealed record ServingCalibration(int Titles, double MixtureLoss, double LearnedLoss, double? NeuralLoss)
+    {
+        /// <summary>Gets the actual heuristic calibration loss.</summary>
+        internal double HeuristicLoss { get; init; }
+
+        /// <summary>Gets the currently operating predictor's loss on these same calibration titles.</summary>
+        internal double? IncumbentLoss { get; init; }
+
+        /// <summary>Gets a value indicating whether evaluable per-user rankings avoid observed regressions.</summary>
+        internal bool RankingSafe { get; init; }
     }
 
     private sealed record CalibrationPlan(EvidenceRow[] Rows, HashSet<Guid> Users, AdmissionMixture Selected, AdmissionMixture NoNeural, AdmissionDecision? Limitation);

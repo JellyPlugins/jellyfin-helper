@@ -86,5 +86,21 @@ public sealed class AcceptanceObservationLedgerTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(path));
     }
 
+    [Fact]
+    public void RepeatedAndEmptySpendsValidateIntegrityWithoutRewritingAnUnchangedLedger()
+    {
+        var path = Path.Join(_directory, "no-op.txt");
+        var writes = 0;
+        var ledger = new AcceptanceObservationLedger(path, (file, contents) => { writes++; File.WriteAllText(file, contents); });
+        ledger.Spend([Id(1)], [Id(2)], required: false);
+        ledger.Spend([Id(1)], [Id(2)], required: true);
+        ledger.Spend([], [], required: true);
+        Assert.Equal(1, writes);
+        Assert.Equal(new[] { Id(1), Id(2) }, ledger.Read([], required: true).Order());
+        File.WriteAllText(path, "damaged");
+        Assert.Throws<InvalidDataException>(() => ledger.Spend([], [], required: true));
+        Assert.Equal(1, writes);
+    }
+
     private static Guid Id(int value) => new(value, 0, 0, new byte[8]);
 }

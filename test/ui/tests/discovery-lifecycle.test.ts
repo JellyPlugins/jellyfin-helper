@@ -191,6 +191,50 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test.each(['application', 'transport'])('an original success cancels a replacement %s failure reset', async failure => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const originalRequest = deferred<unknown>();
+    const replacementRequest = deferred<unknown>();
+    const pool = () => ({ DeliveryId: '00000000-0000-0000-0000-000000000001', Recommendations: [
+      { Title: 'Movie', TmdbId: 1, MediaType: 'movie', Score: .8 },
+      { Title: 'Television', TmdbId: 1, MediaType: 'tv', Score: .7 },
+    ] });
+    let posts = 0;
+    const client = clientDocument({ modern, responses: {
+      [root]: () => Promise.resolve(pool()),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: pool() }),
+      [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: [] }),
+      [root + '/Request']: () => ++posts === 1 ? originalRequest.promise : replacementRequest.promise,
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const requestButton = () => client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"] [data-jfh-action="request"]') as HTMLButtonElement;
+    requestButton().click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="trakt"]') as HTMLElement).click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="own"]') as HTMLElement).click();
+    await settle();
+    const replacement = requestButton();
+    replacement.click();
+    await settle();
+    if (failure === 'application') replacementRequest.resolve({ Success: false });
+    else replacementRequest.reject({ status: 500 });
+    await settle();
+    expect(replacement.classList.contains('jfh-discovery-btn-failed')).toBe(true);
+    originalRequest.resolve({ Success: true });
+    await settle();
+    await vi.advanceTimersByTimeAsync(3100);
+    expect(replacement.disabled).toBe(true);
+    expect(replacement.classList.contains('jfh-discovery-btn-done')).toBe(true);
+    expect(replacement.classList.contains('jfh-discovery-btn-failed')).toBe(false);
+    replacement.click();
+    await settle();
+    expect(posts).toBe(2);
+  });
+
   test.each(['trakt', 'trending'])('a requested card never follows the user into %s during its success timeout', async tab => {
     const root = '/JellyfinHelper/Discovery/My';
     const pool = (ids: number[]) => ({ DeliveryId: '00000000-0000-0000-0000-000000000001',

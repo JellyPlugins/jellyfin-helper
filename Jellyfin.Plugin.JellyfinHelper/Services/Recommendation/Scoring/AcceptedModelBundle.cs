@@ -8,6 +8,18 @@ internal sealed class AcceptedModelBundle
     /// <summary>Gets or sets the compound-model metadata version.</summary>
     public int Version { get; set; } = 1;
 
+    /// <summary>Gets or sets a value indicating whether the checkpoint is allowed for bounded serving but has no verified ranking approval.</summary>
+    public bool IsProvisional { get; set; }
+
+    /// <summary>Gets or sets calibration-only loss for provisional serving; never substituted for acceptance utility.</summary>
+    public double? CalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets the unique observed calibration support for provisional serving.</summary>
+    public int CalibrationTitleCount { get; set; }
+
+    /// <summary>Gets or sets the exact-input digest for replay-idempotent provisional correction, excluding acceptance outcomes.</summary>
+    public string? OperatingInputDigest { get; set; }
+
     /// <summary>Gets or sets the accepted learned coordinates.</summary>
     public LearnedScoringStrategy.WeightsData Learned { get; set; } = new();
 

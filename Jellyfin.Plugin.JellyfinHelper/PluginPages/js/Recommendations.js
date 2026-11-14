@@ -249,6 +249,15 @@ function ensembleStatusSummary(data) {
     var status = data.QualityGateFrozen
         ? escHtml(T('recsEnsembleStatusFrozen', 'frozen'))
         : trendText;
+    if (!data.QualityGateFrozen) {
+        var levels = {
+            Provisional: ['recsEnsembleStatusProvisional', 'Provisional — ranking not yet verified'],
+            Verified: ['recsEnsembleStatusVerified', 'Independently verified'],
+            GlobalPrior: ['recsEnsembleStatusPrior', 'Starting mixture from global priors']
+        };
+        var level = levels[data.ValidationLevel];
+        if (level) status = escHtml(T(level[0], level[1]));
+    }
     return escHtml(T('recsEnsembleTrainedOn', 'Trained on {0} examples').replace('{0}', String(data.TrainingExampleCount)))
         + ' <span class="recs-ensemble-sep">\u00B7</span> '
         + escHtml(T('recsEnsembleStatus', 'Status')) + ' <span class="recs-ensemble-trend">' + status + '</span>';
@@ -261,6 +270,7 @@ function renderEnsembleDiagnostics(host, data) {
         return;
     }
     var modelScope = data.IsPerUser ? T('recsEnsembleModelPersonal', 'Personal model') : T('recsEnsembleModelGlobal', 'Global model');
+    if (!data.IsPerUser && data.ValidationLevel === 'GlobalPrior') modelScope = T('recsEnsembleModelPrior', 'Global priors, personal mixture');
     var label = ensembleModelLabel(data, modelScope);
     var composition = ensembleCompositionHtml(data);
     var summary = ensembleStatusSummary(data);

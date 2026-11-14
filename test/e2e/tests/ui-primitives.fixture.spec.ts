@@ -12,7 +12,7 @@ const css = [...source('Jellyfin.Plugin.JellyfinHelper.csproj').matchAll(/<CssMo
 
 const discoveryLocales = ['de', 'en', 'es', 'fr', 'pt', 'sv', 'tr', 'zh'].map(language => {
   const translations = JSON.parse(source('i18n/' + language + '.json'));
-  return { language, strings: Object.fromEntries(['discoveryRequest', 'discoveryAlreadyRequested', 'discoveryDismiss', 'discoveryColdStart']
+  return { language, ensembleStrings: translations, strings: Object.fromEntries(['discoveryRequest', 'discoveryAlreadyRequested', 'discoveryDismiss', 'discoveryColdStart']
     .map(key => [key, translations[key]])) };
 });
 
@@ -91,7 +91,7 @@ async function dashboard(page: Page) {
   const template = source('PluginPages/configPage.template.html')
     .replace('/* CSS_CONTENT */', () => css)
     .replace('/* JS_CONTENT */', () => '(function(){' + js
-     + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, handleDiscoveryRequestResponse, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
+     + '\nwindow.fixtureAdmin = { fillCodecsData, renderInsightCards, renderFileTree, bindFileTreeHandlers, refreshDiscoveryAccessState, initArrButtons, handleDiscoveryRequestResponse, renderLocalizedEnsemble: function (data, strings) { _translations = strings; renderEnsembleDiagnostics(document.getElementById("recsEnsembleFootnote"), data); }, renderLocalizedDiscoveryCard: function (candidate, strings) { _translations = strings; return renderDiscoveryCard(candidate, 0); } };\n})();');
   await page.setContent('<style>body{font:16px system-ui;background:#141414;color:#eee}@media(prefers-color-scheme:light){body{background:#fff;color:#17171b}}</style>' + template);
   await expect(page.locator('.tab-btn[data-tab="settings"]')).toBeVisible();
 }
@@ -171,6 +171,33 @@ test('fixture bootstrap accepts formatting and rejects missing or duplicated ini
 });
 
 for (const width of [320, 1280]) {
+  test(`dashboard ${width}px: selected-user Cold/Warm mixtures and evidence status stay accurate in all locales`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await dashboard(page);
+    await page.locator('.tab-btn[data-tab="recommendations"]').click();
+    const footnote = page.locator('#recsEnsembleFootnote');
+    for (const locale of discoveryLocales) {
+      for (const [level, statusKey] of [
+        ['GlobalPrior', 'recsEnsembleStatusPrior'],
+        ['Provisional', 'recsEnsembleStatusProvisional'],
+        ['Verified', 'recsEnsembleStatusVerified'],
+      ]) {
+        await page.evaluate(({ level, strings }) => {
+          (window as any).fixtureAdmin.renderLocalizedEnsemble({ Available: true, IsPerUser: level !== 'GlobalPrior',
+            UserName: 'Selected User', Alpha: .75, EffectiveAlpha: .3, EffectiveNeuralBeta: .4,
+            NeuralEnabled: true, QualityGateFrozen: false, ValidationLevel: level, TrainingExampleCount: level === 'GlobalPrior' ? 0 : 72 }, strings);
+        }, { level, strings: locale.ensembleStrings });
+        await expect(footnote).toBeVisible();
+        expect(await footnote.locator('.recs-ensemble-blend strong').allTextContents()).toEqual(['70%', '18%', '12%']);
+        await expect(footnote.locator('.recs-ensemble-label')).toContainText('Selected User');
+        await expect(footnote.locator('.recs-ensemble-label')).toContainText(locale.ensembleStrings[level === 'GlobalPrior' ? 'recsEnsembleModelPrior' : 'recsEnsembleModelPersonal']);
+        await expect(footnote.locator('.recs-ensemble-status')).toContainText(locale.ensembleStrings[statusKey]);
+        const sizing = await footnote.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+        expect(sizing.scroll).toBeLessThanOrEqual(sizing.client + 1);
+      }
+    }
+  });
+
   test(`dashboard ${width}px: cold-start Discovery labels do not block recommendation toggles`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
     await dashboard(page);

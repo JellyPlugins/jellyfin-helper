@@ -12,7 +12,8 @@ const DISCOVERY_DIR = join(REPO_ROOT, 'Jellyfin.Plugin.JellyfinHelper', 'js');
 
 export type UiBridge = Record<string, any>;
 
-const instrumenter = createInstrumenter({ esModules: false, produceSourceMap: false });
+// Local behavioral runs can explicitly disable instrumentation and report writes; the pipeline default is unchanged.
+const instrumenter = process.env.JFH_UI_NO_COVERAGE === '1' ? null : createInstrumenter({ esModules: false, produceSourceMap: false });
 
 // Instruments for per-file coverage, then strips strict mode so the bundle
 // evaluates exactly like the shipped IIFE scope. The optional label overrides
@@ -21,9 +22,8 @@ const instrumenter = createInstrumenter({ esModules: false, produceSourceMap: fa
 // different keys or the merge collides on mismatched statement maps.
 function prepared(absPath: string, label?: string): string {
   const rel = label ?? relative(REPO_ROOT, absPath).replaceAll('\\', '/');
-  return instrumenter
-    .instrumentSync(readFileSync(absPath, 'utf8'), rel)
-    .replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
+  const src = readFileSync(absPath, 'utf8');
+  return (instrumenter ? instrumenter.instrumentSync(src, rel) : src).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 
 // The shipped client scripts are self-running IIFEs, so their inner helpers are
@@ -53,7 +53,7 @@ function preparedUnwrapped(absPath: string, drops: Array<[RegExp, string]>): str
     }
     src = src.replace(re, (m) => '\n'.repeat(m.split('\n').length - 1));
   }
-  return instrumenter.instrumentSync(src, rel).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
+  return (instrumenter ? instrumenter.instrumentSync(src, rel) : src).replace(/^[ \t]*'use strict';[ \t]*\r?$/m, '');
 }
 
 const DISCOVERY_DROPS: Array<[RegExp, string]> = [
@@ -315,6 +315,7 @@ export function loadNativeTabsBundle(): void {
 }
 
 export function saveCoverage(): void {
+  if (!instrumenter) return;
   // Each isolated worker writes a unique report because thread workers share the process ID.
   const g = globalThis as any;
   const cov = g.__coverage__;

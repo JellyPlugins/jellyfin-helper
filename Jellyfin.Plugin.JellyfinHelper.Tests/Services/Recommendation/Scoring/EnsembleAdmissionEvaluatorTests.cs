@@ -334,7 +334,7 @@ public sealed class EnsembleAdmissionEvaluatorTests
         GeneratedAtUtc = ReferenceTime
     };
 
-    private static IScoringStrategy Constant(double value) => Scorer(_ => value);
+    private static FixedScorer Constant(double value) => Scorer(_ => value);
 
     private static FixedScorer Scorer(Func<CandidateFeatures, double> score) => new FixedScorer(score);
 

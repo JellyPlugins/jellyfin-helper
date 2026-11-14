@@ -1444,6 +1444,10 @@
 
     function handleRequest(e) {
         var btn = e.currentTarget;
+        if (_consumedDiscoveryItems.has(discoveryCardKey(btn.dataset.tmdb, btn.dataset.type))) {
+            markDiscoveryRequestDone(btn);
+            return;
+        }
         if (btn.disabled) return;
         if (refreshExpiredActionCard(btn)) return;
         var tmdbId = Number.parseInt(btn.dataset.tmdb, 10);
@@ -1682,6 +1686,10 @@
             dataType: 'json'
         }).then(function (result) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (!result?.Success && _consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
             if (result?.Success) {
                 if (result.AlreadyRequested === true) showToast(t('discoveryAlreadyRequested', 'Title has already been requested'));
                 consumeDiscoveryItem(tmdbId, mediaType);
@@ -1707,21 +1715,44 @@
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
                 showToast(getUserFriendlyErrorMessage(result?.Message));
-                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
+                scheduleDiscoveryRequestReset(btn, request);
             }
         }).catch(function (err) {
             if (!isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (_consumedDiscoveryItems.has(discoveryCardKey(tmdbId, mediaType))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
             if (recoverActionDelivery(btn, err, request)) return;
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
             showToast(getUserFriendlyErrorMessage(serverMessage));
-            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; setDismissSiblingHidden(btn, false); }, 3000);
+            scheduleDiscoveryRequestReset(btn, request);
         });
+    }
+
+    function scheduleDiscoveryRequestReset(btn, request) {
+        if (btn._resetTimer) clearTimeout(btn._resetTimer);
+        btn._resetTimer = setTimeout(function () {
+            btn._resetTimer = null;
+            if (!btn.isConnected || !isSameDiscoverySession(request) || _discoveryDisabled) return;
+            if (_consumedDiscoveryItems.has(discoveryCardKey(btn.dataset.tmdb, btn.dataset.type))) {
+                markDiscoveryRequestDone(btn);
+                return;
+            }
+            btn.textContent = t('discoveryRequest', 'Request');
+            btn.classList.remove('jfh-discovery-btn-failed');
+            btn.disabled = false;
+            setDismissSiblingHidden(btn, false);
+        }, 3000);
     }
 
     function markDiscoveryRequestDone(btn) {
         if (!btn) return;
+        if (btn._resetTimer) clearTimeout(btn._resetTimer);
+        btn._resetTimer = null;
+        btn.classList.remove('jfh-discovery-btn-failed');
         btn.disabled = true;
         btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
         btn.classList.add('jfh-discovery-btn-done');

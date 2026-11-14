@@ -132,6 +132,7 @@ public sealed class AcceptedModelStoreTests : IDisposable
     [InlineData("invalid-state")]
     [InlineData("invalid-retirement")]
     [InlineData("non-utc")]
+    [InlineData("null-history-entry")]
     public void InvalidCandidateCannotOverwriteOrLoadAsAnAcceptedModel(string corruption)
     {
         var statePath = Path.Join(_directory, "ensemble_state.json");
@@ -160,6 +161,7 @@ public sealed class AcceptedModelStoreTests : IDisposable
             case "invalid-state": candidate.State.SchemaVersion = 99; break;
             case "invalid-retirement": candidate.Retired = true; candidate.State.QualityGateFrozen = true; break;
             case "non-utc": candidate.TrainedAtUtc = DateTime.SpecifyKind(candidate.TrainedAtUtc, DateTimeKind.Unspecified); break;
+            case "null-history-entry": candidate.State.MetricsHistory = [null!]; break;
         }
 
         Assert.False(store.Commit(candidate));

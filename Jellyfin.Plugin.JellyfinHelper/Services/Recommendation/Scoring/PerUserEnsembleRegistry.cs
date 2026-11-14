@@ -105,15 +105,21 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         if (_perUser.TryGetValue(userId, out var existing))
         {
             var ensemble = existing.Value;
-            return ensemble.LearnedStrategy.HasOwnWeights ? ensemble : _globalEnsemble;
+            return ResolveOperatingEnsemble(ensemble);
         }
 
-        // Cold-start: only adopt a per-user model when its weights file is actually present on disk. A user
-        // below the training threshold has no file and must score with the global model (byte-identical to
-        // the previous global-only behaviour), so the read path never creates an empty per-user model.
+        // A trained global prior supplies immutable coordinates, never the user's permanent mixture.
+        // Without a usable operating prior/model, preserve the original heuristic cold-start fallback.
         var weightsPath = GetLearnedWeightsPath(userId);
         if (_dataPath is null || weightsPath is null || !HasModelFile(userId))
         {
+            if (_globalEnsemble.GetOperatingPrior() is { } prior)
+            {
+                var contextual = GetOrAddPerUser(userId);
+                contextual.InitializeOperatingPrior(prior);
+                return contextual;
+            }
+
             return _globalEnsemble;
         }
 
@@ -133,7 +139,24 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return _globalEnsemble;
         }
 
-        return perUser.LearnedStrategy.HasOwnWeights ? perUser : _globalEnsemble;
+        return ResolveOperatingEnsemble(perUser);
+    }
+
+    private EnsembleScoringStrategy ResolveOperatingEnsemble(EnsembleScoringStrategy personal)
+    {
+        if (personal.HasOwnOperatingModel)
+        {
+            return personal;
+        }
+
+        var prior = _globalEnsemble.GetOperatingPrior();
+        personal.InitializeOperatingPrior(prior);
+        if (prior is not null || personal.GetDiagnosticsSnapshot().ValidationLevel is "GlobalPrior" or "Heuristic")
+        {
+            return personal;
+        }
+
+        return personal.LearnedStrategy.HasOwnWeights ? personal : _globalEnsemble;
     }
 
     /// <inheritdoc />
@@ -183,13 +206,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <inheritdoc />
     public (EnsembleDiagnostics Diagnostics, bool IsPerUser) GetUserModelDiagnostics(Guid userId)
     {
-        // Resolve once so the snapshot and the per-user flag describe the same ensemble. The flag is derived
-        // from the resolved instance itself: GetEnsembleForUser returns the shared global ensemble for a
-        // cold-start user and a distinct instance otherwise, so a reference check is authoritative here (no
-        // second file probe that could disagree with the resolution).
+        // Resolve once and derive scope from the same locked snapshot as the displayed coefficients.
         var ensemble = GetEnsembleForUser(userId);
-        var isPerUser = userId != Guid.Empty && !ReferenceEquals(ensemble, _globalEnsemble);
-        return (ensemble.GetDiagnosticsSnapshot(), isPerUser);
+        var diagnostics = ensemble.GetDiagnosticsSnapshot();
+        var isPerUser = userId != Guid.Empty && !ReferenceEquals(ensemble, _globalEnsemble) && diagnostics.HasOwnOperatingModel;
+        return (diagnostics, isPerUser);
     }
 
     /// <inheritdoc />
@@ -200,7 +221,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        return !ReferenceEquals(GetEnsembleForUser(userId), _globalEnsemble);
+        var ensemble = GetEnsembleForUser(userId);
+        return !ReferenceEquals(ensemble, _globalEnsemble) && ensemble.HasOwnOperatingModel;
     }
 
     /// <inheritdoc />
@@ -208,12 +230,20 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     {
         ArgumentNullException.ThrowIfNull(liveUserIds);
 
+        var live = new HashSet<Guid>(liveUserIds);
+        // Cold priors are fileless, including memory-only scopes. Account removal/disablement still evicts them.
+        foreach (var id in _perUser.Keys.Where(id => !live.Contains(id)))
+        {
+            if (_perUser.TryRemove(id, out var cached) && cached.IsValueCreated)
+            {
+                cached.Value.Dispose();
+            }
+        }
+
         if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
             return;
         }
-
-        var live = new HashSet<Guid>(liveUserIds);
 
         try
         {

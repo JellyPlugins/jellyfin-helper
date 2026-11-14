@@ -172,6 +172,7 @@ internal sealed class TrainingService : IDisposable
             // Pin training-only priors BEFORE this cycle's global promotion. Personal acceptance must not
             // reuse labels that just selected the global seed or shared Neural version.
             var neuralPrior = globalEnsemble.GetAcceptedNeuralPrediction();
+            var learnedPrior = globalEnsemble.LearnedStrategy.CreateChallenger();
             var priorAcceptance = globalEnsemble.GetAcceptedObservationIds();
             if (priorAcceptance is null)
             {
@@ -190,7 +191,8 @@ internal sealed class TrainingService : IDisposable
                 }
 
                 var personal = registry.GetOrCreateTrainableEnsembleForUser(group.Key);
-                personal.SetSharedPredictionProvider(() => neuralPrior);
+                personal.InitializeTrainingPrior(learnedPrior);
+                personal.SetPinnedNeuralTrainingPrior(neuralPrior);
                 personal.SetSeedAcceptanceObservations(personalHoldout.Select(row => row.ObservationId).Distinct().Where(priorAcceptanceIds.Contains).ToArray());
                 preparedModels[group.Key] = personal;
             }
@@ -470,7 +472,7 @@ internal sealed class TrainingService : IDisposable
         {
             _pluginLog.LogInfo(
                 LogSource,
-                $"Strategy '{strategy.Name}' training skipped (insufficient training data).",
+                $"Strategy '{strategy.Name}' training skipped (insufficient support or unchanged inputs).",
                 _logger);
         }
 

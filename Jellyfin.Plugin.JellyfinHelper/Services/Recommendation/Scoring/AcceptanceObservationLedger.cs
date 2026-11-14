@@ -74,8 +74,16 @@ internal sealed class AcceptanceObservationLedger(string? path, Action<string, s
             return;
         }
 
-        var ids = Read(legacyIds, required);
+        var existed = File.Exists(path);
+        var ids = Read([], required);
+        var previousCount = ids.Count;
+        ids.UnionWith(legacyIds);
         ids.UnionWith(observations);
+        if (existed && ids.Count == previousCount)
+        {
+            return;
+        }
+
         var payload = string.Concat(ids.Order().Select(id => id.ToString("N") + "\n"));
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
         write(path, Header + "\n" + digest + "\n" + payload);

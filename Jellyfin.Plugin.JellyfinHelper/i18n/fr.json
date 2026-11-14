@@ -1,6 +1,10 @@
 {
   "recsEnsembleModelPersonal": "Modèle personnel",
   "recsEnsembleModelGlobal": "Modèle global",
+  "recsEnsembleModelPrior": "Modèles globaux, mélange personnel",
+  "recsEnsembleStatusPrior": "Mélange initial issu des modèles globaux",
+  "recsEnsembleStatusProvisional": "Provisoire — classement non encore vérifié",
+  "recsEnsembleStatusVerified": "Vérifié indépendamment",
   "recsEnsembleStoredTarget": "Part ML cible enregistrée",
   "genre.12": "Aventure",
   "genre.14": "Fantastique",

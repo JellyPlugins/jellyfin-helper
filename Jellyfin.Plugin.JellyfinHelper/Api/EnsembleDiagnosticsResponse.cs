@@ -39,6 +39,9 @@ public sealed class EnsembleDiagnosticsResponse
     /// <summary>Gets or sets the accepted model revision, separate from fitting attempts.</summary>
     public long ModelRevision { get; set; }
 
+    /// <summary>Gets or sets the operating evidence level; provisional participation is not verified ranking approval.</summary>
+    public string ValidationLevel { get; set; } = "Legacy";
+
     /// <summary>Gets or sets the latest independent admission/retention reason.</summary>
     public string? AdmissionReason { get; set; }
 
@@ -83,7 +86,7 @@ public sealed class EnsembleDiagnosticsResponse
 
     /// <summary>
     ///     Gets or sets a value indicating whether these diagnostics describe a per-user model. False means
-    ///     the values come from the shared global model (the user has no dedicated model yet / cold-start).
+    ///     the coordinates come from a global prior/model; ValidationLevel distinguishes a user's bounded starting mixture.
     /// </summary>
     public bool IsPerUser { get; set; }
 
@@ -127,6 +130,7 @@ public sealed class EnsembleDiagnosticsResponse
             LearnedShare = diagnostics.LearnedShare,
             NeuralShare = diagnostics.NeuralShare,
             ModelRevision = diagnostics.ModelRevision,
+            ValidationLevel = diagnostics.ValidationLevel,
             AdmissionReason = diagnostics.AdmissionReason,
             CalibrationTitleCount = diagnostics.CalibrationTitleCount,
             AcceptanceTitleCount = diagnostics.AcceptanceTitleCount,
