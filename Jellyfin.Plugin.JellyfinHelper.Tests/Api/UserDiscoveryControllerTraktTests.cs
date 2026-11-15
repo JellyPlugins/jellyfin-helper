@@ -415,6 +415,30 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
     }
 
     [Fact]
+    public async Task OwnDeliveryIncludesHiddenPoolMembershipWithoutDeliveringItsCardsOrFeedbackEvidence()
+    {
+        var user = Guid.NewGuid();
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        var pool = ResultWith(user, 20);
+        _cache.Save([pool]);
+        _discoveryMock.Setup(service => service.ReconcileRequestedItemsAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(0);
+        var controller = CreateController(user);
+        var response = await controller.GetMyDiscoveryResults(TestContext.Current.CancellationToken);
+        var delivered = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+
+        Assert.Equal(10, delivered.Recommendations.Count);
+        Assert.Equal(20, delivered.OwnPoolItemKeys!.Count);
+        Assert.Contains("movie-1010", delivered.OwnPoolItemKeys);
+        Assert.DoesNotContain(delivered.Recommendations, item => item.TmdbId == 1010);
+        Assert.Null(pool.OwnPoolItemKeys);
+        Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto
+        {
+            DeliveryId = delivered.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1010, MediaType = "movie" }]
+        }));
+        _feedbackStoreMock.Verify(store => store.RecordImpressions(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime>()), Times.Never);
+    }
+
+    [Fact]
     public async Task GetMyTrakt_MasterSwitchOff_Returns403()
     {
         // The master switch suppresses Trakt entirely, even with the official plugin present.

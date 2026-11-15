@@ -9,6 +9,37 @@ public sealed class EnsembleAdmissionEvaluatorTests
     private static readonly DateTime ReferenceTime = new(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void OutcomeIndependentRotationReachesMixedEvidenceAfterAHomogeneousBoundedPrefix()
+    {
+        var rows = Examples(5000, 991).OrderBy(row => row.ObservationId).ToArray();
+        for (var i = 0; i < rows.Length; i++) rows[i].Label = i < 4096 || i % 2 == 0 ? .85 : 0;
+        var first = EnsembleAdmissionEvaluator.SelectEvaluationBlock(rows, 0, out var cursor);
+        Assert.Equal(4096, first.Length);
+        Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(first, ReferenceTime));
+        Assert.True(cursor > 0);
+        var later = EnsembleAdmissionEvaluator.SelectEvaluationBlock(rows, cursor, out _);
+        Assert.True(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(later, ReferenceTime));
+        Assert.Equal(later.Length, later.Select(row => row.ObservationId).Distinct().Count());
+        var ids = later.Select(row => row.ObservationId).ToArray();
+        foreach (var row in rows) row.Label = .85 - row.Label;
+        Assert.Equal(ids, EnsembleAdmissionEvaluator.SelectEvaluationBlock(rows.Reverse(), cursor, out _).Select(row => row.ObservationId));
+    }
+
+    [Fact]
+    public void RotationDoesNotChangeSmallCompleteBlocksOrDependOnTheGlobalTitleQuotaPerUser()
+    {
+        var small = Examples(80, 992);
+        Assert.Equal(small.Count, EnsembleAdmissionEvaluator.SelectEvaluationBlock(small, 0, out var cursor).Length);
+        Assert.Equal(0, cursor);
+        var many = Enumerable.Range(1, 64).SelectMany(user => Examples(200, 993 + user, user)).ToArray();
+        var first = EnsembleAdmissionEvaluator.SelectEvaluationBlock(many, 0, out cursor);
+        var second = EnsembleAdmissionEvaluator.SelectEvaluationBlock(many, cursor, out _);
+        Assert.Equal(4096, first.Length);
+        Assert.Equal(64, first.GroupBy(row => row.UserId).Count());
+        Assert.Empty(first.Select(row => row.ObservationId).Intersect(second.Select(row => row.ObservationId)));
+    }
+
+    [Fact]
     public void UsefulNeuralIsAdmittedEvenWhenTheLearnedComponentIsOnlyAConstant()
     {
         var decision = Evaluate(Examples(80, 11), Examples(80, 12), new AdmissionModels(

@@ -53,9 +53,10 @@ test.describe.serial('orphan detection #405 preserves hierarchy, placeholders an
   const wantedSeries = '/media/Shows/Ghost Series';
   const orphan = `${base}/Orphan`;
   const ownedPaths: string[] = [];
-  let original: Record<string, unknown>;
-  let originalRadarr: Record<string, unknown>[];
-  let originalSonarr: Record<string, unknown>[];
+  let original: Record<string, unknown> | undefined;
+  let originalRadarr: Record<string, unknown>[] | undefined;
+  let originalSonarr: Record<string, unknown>[] | undefined;
+  let settingsChanged = false;
 
   interface BackupInstance {
     name: string;
@@ -66,6 +67,9 @@ test.describe.serial('orphan detection #405 preserves hierarchy, placeholders an
   }
 
   async function putSettings(changes: Record<string, unknown>) {
+    if (!original || !originalRadarr || !originalSonarr) throw new Error('Complete Arr configuration backup is required before changing settings');
+    // A failed/uncertain HTTP response can still have applied the change on the server.
+    settingsChanged = true;
     const response = await ctx.put(p('Configuration'), {
       data: { ...original, RadarrInstances: originalRadarr, SonarrInstances: originalSonarr, ...changes },
     });
@@ -100,17 +104,20 @@ test.describe.serial('orphan detection #405 preserves hierarchy, placeholders an
     test.skip(!hasDocker(), 'Docker is required for real filesystem orphan coverage');
     const settings = await ctx.get(p('Configuration'));
     expect(settings.ok()).toBeTruthy();
-    original = await settings.json();
+    const settingsData = await settings.json();
     // Keep test credentials only in memory; redacted GET values cannot restore removed instances.
     const exported = await ctx.get(p('Backup/Export?includeSecrets=true'));
     expect(exported.ok()).toBeTruthy();
     const backup = await exported.json() as { radarrInstances: BackupInstance[]; sonarrInstances: BackupInstance[] };
+    expect(Array.isArray(backup.radarrInstances), 'complete Radarr backup').toBeTruthy();
+    expect(Array.isArray(backup.sonarrInstances), 'complete Sonarr backup').toBeTruthy();
     const restoreInstance = (instance: BackupInstance) => ({
       Name: instance.name, Url: instance.url, ApiKey: instance.apiKey,
       Libraries: instance.libraries, SkipCertificateValidation: instance.skipCertificateValidation ?? false,
     });
     originalRadarr = (backup.radarrInstances ?? []).map(restoreInstance);
     originalSonarr = (backup.sonarrInstances ?? []).map(restoreInstance);
+    original = settingsData;
     ownedPaths.push(base);
     sidecars(orphan);
     sidecars(`${base}/Group`);
@@ -127,9 +134,9 @@ test.describe.serial('orphan detection #405 preserves hierarchy, placeholders an
   });
 
   test.afterAll(async () => {
-    if (original) await putSettings({});
+    if (settingsChanged) await putSettings({});
     for (const path of ownedPaths.reverse()) containerRm(path);
-    if (original) await freshScan();
+    if (settingsChanged || ownedPaths.length > 0) await freshScan();
   });
 
   test('without Arr, nested media/audio and metadata placeholders are protected while real orphans remain', async () => {

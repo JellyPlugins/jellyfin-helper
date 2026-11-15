@@ -1733,11 +1733,13 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.Null(personal.GetAcceptedNeuralPrediction());
     }
 
-    [Fact]
-    public void WorseNeuralPriorCannotReplaceAlreadyParticipatingGoodNeuralParameters()
+    [Theory]
+    [InlineData(.08)]
+    [InlineData(.2)]
+    public void WorseNeuralPriorCannotReplaceAlreadyParticipatingGoodNeuralParameters(double beta)
     {
         var statePath = Path.Join(_directory, "retained-good-neural-state.json");
-        var original = ProvisionalConstantBundle(.2);
+        var original = ProvisionalConstantBundle(beta);
         var store = new AcceptedModelStore(statePath);
         Assert.True(store.Commit(original));
         WriteWorkingProvisionalAssessment(statePath, original);
@@ -1798,6 +1800,74 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.True(DateTime.Parse(retained.State.UpdatedAt, System.Globalization.CultureInfo.InvariantCulture).ToUniversalTime() > original.TrainedAtUtc);
         Assert.False(owned.LastAdmission!.Accepted);
         Assert.Null(retained.Utility);
+    }
+
+    [Fact]
+    public void AcceptanceBlockProgressSurvivesRestartWithoutSpendingUnsupportedPrefixTitles()
+    {
+        var scope = "acceptance-prefix-progress";
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var fit = Examples(600, 811);
+        var calibration = Examples(300, 812).Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) == 0).ToArray();
+        var acceptance = Examples(12000, 813).Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0)
+            .OrderBy(row => row.ObservationId).Take(5000).ToArray();
+        Assert.Equal(5000, acceptance.Length);
+        foreach (var row in fit.Concat(calibration)) row.Features.CombinedCriticScore = row.Label;
+        for (var i = 0; i < acceptance.Length; i++)
+        {
+            acceptance[i].Label = i < 4096 || i % 2 == 0 ? .85 : 0;
+            acceptance[i].Features.CombinedCriticScore = acceptance[i].Label;
+        }
+
+        var holdout = calibration.Concat(acceptance).ToArray();
+        using (var first = Create(scope))
+        {
+            first.SetPinnedNeuralTrainingPrior(null);
+            Assert.True(first.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+            Assert.Empty(first.GetAcceptedObservationIds()!);
+        }
+
+        using var journal = System.Text.Json.JsonDocument.Parse(File.ReadAllText(statePath + ".assessment.json"));
+        Assert.True(journal.RootElement.GetProperty(nameof(ModelTrainingAssessment.AcceptanceBlockCursor)).GetInt64() > 0);
+        using var restarted = Create(scope);
+        restarted.SetPinnedNeuralTrainingPrior(null);
+        Assert.True(restarted.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.NotNull(restarted.LastAdmission!.Utility.CandidateLoss);
+        Assert.True(restarted.GetAcceptedObservationIds()!.Length > 0);
+        Assert.Contains(restarted.GetAcceptedObservationIds()!, id => acceptance.Skip(4096).Any(row => row.ObservationId == id));
+    }
+
+    [Fact]
+    public async Task DisposalWaitsForTheAtomicPublicationLock()
+    {
+        using var ensemble = Create("disposal-publication-lock");
+        var gate = (System.Threading.Lock)typeof(EnsembleScoringStrategy).GetField("_syncRoot", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(ensemble)!;
+        using var entered = new System.Threading.ManualResetEventSlim();
+        using var completed = new System.Threading.ManualResetEventSlim();
+        Task disposal;
+        lock (gate)
+        {
+            disposal = Task.Run(() => { entered.Set(); ensemble.Dispose(); completed.Set(); }, TestContext.Current.CancellationToken);
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            Assert.False(completed.Wait(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
+        }
+
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(ensemble.TrainValidated(Examples(300, 825), Examples(100, 826), false, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void DisposalDuringCandidatePreparationCannotRecreateAnAssessmentOrModel()
+    {
+        var scope = "disposed-before-admission";
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        using var ensemble = Create(scope);
+        ensemble.SetSharedPredictionProvider(() => { ensemble.Dispose(); return null; });
+        ensemble.TrainValidated(Examples(300, 821), Examples(100, 822), false, TestContext.Current.CancellationToken);
+
+        Assert.False(File.Exists(statePath + ".assessment.json"));
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.False(ensemble.TrainValidated(Examples(300, 823), Examples(100, 824), false, TestContext.Current.CancellationToken));
     }
 
     private static void WriteWorkingProvisionalAssessment(string statePath, AcceptedModelBundle bundle)

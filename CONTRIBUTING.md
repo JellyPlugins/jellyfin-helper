@@ -250,8 +250,8 @@ Recommendation changes must preserve:
 
 - One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors, personal Warm Start fitting and bounded usable-Neural participation during provisional retention.
 - v5/38-feature inference, paired predictors/coefficients, permissions, child safety and protected scoring goldens.
-- Separate fitting, calibration and acceptance; only examined identities may be spent. Provisional serving is not verified ranking.
-- Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery, including older-assessment safety receipts.
+- Separate fitting, calibration and acceptance; only examined identities may be spent. Oversized fresh blocks need outcome-independent, restart-safe progress; provisional serving is not verified ranking.
+- Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery. Disposal stops publication before eviction deletes files; older-assessment safety receipts survive revision guards.
 - Disabled/deleted-user cleanup, including fileless caches; current-user diagnostics must match the scoring snapshot.
 - Regression tests for Cold/Warm Start, replay, failed refreshes, restart and IO/configuration races. Browser tests use controlled clocks, not fixed waits.
 

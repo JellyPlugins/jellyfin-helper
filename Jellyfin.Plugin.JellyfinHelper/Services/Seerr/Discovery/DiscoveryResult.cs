@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -40,6 +41,10 @@ public sealed class DiscoveryResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? DeliveryExpiresAtUtc { get; set; }
 
+    /// <summary>Gets or sets current own-pool typed exclusion membership, including hidden backfill titles.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? OwnPoolItemKeys { get; set; }
+
     /// <summary>
     ///     Returns a deep copy of this result with a new, independent Recommendations list.
     /// </summary>
@@ -53,6 +58,7 @@ public sealed class DiscoveryResult
             GeneratedAt = GeneratedAt,
             DeliveryId = DeliveryId,
             DeliveryExpiresAtUtc = DeliveryExpiresAtUtc,
+            OwnPoolItemKeys = OwnPoolItemKeys?.ToArray(),
         };
         foreach (var rec in Recommendations)
         {

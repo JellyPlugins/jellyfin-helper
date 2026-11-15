@@ -72,6 +72,9 @@ const seededFavoriteIds: string[] = [];
 const createdSeedFiles: Array<{ file: string; directory: string }> = [];
 const PER_USER_FIT_THRESHOLD = 12;
 const CALIBRATION_SEED_TITLES = 4;
+const MAX_SEED_BATCHES = 10;
+const SEED_REFRESH_TIMEOUT = 60_000;
+const OBSERVED_SEED_SETUP_TIMEOUT = MAX_SEED_BATCHES * (SEED_REFRESH_TIMEOUT + 30_000) + 90_000;
 
 test.beforeAll(async () => {
   auth = loadAuth();
@@ -153,7 +156,7 @@ async function ensureObservedSeed(): Promise<SeedMovie[]> {
     const extension = source!.path.slice(source!.path.lastIndexOf('.'));
     const run = randomUUID().slice(0, 8);
     // Copies are cheap, isolated to this suite and removed afterwards; no generated-only feedback is fabricated.
-    for (let batch = 0; batch < 10 && !supported(); batch++) {
+    for (let batch = 0; batch < MAX_SEED_BATCHES && !supported(); batch++) {
       const previousCount = movies.length;
       for (let i = 0; i < 24; i++) {
         const title = `JFH Per User Seed ${run}-${batch * 24 + i} (2020)`;
@@ -164,7 +167,7 @@ async function ensureObservedSeed(): Promise<SeedMovie[]> {
         expect(copied.code, copied.stderr).toBe(0);
       }
       expect((await ctx.post('/Library/Refresh')).ok()).toBeTruthy();
-      await expect.poll(async () => (await movieItems()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(previousCount + 24);
+      await expect.poll(async () => (await movieItems()).length, { timeout: SEED_REFRESH_TIMEOUT }).toBeGreaterThanOrEqual(previousCount + 24);
       movies = await movieItems();
     }
   }
@@ -200,6 +203,7 @@ test.describe.serial('per-user recommendation model files', () => {
   test.skip(!hasDocker(), 'docker exec unavailable - cannot inspect the plugin data folder');
 
   test.beforeAll(async () => {
+    test.setTimeout(OBSERVED_SEED_SETUP_TIMEOUT);
     if (!hasDocker()) {
       return;
     }

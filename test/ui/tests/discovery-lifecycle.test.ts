@@ -340,6 +340,39 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(client.requests().filter(request => request.url === personalPath || request.url === trendingPath)).toHaveLength(fetched);
   });
 
+  test.each(['trakt', 'trending'])('hidden own backfill membership completing during %s excludes overlap even when visible keys and generation are unchanged', async tab => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const own = { GeneratedAt: '2026-11-15T00:00:00Z', Recommendations: Array.from({ length: 10 }, (_, index) => ({ TmdbId: 100 + index, MediaType: 'movie', Title: 'Own ' + index, Score: .7 })) };
+    const source = { Recommendations: [
+      { TmdbId: 1, MediaType: 'movie', Title: 'Hidden overlap', Score: .43 },
+      { TmdbId: 1, MediaType: 'tv', Title: 'Different series', Score: .9 },
+      { TmdbId: 3, MediaType: 'movie', Title: 'Reserve', Score: .2 },
+    ] };
+    const pending = deferred<unknown>();
+    let ownReply = () => Promise.resolve<unknown>(own);
+    const client = clientDocument({ modern, responses: {
+      [root]: () => ownReply(),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: source }),
+      [trendingPath]: () => Promise.resolve(source),
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const select = async (sourceTab: string) => { (client.panel()!.querySelector(`[data-tab="${sourceTab}"]`) as HTMLElement).click(); await settle(); };
+    await select(tab);
+    ownReply = () => pending.promise;
+    await select('own');
+    await select(tab);
+    const reserve = client.panel()!.querySelector('.jfh-discovery-card[data-tmdb="3"]');
+    pending.resolve({ ...own, OwnPoolItemKeys: [...own.Recommendations.map(item => `movie-${item.TmdbId}`), 'movie-1'] });
+    await settle();
+
+    expect(Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey)).toEqual(['tv-1', 'movie-3']);
+    expect(client.panel()!.querySelector('.jfh-discovery-card[data-tmdb="3"]')).toBe(reserve);
+    expect(reserve!.textContent).toContain('20%');
+  });
+
   test.each(['application', 'transport'])('an original success cancels a replacement %s failure reset', async failure => {
     const root = '/JellyfinHelper/Discovery/My';
     const originalRequest = deferred<unknown>();

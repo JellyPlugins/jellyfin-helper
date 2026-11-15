@@ -100,6 +100,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     [InlineData("corrupt-journal", false)]
     [InlineData("recovery-required", false)]
     [InlineData("reserved-input", false)]
+    [InlineData("unknown-no-prior", false)]
     public void FrozenLegacyWithoutAnAcceptedModelUsesHealthyStartingPriorsOnlyWhenItsJournalPermitsIt(string state, bool allowPrior)
     {
         using var neural = new NeuralScoringStrategy();
@@ -124,6 +125,7 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         };
         if (state != "missing-journal") File.WriteAllText(statePath + ".assessment.json", state == "corrupt-journal" ? "{ broken" : JsonSerializer.Serialize(assessment));
         var before = File.ReadAllBytes(weightsPath);
+        if (state == "unknown-no-prior") global.Reconfigure(0, 0, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
         using var registry = BuildRegistry(global, neural);
         var (diagnostics, personal) = registry.GetUserModelDiagnostics(id);
         Assert.Equal(allowPrior ? "GlobalPrior" : state == "missing-journal" ? "Legacy" : "Heuristic", diagnostics.ValidationLevel);
@@ -131,6 +133,8 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal(!allowPrior, diagnostics.QualityGateFrozen);
         Assert.Equal(73, diagnostics.TrainingExampleCount);
         if (allowPrior) Assert.False(personal);
+        Assert.Equal(registry.HasPerUserModel(id), personal);
+        if (state == "unknown-no-prior") Assert.False(personal);
         Assert.Equal(before, File.ReadAllBytes(weightsPath));
         Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
     }
@@ -1126,6 +1130,37 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         // The empty user owns no model: training callers get the shared global
         // ensemble instead of materializing a per-user instance for Guid.Empty.
         Assert.Same(global, registry.GetOrCreateTrainableEnsembleForUser(Guid.Empty));
+    }
+
+    [Fact]
+    public void EvictionStopsTheCachedPublisherBeforeDeletingAnyModelFile()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var file = new Mock<IFile>();
+        file.Setup(f => f.Exists(It.IsAny<string>())).Returns((string path) => File.Exists(path));
+        var fileSystem = new Mock<IFileSystem>();
+        fileSystem.SetupGet(fs => fs.File).Returns(file.Object);
+        fileSystem.SetupGet(fs => fs.Directory).Returns(new FileSystem().Directory);
+        using var registry = BuildRegistryWithFileSystem(global, neural, fileSystem.Object);
+        var id = Guid.NewGuid();
+        var personal = registry.GetOrCreateTrainableEnsembleForUser(id);
+        Assert.True(personal.TrainValidated(StableExamples(300, 871), StableExamples(100, 872), false, TestContext.Current.CancellationToken));
+        var fittingAfterEvictionStarted = false;
+        var deletions = 0;
+        file.Setup(f => f.Delete(It.IsAny<string>())).Callback((string path) =>
+        {
+            fittingAfterEvictionStarted |= personal.TrainValidated(StableExamples(300, 873), StableExamples(100, 874), false, TestContext.Current.CancellationToken);
+            File.Delete(path);
+            deletions++;
+        });
+
+        Assert.True(registry.EvictPerUserModel(id));
+        Assert.True(deletions > 0);
+        Assert.False(fittingAfterEvictionStarted);
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{id:N}.json.accepted-model.json")));
+        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{id:N}.json.assessment.json")));
     }
 
     [Fact]
