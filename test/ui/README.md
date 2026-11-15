@@ -33,7 +33,7 @@ validators are pinned without a browser.
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Discovery impressions (opaque deliveries, refreshed/protected cards, stale acknowledgements, retries and session isolation) | `tests/discovery-impressions.test.ts` |
-| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
+| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, refreshed own-pool Trakt exclusion, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |

@@ -2675,7 +2675,7 @@ describe('probe + own-fetch residual branches', () => {
     expect(resolveTrending).not.toBeNull();
     ui.renderShell(el, true);
     expect(typeof resolveTrending).toBe('function');
-    resolveTrending!({ Recommendations: [rec({ Title: 'trendy' })] });
+    resolveTrending!({ Recommendations: [rec({ Title: 'trendy', TmdbId: 456 })] });
     await flush();
     (el.querySelector('[data-tab="trending"]') as HTMLElement).click();
     await flush();

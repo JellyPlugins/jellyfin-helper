@@ -18,8 +18,8 @@ afterEach(() => {
   vi.clearAllTimers();
 });
 
-function recommendations(title: string, posterPath?: string) {
-  return { Recommendations: [{ Title: title, TmdbId: 123, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath, AvailabilityVerified: true }] };
+function recommendations(title: string, posterPath?: string, tmdbId = 123) {
+  return { Recommendations: [{ Title: title, TmdbId: tmdbId, MediaType: 'movie', Score: 0.8, Genres: [], PosterPath: posterPath, AvailabilityVerified: true }] };
 }
 
 function appendHomeLink(list: Element) {
@@ -157,7 +157,7 @@ const currentResponses = (): Record<string, () => Promise<unknown>> => ({
   [translationsPath]: () => Promise.resolve(currentTranslations()),
   [externalLinksPath]: () => Promise.resolve({ SeerrUrl: 'https://current.example/' }),
   [personalPath]: () => Promise.resolve({ Linked: false, Result: null }),
-  [trendingPath]: () => Promise.resolve(recommendations('Current trending', '/poster.jpg')),
+  [trendingPath]: () => Promise.resolve(recommendations('Current trending', '/poster.jpg', 124)),
 });
 
 const staleResponseCases = [
@@ -191,6 +191,44 @@ async function openDialog(client: ClientDocument, dialog: 'profile' | 'dismiss')
 }
 
 describe.each([false, true])('shipped Discovery lifecycle with modern layout %s', modern => {
+  test.each(['trakt', 'trending'])('cached %s cards recheck a refreshed own pool by typed identity, not score', async tab => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const oldOwn = { Recommendations: [{ TmdbId: 2, MediaType: 'movie', Title: 'Old own title', Score: .7 }] };
+    const newOwn = { Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .55 }] };
+    let own = oldOwn;
+    const trakt = { Recommendations: [
+      { TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .43 },
+      { TmdbId: 1, MediaType: 'tv', Title: 'Different television title', Score: .9 },
+      { TmdbId: 3, MediaType: 'movie', Title: 'Trakt third', Score: .2 },
+      { TmdbId: 4, MediaType: 'movie', Title: 'Trakt fourth', Score: .8 },
+    ] };
+    const client = clientDocument({ modern, responses: {
+      [root]: () => Promise.resolve(own),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: trakt }),
+      [trendingPath]: () => Promise.resolve(trakt),
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const select = async (source: string) => { (client.panel()!.querySelector(`[data-tab="${source}"]`) as HTMLElement).click(); await settle(); };
+    const keys = () => Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey);
+    await select(tab);
+    expect(keys()).toEqual(['movie-1', 'tv-1', 'movie-3', 'movie-4']);
+    const fetched = client.requests().filter(request => request.url === personalPath || request.url === trendingPath).length;
+    own = newOwn;
+    await select('own');
+    expect(client.panel()!.textContent).toContain('55%');
+    await select(tab);
+    expect(keys()).toEqual(['tv-1', 'movie-3', 'movie-4']);
+    expect(client.requests().filter(request => request.url === personalPath || request.url === trendingPath)).toHaveLength(fetched);
+    own = oldOwn;
+    await select('own');
+    await select(tab);
+    expect(keys()).toEqual(['movie-1', 'tv-1', 'movie-3', 'movie-4']);
+    expect(client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')!.textContent).toContain('43%');
+  });
+
   test.each(['success', 'duplicate', 'failure'])('profile selection after an original %s cannot resubmit a consumed replacement card', async outcome => {
     const root = '/JellyfinHelper/Discovery/My';
     const pending = deferred<unknown>();
@@ -228,6 +266,39 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(button.classList.contains('jfh-discovery-btn-done')).toBe(true);
     expect(button.classList.contains('jfh-discovery-btn-failed')).toBe(false);
     expect((replacement!.querySelector('.jfh-discovery-btn-dismiss') as HTMLElement).style.display).toBe('none');
+  });
+
+  test.each(['trakt', 'trending'])('an own refresh completing during %s removes overlap without overwriting the source or surviving cards', async tab => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const pending = deferred<unknown>();
+    let ownReply = () => Promise.resolve<unknown>({ Recommendations: [{ TmdbId: 2, MediaType: 'movie', Title: 'Old own title', Score: .7 }] });
+    const trakt = { Recommendations: [
+      { TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .43 },
+      { TmdbId: 1, MediaType: 'tv', Title: 'Different television title', Score: .9 },
+      { TmdbId: 3, MediaType: 'movie', Title: 'Trakt reserve', Score: .2 },
+    ] };
+    const client = clientDocument({ modern, responses: {
+      [root]: () => ownReply(),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: trakt }),
+      [trendingPath]: () => Promise.resolve(trakt),
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const select = async (source: string) => { (client.panel()!.querySelector(`[data-tab="${source}"]`) as HTMLElement).click(); await settle(); };
+    await select(tab);
+    ownReply = () => pending.promise;
+    await select('own');
+    await select(tab);
+    const reserve = client.panel()!.querySelector('.jfh-discovery-card[data-tmdb="3"]');
+    const before = client.requests().filter(request => request.url === personalPath || request.url === trendingPath).length;
+    pending.resolve({ Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .55 }] });
+    await settle();
+    expect(Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey)).toEqual(['tv-1', 'movie-3']);
+    expect(client.panel()!.querySelector('.jfh-discovery-card[data-tmdb="3"]')).toBe(reserve);
+    expect(client.panel()!.querySelector(`[data-tab="${tab}"]`)!.classList.contains('jfh-discovery-tab-active')).toBe(true);
+    expect(client.requests().filter(request => request.url === personalPath || request.url === trendingPath)).toHaveLength(before);
   });
 
   test.each(['application', 'transport'])('an original success cancels a replacement %s failure reset', async failure => {
@@ -281,8 +352,8 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     const client = clientDocument({ modern, responses: {
       [root]: () => Promise.resolve(pool([1, 2])),
       [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
-      [personalPath]: () => Promise.resolve({ Linked: true, Result: pool([3, 2]) }),
-      [trendingPath]: () => Promise.resolve(pool([4, 2])),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: pool([3, 5]) }),
+      [trendingPath]: () => Promise.resolve(pool([4, 6])),
       [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: [] }),
       [root + '/Request']: () => Promise.resolve({ Success: true }),
     } });
@@ -296,7 +367,7 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     (client.panel()!.querySelector('[data-tab="' + tab + '"]') as HTMLElement).click();
     await settle();
     const cards = () => Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.tmdb);
-    const expected = tab === 'trakt' ? ['3', '2'] : ['4', '2'];
+    const expected = tab === 'trakt' ? ['3', '5'] : ['4', '6'];
     expect(cards()).toEqual(expected);
     const requestsBeforeTimeout = client.requests().length;
     await vi.advanceTimersByTimeAsync(5300);
@@ -317,7 +388,7 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
       [root]: () => Promise.resolve(pool()),
       [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
       [personalPath]: () => Promise.resolve({ Linked: true, Result: pool() }),
-      [trendingPath]: () => Promise.resolve(pool()),
+      [trendingPath]: () => Promise.resolve({ ...pool(), Recommendations: pool().Recommendations.concat([{ Title: 'Trakt reserve', TmdbId: 3, MediaType: 'movie', Score: .5 }]) }),
       [permissionsPath]: () => Promise.resolve({ CanRequest: true, Profiles: [] }),
       [root + '/Request']: () => pending.promise,
     } });
@@ -351,10 +422,17 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     await vi.advanceTimersByTimeAsync(5300);
     expect(client.panel()!.querySelector('.jfh-discovery-card[data-type="movie"][data-tmdb="1"]')).toBe(replacement);
     expect(client.requests().filter(request => request.url === root + '/Request')).toHaveLength(1);
+    // Rotate the own pool so the consumed-title guard, not own-pool exclusion, owns the Trakt control.
+    client.setSourceReply(root, () => Promise.resolve({ ...pool(), Recommendations: [pool().Recommendations[2]] }));
+    (client.panel()!.querySelector('[data-tab="trakt"]') as HTMLElement).click();
+    await settle();
+    (client.panel()!.querySelector('[data-tab="own"]') as HTMLElement).click();
+    await settle();
+    expect(Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey)).toEqual(['movie-2']);
     (client.panel()!.querySelector('[data-tab="trending"]') as HTMLElement).click();
     await settle();
     const keys = Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => (card as HTMLElement).dataset.cardKey);
-    expect(keys).toEqual(outcome === 'failure' ? ['movie-1', 'tv-1', 'movie-2'] : ['tv-1', 'movie-2']);
+    expect(keys).toEqual(outcome === 'failure' ? ['movie-1', 'tv-1', 'movie-3'] : ['tv-1', 'movie-3']);
   });
 
   test('a clean login route opens Discovery on the first authenticated Home visit without a reload', async () => {
