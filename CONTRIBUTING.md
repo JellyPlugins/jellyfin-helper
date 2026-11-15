@@ -248,7 +248,7 @@ precise totals and bounded/stale diagnostic caches;
 
 Recommendation changes must preserve:
 
-- One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors and personal Warm Start fitting.
+- One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors, personal Warm Start fitting and bounded usable-Neural participation during provisional retention.
 - v5/38-feature inference, paired predictors/coefficients, permissions, child safety and protected scoring goldens.
 - Separate fitting, calibration and acceptance; only examined identities may be spent. Provisional serving is not verified ranking.
 - Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery, including older-assessment safety receipts.

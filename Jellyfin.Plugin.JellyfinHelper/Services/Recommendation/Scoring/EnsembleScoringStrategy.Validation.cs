@@ -66,7 +66,10 @@ public sealed partial class EnsembleScoringStrategy
         {
             lock (_syncRoot)
             {
-                return !_usesInheritedPrior && (_acceptedBundle is not null || LearnedStrategy.HasOwnWeights);
+                var unverifiedLegacyFallback = _acceptedBundle is null && _qualityGateFrozen && !_legacyModelSuppressed
+                    && !_requiresIndependentRecovery && _reservedOperatingInputs.Count == 0
+                    && _lastAdmission?.Reason is "HomogeneousObservedOutcomes" or "InsufficientIndependentRankingEvidence";
+                return !_usesInheritedPrior && (_acceptedBundle is not null || (LearnedStrategy.HasOwnWeights && !unverifiedLegacyFallback));
             }
         }
     }
@@ -199,7 +202,7 @@ public sealed partial class EnsembleScoringStrategy
     {
         lock (_syncRoot)
         {
-            if (_independentAdmissionDisposed || _acceptedBundle is not null || _legacyModelSuppressed || _requiresIndependentRecovery)
+            if (_independentAdmissionDisposed || _acceptedBundle is not null || _legacyModelSuppressed || _requiresIndependentRecovery || _reservedOperatingInputs.Count > 0)
             {
                 return;
             }
@@ -219,7 +222,7 @@ public sealed partial class EnsembleScoringStrategy
             var maturity = _trainingExampleCount == 0 ? _alphaMin : OperatingMixturePolicy.Maturity(_trainingExampleCount, DefaultSigmoidMidpoint + _sigmoidMidpointOffset, _alphaMin, _alphaMax);
             var alpha = Math.Min(prior.Mixture.Alpha, maturity);
             var current = _usesInheritedPrior && _acceptedPrediction is { } inherited && inherited.Mixture.Alpha > 0 ? inherited.Mixture : prior.Resolve(alpha);
-            var neural = prior.Mixture.Neural > 0 ? prior.Neural : null;
+            var neural = prior.Mixture.Neural > 0 && prior.Neural is { HasTrainedParameters: true } ? prior.Neural : null;
             if (neural is null)
             {
                 current = new AdmissionMixture(current.Alpha, 0);
@@ -236,6 +239,12 @@ public sealed partial class EnsembleScoringStrategy
 
             var limited = new AcceptedPrediction(_heuristic, prior.Learned, neural, current, prior.NeuralCap);
             var mixture = limited.Resolve(alpha);
+            if (neural is not null)
+            {
+                var minimum = OperatingMixturePolicy.NeuralMinimum(_trainingExampleCount, ownsNeural: false, available: true);
+                mixture = OperatingMixturePolicy.WithNeuralMinimum(mixture, minimum, alpha, Math.Min(prior.NeuralCap, _alphaMax * NeuralMaxBetaFraction));
+            }
+
             _acceptedPrediction = new AcceptedPrediction(_heuristic, prior.Learned, neural, mixture, _alphaMax * NeuralMaxBetaFraction);
             _usesInheritedPrior = true;
             _independentAdmissionEnabled = true;
@@ -448,7 +457,7 @@ public sealed partial class EnsembleScoringStrategy
             }
         }
 
-        var beta = OperatingMixturePolicy.NeuralTarget(context.Bounds.MaturityCount, _ownsNeural, candidates.Neural?.ExportParameters().TrainingGeneration > 0);
+        var beta = OperatingMixturePolicy.NeuralTarget(context.Bounds.MaturityCount, _ownsNeural, candidates.Neural is { HasTrainedParameters: true });
         var alpha = context.Bounds.AlphaCap;
         var target = new AdmissionMixture(alpha * (1 - beta), alpha * beta);
         var measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, batch.Models, target, batch.EvaluatedAt);
@@ -465,6 +474,8 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         var mixture = current.Alpha > 0 ? OperatingMixturePolicy.Approach(current, target) : target;
+        var minimum = OperatingMixturePolicy.NeuralMinimum(context.Bounds.MaturityCount, _ownsNeural, HasUsableNeuralCalibration(measured));
+        mixture = OperatingMixturePolicy.WithNeuralMinimum(mixture, minimum, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
         measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, batch.Models, mixture, batch.EvaluatedAt);
         if (measured is null)
         {
@@ -474,14 +485,14 @@ public sealed partial class EnsembleScoringStrategy
         var retained = false;
         if (!UsableProvisionalCandidate(measured))
         {
-            var retention = TryCalibrateRetainedProvisional(context, batch);
+            var retention = TryCalibrateRetainedProvisional(context, candidates, batch);
             if (retention is null)
             {
                 return false;
             }
 
-            (mixture, measured) = retention.Value;
-            candidates = new TrainedCandidates(LearnedStrategy, null, context.Incumbent.Learned, context.Incumbent.Neural);
+            (mixture, measured) = (retention.Mixture, retention.Calibration);
+            candidates = new TrainedCandidates(LearnedStrategy, retention.NeuralTrainer, context.Incumbent.Learned, retention.Neural);
             retained = true;
         }
 
@@ -489,7 +500,10 @@ public sealed partial class EnsembleScoringStrategy
         var bounds = context.Bounds with { NeuralCap = context.Bounds.AlphaCap * NeuralMaxBetaFraction };
         var serving = candidates with { Neural = mixture.Neural > 0 ? candidates.Neural : context.Incumbent.Neural, NeuralTrainer = mixture.Neural > 0 ? candidates.NeuralTrainer : null };
         RecordAdmissionAttempt(decision, fit.Count, batch.EvaluatedAt);
-        return CommitAcceptedChallenger(serving, decision, [], bounds, cancellationToken, new ProvisionalCommit(measured, digest, retained));
+        return CommitAcceptedChallenger(serving, decision, [], bounds, cancellationToken, new ProvisionalCommit(measured, digest, retained)
+        {
+            OwnedNeuralRefresh = retained && _ownsNeural && serving.NeuralTrainer is not null
+        });
     }
 
     private static bool UsableProvisionalCandidate(EnsembleAdmissionEvaluator.ServingCalibration measured)
@@ -497,7 +511,15 @@ public sealed partial class EnsembleScoringStrategy
             && measured.MixtureLoss <= measured.HeuristicLoss && measured.RankingSafe
             && (measured.IncumbentLoss is not double incumbent || measured.MixtureLoss <= incumbent);
 
-    private (AdmissionMixture Mixture, EnsembleAdmissionEvaluator.ServingCalibration Calibration)? TryCalibrateRetainedProvisional(ChallengerContext context, ValidationBatch batch)
+    private static bool HasUsableNeuralCalibration(EnsembleAdmissionEvaluator.ServingCalibration calibration)
+        => calibration.NeuralLoss is double loss && double.IsFinite(loss) && loss <= ValidationLossThreshold;
+
+    private static bool UsableMinimumParticipation(EnsembleAdmissionEvaluator.ServingCalibration calibration)
+        => HasUsableNeuralCalibration(calibration) && calibration.LearnedLoss <= ValidationLossCeiling
+            && calibration.MixtureLoss <= ValidationLossThreshold && calibration.MixtureLoss <= calibration.HeuristicLoss
+            && calibration.RankingSafe;
+
+    private ProvisionalRetention? TryCalibrateRetainedProvisional(ChallengerContext context, TrainedCandidates candidates, ValidationBatch batch)
     {
         if (_acceptedBundle is not { IsProvisional: true, Retired: false })
         {
@@ -505,6 +527,12 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         var current = context.Incumbent.Resolve(context.Bounds.AlphaCap);
+        var incoming = TryRetainedLearnedWithNeuralPrior(context, candidates, batch, current);
+        if (incoming is not null)
+        {
+            return incoming;
+        }
+
         var alpha = context.Bounds.Minimum + ((current.Alpha - context.Bounds.Minimum) * TrendDegradationDamping);
         alpha = Math.Min(current.Alpha, alpha);
         var beta = current.Beta * .5;
@@ -520,13 +548,73 @@ public sealed partial class EnsembleScoringStrategy
             Neural = context.Incumbent.Neural is null ? null : new PenalizedPredictor(context.Incumbent.Neural, context.Bounds.Floor)
         };
         var calibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, reduced, batch.EvaluatedAt);
+        if (calibration is not null && current.Neural > 0 && context.Incumbent.Neural is { HasTrainedParameters: true } && HasUsableNeuralCalibration(calibration))
+        {
+            var floor = OperatingMixturePolicy.NeuralMinimum(context.Bounds.MaturityCount, _ownsNeural, available: true);
+            reduced = OperatingMixturePolicy.WithNeuralMinimum(reduced, floor, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
+            calibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, reduced, batch.EvaluatedAt);
+        }
+
         if (calibration is not null && UsableProvisionalCandidate(calibration))
         {
-            return (reduced, calibration);
+            return new ProvisionalRetention(reduced, calibration, context.Incumbent.Neural, null);
         }
 
         calibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, current, batch.EvaluatedAt);
-        return calibration?.MixtureLoss <= ValidationLossCeiling ? (current, calibration) : null;
+        if (calibration is not null && current.Neural > 0 && context.Incumbent.Neural is { HasTrainedParameters: true } && HasUsableNeuralCalibration(calibration))
+        {
+            var floor = OperatingMixturePolicy.NeuralMinimum(context.Bounds.MaturityCount, _ownsNeural, available: true);
+            var floored = OperatingMixturePolicy.WithNeuralMinimum(current, floor, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
+            var floorCalibration = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, floored, batch.EvaluatedAt);
+            if (floorCalibration is not null && UsableMinimumParticipation(floorCalibration))
+            {
+                return new ProvisionalRetention(floored, floorCalibration, context.Incumbent.Neural, null);
+            }
+        }
+
+        return calibration is not null && calibration.MixtureLoss <= ValidationLossCeiling
+            ? new ProvisionalRetention(current, calibration, context.Incumbent.Neural, null)
+            : null;
+    }
+
+    private ProvisionalRetention? TryRetainedLearnedWithNeuralPrior(ChallengerContext context, TrainedCandidates candidates, ValidationBatch batch, AdmissionMixture current)
+    {
+        if (candidates.Neural is not { HasTrainedParameters: true } neural)
+        {
+            return null;
+        }
+
+        var models = batch.Models with { Learned = new PenalizedPredictor(context.Incumbent.Learned, context.Bounds.Floor) };
+        var beta = OperatingMixturePolicy.NeuralTarget(context.Bounds.MaturityCount, _ownsNeural, available: true);
+        var target = new AdmissionMixture(current.Alpha * (1 - beta), current.Alpha * beta);
+        var measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, target, batch.EvaluatedAt);
+        if (measured is null || !HasUsableNeuralCalibration(measured))
+        {
+            return null;
+        }
+
+        var floor = OperatingMixturePolicy.NeuralMinimum(context.Bounds.MaturityCount, _ownsNeural, available: true);
+        target = OperatingMixturePolicy.Target(current.Alpha, context.Bounds.Minimum, beta, measured);
+        var mixture = OperatingMixturePolicy.WithNeuralMinimum(OperatingMixturePolicy.Approach(current, target), floor, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
+        measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, mixture, batch.EvaluatedAt);
+        if (measured is not null && UsableProvisionalCandidate(measured))
+        {
+            return new ProvisionalRetention(mixture, measured, neural, candidates.NeuralTrainer);
+        }
+
+        // Entry is bounded serving participation, not a claim that an unknown ranking has improved.
+        // Never replace an already-participating Neural version with a worse refresh just to satisfy a floor.
+        if (current.Beta < floor)
+        {
+            mixture = OperatingMixturePolicy.WithNeuralMinimum(current, floor, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
+            measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, mixture, batch.EvaluatedAt);
+            if (measured is not null && UsableMinimumParticipation(measured))
+            {
+                return new ProvisionalRetention(mixture, measured, neural, candidates.NeuralTrainer);
+            }
+        }
+
+        return null;
     }
 
     private static string ComputeOperatingInputDigest(IReadOnlyList<TrainingExample> fit, IReadOnlyList<TrainingExample> calibration, PromotionBounds bounds, NeuralScoringStrategy.PredictionSnapshot? neuralPrior)
@@ -636,6 +724,12 @@ public sealed partial class EnsembleScoringStrategy
 
         cancellationToken.ThrowIfCancellationRequested();
         neural ??= ResolveNeuralTrainingPrior(context);
+        if (neural is not { HasTrainedParameters: true })
+        {
+            fittedNeural = null;
+            neural = null;
+        }
+
         return new TrainedCandidates(context.Learned, fittedNeural, context.Learned.CapturePredictionSnapshot(), neural);
     }
 
@@ -732,7 +826,7 @@ public sealed partial class EnsembleScoringStrategy
                 AlphaCap = bounds.AlphaCap,
                 NeuralCap = bounds.NeuralCap,
                 Revision = (_acceptedBundle?.Revision ?? 0) + 1,
-                TrainedAtUtc = provisional?.RetainedParameters == true ? _acceptedBundle!.TrainedAtUtc : now,
+                TrainedAtUtc = provisional is { RetainedParameters: true, OwnedNeuralRefresh: false } ? _acceptedBundle!.TrainedAtUtc : now,
                 AcceptanceObservationIds = ids,
                 Utility = provisional is null ? decision.Utility : null,
                 State = new EnsembleStateData
@@ -744,7 +838,7 @@ public sealed partial class EnsembleScoringStrategy
                     QualityGateFrozen = false,
                     SigmoidMidpointOffset = _sigmoidMidpointOffset,
                     MetricsHistory = _metricsHistory.ToList(),
-                    UpdatedAt = provisional?.RetainedParameters == true ? _acceptedBundle!.State.UpdatedAt : now.ToString("O", CultureInfo.InvariantCulture)
+                    UpdatedAt = provisional is { RetainedParameters: true, OwnedNeuralRefresh: false } ? _acceptedBundle!.State.UpdatedAt : now.ToString("O", CultureInfo.InvariantCulture)
                 }
             };
             if (!new AcceptedModelStore(_statePath, _logger).Commit(bundle))
@@ -1374,7 +1468,12 @@ public sealed partial class EnsembleScoringStrategy
 
     private sealed record NeuralTrainingPrior(NeuralScoringStrategy.PredictionSnapshot? Prediction);
 
-    private sealed record ProvisionalCommit(EnsembleAdmissionEvaluator.ServingCalibration Calibration, string Digest, bool RetainedParameters);
+    private sealed record ProvisionalCommit(EnsembleAdmissionEvaluator.ServingCalibration Calibration, string Digest, bool RetainedParameters)
+    {
+        public bool OwnedNeuralRefresh { get; init; }
+    }
+
+    private sealed record ProvisionalRetention(AdmissionMixture Mixture, EnsembleAdmissionEvaluator.ServingCalibration Calibration, NeuralScoringStrategy.PredictionSnapshot? Neural, NeuralScoringStrategy? NeuralTrainer);
 
     private sealed record HistoricalCandidate(AcceptedModelBundle Bundle, AcceptedPrediction Prediction, double CalibrationLoss, IScoringStrategy? NoNeuralReference);
 

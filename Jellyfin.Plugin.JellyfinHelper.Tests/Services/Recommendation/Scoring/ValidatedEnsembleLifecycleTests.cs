@@ -1623,6 +1623,241 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.True(store.ReadSpentAcceptanceIds(restored).Count > spentTitles);
     }
 
+    [Theory]
+    [InlineData(.95)]
+    [InlineData(.55)]
+    public void RetainedPersonalLearnedCanAdmitAUsableNeuralPriorWithoutPublishingTheBadLinearFit(double neuralScore)
+    {
+        var scope = "retained-neural-" + neuralScore.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var store = new AcceptedModelStore(statePath);
+        var original = ProvisionalConstantBundle();
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        var calibration = ConstantExamples(100, 611, .85);
+        var prior = ConstantNeural(neuralScore);
+        using (var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: false, genrePenaltyFloor: 1))
+        {
+            personal.SetPinnedNeuralTrainingPrior(prior);
+            Assert.True(personal.TrainValidated(ConstantExamples(300, 612, .05), calibration, false, TestContext.Current.CancellationToken));
+            var current = store.Read()!;
+            Assert.InRange(current.Mixture.Beta, EnsembleScoringStrategy.NeuralPerUserBetaFloor, EnsembleScoringStrategy.NeuralMaxBetaFraction);
+            Assert.True(current.Mixture.Neural > 0);
+            Assert.Equal(original.Learned.Weights, current.Learned.Weights);
+            Assert.Equal(original.Learned.Bias, current.Learned.Bias);
+            Assert.Equal(original.Learned.TrainingGeneration, current.Learned.TrainingGeneration);
+            Assert.Equal(original.TrainedAtUtc, current.TrainedAtUtc);
+            Assert.Equal(prior.ExportParameters().BiasOutput, current.Neural!.BiasOutput);
+            Assert.True(current.IsProvisional);
+            Assert.Null(current.Utility);
+            Assert.Empty(personal.GetAcceptedObservationIds()!);
+            Assert.False(personal.IsQualityGateFrozen);
+        }
+
+        using var restarted = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: false, genrePenaltyFloor: 1);
+        restarted.SetPinnedNeuralTrainingPrior(prior);
+        var bytes = File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!);
+        Assert.False(restarted.TrainValidated(ConstantExamples(300, 612, .05), calibration, false, TestContext.Current.CancellationToken));
+        Assert.Equal(bytes, File.ReadAllBytes(AcceptedModelStore.GetBundlePath(statePath)!));
+        Assert.InRange(restarted.GetDiagnosticsSnapshot().EffectiveNeuralBeta, .12, .4);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("untrained")]
+    [InlineData("bad-quality")]
+    [InlineData("corrupt")]
+    public void NeuralMinimumNeverForcesAnUnavailableOrUnusablePriorIntoRetainedPersonalParameters(string failure)
+    {
+        var scope = "retained-neural-unusable-" + failure;
+        var statePath = Path.Join(_directory, scope + "-state.json");
+        var store = new AcceptedModelStore(statePath);
+        var original = ProvisionalConstantBundle();
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        var data = ConstantNeural(failure == "bad-quality" ? .05 : .95).ExportParameters();
+        if (failure == "untrained") data.TrainingGeneration = 0;
+        if (failure == "corrupt") data.BiasOutput = double.NaN;
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: false, genrePenaltyFloor: 1);
+        personal.SetPinnedNeuralTrainingPrior(failure == "missing" ? null : new NeuralScoringStrategy.PredictionSnapshot(data));
+        Assert.True(personal.TrainValidated(ConstantExamples(300, 622, .05), ConstantExamples(100, 621, .85), false, TestContext.Current.CancellationToken));
+        var retained = store.Read()!;
+        Assert.Equal(0, retained.Mixture.Neural);
+        Assert.Equal(original.Learned.Weights, retained.Learned.Weights);
+        Assert.Equal(original.Learned.Bias, retained.Learned.Bias);
+        Assert.Equal(original.TrainedAtUtc, retained.TrainedAtUtc);
+        Assert.Empty(personal.GetAcceptedObservationIds()!);
+    }
+
+    [Theory]
+    [InlineData(false, .08)]
+    [InlineData(false, .12)]
+    [InlineData(false, .2)]
+    [InlineData(false, .4)]
+    [InlineData(true, .08)]
+    [InlineData(true, .12)]
+    [InlineData(true, .2)]
+    [InlineData(true, .4)]
+    public void HealthyRetainedNeuralCannotDecayBelowItsNormalMinimumOnABadLinearRefresh(bool ownsNeural, double beta)
+    {
+        var statePath = Path.Join(_directory, "retained-neural-floor-state.json");
+        var original = ProvisionalConstantBundle(beta);
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: ownsNeural, genrePenaltyFloor: 1);
+        personal.SetPinnedNeuralTrainingPrior(null);
+        Assert.True(personal.TrainValidated(ConstantExamples(300, 632, .05), ConstantExamples(100, 631, .85), false, TestContext.Current.CancellationToken));
+        var retained = store.Read()!;
+        Assert.NotEqual("CheckpointCommitFailed", personal.LastAdmission!.Reason);
+        Assert.InRange(retained.Mixture.Beta, .12, .4);
+        Assert.Equal(original.Neural!.BiasOutput, retained.Neural!.BiasOutput);
+        Assert.Equal(original.Neural.TrainingGeneration, retained.Neural.TrainingGeneration);
+        Assert.Equal(original.Learned.Weights, retained.Learned.Weights);
+        Assert.Equal(original.TrainedAtUtc, retained.TrainedAtUtc);
+    }
+
+    [Fact]
+    public void RetentionWithPinnedMissingNeuralCannotReactivateDormantCoordinates()
+    {
+        var statePath = Path.Join(_directory, "retained-dormant-neural-state.json");
+        var original = ProvisionalConstantBundle();
+        original.Neural = ConstantNeural(.95).ExportParameters();
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: false, genrePenaltyFloor: 1);
+        personal.SetPinnedNeuralTrainingPrior(null);
+        Assert.True(personal.TrainValidated(ConstantExamples(300, 642, .05), ConstantExamples(100, 641, .85), false, TestContext.Current.CancellationToken));
+        Assert.Equal(0, store.Read()!.Mixture.Neural);
+        Assert.Null(personal.GetAcceptedNeuralPrediction());
+    }
+
+    [Fact]
+    public void WorseNeuralPriorCannotReplaceAlreadyParticipatingGoodNeuralParameters()
+    {
+        var statePath = Path.Join(_directory, "retained-good-neural-state.json");
+        var original = ProvisionalConstantBundle(.2);
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), statePath: statePath, ownsNeural: false, genrePenaltyFloor: 1);
+        personal.SetPinnedNeuralTrainingPrior(ConstantNeural(.55));
+        Assert.True(personal.TrainValidated(ConstantExamples(300, 652, .05), ConstantExamples(100, 651, .85), false, TestContext.Current.CancellationToken));
+        var retained = store.Read()!;
+        Assert.Equal(original.Neural!.BiasOutput, retained.Neural!.BiasOutput);
+        Assert.Equal(original.Neural.TrainingGeneration, retained.Neural.TrainingGeneration);
+        Assert.Equal(original.Learned.Weights, retained.Learned.Weights);
+        Assert.InRange(retained.Mixture.Beta, .12, .4);
+        Assert.Equal(original.TrainedAtUtc, retained.TrainedAtUtc);
+    }
+
+    [Fact]
+    public void RejectedInitialInputsCannotEscapeIntoAGlobalStartingPrior()
+    {
+        using var global = Create("rejected-starting-prior-global");
+        Assert.True(global.TrainValidated(ConstantExamples(300, 681, .85), ConstantExamples(100, 682, .85), true, TestContext.Current.CancellationToken));
+        Assert.NotNull(global.GetOperatingPrior());
+        using var personal = Create("rejected-starting-prior-personal");
+        var fit = Examples(200, 471);
+        var holdout = Examples(400, 472);
+        foreach (var row in fit.Concat(holdout)) row.Features.CombinedCriticScore = row.Label;
+        foreach (var row in holdout.Where(row => (SHA256.HashData(row.ObservationId.ToByteArray())[0] & 1) != 0)) row.Label = .85 - row.Label;
+        Assert.True(personal.TrainValidated(fit, holdout, false, TestContext.Current.CancellationToken));
+        Assert.Equal("RejectedIndependentUtility", personal.LastAdmission!.Reason);
+        var before = holdout.Select(row => personal.Score(row.Features)).ToArray();
+        personal.InitializeOperatingPrior(global.GetOperatingPrior());
+        Assert.Equal(0, personal.GetDiagnosticsSnapshot().EffectiveAlpha);
+        Assert.Equal(before, holdout.Select(row => personal.Score(row.Features)).ToArray());
+    }
+
+    [Fact]
+    public void ALocallyTrainedNeuralRefreshRetainingLearnedWeightsHasAnHonestNewComponentTrainingTime()
+    {
+        var statePath = Path.Join(_directory, "owned-neural-retention-state.json");
+        var original = ProvisionalConstantBundle();
+        var store = new AcceptedModelStore(statePath);
+        Assert.True(store.Commit(original));
+        WriteWorkingProvisionalAssessment(statePath, original);
+        using var owned = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), new NeuralScoringStrategy(), statePath, genrePenaltyFloor: 1);
+        var fit = Examples(600, 691);
+        var holdout = Examples(100, 692).Where(row => row.Label > .5).ToArray();
+        foreach (var row in fit.Concat(holdout))
+        {
+            row.Features.GenreSimilarity = .1;
+            row.Features.CombinedCriticScore = .1;
+        }
+
+        Assert.True(owned.TrainValidated(fit, holdout, true, TestContext.Current.CancellationToken));
+        var retained = store.Read()!;
+        Assert.Equal(original.Learned.Weights, retained.Learned.Weights);
+        Assert.Equal(original.Learned.TrainingGeneration, retained.Learned.TrainingGeneration);
+        Assert.True(retained.Neural!.TrainingGeneration > 0);
+        Assert.True(retained.Mixture.Neural > 0);
+        Assert.True(retained.TrainedAtUtc > original.TrainedAtUtc);
+        Assert.True(DateTime.Parse(retained.State.UpdatedAt, System.Globalization.CultureInfo.InvariantCulture).ToUniversalTime() > original.TrainedAtUtc);
+        Assert.False(owned.LastAdmission!.Accepted);
+        Assert.Null(retained.Utility);
+    }
+
+    private static void WriteWorkingProvisionalAssessment(string statePath, AcceptedModelBundle bundle)
+        => File.WriteAllText(statePath + ".assessment.json", System.Text.Json.JsonSerializer.Serialize(new ModelTrainingAssessment
+        {
+            AcceptedModelRevision = bundle.Revision,
+            IndependentAdmissionEnabled = true,
+            AcceptanceLedgerRequired = true,
+            ObservedTrainingIds = bundle.State.ObservedTrainingIds ?? throw new InvalidOperationException("A working fixture requires observed training identities."),
+            TrainingExampleCount = bundle.State.TrainingExampleCount
+        }));
+
+    private static CandidateFeatures ConstantFeatures() => new()
+    {
+        GenreSimilarity = .1, CombinedCriticScore = .1, RecencyScore = .1, YearProximityScore = .1
+    };
+
+    private static TrainingExample[] ConstantExamples(int count, int seed, double label)
+        => Examples(count, seed).Select(row => { row.Features = ConstantFeatures(); row.Label = label; return row; }).ToArray();
+
+    private static NeuralScoringStrategy.PredictionSnapshot ConstantNeural(double score) => new(new NeuralScoringStrategy.NeuralWeightsData
+    {
+        Version = 5, TrainingGeneration = 6, BiasOutput = Math.Log(score / (1 - score)),
+        WeightsIH = new double[NeuralScoringStrategy.Hidden1Size * CandidateFeatures.FeatureCount],
+        BiasH1 = new double[NeuralScoringStrategy.Hidden1Size],
+        WeightsH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size],
+        BiasH2 = new double[NeuralScoringStrategy.Hidden2Size],
+        WeightsH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size],
+        BiasH3 = new double[NeuralScoringStrategy.Hidden3Size],
+        WeightsH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size],
+        BiasH4 = new double[NeuralScoringStrategy.Hidden4Size],
+        WeightsH4O = new double[NeuralScoringStrategy.Hidden4Size]
+    });
+
+    private static AcceptedModelBundle ProvisionalConstantBundle(double beta = 0)
+    {
+        var neural = Math.Min(.3, .75 * beta);
+        var learned = .75 - neural;
+        if (learned + neural > .75) learned = Math.BitDecrement(learned);
+        var mixture = new AdmissionMixture(learned, neural);
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1).Score(ConstantFeatures());
+        var score = (1 - mixture.Alpha) * heuristic + mixture.Learned * .85 + mixture.Neural * .95;
+        var trainedAt = new DateTime(2026, 11, 12, 0, 0, 0, DateTimeKind.Utc);
+        return new AcceptedModelBundle
+        {
+            Version = 2, IsProvisional = true, Revision = 1, TrainedAtUtc = trainedAt,
+            AlphaCap = .75, NeuralCap = .3, Mixture = mixture,
+            CalibrationLoss = Math.Pow(score - .85, 2), CalibrationTitleCount = 20,
+            OperatingInputDigest = new string('A', 64),
+            Learned = new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 5, Weights = new double[CandidateFeatures.FeatureCount], Bias = .85 },
+            Neural = beta > 0 ? ConstantNeural(.95).ExportParameters() : null,
+            State = new EnsembleScoringStrategy.EnsembleStateData
+            {
+                Alpha = .75, NeuralBeta = beta, TrainingExampleCount = 300,
+                ObservedTrainingIds = Examples(300, 610).Select(row => row.ObservationId).ToArray(),
+                UpdatedAt = trainedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+            }
+        };
+    }
+
     private static AcceptedModelBundle LinearBundle(bool inverted, long revision, DateTime trainedAt)
     {
         var weights = new double[CandidateFeatures.FeatureCount];

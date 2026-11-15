@@ -2413,6 +2413,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         /// <inheritdoc />
         public string NameKey => "strategyNeural";
 
+        /// <summary>Gets a value indicating whether these immutable coordinates represent a technically valid trained model.</summary>
+        internal bool HasTrainedParameters => _data.TrainingGeneration > 0 && IsValidParameters(_data);
+
         /// <inheritdoc />
         public double Score(CandidateFeatures features)
         {
