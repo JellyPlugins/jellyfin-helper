@@ -331,7 +331,23 @@
     }
 
     function setCachedDiscoveryResult(data) {
+        var previous = getCachedDiscoveryResult();
         _discoveryResultCache = { data: data, userId: currentDiscoveryUserId() };
+        if (_activeTab !== TAB_TRAKT && _activeTab !== TAB_TRENDING) return;
+        var before = Array.from(ownDiscoveryItemKeys(previous)).sort().join(',');
+        var after = Array.from(ownDiscoveryItemKeys(data)).sort().join(',');
+        if (before === after) return;
+        var host = _tabPanel?.querySelector('.jfh-discovery-tab-host');
+        var cached = _activeTab === TAB_TRAKT ? _traktPersonalCache : _traktTrendingCache;
+        if (host?._jfhDiscoverySource === _activeTab && cached?.userId === currentDiscoveryUserId()) {
+            renderCards(host, cached.data);
+        }
+    }
+
+    function ownDiscoveryItemKeys(data) {
+        return new Set((Array.isArray(data?.Recommendations) ? data.Recommendations : []).map(function (item) {
+            return discoveryCardKey(item.TmdbId, String(item.MediaType || '').trim() || 'movie');
+        }));
     }
 
     function invalidateDiscoveryResult() {
@@ -1035,8 +1051,11 @@
     function renderCards(container, userDiscovery) {
         setDiscoverySource(container);
         container.classList.add('jfh-ui-surface');
+        // Cached and in-flight Trakt responses can predate the current own pool. Never mutate either cache.
+        var ownKeys = _activeTab === TAB_TRAKT || _activeTab === TAB_TRENDING ? ownDiscoveryItemKeys(getCachedDiscoveryResult()) : null;
         var recommendations = (Array.isArray(userDiscovery?.Recommendations) ? userDiscovery.Recommendations : []).filter(function (item) {
-            return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType));
+            return !_consumedDiscoveryItems.has(discoveryCardKey(item.TmdbId, item.MediaType))
+                && !ownKeys?.has(discoveryCardKey(item.TmdbId, String(item.MediaType || '').trim() || 'movie'));
         });
         if (recommendations.length === 0) {
             renderEmptySidebarCards(container);
