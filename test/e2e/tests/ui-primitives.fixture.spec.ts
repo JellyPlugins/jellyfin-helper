@@ -42,8 +42,9 @@ function discoveryFixtureScript(script: string): string {
              _strings = strings;
              renderCards(container, { Recommendations: recommendations });
          },
-        renderTabs: function (container) {
-            _traktEnabled = true;
+         renderTabs: function (container) {
+             _tabPanel = container;
+             _traktEnabled = true;
             _traktLinked = true;
             _strings = { discoveryTabForYou: 'Für dich', discoveryTabTraktForYou: 'Trakt für dich', discoveryTabTraktTrending: 'Trakt Trending' };
             renderShell(container, false);
@@ -110,6 +111,45 @@ async function discovery(page: Page) {
   }, discoveryRecommendations);
 }
 
+for (const tab of ['trakt', 'trending']) {
+  test(`cached ${tab} excludes newly current own titles without changing typed identities or source order`, async ({ page }) => {
+    await page.clock.install();
+    await discovery(page);
+    await page.evaluate(() => {
+      const own = { Recommendations: [{ TmdbId: 2, MediaType: 'movie', Title: 'Old own title', Score: .7 }] };
+      const trakt = { Recommendations: [
+        { TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .43 },
+        { TmdbId: 1, MediaType: 'tv', Title: 'Different television title', Score: .9 },
+        { TmdbId: 3, MediaType: 'movie', Title: 'Trakt third', Score: .2 },
+        { TmdbId: 4, MediaType: 'movie', Title: 'Trakt fourth', Score: .8 },
+      ] };
+      (window as any).fixtureOwnPool = own;
+      (window as any).fixtureTraktFetches = 0;
+      (window as any).ApiClient.ajax = async (options: any) => {
+        if (options.url.includes('/Trakt')) {
+          (window as any).fixtureTraktFetches++;
+          return options.url.endsWith('/Trakt') ? { Linked: true, Result: trakt } : trakt;
+        }
+        return (window as any).fixtureOwnPool;
+      };
+      (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
+    });
+    const keys = () => page.locator('.jfh-discovery-tab-host .jfh-discovery-card').evaluateAll(cards => cards.map(card => (card as HTMLElement).dataset.cardKey));
+    await page.locator(`[data-tab="${tab}"]`).click();
+    await expect.poll(keys).toEqual(['movie-1', 'tv-1', 'movie-3', 'movie-4']);
+    const fetched = await page.evaluate(() => (window as any).fixtureTraktFetches);
+    await page.evaluate(() => {
+      (window as any).fixtureOwnPool = { Recommendations: [{ TmdbId: 1, MediaType: 'movie', Title: 'Disclosure Day', Score: .55 }] };
+    });
+    await page.locator('[data-tab="own"]').click();
+    await expect(page.locator('.jfh-discovery-card[data-tmdb="1"][data-type="movie"]')).toContainText('55%');
+    await page.locator(`[data-tab="${tab}"]`).click();
+    await expect.poll(keys).toEqual(['tv-1', 'movie-3', 'movie-4']);
+    expect(await page.evaluate(() => (window as any).fixtureTraktFetches)).toBe(fetched);
+    await expect(page.locator('.jfh-discovery-card[data-tmdb="1"][data-type="tv"]')).toContainText('90%');
+  });
+}
+
 for (const outcome of ['success', 'duplicate', 'failure']) {
   test(`a replacement profile popup does not repost after an original ${outcome}`, async ({ page }) => {
     await page.clock.install();
@@ -170,8 +210,8 @@ test('requested-card success animation stays in its source on immediate Trakt sw
       (window as any).fixtureRequests.push(options);
       if (options.url.endsWith('/Request')) return { Success: true };
       if (options.url.includes('RequestPermissions')) return { CanRequest: true, Profiles: [] };
-      if (options.url.endsWith('/Trakt/Trending')) return pool([4, 2]);
-      if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool([3, 2]) };
+      if (options.url.endsWith('/Trakt/Trending')) return pool([4, 6]);
+      if (options.url.endsWith('/Trakt')) return { Linked: true, Result: pool([3, 5]) };
       return pool([1, 2]);
     };
     (window as any).fixtureDiscovery.renderTabs(document.getElementById('cards'));
@@ -185,22 +225,22 @@ test('requested-card success animation stays in its source on immediate Trakt sw
   await expect.poll(() => page.evaluate(() => (window as any).fixtureRequestedCard._jfhConsumeTimer)).toBeNull();
   const cards = page.locator('.jfh-discovery-tab-host .jfh-discovery-card');
   await expect(cards).toHaveCount(2);
-  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['3', '2']);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['3', '5']);
   await page.locator('[data-tab="trending"]').click();
   await expect(cards).toHaveCount(2);
-  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '6']);
   // Observe beyond the original 5-second deadline; the old callback must not refill the current source.
   const beforeRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
   const actions = (requests: any[]) => requests.filter(request => !request.url.endsWith('/Impressions')).map(request => request.type + ' ' + request.url);
   await page.clock.fastForward(5300);
-  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '2']);
+  expect(await cards.evaluateAll(elements => elements.map(el => (el as HTMLElement).dataset.tmdb))).toEqual(['4', '6']);
   const afterRequests = await page.evaluate(() => (window as any).fixtureRequests.slice());
   expect(actions(afterRequests)).toEqual(actions(beforeRequests));
   // Native IntersectionObserver callbacks can arrive during clock advancement, but only for this source.
   const impressions = afterRequests.slice(beforeRequests.length).filter((request: any) => request.url.endsWith('/Impressions'));
   for (const request of impressions) {
     for (const item of JSON.parse(request.data).Items) {
-      expect(['movie-4', 'movie-2']).toContain(item.MediaType + '-' + item.TmdbId);
+      expect(['movie-4', 'movie-6']).toContain(item.MediaType + '-' + item.TmdbId);
     }
   }
 });

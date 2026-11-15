@@ -96,6 +96,7 @@ Recommendation tests cover raw, localized and canonical inputs at both training 
 Weight schemas remain v5; real API histories and credentials must never be committed as test fixtures.
 
 - Sort the final filtered, diverse own pool by score; preserve Trakt source order and playlist engine order.
+- Recheck Trakt against the current user's own pool before delivery/capping and browser-cache rendering; match TMDb ID/media type, never score.
 - Restricted profiles require verified current-country certifications; fail closed (30-second budget).
 - Optional enrichment: top 20 / eight seconds. Selected-title status checks: separate eight-second deadline.
 - Recheck requests and coordinate TMDb ID/media type; Seerr decides TV seasons. Enrichment never gates Request.

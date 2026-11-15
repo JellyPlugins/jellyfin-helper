@@ -839,7 +839,7 @@ public sealed class UserDiscoveryController : ControllerBase
             linked = await _traktDiscovery.IsLinkedForAsync(userId.Value, cancellationToken).ConfigureAwait(false);
         }
 
-        var visible = RememberDelivered(userId.Value, CapToVisible(result));
+        var visible = RememberDelivered(userId.Value, await CapToVisibleAsync(result).ConfigureAwait(false));
         return Ok(new TraktDiscoveryResponse { Linked = linked, Result = visible });
     }
 
@@ -866,38 +866,47 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var result = await _traktDiscovery.GetTrendingAsync(userId.Value, cancellationToken).ConfigureAwait(false);
-        var visible = RememberDelivered(userId.Value, CapToVisible(result));
+        var visible = RememberDelivered(userId.Value, await CapToVisibleAsync(result).ConfigureAwait(false));
         return Ok(visible);
     }
 
     /// <summary>
     ///     Caps a Trakt discovery result to the same visible count as the "For you" tab
     ///     (<see cref="ISeerrDiscoveryService.MaxVisiblePerUser"/>). The Trakt services return the full scored
-    ///     pool (two lists at the Trakt limit each) and already drop requested/dismissed items via
-    ///     FilterConsumedItems, so capping here mirrors GetMyDiscoveryResults: the user sees at most N, and when
+    ///     pool (two lists at the Trakt limit each). Recheck consumed and current own-pool titles before capping,
+    ///     including warm Trakt results scored before the own pool changed: the user sees at most N, and when
     ///     one is requested or dismissed the next pool item takes its slot on the following load. The pool stays
     ///     uncapped in the Trakt cache so that backfill has something to promote.
     /// </summary>
     /// <param name="result">The scored Trakt result, or null when nothing was sourced.</param>
     /// <returns>The result with its recommendations capped, or null when the input was null.</returns>
-    private DiscoveryResult? CapToVisible(DiscoveryResult? result)
+    private async Task<DiscoveryResult?> CapToVisibleAsync(DiscoveryResult? result)
     {
-        var user = GetCurrentUserId();
-        if (result is not null && user.HasValue)
+        if (result is null)
         {
-            result = _discovery.FilterConsumedItems(user.Value, result) ?? new DiscoveryResult { UserId = user.Value, GeneratedAt = result.GeneratedAt };
+            return null;
         }
 
-        if (result is null || result.Recommendations.Count <= _discovery.MaxVisiblePerUser)
+        static (int TmdbId, string MediaType) Key(DiscoveryRecommendation item)
+            => (item.TmdbId, string.IsNullOrWhiteSpace(item.MediaType) ? MovieMediaType : item.MediaType.Trim().ToLowerInvariant());
+
+        var ownKeys = new HashSet<(int TmdbId, string MediaType)>();
+        var user = GetCurrentUserId();
+        if (user.HasValue)
         {
-            return result;
+            result = _discovery.FilterConsumedItems(user.Value, result) ?? new DiscoveryResult { UserId = user.Value, GeneratedAt = result.GeneratedAt };
+            var own = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(item => item.UserId == user.Value);
+            if (own is not null)
+            {
+                ownKeys.UnionWith(own.Recommendations.Select(Key));
+            }
         }
 
         return new DiscoveryResult
         {
             UserId = result.UserId,
             UserName = result.UserName,
-            Recommendations = result.Recommendations.Take(_discovery.MaxVisiblePerUser).ToList(),
+            Recommendations = result.Recommendations.Where(item => !ownKeys.Contains(Key(item))).Take(_discovery.MaxVisiblePerUser).ToList(),
             GeneratedAt = result.GeneratedAt,
         };
     }
