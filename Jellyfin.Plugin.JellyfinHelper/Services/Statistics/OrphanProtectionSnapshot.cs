@@ -95,7 +95,7 @@ public sealed class OrphanProtectionSnapshot
             return true;
         }
 
-        return Path.GetRelativePath(root, path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+        return Path.GetRelativePath(root, path).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
             .Any(segment => segment.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase)
                 || segment.Contains("[boxset]", StringComparison.OrdinalIgnoreCase)
                 || segment.Contains("[collection]", StringComparison.OrdinalIgnoreCase)
