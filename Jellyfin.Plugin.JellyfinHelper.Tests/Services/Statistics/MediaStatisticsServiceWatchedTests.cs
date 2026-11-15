@@ -472,6 +472,6 @@ public class MediaStatisticsServiceWatchedTests
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
         public void SetItemLookup(string filePath, BaseItem item) => _itemLookup[filePath] = item;
-        internal override Dictionary<string, BaseItem> BuildItemLookup() => new(_itemLookup, StringComparer.OrdinalIgnoreCase);
+        internal override LibraryItemLookup BuildItemLookup() => new(new Dictionary<string, BaseItem>(_itemLookup, StringComparer.OrdinalIgnoreCase), true);
     }
 }

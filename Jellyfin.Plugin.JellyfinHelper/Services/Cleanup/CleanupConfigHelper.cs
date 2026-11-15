@@ -98,33 +98,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
 
-        var filteredFolders = virtualFolders.Where(f =>
-        {
-            var name = f.Name ?? string.Empty;
-
-            // Allow-list: only video/audio collection types are cleaned. Books and unknown types are
-            // skipped to prevent eBook deletion.
-            if (!IsCleanupEligibleCollectionType(f.CollectionType))
-            {
-                return false;
-            }
-
-            // Fallback: also exclude by name pattern in case CollectionType is null/unknown
-            // (e.g. for manually created or migrated libraries)
-            if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
-                || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            // If exclude list is set, exclude listed libraries
-            if (excludedSet.Count > 0 && excludedSet.Contains(name))
-            {
-                return false;
-            }
-
-            return true;
-        });
+        var filteredFolders = virtualFolders.Where(f => IsCleanupEligibleLibrary(f, excludedSet));
 
         // Filter out any locations that point to Jellyfin's internal
         // collections directory (typically /config/data/collections or similar).
@@ -482,31 +456,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         var config = GetConfig();
         var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
         return virtualFolders
-            .Where(f =>
-            {
-                var name = f.Name ?? string.Empty;
-
-                // Fail-safe allow-list (mirror of GetFilteredLibraryLocations): only manage trash
-                // for libraries that can hold video/audio media; skip books and any unknown/null type.
-                if (!IsCleanupEligibleCollectionType(f.CollectionType))
-                {
-                    return false;
-                }
-
-                // Fallback: also exclude by name pattern in case CollectionType is null/unknown
-                if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
-                    || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-
-                if (excludedSet.Count > 0 && excludedSet.Contains(name))
-                {
-                    return false;
-                }
-
-                return true;
-            })
+            .Where(f => IsCleanupEligibleLibrary(f, excludedSet))
             .SelectMany(f => f.Locations ?? [])
             .Where(loc => !IsCollectionsPath(loc))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -541,6 +491,19 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         return collectionType is not (CollectionTypeOptions.books
             or CollectionTypeOptions.music
             or CollectionTypeOptions.boxsets);
+    }
+
+    /// <summary>Shares library exclusions between cleanup, trash management and orphan diagnostics.</summary>
+    /// <param name="folder">The library being considered.</param>
+    /// <param name="excludedNames">Case-insensitive configured exclusions.</param>
+    /// <returns>True when this library is eligible for orphan checks and cleanup.</returns>
+    internal static bool IsCleanupEligibleLibrary(VirtualFolderInfo folder, HashSet<string> excludedNames)
+    {
+        var name = folder.Name ?? string.Empty;
+        return IsCleanupEligibleCollectionType(folder.CollectionType)
+            && !name.Contains("collection", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("boxset", StringComparison.OrdinalIgnoreCase)
+            && !excludedNames.Contains(name);
     }
 
     /// <summary>

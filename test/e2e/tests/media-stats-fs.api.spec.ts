@@ -1,6 +1,7 @@
 /** * Behavioral coverage for MediaStatistics codec / resolution / health breakdowns. * Today only integrity (no-negative) and shape are checked. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, sleep } from '../setup/api-client.ts';
+import { containerExists, containerFileExists, containerRm, containerWriteFile, execInContainer, hasDocker, q } from '../setup/fs-assert.ts';
 
 interface LibrarySizes {
   LibraryName: string;
@@ -14,6 +15,8 @@ interface LibrarySizes {
   NfoSize: number;
   BookSize: number;
   OtherSize: number;
+  OrphanedMetadataDirectories: number;
+  OrphanedMetadataDirectoriesPaths: string[];
 }
 
 interface Stats {
@@ -42,6 +45,148 @@ let ctx: APIRequestContext;
 
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
+});
+
+test.describe.serial('orphan detection #405 preserves hierarchy, placeholders and optional Arr ownership', () => {
+  const base = `/media/Movies/Orphan405-${Date.now()}`;
+  const wantedMovie = '/media/Movies/Missing Film (2099)';
+  const wantedSeries = '/media/Shows/Ghost Series';
+  const orphan = `${base}/Orphan`;
+  const ownedPaths: string[] = [];
+  let original: Record<string, unknown>;
+  let originalRadarr: Record<string, unknown>[];
+  let originalSonarr: Record<string, unknown>[];
+
+  interface BackupInstance {
+    name: string;
+    url: string;
+    apiKey: string;
+    libraries: string;
+    skipCertificateValidation?: boolean;
+  }
+
+  async function putSettings(changes: Record<string, unknown>) {
+    const response = await ctx.put(p('Configuration'), {
+      data: { ...original, RadarrInstances: originalRadarr, SonarrInstances: originalSonarr, ...changes },
+    });
+    expect(response.ok(), `settings save failed: ${response.status()}`).toBeTruthy();
+  }
+
+  async function freshScan(): Promise<Stats> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await ctx.get(p('MediaStatistics/ScanLibraries'));
+      if (response.status() === 429) {
+        const retry = Number(response.headers()['retry-after']) || 30;
+        await sleep(Math.min(31, Math.max(1, retry)) * 1_000 + 100);
+        continue;
+      }
+      expect(response.ok(), `scan failed: ${response.status()}`).toBeTruthy();
+      return await response.json() as Stats;
+    }
+    throw new Error('Statistics scan remained throttled after three attempts');
+  }
+
+  function sidecars(path: string) {
+    if (!containerExists(path)) ownedPaths.push(path);
+    for (const extension of ['nfo', 'srt']) {
+      const file = `${path}/orphan405-${base.split('/').at(-1)}.${extension}`;
+      containerWriteFile(file, extension === 'nfo' ? '<movie />' : 'subtitle');
+      expect(containerFileExists(file), `fixture ${file} exists`).toBe(true);
+      ownedPaths.push(file);
+    }
+  }
+
+  test.beforeAll(async () => {
+    test.skip(!hasDocker(), 'Docker is required for real filesystem orphan coverage');
+    const settings = await ctx.get(p('Configuration'));
+    expect(settings.ok()).toBeTruthy();
+    original = await settings.json();
+    // Keep test credentials only in memory; redacted GET values cannot restore removed instances.
+    const exported = await ctx.get(p('Backup/Export?includeSecrets=true'));
+    expect(exported.ok()).toBeTruthy();
+    const backup = await exported.json() as { radarrInstances: BackupInstance[]; sonarrInstances: BackupInstance[] };
+    const restoreInstance = (instance: BackupInstance) => ({
+      Name: instance.name, Url: instance.url, ApiKey: instance.apiKey,
+      Libraries: instance.libraries, SkipCertificateValidation: instance.skipCertificateValidation ?? false,
+    });
+    originalRadarr = (backup.radarrInstances ?? []).map(restoreInstance);
+    originalSonarr = (backup.sonarrInstances ?? []).map(restoreInstance);
+    ownedPaths.push(base);
+    sidecars(orphan);
+    sidecars(`${base}/Group`);
+    containerWriteFile(`${base}/Group/Deep/movie.mkv`, '');
+    const copy = execInContainer(`cp ${q('/media/Movies/Aurora Skies (2019)/Aurora Skies (2019).mkv')} ${q(`${base}/Group/Deep/movie.mkv`)}`);
+    expect(copy.code, `copy a real video: ${copy.stderr}`).toBe(0);
+    containerWriteFile(`${base}/Placeholder/movie.nfo`, '<movie />');
+    containerWriteFile(`${base}/Placeholder/poster.jpg`, 'artwork');
+    containerWriteFile(`${base}/Audio/track.mp3`, 'ID3');
+    sidecars(`${base}/Audio`);
+    sidecars(wantedMovie);
+    sidecars(wantedSeries);
+    await putSettings({ ExcludedLibraries: '', RadarrInstances: [], SonarrInstances: [] });
+  });
+
+  test.afterAll(async () => {
+    if (original) await putSettings({});
+    for (const path of ownedPaths.reverse()) containerRm(path);
+    if (original) await freshScan();
+  });
+
+  test('without Arr, nested media/audio and metadata placeholders are protected while real orphans remain', async () => {
+    const stats = await freshScan();
+    const paths = allLibraries(stats).flatMap(library => library.OrphanedMetadataDirectoriesPaths);
+    expect(paths).toContain(orphan);
+    expect(paths).toContain(wantedMovie);
+    expect(paths).toContain(wantedSeries);
+    for (const path of [base, `${base}/Group`, `${base}/Group/Deep`, `${base}/Placeholder`, `${base}/Audio`]) {
+      expect(paths, `${path} is not orphaned`).not.toContain(path);
+    }
+  });
+
+  test('configured Radarr and Sonarr add protection for managed folders without media', async () => {
+    await putSettings({
+      ExcludedLibraries: '',
+      RadarrInstances: [{ Name: 'Orphan405 Radarr', Url: 'http://mock-arr:9000', ApiKey: 'test-key', Libraries: 'Movies' }],
+      SonarrInstances: [{ Name: 'Orphan405 Sonarr', Url: 'http://mock-arr:9000', ApiKey: 'test-key', Libraries: 'Shows' }],
+    });
+    const stats = await freshScan();
+    const paths = allLibraries(stats).flatMap(library => library.OrphanedMetadataDirectoriesPaths);
+    expect(paths).not.toContain(wantedMovie);
+    expect(paths).not.toContain(wantedSeries);
+    expect(paths).toContain(orphan);
+  });
+
+  test('removing optional configuration restores the independent baseline', async () => {
+    await putSettings({ ExcludedLibraries: '', RadarrInstances: [], SonarrInstances: [] });
+    const paths = allLibraries(await freshScan()).flatMap(library => library.OrphanedMetadataDirectoriesPaths);
+    expect(paths).toContain(orphan);
+    expect(paths).toContain(wantedMovie);
+    expect(paths).toContain(wantedSeries);
+    expect(paths).not.toContain(`${base}/Placeholder`);
+  });
+
+  test('excluded libraries retain file statistics but have no orphan verdicts', async () => {
+    await putSettings({ ExcludedLibraries: 'Movies, Shows', RadarrInstances: [], SonarrInstances: [] });
+    const stats = await freshScan();
+    for (const name of ['Movies', 'Shows']) {
+      const library = allLibraries(stats).find(entry => entry.LibraryName === name)!;
+      expect(library.VideoFileCount).toBeGreaterThan(0);
+      expect(library.OrphanedMetadataDirectories).toBe(0);
+      expect(library.OrphanedMetadataDirectoriesPaths).toEqual([]);
+    }
+  });
+
+  test('failed optional Arr lookup is scoped and does not remove file statistics', async () => {
+    await putSettings({
+      ExcludedLibraries: '', SonarrInstances: [],
+      RadarrInstances: [{ Name: 'Orphan405 unavailable', Url: 'http://mock-arr:9000', ApiKey: 'force-fail', Libraries: 'Movies' }],
+    });
+    const stats = await freshScan();
+    const movies = stats.Movies.find(library => library.LibraryName === 'Movies')!;
+    expect(movies.VideoFileCount).toBeGreaterThan(0);
+    expect(movies.OrphanedMetadataDirectoriesPaths).toEqual([]);
+    expect(stats.TvShows.flatMap(library => library.OrphanedMetadataDirectoriesPaths)).toContain(wantedSeries);
+  });
 });
 test.afterAll(async () => {
   await ctx.dispose();

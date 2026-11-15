@@ -184,7 +184,13 @@ public static class TestMockFactory
 
     /// <summary>Creates a new <see cref="Mock{IMediaStatisticsService}"/>.</summary>
     /// <returns>A new mock <see cref="IMediaStatisticsService"/> instance.</returns>
-    public static Mock<IMediaStatisticsService> CreateMediaStatisticsService() => new();
+    public static Mock<IMediaStatisticsService> CreateMediaStatisticsService()
+    {
+        var mock = new Mock<IMediaStatisticsService>();
+        mock.Setup(service => service.CalculateStatisticsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MediaStatisticsResult());
+        return mock;
+    }
 
     /// <summary>Creates a new <see cref="Mock{IStatisticsCacheService}"/>.</summary>
     /// <returns>A new mock <see cref="IStatisticsCacheService"/> instance.</returns>

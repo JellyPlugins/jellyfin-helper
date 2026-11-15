@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -17,6 +18,7 @@ public class MediaStatisticsServiceTvShowTests
     public MediaStatisticsServiceTvShowTests()
     {
         _libraryManagerMock = TestMockFactory.CreateLibraryManager();
+        _libraryManagerMock.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
@@ -234,6 +236,10 @@ public class MediaStatisticsServiceTvShowTests
             new FileSystemMetadata
             {
                 FullName = TestPath(orphanPath, "poster.jpg"), Name = "poster.jpg", Length = 50_000, IsDirectory = false
+            },
+            new FileSystemMetadata
+            {
+                FullName = TestPath(orphanPath, "movie.srt"), Name = "movie.srt", Length = 1_000, IsDirectory = false
             }
         ]);
         _fileSystemMock.Setup(f => f.GetDirectories(orphanPath)).Returns([]);

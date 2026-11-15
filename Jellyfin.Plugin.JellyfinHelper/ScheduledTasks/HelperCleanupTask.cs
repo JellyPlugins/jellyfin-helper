@@ -168,7 +168,7 @@ public class HelperCleanupTask : IScheduledTask
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        RunPostCleanupStatistics();
+        await RunPostCleanupStatisticsAsync(cancellationToken).ConfigureAwait(false);
 
         cancellationToken.ThrowIfCancellationRequested();
         await RunGrowthTimelineAsync(cancellationToken).ConfigureAwait(false);
@@ -299,12 +299,12 @@ public class HelperCleanupTask : IScheduledTask
     /// <summary>
     ///     Runs the post-cleanup statistics scan and persists the latest result. Failures are logged.
     /// </summary>
-    private void RunPostCleanupStatistics()
+    private async Task RunPostCleanupStatisticsAsync(CancellationToken cancellationToken)
     {
         try
         {
             _pluginLog.LogInfo(LogSource, "Running post-cleanup statistics scan...", _logger);
-            var result = _statisticsService.CalculateStatistics();
+            var result = await _statisticsService.CalculateStatisticsAsync(cancellationToken).ConfigureAwait(false);
             _cacheService.SaveLatestResult(result);
             _pluginLog.LogInfo(LogSource, "Post-cleanup statistics scan completed and persisted.", _logger);
         }
