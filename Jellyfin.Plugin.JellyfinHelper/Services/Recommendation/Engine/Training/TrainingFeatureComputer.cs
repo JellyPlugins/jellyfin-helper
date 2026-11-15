@@ -175,6 +175,7 @@ internal static class TrainingFeatureComputer
     /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
     /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
     /// <param name="collectionProgressionBoost">Confirmed parent-series membership scored against the historical, self-excluded sibling counts.</param>
+    /// <param name="preparedContentFit">Already self-excluded historical semantic evidence, or null for direct callers.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -200,7 +201,8 @@ internal static class TrainingFeatureComputer
         ContentScoring.SeriesAffinityContext? seriesAffinityContext = null,
         double? parentSeriesRating = null,
         int seriesTmdbId = 0,
-        double collectionProgressionBoost = 0.0)
+        double collectionProgressionBoost = 0.0,
+        ContentFitProfile? preparedContentFit = null)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -315,6 +317,9 @@ internal static class TrainingFeatureComputer
         features.GenreUnderexposure = underexp;
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
+
+        var contentFit = preparedContentFit ?? ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
+        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences);
 
         // Label from aggregated completion.
         var parentRating = NormalizeExplicitRating(parentSeriesRating);

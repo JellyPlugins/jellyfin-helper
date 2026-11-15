@@ -161,6 +161,80 @@ public sealed class EngineExclusionTests
         Assert.Contains(result.Recommendations, r => r.ItemId == b.Id);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CachedCandidates_ExclusionChangesImmediatelyRefreshColdAndWarmServing(bool warm, bool batchSnapshot)
+    {
+        var harness = EngineTestFactory.Create();
+        using var lifetime = harness.Engine;
+        var configuration = new PluginConfiguration();
+        harness.ConfigService.Setup(service => service.GetConfiguration()).Returns(configuration);
+        harness.LibraryManager.Setup(manager => manager.GetVirtualFolders()).Returns(
+        [
+            new VirtualFolderInfo { Name = "Media", Locations = ["/media"] },
+            new VirtualFolderInfo { Name = "Anime", Locations = ["/media/anime"] }
+        ]);
+        var keep = MakeMovie("Allowed", "/media/movies/allowed.mkv");
+        var drop = MakeMovieWithGenre("Nested", "/media/anime/nested.mkv", "Animation");
+        WireMovies(harness, [keep, drop]);
+        var profile = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = warm ? [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }] : []
+        };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var first = batchSnapshot
+            ? Assert.Single(harness.Engine.GetAllRecommendations(10, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(profile.UserId, 10, TestContext.Current.CancellationToken)!;
+        Assert.Contains(first.Recommendations, item => item.ItemId == drop.Id);
+
+        configuration.ExcludedLibraries = "Anime";
+        var excluded = harness.Engine.GetRecommendations(profile.UserId, 10, TestContext.Current.CancellationToken)!;
+        Assert.Equal(keep.Id, Assert.Single(excluded.Recommendations).ItemId);
+        Assert.DoesNotContain(excluded.TrainingContrasts ?? [], item => item.ItemId == drop.Id);
+
+        configuration.ExcludedLibraries = string.Empty;
+        var restored = harness.Engine.GetRecommendations(profile.UserId, 10, TestContext.Current.CancellationToken)!;
+        Assert.Contains(restored.Recommendations, item => item.ItemId == drop.Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CachedCandidates_RemovedLibraryImmediatelyRefreshesTheCandidatePopulation(bool warm)
+    {
+        var harness = EngineTestFactory.Create();
+        using var lifetime = harness.Engine;
+        var folders = new List<VirtualFolderInfo>
+        {
+            new() { Name = "Movies", Locations = ["/media/movies"] },
+            new() { Name = "Anime", Locations = ["/media/anime"] }
+        };
+        harness.LibraryManager.Setup(manager => manager.GetVirtualFolders()).Returns(folders);
+        var keep = MakeMovie("Allowed", "/media/movies/allowed.mkv");
+        var drop = MakeMovie("Removed", "/media/anime/removed.mkv");
+        WireMovies(harness, [keep, drop]);
+        var profile = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = warm ? [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }] : []
+        };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var first = harness.Engine.GetRecommendations(profile.UserId, 10, TestContext.Current.CancellationToken)!;
+        Assert.Contains(first.Recommendations, item => item.ItemId == drop.Id);
+
+        folders.RemoveAt(1);
+        WireMovies(harness, [keep]);
+        var removed = harness.Engine.GetRecommendations(profile.UserId, 10, TestContext.Current.CancellationToken)!;
+        Assert.Equal(keep.Id, Assert.Single(removed.Recommendations).ItemId);
+        Assert.DoesNotContain(removed.TrainingContrasts ?? [], item => item.ItemId == drop.Id);
+    }
+
     [Fact]
     public void GetAllRecommendations_ExcludedLibraryNestedUnderAllowed_KeepsNestedGenreOutOfBatch()
     {

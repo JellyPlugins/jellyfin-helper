@@ -126,7 +126,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Live requests get an exploration seed keyed to (userId, current UTC day). This keeps successive same-day requests deterministic without freezing exploration across days.
         var liveSeed = ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber);
 
-        // Read the snapshot once, expiring it past CandidateSnapshotMaxAge (its BaseItems' Genres/Studios/CommunityRating can mutate via metadata refresh, and new additions stay invisible until the next batch).
+        // Read once; library-scope changes invalidate immediately, while ordinary metadata refreshes
+        // and additions remain bounded by CandidateSnapshotMaxAge.
         var snapshot = GetOrRefreshLiveSnapshot();
 
         if (!userProfile.WatchedItems.Any(w => w.HasMeaningfulInteraction()) && !HasOperatingUserPrior(userId))
@@ -307,7 +308,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var observedSequence = Interlocked.Read(ref _publicationSequence);
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-        var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
+        var libraryScope = GetCandidateLibraryScope();
+        var (candidates, seriesEpisodeCounts) = LoadCandidateItems(libraryScope, out _, out _);
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
         var candidateBoxSetLookup = BuildCollectionLookup(candidates, out var collectionIds, out _);
         var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates, collectionIds);
@@ -341,7 +343,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ObservedSequence: observedSequence, // watermark captured before the build began
             DateTime.UtcNow,
             contentAffinityLookup,
-            genreStudioIdf));
+            genreStudioIdf,
+            libraryScope));
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -612,8 +615,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems(
         out IReadOnlyList<BaseItem> allMovies,
         out IReadOnlyList<BaseItem> allSeries)
+        => LoadCandidateItems(GetCandidateLibraryScope(), out allMovies, out allSeries);
+
+    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems(
+        CandidateLibraryScope libraryScope,
+        out IReadOnlyList<BaseItem> allMovies,
+        out IReadOnlyList<BaseItem> allSeries)
     {
-        var scope = GetLibraryRootScope();
+        var scope = libraryScope.ExcludedNames.Count == 0 ? null : libraryScope.Roots;
 
         var movies = QueryAllowedItems(BaseItemKind.Movie, isFolder: false, scope);
         var series = QueryAllowedItems(BaseItemKind.Series, isFolder: true, scope);
@@ -672,20 +681,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         return (candidates, seriesEpisodeCounts);
     }
 
-    // Overload for the serve paths that only need the candidate list and episode counts, not the raw
-    // pre-filter movie/series lists.
     private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
         => LoadCandidateItems(out _, out _);
 
-    // Allowed/excluded library roots for this generation run, or null when nothing is excluded.
-    // Resolved once per candidate load and passed to each query filter to avoid re-reading virtual
-    // folders. Carries excluded roots so an excluded library nested under an allowed one is denied.
-    private LibraryRootScope? GetLibraryRootScope()
+    // Capture roots even without exclusions so library removals/location changes invalidate the
+    // live snapshot. The query filter remains a no-op when no libraries are excluded.
+    private CandidateLibraryScope GetCandidateLibraryScope()
     {
         var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
-        return excluded.Count == 0
-            ? null
-            : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
+        return new CandidateLibraryScope(excluded, LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded));
     }
 
     // Queries the library for one item kind and drops anything outside the allowed roots. A null
@@ -925,7 +929,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Precompute the top-K average preferred weight ONCE per user so the O(P log P) sort inside
         // ComputePeopleSimilarity does not re-run per candidate.
         var averagePreferredPeopleWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredPeopleWeights);
-        var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
+        var preferredTags = PreferenceBuilder.BuildMetadataPreferenceSet(
+            userProfile,
+            id => contentAffinityLookup.TryGetValue(id, out var content) ? content.OwnTags : null,
+            row => (row.Tags, row.OwnTags, row.SeriesTags));
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
         // Per-user preference maps for the content-affinity signals. Built once per user from the watch profile (empty when the user has no history / no items carrying the field), then passed to every ScoreCandidate call.
@@ -979,6 +986,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             PreferredPeopleWeights = preferredPeopleWeights,
             AveragePreferredPeopleWeight = averagePreferredPeopleWeight,
             PreferredTags = preferredTags,
+            ContentFit = ContentFitProfile.Create(userProfile, id => contentAffinityLookup.TryGetValue(id, out var content) ? content.OwnTags : null),
             PeopleLookup = peopleLookup,
             GenreExposure = genreExposure,
             WatchedGenreSets = watchedGenreSets,
@@ -1378,7 +1386,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, context.Profile, context.ScoringAt),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, context.Profile, context.ScoringAt),
             IsWeekend = TemporalFeatures.ResolveIsWeekend(context.Profile, context.ScoringAt),
-            TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, context.PreferredTags),
+            TagSimilarity = SimilarityComputer.ComputeJaccardFromSets(new HashSet<string>(content.OwnTags, StringComparer.OrdinalIgnoreCase), context.PreferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(
                 candidateGenreSet,
@@ -1410,6 +1418,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
+
+        context.ContentFit.Apply(features, candidate.Genres ?? [], content.OwnTags, content.OfficialRating, context.GenrePreferences);
 
         return new CandidateFeatureSnapshot(features, content, candidateMediaLanguages.Audio, candidateMediaLanguages.Subtitles);
     }
@@ -1744,7 +1754,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 BuildGenreSet(candidate),
                 BuildStudioSet(candidate))
             {
-                TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id)
+                TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
+                OwnTags = candidate.Tags?.ToArray() ?? [],
+                OfficialRating = candidate.OfficialRating
             };
         }
 
@@ -1798,7 +1810,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             BuildGenreSet(candidate),
             BuildStudioSet(candidate))
         {
-            TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id)
+            TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
+            OwnTags = candidate.Tags?.ToArray() ?? [],
+            OfficialRating = candidate.OfficialRating
         };
     }
 
@@ -2129,15 +2143,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Returns the current candidate snapshot, refreshing it under a single-flight gate when the cache is empty or has exceeded CandidateSnapshotMaxAge.
+    ///     Returns the current candidate snapshot, refreshing under a single-flight gate when empty,
+    ///     expired or built for a different current library scope.
     /// </summary>
     /// <returns>A fresh (or still-valid) snapshot. Never returns null.</returns>
     private CandidateSnapshot GetOrRefreshLiveSnapshot()
     {
+        var libraryScope = GetCandidateLibraryScope();
         var snapshot = _cachedSnapshot;
-        if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+        if (IsCurrentCandidateSnapshot(snapshot, libraryScope))
         {
-            return snapshot;
+            return snapshot!;
         }
 
         lock (_snapshotRefreshLock)
@@ -2145,12 +2161,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             // Re-check under the lock: a competing thread may have completed a refresh while we waited.
             // Publishing the winner's snapshot makes the rest of the batch a no-op.
             snapshot = _cachedSnapshot;
-            if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+            libraryScope = GetCandidateLibraryScope();
+            if (IsCurrentCandidateSnapshot(snapshot, libraryScope))
             {
-                return snapshot;
+                return snapshot!;
             }
 
-            var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
+            var (candidates, seriesEpisodeCounts) = LoadCandidateItems(libraryScope, out _, out _);
             var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
             var boxSetLookup = BuildCollectionLookup(candidates, out var collectionIds, out _);
             var contentAffinityLookup = BuildCandidateContentAffinityLookup(candidates, collectionIds);
@@ -2174,13 +2191,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ObservedSequence: seq, // built and published under the same lock; the guard never applies here
                 DateTime.UtcNow,
                 contentAffinityLookup,
-                genreStudioIdf);
+                genreStudioIdf,
+                libraryScope);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering the slow path. Already inside the refresh lock, so a direct assignment is safe.
             _cachedSnapshot = fresh;
             return fresh;
         }
     }
+
+    private static bool IsCurrentCandidateSnapshot(CandidateSnapshot? snapshot, CandidateLibraryScope scope)
+        => snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge && snapshot.LibraryScope.Matches(scope);
 
     /// <summary>
     ///     Publishes a snapshot to _cachedSnapshot while enforcing monotonic ordering by PublicationSequence.
@@ -2212,7 +2233,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     internal bool TryPublishSnapshotForTest(long publicationSequence)
     {
         var snapshot = new CandidateSnapshot(
-            [], [], [], [], null, false, 0, publicationSequence, publicationSequence, DateTime.UtcNow, [], null);
+            [], [], [], [], null, false, 0, publicationSequence, publicationSequence, DateTime.UtcNow, [], null, GetCandidateLibraryScope());
 
         lock (_snapshotRefreshLock)
         {
@@ -2751,6 +2772,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         /// <summary>Gets the preferred tags.</summary>
         public required HashSet<string> PreferredTags { get; init; }
 
+        /// <summary>Gets the detached thematic and weak audience context for this user only.</summary>
+        public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+
         /// <summary>Gets the candidate snapshot's people lookup.</summary>
         public required Dictionary<Guid, HashSet<string>> PeopleLookup { get; init; }
 
@@ -2837,6 +2861,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         /// <summary>Gets the language-independent collection identity used for both scoring and cached training metadata.</summary>
         public int TmdbCollectionId { get; init; }
+
+        /// <summary>Gets own provider keywords detached at the same candidate snapshot boundary.</summary>
+        public IReadOnlyList<string> OwnTags { get; init; } = [];
+
+        /// <summary>Gets provider certification metadata, separate from permission checks and explicit user ratings.</summary>
+        public string? OfficialRating { get; init; }
     }
 
     /// <summary>
@@ -2896,6 +2926,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </param>
     /// <param name="ContentAffinityLookup">Item ID -> per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     /// <param name="GenreStudioIdf">Library-wide genre/studio IDF rarity table built over exactly these Candidates. It travels with the snapshot so scoring always reads the table that describes the same candidate population being scored, even when a stale-publish guard rejects a competing snapshot write. Null degrades the GenreStudioIdfPrior feature to a neutral 0.0.</param>
+    /// <param name="LibraryScope">Detached exclusions and roots used to load this population; any change invalidates live reuse immediately.</param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
@@ -2908,7 +2939,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         long ObservedSequence,
         DateTime CreatedAtUtc,
         Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup,
-        IReadOnlyDictionary<string, double>? GenreStudioIdf);
+        IReadOnlyDictionary<string, double>? GenreStudioIdf,
+        CandidateLibraryScope LibraryScope);
+
+    private sealed record CandidateLibraryScope(IReadOnlySet<string> ExcludedNames, LibraryRootScope Roots)
+    {
+        internal bool Matches(CandidateLibraryScope other)
+            => ExcludedNames.SetEquals(other.ExcludedNames)
+                && Roots.AllowedRoots.ToHashSet(PathComparison.Comparer).SetEquals(other.Roots.AllowedRoots)
+                && Roots.ExcludedRoots.ToHashSet(PathComparison.Comparer).SetEquals(other.Roots.ExcludedRoots);
+    }
 
     /// <summary>
     ///     Preference sources needed to resolve concrete reason anchors, bundled to keep the anchor builder's

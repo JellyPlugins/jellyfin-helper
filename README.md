@@ -63,6 +63,10 @@ No Jellyfin server required.
 
 Learned is the personal linear ML model; Neural is a globally trained network captured in each user's own mixture. A usable Neural predictor keeps a bounded minimum in normal provisional serving (12% of the ML budget, growing toward 40%), without replacing working Learned parameters on a bad refresh. Provisional participation is not independently verified ranking; unavailable, unusable or withdrawn models are not forced back into service.
 
+Content matching uses coherent, title-balanced provider keywords to refine broad genre similarity; technical download/language tags supply no thematic evidence. The exact raw v5 tag-Jaccard coordinate (including technical labels), fitted statistics and recorded prediction snapshots remain unchanged. Audience hints are soft and user-specific, not age bans.
+
+New recommendation calculations and watch profiles respect excluded libraries. Live candidate snapshots refresh when exclusions or library roots change; saved result lists and existing playlists are not retroactively rewritten. Statistics retain excluded libraries' file/size counts, while Discovery ownership checks deliberately cover the whole library.
+
 All tasks default to **Dry Run** mode. Nothing is deleted until you explicitly activate them.
 
 **Compatibility:** Jellyfin **12.4+** · .NET **10.0**

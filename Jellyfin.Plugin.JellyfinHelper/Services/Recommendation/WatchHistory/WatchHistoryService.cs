@@ -354,7 +354,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Studios?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Tags?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
-            collectionIds ?? LoadCollectionIds(allItems));
+            collectionIds ?? LoadCollectionIds(allItems))
+        {
+            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating)
+        };
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -487,6 +490,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var lifecycle = seriesId.HasValue && metadata.Lifecycle.TryGetValue(seriesId.Value, out var parentLifecycle)
             ? parentLifecycle
             : (Status: ContentAffinityResolver.ResolveSeriesStatus(item), EndDate: ContentAffinityResolver.ResolveSeriesEndDate(item));
+        var officialRating = seriesId is { } ratedSeries && metadata.OfficialRatings.TryGetValue(ratedSeries, out var parentRating)
+            ? parentRating
+            : item.OfficialRating;
 
         var watchedItem = new WatchedItemInfo
         {
@@ -501,6 +507,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFavorite = userData.IsFavorite,
             UserRating = userData.Rating,
             CommunityRating = item.CommunityRating,
+            OfficialRating = officialRating,
             Genres = genres,
             Year = item.ProductionYear,
             SeriesId = seriesId,
@@ -688,6 +695,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFavorite = true,
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
+            OfficialRating = series.OfficialRating,
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
@@ -1215,5 +1223,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         Dictionary<Guid, IReadOnlyList<string>> Studios,
         Dictionary<Guid, IReadOnlyList<string>> Tags,
         Dictionary<Guid, (string? Status, DateTime? EndDate)> Lifecycle,
-        Dictionary<Guid, int> CollectionIds);
+        Dictionary<Guid, int> CollectionIds)
+    {
+        /// <summary>Gets detached parent certification metadata without another library query.</summary>
+        public Dictionary<Guid, string?> OfficialRatings { get; init; } = [];
+    }
 }

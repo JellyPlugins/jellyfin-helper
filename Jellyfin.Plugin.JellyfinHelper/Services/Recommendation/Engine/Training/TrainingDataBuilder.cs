@@ -447,7 +447,10 @@ internal static class TrainingDataBuilder
             boxes = BuildWatchedBoxSetCounts(ids, ctx.Lookups.ItemBoxSetIdsLookup);
         }
 
-        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes));
+        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes)
+        {
+            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources)
+        });
     }
 
     /// <summary>
@@ -763,6 +766,8 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
+        contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences);
+
         return new TrainingExample
         {
             Features = features,
@@ -1048,7 +1053,8 @@ internal static class TrainingDataBuilder
             ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null,
             userCtx.UserProfile.WatchedItems.FirstOrDefault(row => row.ItemId == seriesId)?.UserRating,
             ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId),
-            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts));
+            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts),
+            history.Content.ContentFit);
         return 1;
     }
 
@@ -1161,6 +1167,8 @@ internal static class TrainingDataBuilder
         features.GenreUnderexposure = organicUnderexp;
         features.GenreDominanceRatio = organicDomRatio;
         features.GenreAffinityGap = organicAffGap;
+
+        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences);
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.
         var label = ComputeOrganicStandaloneLabel(w, completionRatio);
@@ -1436,6 +1444,8 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = negDomRatio;
         features.GenreAffinityGap = negAffGap;
 
+        contentSets.ContentFit.Apply(features, negGenres, negTags, neg.OfficialRating, genrePreferences);
+
         return new TrainingExample
         {
             Features = features,
@@ -1497,7 +1507,11 @@ internal static class TrainingDataBuilder
         Dictionary<CachedContentSets, CachedContentSets> SharedContent,
         Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata,
         Dictionary<Guid, int> TmdbIds,
-        Dictionary<Guid, int> TmdbCollectionIds);
+        Dictionary<Guid, int> TmdbCollectionIds)
+    {
+        /// <summary>Gets per-cycle memoized string/identity transforms; historical preference aggregates are always rebuilt.</summary>
+        public ContentFitProfile.SourceCache ContentSources { get; init; } = new();
+    }
 
     /// <summary>
     ///     Groups per user watched content sets and BoxSet counts.
@@ -1506,7 +1520,11 @@ internal static class TrainingDataBuilder
         List<HashSet<string>> WatchedGenreSets,
         List<HashSet<string>> WatchedPeopleSets,
         List<HashSet<string>> WatchedStudioSets,
-        Dictionary<Guid, int> WatchedBoxSetCounts);
+        Dictionary<Guid, int> WatchedBoxSetCounts)
+    {
+        /// <summary>Gets semantic evidence from this historical, self-excluded user view.</summary>
+        public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+    }
 
     /// <summary>
     ///     Per-user scoring contexts built once and reused across a user's random-negative samples: the
