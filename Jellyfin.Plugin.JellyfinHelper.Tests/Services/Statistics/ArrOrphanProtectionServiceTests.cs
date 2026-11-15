@@ -139,6 +139,22 @@ public class ArrOrphanProtectionServiceTests
     }
 
     [Fact]
+    public async Task NestedRemoteRoots_UseTheMostSpecificUnambiguousLocalMapping()
+    {
+        var children = Path.GetFullPath(Path.Join("other", "children"));
+        _libraries[0].Locations = [_root, children];
+        _arr.Setup(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync(["/arr/movies", "/arr/movies/children"]);
+        SetMovies([new ArrMovie { Path = "/arr/movies/children/Wanted" }]);
+
+        var snapshot = await SnapshotAsync();
+
+        Assert.True(snapshot.ProtectsDirectory(Path.Join(children, "Wanted")));
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "children", "Wanted")));
+        Assert.False(snapshot.IsUncertain(_root));
+        Assert.False(snapshot.IsUncertain(children));
+    }
+
+    [Fact]
     public async Task ExplicitSingleLibraryAssignment_CanMapADifferentlyNamedMount()
     {
         _config.RadarrInstances[0].Libraries = "Movies";
@@ -288,6 +304,33 @@ public class ArrOrphanProtectionServiceTests
 
         Assert.False(snapshot.ProtectsDirectory(_root));
         Assert.True(snapshot.IsUncertain(_root));
+    }
+
+    [Fact]
+    public async Task MixedInventoryPaths_PreservePositiveOwnershipAndInvalidPathUncertaintyWithoutProtectingExcludedFolders()
+    {
+        var wanted = Path.Join(_root, "Group", "Wanted");
+        var trash = Path.Join(_root, ".jellyfin-trash", "Discarded");
+        var trickplay = Path.Join(_root, "Ignored", "movie.trickplay", "Frame");
+        SetMovies([
+            new ArrMovie { Path = wanted },
+            new ArrMovie { Path = "relative/Invalid" },
+            new ArrMovie { Path = trash },
+            new ArrMovie { Path = trickplay },
+            new ArrMovie { Path = _root + "-other/Outside" }
+        ]);
+
+        var snapshot = await SnapshotAsync();
+
+        Assert.True(snapshot.ProtectsDirectory(wanted));
+        Assert.True(snapshot.ProtectsDirectory(Path.Join(wanted, "Extras")));
+        Assert.True(snapshot.IsUncertain(_root));
+        Assert.True(snapshot.IsUncertain(Path.Join(_root, "Orphan")));
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "Orphan")));
+        Assert.False(snapshot.ProtectsDirectory(trash));
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "Ignored")));
+        Assert.False(snapshot.ProtectsDirectory(_root + "-other"));
+        Assert.False(snapshot.IsUncertain(_root + "-other"));
     }
 
     [Fact]

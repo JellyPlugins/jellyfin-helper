@@ -100,6 +100,7 @@ public class MediaStatisticsServiceOrphanTests
     [InlineData("photo.heic", true)]
     public void EmptyAndMetadataOnlyTrees_AreProtectedPlaceholders(string fileName, bool nested)
     {
+        ArgumentNullException.ThrowIfNull(fileName);
         var child = Path.Join(_root, "Wanted");
         DefineDirectory(_root, nested ? [child] : [], fileName.Length == 0 ? [] : [fileName]);
         if (nested)

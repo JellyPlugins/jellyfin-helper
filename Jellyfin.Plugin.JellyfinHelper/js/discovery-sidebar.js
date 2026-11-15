@@ -334,9 +334,10 @@
         var previous = getCachedDiscoveryResult();
         _discoveryResultCache = { data: data, userId: currentDiscoveryUserId() };
         if (_activeTab !== TAB_TRAKT && _activeTab !== TAB_TRENDING) return;
-        var before = Array.from(ownDiscoveryItemKeys(previous)).sort().join(',');
-        var after = Array.from(ownDiscoveryItemKeys(data)).sort().join(',');
-        if (before === after) return;
+        // Compare membership, not recommendation rank: reordered own cards change no exclusions.
+        var before = ownDiscoveryItemKeys(previous);
+        var after = ownDiscoveryItemKeys(data);
+        if (before.size === after.size && Array.from(before).every(function (key) { return after.has(key); })) return;
         var host = _tabPanel?.querySelector('.jfh-discovery-tab-host');
         var cached = _activeTab === TAB_TRAKT ? _traktPersonalCache : _traktTrendingCache;
         if (host?._jfhDiscoverySource === _activeTab && cached?.userId === currentDiscoveryUserId()) {

@@ -84,6 +84,19 @@ public class OrphanProtectionSnapshotTests
         Assert.False(OrphanProtectionSnapshot.Empty.IsUncertain(Root));
     }
 
+    [Theory]
+    [InlineData("movie.trickplay")]
+    [InlineData("Wanted [boxset]")]
+    [InlineData("Wanted [collection]")]
+    [InlineData(".custom-trash")]
+    public void DeepExcludedSegments_AreRecognizedWithoutASplitCountLimit(string excludedSegment)
+    {
+        var deep = Path.Join(Root, Path.Join(Enumerable.Repeat("d", 60).ToArray()));
+
+        Assert.True(OrphanProtectionSnapshot.IsExcludedMediaPath(Path.Join(deep, excludedSegment, "movie.mkv"), Root, null, ".custom-trash"));
+        Assert.False(OrphanProtectionSnapshot.IsExcludedMediaPath(Path.Join(deep, "Wanted", "movie.mkv"), Root, null, ".custom-trash"));
+    }
+
     [Fact]
     public void NullInputs_AreRejected()
     {

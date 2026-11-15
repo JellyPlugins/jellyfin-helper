@@ -408,8 +408,10 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         {
             DeliveryId = delivery.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1000, MediaType = "tv" }]
         }));
+        // Feedback must retain the exact server snapshot, not merely a score within a tolerance.
         _feedbackStoreMock.Verify(store => store.RecordImpressions(user,
-            It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Count == 1 && items[0].MediaType == "tv" && items[0].Score == .43), pool.GeneratedAt), Times.Once);
+            It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Count == 1 && items[0].MediaType == "tv"
+                && BitConverter.DoubleToInt64Bits(items[0].Score) == BitConverter.DoubleToInt64Bits(.43)), pool.GeneratedAt), Times.Once);
     }
 
     [Fact]
@@ -424,11 +426,26 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         Assert.Equal(403, Status(result.Result!));
     }
 
-    [Fact]
-    public async Task TraktEndpoints_RequireAuthentication()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TraktEndpoints_RequireAuthentication(bool trending)
     {
         // No user claim -> Unauthorized from the Caller-ID guard.
-        var result = await CreateController(userId: null).GetMyTrakt(CancellationToken.None);
-        Assert.IsType<UnauthorizedResult>(result.Result);
+        var controller = CreateController(userId: null);
+        if (trending)
+        {
+            var result = await controller.GetMyTraktTrending(TestContext.Current.CancellationToken);
+            Assert.IsType<UnauthorizedResult>(result.Result);
+        }
+        else
+        {
+            var result = await controller.GetMyTrakt(TestContext.Current.CancellationToken);
+            Assert.IsType<UnauthorizedResult>(result.Result);
+        }
+
+        _traktDiscovery.VerifyNoOtherCalls();
+        _discoveryMock.VerifyNoOtherCalls();
+        _feedbackStoreMock.VerifyNoOtherCalls();
     }
 }

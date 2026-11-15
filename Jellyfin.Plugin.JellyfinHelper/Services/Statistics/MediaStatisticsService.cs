@@ -516,10 +516,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                         flags.HasImage,
                         flags.HasNfo);
                 }
-                else if (!scanContext.Orphans.SkipChecks && analysis is { ContainsMedia: false, HasNonMetadataFiles: true, IsComplete: true }
-                    && (flags.HasSubs || flags.HasImage || flags.HasNfo)
-                    && !IsProtectedCollectionDirectory(directoryPath)
-                    && !scanContext.Orphans.Protection.ProtectsDirectory(normalizedPath))
+                else if (CanConfirmOrphanedMetadata(directoryPath, normalizedPath, flags, analysis, scanContext))
                 {
                     RecordOrphanedMetadata(stats, directoryPath);
                 }
@@ -534,6 +531,12 @@ public class MediaStatisticsService : IMediaStatisticsService
         scanContext.Orphans.AnalyzedDirectories[normalizedPath] = analysis;
         return analysis;
     }
+
+    private static bool CanConfirmOrphanedMetadata(string directoryPath, string normalizedPath, DirectoryFileFlags flags, DirectoryAnalysis analysis, SubdirectoryScanContext scanContext)
+        => !scanContext.Orphans.SkipChecks && analysis is { ContainsMedia: false, HasNonMetadataFiles: true, IsComplete: true }
+            && (flags.HasSubs || flags.HasImage || flags.HasNfo)
+            && !IsProtectedCollectionDirectory(directoryPath)
+            && !scanContext.Orphans.Protection.ProtectsDirectory(normalizedPath);
 
     /// <summary>
     ///     Classifies a single file by extension and accumulates its size/count into the statistics, updating the per-directory presence flags.
@@ -676,23 +679,28 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
             else
             {
-                // Preserve the existing read-only statistics traversal of linked libraries;
-                // link ownership remains unproven, so it cannot authorize orphan diagnostics.
-                var unresolvedLink = IsSkippedLink(subDir.FullName);
-                var childContext = scanContext with
-                {
-                    Orphans = scanContext.Orphans with
-                    {
-                        SkipChecks = scanContext.Orphans.SkipChecks || unresolvedLink || CleanupConfigHelper.IsCollectionsPath(subDir.FullName)
-                            || IsProtectedCollectionDirectory(subDir.FullName)
-                    }
-                };
-                var childAnalysis = AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, childContext);
-                analysis = analysis.Combine(unresolvedLink ? childAnalysis with { IsComplete = false } : childAnalysis);
+                analysis = analysis.Combine(AnalyzeSubdirectory(subDir, stats, itemLookup, userContext, scanContext));
             }
         }
 
         return analysis;
+    }
+
+    private DirectoryAnalysis AnalyzeSubdirectory(FileSystemMetadata subDir, LibraryStatistics stats, Dictionary<string, BaseItem> itemLookup, ScanUserContext userContext, SubdirectoryScanContext scanContext)
+    {
+        // Preserve the existing read-only statistics traversal of linked libraries;
+        // link ownership remains unproven, so it cannot authorize orphan diagnostics.
+        var unresolvedLink = IsSkippedLink(subDir.FullName);
+        var childContext = scanContext with
+        {
+            Orphans = scanContext.Orphans with
+            {
+                SkipChecks = scanContext.Orphans.SkipChecks || unresolvedLink || CleanupConfigHelper.IsCollectionsPath(subDir.FullName)
+                    || IsProtectedCollectionDirectory(subDir.FullName)
+            }
+        };
+        var childAnalysis = AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, childContext);
+        return unresolvedLink ? childAnalysis with { IsComplete = false } : childAnalysis;
     }
 
     /// <summary>

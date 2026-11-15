@@ -80,19 +80,8 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
         CancellationToken budgetToken,
         CancellationToken userToken)
     {
-        var excluded = CleanupConfigHelper.ParseCommaSeparated(config.ExcludedLibraries);
         var assigned = CleanupConfigHelper.ParseCommaSeparated(instance.Libraries);
-        var localRoots = libraries
-            .Where(library => CleanupConfigHelper.IsCleanupEligibleLibrary(library, excluded))
-            .Where(library => assigned.Count > 0
-                ? assigned.Contains(library.Name ?? string.Empty)
-                : library.CollectionType == (isSonarr ? CollectionTypeOptions.tvshows : CollectionTypeOptions.movies))
-            .SelectMany(library => library.Locations ?? [])
-            .Where(path => !CleanupConfigHelper.IsCollectionsPath(path))
-            .Select(path => OrphanProtectionSnapshot.TryNormalizePath(path, out var normalized) ? normalized : null)
-            .OfType<string>()
-            .Distinct(PathComparison.Comparer)
-            .ToArray();
+        var localRoots = ResolveLocalRoots(config, libraries, assigned, isSonarr);
         if (localRoots.Length == 0)
         {
             return new InstanceProtection([], []);
@@ -147,9 +136,25 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
         }
     }
 
-    private InstanceProtection MapDirectories(List<string> paths, List<string> roots, string[] localRoots, PluginConfiguration config, bool explicitlyAssigned)
+    private static string[] ResolveLocalRoots(PluginConfiguration config, IReadOnlyList<VirtualFolderInfo> libraries, HashSet<string> assigned, bool isSonarr)
     {
-        var remoteRoots = roots.Select(NormalizeRemotePath).OfType<string>().Distinct(PathComparison.Comparer).ToArray();
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(config.ExcludedLibraries);
+        var collectionType = isSonarr ? CollectionTypeOptions.tvshows : CollectionTypeOptions.movies;
+        return libraries
+            .Where(library => CleanupConfigHelper.IsCleanupEligibleLibrary(library, excluded))
+            .Where(library => assigned.Count > 0
+                ? assigned.Contains(library.Name ?? string.Empty)
+                : library.CollectionType == collectionType)
+            .SelectMany(library => library.Locations ?? [])
+            .Where(path => !CleanupConfigHelper.IsCollectionsPath(path))
+            .Select(path => OrphanProtectionSnapshot.TryNormalizePath(path, out var normalized) ? normalized : null)
+            .OfType<string>()
+            .Distinct(PathComparison.Comparer)
+            .ToArray();
+    }
+
+    private static List<(string Remote, string Local)> BuildRootMappings(string[] remoteRoots, string[] localRoots, List<string> paths, bool explicitlyAssigned)
+    {
         var mappings = new List<(string Remote, string Local)>();
         foreach (var remote in remoteRoots)
         {
@@ -160,11 +165,11 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
                 continue;
             }
 
-            var name = remote.Split('/').Last();
+            var name = RemoteRootName(remote);
             // Mount aliases can differ in case; uniqueness is checked case-insensitively,
             // while the resulting local paths retain the filesystem's own comparison rules.
             var candidates = localRoots.Where(local => string.Equals(Path.GetFileName(local), name, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (candidates.Length == 1 && remoteRoots.Count(root => string.Equals(root.Split('/').Last(), name, StringComparison.OrdinalIgnoreCase)) == 1)
+            if (candidates.Length == 1 && remoteRoots.Count(root => string.Equals(RemoteRootName(root), name, StringComparison.OrdinalIgnoreCase)) == 1)
             {
                 mappings.Add((remote, candidates[0]));
             }
@@ -180,11 +185,19 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
             }
         }
 
+        return mappings;
+    }
+
+    private static string RemoteRootName(string root) => root[(root.LastIndexOf('/') + 1)..];
+
+    private InstanceProtection MapDirectories(List<string> paths, List<string> roots, string[] localRoots, PluginConfiguration config, bool explicitlyAssigned)
+    {
+        var remoteRoots = roots.Select(NormalizeRemotePath).OfType<string>().Distinct(PathComparison.Comparer).ToArray();
+        var mappings = BuildRootMappings(remoteRoots, localRoots, paths, explicitlyAssigned);
         var uncertain = localRoots.Except(mappings.Select(mapping => mapping.Local), PathComparison.Comparer).ToList();
         var managed = new List<string>();
-        foreach (var path in paths)
+        foreach (var remotePath in paths.Select(NormalizeRemotePath))
         {
-            var remotePath = NormalizeRemotePath(path);
             if (remotePath == null)
             {
                 uncertain.AddRange(localRoots);

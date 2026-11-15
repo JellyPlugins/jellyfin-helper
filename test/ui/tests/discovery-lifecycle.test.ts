@@ -301,6 +301,45 @@ describe.each([false, true])('shipped Discovery lifecycle with modern layout %s'
     expect(client.requests().filter(request => request.url === personalPath || request.url === trendingPath)).toHaveLength(before);
   });
 
+  test.each(['trakt', 'trending'])('a reordered own key set completing during %s leaves source order, scores and cards untouched', async tab => {
+    const root = '/JellyfinHelper/Discovery/My';
+    const own = { Recommendations: [
+      { TmdbId: 2, MediaType: 'movie', Title: 'Own movie', Score: .7 },
+      { TmdbId: 2, MediaType: 'tv', Title: 'Own series', Score: .6 },
+      { TmdbId: 10, MediaType: 'movie', Title: 'Another own movie', Score: .5 },
+    ] };
+    const source = { Recommendations: [
+      { TmdbId: 1, MediaType: 'movie', Title: 'First source title', Score: .43 },
+      { TmdbId: 11, MediaType: 'movie', Title: 'Second source title', Score: .9 },
+    ] };
+    const pending = deferred<unknown>();
+    let ownReply = () => Promise.resolve<unknown>(own);
+    const client = clientDocument({ modern, responses: {
+      [root]: () => ownReply(),
+      [externalLinksPath]: () => Promise.resolve({ TraktEnabled: true }),
+      [personalPath]: () => Promise.resolve({ Linked: true, Result: source }),
+      [trendingPath]: () => Promise.resolve(source),
+    } });
+    await settle();
+    (client.w as any).JellyfinHelperTabs.focus('discovery');
+    await settle();
+    const select = async (sourceTab: string) => { (client.panel()!.querySelector(`[data-tab="${sourceTab}"]`) as HTMLElement).click(); await settle(); };
+    await select(tab);
+    ownReply = () => pending.promise;
+    await select('own');
+    await select(tab);
+    const cards = Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'), card => card as HTMLElement);
+    const fetched = client.requests().filter(request => request.url === personalPath || request.url === trendingPath).length;
+    pending.resolve({ Recommendations: [...own.Recommendations].reverse() });
+    await settle();
+
+    expect(Array.from(client.panel()!.querySelectorAll('.jfh-discovery-card'))).toEqual(cards);
+    expect(cards.map(card => card.dataset.cardKey)).toEqual(['movie-1', 'movie-11']);
+    expect(cards[0].textContent).toContain('43%');
+    expect(cards[1].textContent).toContain('90%');
+    expect(client.requests().filter(request => request.url === personalPath || request.url === trendingPath)).toHaveLength(fetched);
+  });
+
   test.each(['application', 'transport'])('an original success cancels a replacement %s failure reset', async failure => {
     const root = '/JellyfinHelper/Discovery/My';
     const originalRequest = deferred<unknown>();

@@ -891,11 +891,10 @@ public sealed class UserDiscoveryController : ControllerBase
             => (item.TmdbId, string.IsNullOrWhiteSpace(item.MediaType) ? MovieMediaType : item.MediaType.Trim().ToLowerInvariant());
 
         var ownKeys = new HashSet<(int TmdbId, string MediaType)>();
-        var user = GetCurrentUserId();
-        if (user.HasValue)
+        if (GetCurrentUserId() is Guid userId)
         {
-            result = _discovery.FilterConsumedItems(user.Value, result) ?? new DiscoveryResult { UserId = user.Value, GeneratedAt = result.GeneratedAt };
-            var own = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(item => item.UserId == user.Value);
+            result = _discovery.FilterConsumedItems(userId, result) ?? new DiscoveryResult { UserId = userId, GeneratedAt = result.GeneratedAt };
+            var own = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(item => item.UserId == userId);
             if (own is not null)
             {
                 ownKeys.UnionWith(own.Recommendations.Select(Key));
