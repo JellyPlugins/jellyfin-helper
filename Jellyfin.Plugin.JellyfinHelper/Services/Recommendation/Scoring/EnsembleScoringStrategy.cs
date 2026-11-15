@@ -414,7 +414,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 AllowsExploration = !_independentAdmissionEnabled,
                 ModelRevision = _acceptedBundle?.Revision ?? 0,
                 ValidationLevel = GetOperatingValidationLevel(),
-                HasOwnOperatingModel = !_usesInheritedPrior && (_acceptedBundle is not null || LearnedStrategy.HasOwnWeights),
+                HasOwnOperatingModel = HasOwnOperatingModel,
                 AdmissionReason = _lastAdmission?.Reason,
                 CalibrationTitleCount = _lastAdmission?.Evidence.CalibrationTitles ?? 0,
                 AcceptanceTitleCount = _lastAdmission?.Evidence.AcceptanceTitles ?? 0,
@@ -1655,15 +1655,23 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// </summary>
     public void Dispose()
     {
-        _independentAdmissionDisposed = true;
-        if (_acceptedNeuralTrainer is not null && !ReferenceEquals(_acceptedNeuralTrainer, _neural))
+        lock (_syncRoot)
         {
-            _acceptedNeuralTrainer.Dispose();
-        }
+            if (_independentAdmissionDisposed)
+            {
+                return;
+            }
 
-        if (_ownsNeural)
-        {
-            _neural?.Dispose();
+            _independentAdmissionDisposed = true;
+            if (_acceptedNeuralTrainer is not null && !ReferenceEquals(_acceptedNeuralTrainer, _neural))
+            {
+                _acceptedNeuralTrainer.Dispose();
+            }
+
+            if (_ownsNeural)
+            {
+                _neural?.Dispose();
+            }
         }
     }
 

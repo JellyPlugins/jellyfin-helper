@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
@@ -126,6 +127,9 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(null);
         }
 
+        // Exclusion membership is the complete current pool, not only its ten delivered cards.
+        var ownPoolKeys = userResult.Recommendations.Select(DiscoveryItemKey)
+            .Select(key => string.Create(CultureInfo.InvariantCulture, $"{key.MediaType}-{key.TmdbId}")).Distinct().ToArray();
         userResult = _discovery.FilterConsumedItems(currentUserId, userResult) ?? new DiscoveryResult { UserId = currentUserId, GeneratedAt = userResult.GeneratedAt };
 
         // Filter persisted pool: exclude dismissed/requested, serve next N. Normalize MediaType
@@ -147,7 +151,8 @@ public sealed class UserDiscoveryController : ControllerBase
             UserId = userResult.UserId,
             UserName = userResult.UserName,
             Recommendations = visible,
-            GeneratedAt = userResult.GeneratedAt
+            GeneratedAt = userResult.GeneratedAt,
+            OwnPoolItemKeys = ownPoolKeys
         };
         return Ok(RememberDelivered(currentUserId, response));
     }
@@ -887,9 +892,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return null;
         }
 
-        static (int TmdbId, string MediaType) Key(DiscoveryRecommendation item)
-            => (item.TmdbId, string.IsNullOrWhiteSpace(item.MediaType) ? MovieMediaType : item.MediaType.Trim().ToLowerInvariant());
-
         var ownKeys = new HashSet<(int TmdbId, string MediaType)>();
         if (GetCurrentUserId() is Guid userId)
         {
@@ -897,7 +899,7 @@ public sealed class UserDiscoveryController : ControllerBase
             var own = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(item => item.UserId == userId);
             if (own is not null)
             {
-                ownKeys.UnionWith(own.Recommendations.Select(Key));
+                ownKeys.UnionWith(own.Recommendations.Select(DiscoveryItemKey));
             }
         }
 
@@ -905,10 +907,13 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             UserId = result.UserId,
             UserName = result.UserName,
-            Recommendations = result.Recommendations.Where(item => !ownKeys.Contains(Key(item))).Take(_discovery.MaxVisiblePerUser).ToList(),
+            Recommendations = result.Recommendations.Where(item => !ownKeys.Contains(DiscoveryItemKey(item))).Take(_discovery.MaxVisiblePerUser).ToList(),
             GeneratedAt = result.GeneratedAt,
         };
     }
+
+    private static (int TmdbId, string MediaType) DiscoveryItemKey(DiscoveryRecommendation item)
+        => (item.TmdbId, string.IsNullOrWhiteSpace(item.MediaType) ? MovieMediaType : item.MediaType.Trim().ToLowerInvariant());
 
     /// <summary>
     ///     Resets all per-user rate-limit state. Called from Plugin's constructor on every plugin load and from OnUninstalling so stale entries from a previous plugin load do not leak into a subsequent reload.

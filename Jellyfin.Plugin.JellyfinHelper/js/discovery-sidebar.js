@@ -346,9 +346,13 @@
     }
 
     function ownDiscoveryItemKeys(data) {
-        return new Set((Array.isArray(data?.Recommendations) ? data.Recommendations : []).map(function (item) {
+        var keys = new Set((Array.isArray(data?.Recommendations) ? data.Recommendations : []).map(function (item) {
             return discoveryCardKey(item.TmdbId, String(item.MediaType || '').trim() || 'movie');
         }));
+        if (Array.isArray(data?.OwnPoolItemKeys)) data.OwnPoolItemKeys.forEach(function (key) {
+            if (typeof key === 'string' && /^(movie|tv)-[1-9]\d*$/.test(key)) keys.add(key);
+        });
+        return keys;
     }
 
     function invalidateDiscoveryResult() {

@@ -47,6 +47,9 @@ internal sealed class ModelTrainingAssessment
     [JsonRequired]
     public long AcceptedModelRevision { get; set; }
 
+    /// <summary>Gets or sets outcome-independent progress through bounded fresh acceptance blocks.</summary>
+    public long AcceptanceBlockCursor { get; set; }
+
     /// <summary>Gets or sets a value indicating whether fresh counterevidence suppressed a legacy v5 model without overwriting it.</summary>
     [JsonRequired]
     public bool LegacyModelSuppressed { get; set; }

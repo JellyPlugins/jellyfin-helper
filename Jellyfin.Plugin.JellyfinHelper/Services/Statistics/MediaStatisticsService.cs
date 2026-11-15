@@ -200,8 +200,9 @@ public class MediaStatisticsService : IMediaStatisticsService
                 var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
                 var skipOrphan = !libraryItems.IsComplete || !CleanupConfigHelper.IsCleanupEligibleLibrary(vf, excludedLibraries)
-                    || CleanupConfigHelper.IsCollectionsPath(location);
-                var registeredDirectories = BuildRegisteredMediaDirectories(itemLookup.Keys, location, resolvedFullTrashPath, scanTrashFolderName);
+                    || CleanupConfigHelper.IsCollectionsPath(location) || IsSkippedLink(location);
+                var registeredPaths = libraryItems.RegisteredPaths.Length > 0 ? libraryItems.RegisteredPaths : itemLookup.Keys.AsEnumerable();
+                var registeredDirectories = BuildRegisteredMediaDirectories(registeredPaths, location, resolvedFullTrashPath, scanTrashFolderName);
                 AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(
                     scanTrashFolderName,
                     skipHealth,
@@ -240,7 +241,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
-        result.InternalTrickplaySize = MeasureInternalTrickplaySize();
+        result.InternalTrickplaySize = MeasureInternalTrickplaySize(cancellationToken);
 
         // Log summary
         var totalFiles = result.Libraries.Sum(l =>
@@ -256,6 +257,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             _logger);
 
         result.ScanTimestamp = DateTime.UtcNow;
+        cancellationToken.ThrowIfCancellationRequested();
         return result;
     }
 
@@ -266,6 +268,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     internal virtual LibraryItemLookup BuildItemLookup()
     {
         var lookup = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        var registeredPaths = new List<string>();
 
         var complete = true;
         try
@@ -278,6 +281,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 });
             foreach (var item in allItems.Where(item => !string.IsNullOrEmpty(item.Path)))
             {
+                registeredPaths.Add(item.Path);
                 lookup.TryAdd(item.Path, item);
             }
         }
@@ -291,10 +295,10 @@ public class MediaStatisticsService : IMediaStatisticsService
                 _logger);
         }
 
-        return new LibraryItemLookup(lookup, complete);
+        return new LibraryItemLookup(lookup, complete) { RegisteredPaths = registeredPaths.Distinct(StringComparer.Ordinal).ToArray() };
     }
 
-    private long CalculateTrickplaySize(string directoryPath)
+    private long CalculateTrickplaySize(string directoryPath, CancellationToken cancellationToken)
     {
         // Iterative over an explicit stack with a visited set: symlink cycles terminate
         // instead of recursing until the stack overflows. Matches FileSystemHelper sizing.
@@ -304,6 +308,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         stack.Push(directoryPath);
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             if (!TryEnterDirectory(visited, current))
             {
@@ -315,6 +320,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 foreach (var file in _fileSystem.GetFiles(current, false)
                     .Where(file => !IsSkippedLink(file.FullName)))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     total += file.Length;
                 }
 
@@ -322,6 +328,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     .Select(sub => sub.FullName)
                     .Where(fullName => !IsSkippedLink(fullName)))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     stack.Push(fullName);
                 }
             }
@@ -338,7 +345,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     ///     Measures Jellyfin managed trickplay data outside the media libraries.
     /// </summary>
     /// <returns>Total bytes of internal trickplay data, or zero when the path is missing or unreadable.</returns>
-    private long MeasureInternalTrickplaySize()
+    private long MeasureInternalTrickplaySize(CancellationToken cancellationToken)
     {
         // Internal images are keyed by item id, so no per library attribution is possible. They stay out of every library total by design.
         var path = _configHelper.GetInternalTrickplayPath();
@@ -354,7 +361,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 return 0;
             }
 
-            return CalculateTrickplaySize(path);
+            return CalculateTrickplaySize(path, cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -672,7 +679,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 // A linked trickplay folder stores nothing here; its target belongs elsewhere, so it stays out of this library.
                 if (!IsSkippedLink(subDir.FullName))
                 {
-                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
+                    var trickplaySize = CalculateTrickplaySize(subDir.FullName, scanContext.Orphans.CancellationToken);
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }
@@ -1832,7 +1839,11 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <summary>Database lookup result; an unavailable database never proves media absence.</summary>
     /// <param name="Items">File-path metadata lookup.</param>
     /// <param name="IsComplete">Whether the batch query succeeded.</param>
-    internal readonly record struct LibraryItemLookup(Dictionary<string, BaseItem> Items, bool IsComplete);
+    internal readonly record struct LibraryItemLookup(Dictionary<string, BaseItem> Items, bool IsComplete)
+    {
+        /// <summary>Gets the lossless registered paths, independent of the case-insensitive metadata lookup.</summary>
+        public string[] RegisteredPaths { get; init; } = [];
+    }
 
     private readonly record struct DirectoryAnalysis(bool ContainsMedia, bool HasNonMetadataFiles, bool IsComplete)
     {

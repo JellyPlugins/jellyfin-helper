@@ -29,11 +29,12 @@ validators are pinned without a browser.
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |
 | E2E mock Seerr log control-character escaping (no network listener) | `tests/mock-seerr-log.test.ts` |
 | E2E temporary-account playlist cleanup, identity prevalidation, all-settled failure ordering and cold-start fixture isolation | `tests/playlist-fixture.test.ts` |
+| Shipped statistics fixture backup-failure/uncertain-write restoration and per-user observed-seed hook budget (no Docker or network) | `tests/e2e-statistics-fixture.test.ts` |
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Discovery impressions (opaque deliveries, refreshed/protected cards, stale acknowledgements, retries and session isolation) | `tests/discovery-impressions.test.ts` |
-| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, refreshed/reordered own-pool Trakt exclusion, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
+| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, refreshed/reordered/hidden-backfill own-pool Trakt exclusion, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |

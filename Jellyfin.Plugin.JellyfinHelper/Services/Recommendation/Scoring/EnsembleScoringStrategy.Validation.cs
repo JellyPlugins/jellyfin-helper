@@ -29,6 +29,7 @@ public sealed partial class EnsembleScoringStrategy
     private Func<NeuralScoringStrategy.PredictionSnapshot?>? _sharedPredictionProvider;
     private NeuralTrainingPrior? _pinnedSharedNeuralPrior;
     private HashSet<Guid> _seedAcceptanceObservations = [];
+    private long _acceptanceBlockCursor;
     private bool _acceptanceLedgerRequired;
     private bool _usesInheritedPrior;
     private bool _requiresIndependentRecovery;
@@ -321,7 +322,12 @@ public sealed partial class EnsembleScoringStrategy
 
         calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration);
         var used = spent.Concat(_seedAcceptanceObservations).ToHashSet();
-        var freshAcceptance = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance.Where(row => !used.Contains(row.ObservationId)));
+        var freshAcceptance = SelectFreshAcceptanceBlock(acceptance.Where(row => !used.Contains(row.ObservationId)), now);
+        if (freshAcceptance is null)
+        {
+            return false;
+        }
+
         if (TrySkipUnchangedOperatingInputs(fit, calibration, freshAcceptance, now))
         {
             return false;
@@ -372,6 +378,36 @@ public sealed partial class EnsembleScoringStrategy
 
             return CommitAcceptedChallenger(accepted, decision, examined.Observations, context.Bounds with { InputDigest = inputDigest }, cancellationToken);
         }
+    }
+
+    private TrainingExample[]? SelectFreshAcceptanceBlock(IEnumerable<TrainingExample> acceptance, DateTime evaluatedAt)
+    {
+        long cursor;
+        lock (_syncRoot)
+        {
+            cursor = _acceptanceBlockCursor;
+        }
+
+        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next);
+        lock (_syncRoot)
+        {
+            if (_independentAdmissionDisposed)
+            {
+                return null;
+            }
+
+            if (next != cursor)
+            {
+                _acceptanceBlockCursor = next;
+                // Durable before evaluation/early replay exits; unsupported blocks remain unspent.
+                if (!WriteAssessment(CreateAssessment(evaluatedAt)))
+                {
+                    return null;
+                }
+            }
+        }
+
+        return block;
     }
 
     private bool TrySkipUnchangedOperatingInputs(IReadOnlyList<TrainingExample> fit, TrainingExample[] calibration, TrainingExample[] acceptance, DateTime referenceTime)
@@ -608,7 +644,8 @@ public sealed partial class EnsembleScoringStrategy
         {
             mixture = OperatingMixturePolicy.WithNeuralMinimum(current, floor, context.Bounds.AlphaCap, context.Bounds.AlphaCap * NeuralMaxBetaFraction);
             measured = EnsembleAdmissionEvaluator.EvaluateServingCalibration(batch.Calibration, models, mixture, batch.EvaluatedAt);
-            if (measured is not null && UsableMinimumParticipation(measured))
+            if (measured is not null && UsableMinimumParticipation(measured)
+                && (current.Neural <= 0 || UsableProvisionalCandidate(measured)))
             {
                 return new ProvisionalRetention(mixture, measured, neural, candidates.NeuralTrainer);
             }
@@ -757,6 +794,11 @@ public sealed partial class EnsembleScoringStrategy
     {
         lock (_syncRoot)
         {
+            if (_independentAdmissionDisposed)
+            {
+                return;
+            }
+
             _lastAdmission = decision;
             RecordMetricsSnapshot(decision.Utility.CandidateLoss ?? double.NaN, fittingCount, decision.Utility);
             SaveAssessment(evaluatedAt);
@@ -1215,6 +1257,7 @@ public sealed partial class EnsembleScoringStrategy
             IndependentRecoveryRequired = _requiresIndependentRecovery,
             AcceptanceLedgerRequired = _acceptanceLedgerRequired,
             AcceptedModelRevision = _acceptedBundle?.Revision ?? 0,
+            AcceptanceBlockCursor = _acceptanceBlockCursor,
             LegacyModelSuppressed = _legacyModelSuppressed,
             LegacyWithdrawalUtility = _legacyWithdrawalUtility,
             LegacyWithdrawalObservationIds = _legacyWithdrawalObservations,
@@ -1225,6 +1268,11 @@ public sealed partial class EnsembleScoringStrategy
 
     private bool WriteAssessment(ModelTrainingAssessment assessment)
     {
+        if (_independentAdmissionDisposed)
+        {
+            return false;
+        }
+
         if (_statePath is null)
         {
             return true;
@@ -1288,7 +1336,7 @@ public sealed partial class EnsembleScoringStrategy
         }
 
         var assessment = document.RootElement.Deserialize<ModelTrainingAssessment>(AssessmentJsonOptions);
-        if (assessment is not { Version: 1, ObservedTrainingIds: not null })
+        if (assessment is not { Version: 1, ObservedTrainingIds: not null, AcceptanceBlockCursor: >= 0 })
         {
             return null;
         }
@@ -1316,6 +1364,7 @@ public sealed partial class EnsembleScoringStrategy
 
         _acceptanceLedgerRequired |= assessment.AcceptanceLedgerRequired;
         _requiresIndependentRecovery |= assessment.IndependentRecoveryRequired;
+        _acceptanceBlockCursor = Math.Max(_acceptanceBlockCursor, assessment.AcceptanceBlockCursor);
         if (_acceptedBundle is not null && assessment.AcceptedModelRevision < _acceptedBundle.Revision)
         {
             return;

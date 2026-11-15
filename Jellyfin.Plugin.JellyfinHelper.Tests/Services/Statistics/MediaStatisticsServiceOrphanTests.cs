@@ -349,6 +349,69 @@ public class MediaStatisticsServiceOrphanTests
     }
 
     [Fact]
+    public void LinkedLibraryRoot_CannotAuthorizeAnOrphanVerdict()
+    {
+        DefineDirectory(_root, [], "poster.jpg", "movie.srt");
+        var service = new LinkAwareService(_libraryManager.Object, _fileSystem.Object, TestMockFactory.CreateCleanupConfigHelper(_config).Object, _root);
+
+        var stats = Assert.Single(service.CalculateStatistics().Libraries);
+
+        Assert.Empty(stats.OrphanedMetadataDirectoriesPaths);
+        Assert.Equal(1, stats.ImageFileCount);
+        Assert.Equal(1, stats.SubtitleFileCount);
+    }
+
+    [Fact]
+    public void RegisteredPaths_RetainCaseDistinctMediaWithoutChangingMetadataLookupCompatibility()
+    {
+        var upper = Path.Join(_root, "A", "movie.mkv");
+        var lower = Path.Join(_root, "a", "movie.mkv");
+        _libraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([new Video { Path = upper }, new Video { Path = lower }]);
+
+        var lookup = _service.BuildItemLookup();
+
+        Assert.Single(lookup.Items);
+        Assert.Equal(2, lookup.RegisteredPaths.Length);
+        Assert.Contains(upper, lookup.RegisteredPaths);
+        Assert.Contains(lower, lookup.RegisteredPaths);
+        Assert.True(lookup.IsComplete);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationDuringTrickplaySizingStopsTraversalAndReturnsNoScan(bool internalTrickplay)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var trickplay = Path.Join(_root, "movie.trickplay");
+        DefineDirectory(_root, internalTrickplay ? [] : [trickplay]);
+        var helper = TestMockFactory.CreateCleanupConfigHelper(_config);
+        helper.Setup(h => h.GetInternalTrickplayPath()).Returns(internalTrickplay ? trickplay : null);
+        _fileSystem.Setup(f => f.DirectoryExists(trickplay)).Returns(true);
+        _fileSystem.Setup(f => f.GetFiles(trickplay, false)).Returns(() =>
+        {
+            cancellation.Cancel();
+            return [new FileSystemMetadata { FullName = Path.Join(trickplay, "frame.jpg"), Name = "frame.jpg", Length = 100 }];
+        });
+        var service = new MediaStatisticsService(_libraryManager.Object, _fileSystem.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<MediaStatisticsService>().Object, helper.Object, arrOrphanProtection: _arrProtection.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CalculateStatisticsAsync(cancellation.Token));
+        _fileSystem.Verify(f => f.GetDirectories(trickplay, false), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancellationAfterTheLastTraversalStillPreventsSuccessfulReturn()
+    {
+        using var cancellation = new CancellationTokenSource();
+        DefineDirectory(_root, []);
+        var helper = TestMockFactory.CreateCleanupConfigHelper(_config);
+        helper.Setup(h => h.GetInternalTrickplayPath()).Returns(() => { cancellation.Cancel(); return null; });
+        var service = new MediaStatisticsService(_libraryManager.Object, _fileSystem.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<MediaStatisticsService>().Object, helper.Object, arrOrphanProtection: _arrProtection.Object);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.CalculateStatisticsAsync(cancellation.Token));
+    }
+
+    [Fact]
     public async Task CancelledScan_DoesNotQueryOrScan()
     {
         using var cancellation = new CancellationTokenSource();

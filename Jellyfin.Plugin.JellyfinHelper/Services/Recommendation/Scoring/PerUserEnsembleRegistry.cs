@@ -172,10 +172,18 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
     // Returns the cached per-user ensemble, building it exactly once even under concurrent callers. The
     // Lazy value factory is what actually constructs the ensemble, so a losing GetOrAdd wrapper never runs it.
-    private EnsembleScoringStrategy GetOrAddPerUser(Guid userId) =>
-        _perUser.GetOrAdd(
-            userId,
-            id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id))).Value;
+    private EnsembleScoringStrategy GetOrAddPerUser(Guid userId)
+    {
+        var cached = _perUser.GetOrAdd(userId, id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id)));
+        var ensemble = cached.Value;
+        if (!_perUser.TryGetValue(userId, out var current) || !ReferenceEquals(cached, current))
+        {
+            // An eviction that won during lazy construction also stops a late training caller.
+            ensemble.Dispose();
+        }
+
+        return ensemble;
+    }
 
     /// <inheritdoc />
     public void Reconfigure(EnsembleBlendBounds blendBounds)
@@ -511,11 +519,21 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <returns>True when the weights file no longer exists after the attempt.</returns>
     private bool EvictUser(Guid userId)
     {
-        // Delete the persisted files before dropping the cached instance. The read path resolves a per-user
-        // model only when the weights file exists and re-checks that file after building, so deleting first
-        // means a score racing this eviction either sees the file already gone (and stays on the global model)
-        // or discards its freshly built instance on the re-check. Removing the cache entry first would leave
-        // that ordering open to a stray rebuild that outlives the eviction.
+        lock (_blendBoundsLock)
+        {
+            return EvictUserCore(userId);
+        }
+    }
+
+    private bool EvictUserCore(Guid userId)
+    {
+        // Keep the cache entry until deletion finishes, but stop its publisher first. Disposal waits
+        // for an already-started atomic publication, so no old trainer can recreate files afterwards.
+        if (_perUser.TryGetValue(userId, out var cached) && cached.IsValueCreated)
+        {
+            cached.Value.Dispose();
+        }
+
         var weightsPath = GetLearnedWeightsPath(userId);
         var statePath = GetEnsembleStatePath(userId);
         var bundlePath = AcceptedModelStore.GetBundlePath(statePath);

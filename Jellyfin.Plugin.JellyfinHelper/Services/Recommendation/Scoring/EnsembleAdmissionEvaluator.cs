@@ -207,20 +207,38 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="examples">One partition, already excluding spent acceptance identities where applicable.</param>
     /// <returns>A bounded block; unused new identities remain available for later independent rounds.</returns>
     internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples)
+        => SelectEvaluationBlock(examples, 0, out _);
+
+    /// <summary>Rotates a bounded balanced block using only identities, never labels, scores or admission results.</summary>
+    /// <param name="examples">Fresh observations in one permanent partition.</param>
+    /// <param name="offset">Persisted outcome-independent row rotation.</param>
+    /// <param name="nextOffset">Next rotation, unchanged when the entire partition fits.</param>
+    /// <returns>A unique bounded block; rotation does not spend or create evidence.</returns>
+    internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, long offset, out long nextOffset)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        nextOffset = offset;
         var users = examples.GroupBy(row => (row.UserId, row.ObservationId))
             .Select(group => group.OrderByDescending(row => row.GeneratedAtUtc).First())
             .GroupBy(row => row.UserId).OrderBy(group => group.Key)
             .Select(group => group.OrderBy(row => row.ObservationId).ToArray()).ToArray();
         var selected = new List<TrainingExample>();
+        var truncated = users.Sum(rows => (long)rows.Length) > MaximumEvaluationTitles;
         var depth = users.Length == 0 ? 0 : Math.Min(users.Max(rows => rows.Length), MaximumEvaluationTitles);
         for (var index = 0; index < depth; index++)
         {
             foreach (var user in users.Where(rows => index < rows.Length))
             {
-                selected.Add(user[index]);
+                var position = (int)((index + (offset % user.Length)) % user.Length);
+                selected.Add(user[position]);
                 if (selected.Count == MaximumEvaluationTitles)
                 {
+                    if (truncated)
+                    {
+                        var advance = index + 1;
+                        nextOffset = offset <= long.MaxValue - advance ? offset + advance : 0;
+                    }
+
                     return selected.ToArray();
                 }
             }
