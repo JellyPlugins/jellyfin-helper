@@ -424,6 +424,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── MediaStatisticsResultTests.cs # Aggregate totals and dictionary rollups
 │   │   ├── MediaStatisticsResultLanguageTests.cs # Audio/subtitle language and watched aggregates
 │   │   ├── MediaStatisticsServiceTests.cs # Library scanning, trickplay sizing, cycle guards
+│   │   ├── MediaStatisticsServiceOrphanTests.cs # #405: recursive AV presence, exclusions, Arr placeholders, unresolved trees and optional ownership
+│   │   ├── ArrOrphanProtectionServiceTests.cs # Configured-only Arr fetches, exact/unique root remapping, failures and cancellation
+│   │   ├── OrphanProtectionSnapshotTests.cs # Positive ownership, ancestor/descendant boundaries, scoped uncertainty and platform paths
 │   │   ├── MediaStatisticsServiceBitrateTests.cs # Bitrate tier thresholds, absolute measurement, legacy mapping
 │   │   ├── MediaStatisticsServiceLanguageTests.cs # Audio/subtitle language extraction, track labels, variant collapsing
 │   │   ├── MediaStatisticsServiceTvShowTests.cs # TV show structure and orphaned-metadata handling
@@ -815,6 +818,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
 │   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
+│   │   ├── IArrOrphanProtectionService.cs # Optional scan-local Arr ownership contract
+│   │   ├── ArrOrphanProtectionService.cs # Bounded configured-only ownership lookup through the existing Arr integration
+│   │   └── OrphanProtectionSnapshot.cs # Immutable positive ownership and scoped uncertainty; no deletion authorization
 │   └── Timeline/                # Library growth tracking
 │       ├── IGrowthTimelineService.cs   # Interface for timeline generation
 │       ├── GrowthTimelineService.cs    # Orchestrator: scans library directories, builds incremental entries, writes result JSON
@@ -1145,6 +1151,9 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaStatisticsResultTests.cs` - Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
 - `MediaStatisticsResultLanguageTests.cs` - Unit tests for MediaStatisticsResult audio/subtitle language and watched aggregates
 - `MediaStatisticsServiceTests.cs` - Unit tests for MediaStatisticsService library scanning and statistics calculation
+- `MediaStatisticsServiceOrphanTests.cs` - Recursive audio/video, registered media, placeholders, exclusions, incomplete scans and optional Arr protection
+- `ArrOrphanProtectionServiceTests.cs` - Configured-only requests, multi-instance isolation, root mappings, TLS/key handling and cancellation
+- `OrphanProtectionSnapshotTests.cs` - Ancestor/descendant protection without sibling matches, scoped uncertainty and path normalization
 - `MediaStatisticsServiceTvShowTests.cs` - Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
 - `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
 - `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
@@ -1541,6 +1550,9 @@ the heuristic rules and ensemble blend limits are unchanged.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Statistics/`
 
+- `IArrOrphanProtectionService.cs` - Contract for optional, bounded Arr ownership snapshots
+- `ArrOrphanProtectionService.cs` - Reuses the secured Radarr/Sonarr integration for additional, non-destructive orphan protection
+- `OrphanProtectionSnapshot.cs` - Scan-local positive folder ownership and scoped uncertainty without sibling/path-prefix collisions
 - `IMediaStatisticsService.cs` - Interface for the service that calculates media file statistics per library type
 - `IStatisticsCacheService.cs` - Interface for persisting and loading the latest full statistics scan to/from disk
 - `LibraryStatistics.cs` - Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks

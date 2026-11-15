@@ -43,13 +43,13 @@ public class MediaStatisticsControllerTests : IDisposable
     }
 
     [Fact]
-    public void ScanLibraries_ReturnsOk_WithStatistics()
+    public async Task ScanLibraries_ReturnsOk_WithStatistics()
     {
         var expected = new MediaStatisticsResult();
         expected.Libraries.Add(new LibraryStatistics { VideoFileCount = 5 });
-        _statsService.Setup(s => s.CalculateStatistics()).Returns(expected);
+        _statsService.Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected);
 
-        var result = _controller.ScanLibraries();
+        var result = await _controller.ScanLibraries(TestContext.Current.CancellationToken);
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var stats = Assert.IsType<MediaStatisticsResult>(okResult.Value);
@@ -57,12 +57,12 @@ public class MediaStatisticsControllerTests : IDisposable
     }
 
     [Fact]
-    public void ScanLibraries_SavesResultToCache()
+    public async Task ScanLibraries_SavesResultToCache()
     {
         var expected = new MediaStatisticsResult();
-        _statsService.Setup(s => s.CalculateStatistics()).Returns(expected);
+        _statsService.Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected);
 
-        _controller.ScanLibraries();
+        await _controller.ScanLibraries(TestContext.Current.CancellationToken);
 
         _cacheService.Verify(c => c.SaveLatestResult(It.IsAny<MediaStatisticsResult>()), Times.Once);
     }
@@ -107,32 +107,32 @@ public class MediaStatisticsControllerTests : IDisposable
 
     [Fact]
     [Trait("Category", "Security")]
-    public void ScanLibraries_ReturnsTooManyRequests_WhenCalledWithinMinInterval()
+    public async Task ScanLibraries_ReturnsTooManyRequests_WhenCalledWithinMinInterval()
     {
         // Response.Headers is written on the throttled path, so the controller needs an HttpContext.
         _controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
-        _statsService.Setup(s => s.CalculateStatistics()).Returns(new MediaStatisticsResult());
+        _statsService.Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new MediaStatisticsResult());
 
         // First call primes the static _lastScanTime; the immediate second call is inside the 30s window.
-        _controller.ScanLibraries();
-        var result = _controller.ScanLibraries();
+        await _controller.ScanLibraries(TestContext.Current.CancellationToken);
+        var result = await _controller.ScanLibraries(TestContext.Current.CancellationToken);
 
         var objectResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(StatusCodes.Status429TooManyRequests, objectResult.StatusCode);
 
         // A throttled request must not re-run the scan.
-        _statsService.Verify(s => s.CalculateStatistics(), Times.Once);
+        _statsService.Verify(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
     [Trait("Category", "Security")]
-    public void ScanLibraries_SetsRetryAfterHeader_WhenRateLimited()
+    public async Task ScanLibraries_SetsRetryAfterHeader_WhenRateLimited()
     {
         _controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
-        _statsService.Setup(s => s.CalculateStatistics()).Returns(new MediaStatisticsResult());
+        _statsService.Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new MediaStatisticsResult());
 
-        _controller.ScanLibraries();
-        _controller.ScanLibraries();
+        await _controller.ScanLibraries(TestContext.Current.CancellationToken);
+        await _controller.ScanLibraries(TestContext.Current.CancellationToken);
 
         // Clients need actionable retry guidance: a positive delay capped at the 30s MinScanInterval.
         Assert.True(_controller.Response.Headers.ContainsKey("Retry-After"));
