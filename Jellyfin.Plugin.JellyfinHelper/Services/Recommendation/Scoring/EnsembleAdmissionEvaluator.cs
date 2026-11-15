@@ -233,18 +233,23 @@ internal static class EnsembleAdmissionEvaluator
                 selected.Add(user[position]);
                 if (selected.Count == MaximumEvaluationTitles)
                 {
-                    if (truncated)
-                    {
-                        var advance = index + 1;
-                        nextOffset = offset <= long.MaxValue - advance ? offset + advance : 0;
-                    }
-
+                    nextOffset = AdvanceEvaluationCursor(offset, index + 1, truncated);
                     return selected.ToArray();
                 }
             }
         }
 
         return selected.ToArray();
+    }
+
+    private static long AdvanceEvaluationCursor(long offset, int advance, bool truncated)
+    {
+        if (!truncated)
+        {
+            return offset;
+        }
+
+        return offset <= long.MaxValue - advance ? offset + advance : 0;
     }
 
     /// <summary>Checks whether fresh acceptance can inform any independent evaluation, without choosing coefficients.</summary>

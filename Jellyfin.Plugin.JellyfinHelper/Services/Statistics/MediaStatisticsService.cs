@@ -201,8 +201,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 var skipOrphan = !libraryItems.IsComplete || !CleanupConfigHelper.IsCleanupEligibleLibrary(vf, excludedLibraries)
                     || CleanupConfigHelper.IsCollectionsPath(location) || IsSkippedLink(location);
-                var registeredPaths = libraryItems.RegisteredPaths.Length > 0 ? libraryItems.RegisteredPaths : itemLookup.Keys.AsEnumerable();
-                var registeredDirectories = BuildRegisteredMediaDirectories(registeredPaths, location, resolvedFullTrashPath, scanTrashFolderName);
+                var registeredDirectories = BuildRegisteredMediaDirectories(libraryItems, location, resolvedFullTrashPath, scanTrashFolderName);
                 AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(
                     scanTrashFolderName,
                     skipHealth,
@@ -803,6 +802,12 @@ public class MediaStatisticsService : IMediaStatisticsService
         var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(directoryPath));
         return name.Contains("[boxset]", StringComparison.OrdinalIgnoreCase)
             || name.Contains("[collection]", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> BuildRegisteredMediaDirectories(LibraryItemLookup libraryItems, string libraryRoot, string? trashPath, string trashName)
+    {
+        var paths = libraryItems.RegisteredPaths.Length > 0 ? libraryItems.RegisteredPaths : libraryItems.Items.Keys.AsEnumerable();
+        return BuildRegisteredMediaDirectories(paths, libraryRoot, trashPath, trashName);
     }
 
     private static HashSet<string> BuildRegisteredMediaDirectories(
