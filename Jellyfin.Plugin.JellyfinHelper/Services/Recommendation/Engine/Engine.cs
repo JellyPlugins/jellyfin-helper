@@ -979,6 +979,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             PreferredPeopleWeights = preferredPeopleWeights,
             AveragePreferredPeopleWeight = averagePreferredPeopleWeight,
             PreferredTags = preferredTags,
+            ContentFit = ContentFitProfile.Create(userProfile, id => candidateLookup.TryGetValue(id, out var item) ? item.Tags ?? [] : null),
             PeopleLookup = peopleLookup,
             GenreExposure = genreExposure,
             WatchedGenreSets = watchedGenreSets,
@@ -1411,6 +1412,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
+        context.ContentFit.Apply(features, candidate.Genres ?? [], content.OwnTags, content.OfficialRating, context.GenrePreferences);
+
         return new CandidateFeatureSnapshot(features, content, candidateMediaLanguages.Audio, candidateMediaLanguages.Subtitles);
     }
 
@@ -1744,7 +1747,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 BuildGenreSet(candidate),
                 BuildStudioSet(candidate))
             {
-                TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id)
+                TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
+                OwnTags = candidate.Tags?.ToArray() ?? [],
+                OfficialRating = candidate.OfficialRating
             };
         }
 
@@ -1798,7 +1803,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             BuildGenreSet(candidate),
             BuildStudioSet(candidate))
         {
-            TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id)
+            TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
+            OwnTags = candidate.Tags?.ToArray() ?? [],
+            OfficialRating = candidate.OfficialRating
         };
     }
 
@@ -2751,6 +2758,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         /// <summary>Gets the preferred tags.</summary>
         public required HashSet<string> PreferredTags { get; init; }
 
+        /// <summary>Gets the detached thematic and weak audience context for this user only.</summary>
+        public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+
         /// <summary>Gets the candidate snapshot's people lookup.</summary>
         public required Dictionary<Guid, HashSet<string>> PeopleLookup { get; init; }
 
@@ -2837,6 +2847,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         /// <summary>Gets the language-independent collection identity used for both scoring and cached training metadata.</summary>
         public int TmdbCollectionId { get; init; }
+
+        /// <summary>Gets own provider keywords detached at the same candidate snapshot boundary.</summary>
+        public IReadOnlyList<string> OwnTags { get; init; } = [];
+
+        /// <summary>Gets provider certification metadata, separate from permission checks and explicit user ratings.</summary>
+        public string? OfficialRating { get; init; }
     }
 
     /// <summary>

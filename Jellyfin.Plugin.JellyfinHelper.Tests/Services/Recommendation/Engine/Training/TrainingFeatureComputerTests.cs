@@ -838,6 +838,13 @@ public class TrainingFeatureComputerTests
         {
             ["AliceDirector"] = 1.0
         };
+        // A non-target Mystery title supports the thematic match without leaking this series'
+        // own episodes into its tag or Drama-engagement features.
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), Played = true, Genres = ["Mystery"], Tags = ["SlowBurn", "PrestigeTV"],
+            LastPlayedDate = DateTime.UtcNow.AddDays(-10)
+        });
 
         TrainingFeatureComputer.AddAggregatedSeriesExample(
             examples,

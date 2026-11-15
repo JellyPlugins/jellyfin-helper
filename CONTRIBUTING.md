@@ -250,6 +250,7 @@ Recommendation changes must preserve:
 
 - One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors, personal Warm Start fitting and bounded usable-Neural participation during provisional retention.
 - v5/38-feature inference, paired predictors/coefficients, permissions, child safety and protected scoring goldens.
+- Coherent semantic metadata must retain v5 coordinate units, own/parent provenance and self-excluded historical inputs; audience preference never replaces child certification policy.
 - Separate fitting, calibration and acceptance; only examined identities may be spent. Oversized fresh blocks need outcome-independent, restart-safe progress; provisional serving is not verified ranking.
 - Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery. Disposal stops publication before eviction deletes files; older-assessment safety receipts survive revision guards.
 - Disabled/deleted-user cleanup, including fileless caches; current-user diagnostics must match the scoring snapshot.
@@ -395,6 +396,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
 │   │       ├── DiscoverySelectionTests.cs             # Relevant varied pools, source-rank preservation and honest cold-start scores
 │   │       ├── ExternalAvailableMetadataTests.cs      # Collection IDs, keywords/studios and observed-feature imputation masks
+│   │       ├── ExternalContentFitTests.cs            # Semantic keyword parity, unknown means and immutable confirmed predictions
 │   │       ├── DiscoveryFeedbackStoreConstructionTests.cs # NormalizeMediaType defaults, directory creation, graceful save degradation
 │   │       ├── DiscoveryFeedbackExampleBuilderLabelTests.cs # Label assignment, latest-interaction timestamp, people-similarity parity
 │   │       ├── SeerrDiscoveryServiceGenerationTests.cs   # GenerateDiscoveryRecommendationsAsync pipeline: guards, child/language routing, exclusions, credits, Arr exclusion
@@ -468,6 +470,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
+│       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
+│       │   ├── ContentFitProfileTests.cs              # Coherent title keywords, audience hints, provenance and detached contexts
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -708,6 +712,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
 │   │   │   ├── ContentAffinityResolver.cs # Shared library-free resolvers for content-affinity source data
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
+│   │   │   ├── ContentFitProfile.cs # Title-balanced semantic keywords; weak audience hints, not rating bans
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
 │   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)

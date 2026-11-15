@@ -71,7 +71,7 @@ public enum FeatureIndex
     /// <summary>Weekend flag (0 or 1). Whether the current request is on a weekend day (Sat/Sun).</summary>
     IsWeekend = 19,
 
-    /// <summary>Tag-based content similarity (0-1). Jaccard overlap of candidate tags with user's preferred tags.</summary>
+    /// <summary>Tag-based content similarity (0-1). Jaccard overlap of candidate semantic tags with the user's preferred semantic tags.</summary>
     TagSimilarity = 20,
 
     /// <summary>People × Genre interaction: actors/directors you like in genres you prefer.</summary>

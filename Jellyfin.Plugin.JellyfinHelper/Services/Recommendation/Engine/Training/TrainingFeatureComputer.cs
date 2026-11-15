@@ -316,6 +316,9 @@ internal static class TrainingFeatureComputer
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
 
+        var contentFit = ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
+        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences);
+
         // Label from aggregated completion.
         var parentRating = NormalizeExplicitRating(parentSeriesRating);
         var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
