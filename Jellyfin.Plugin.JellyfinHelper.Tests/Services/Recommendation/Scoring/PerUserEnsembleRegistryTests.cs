@@ -94,6 +94,47 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal(filesBefore, Directory.GetFiles(_dataPath));
     }
 
+    [Theory]
+    [InlineData("unknown", true)]
+    [InlineData("missing-journal", false)]
+    [InlineData("corrupt-journal", false)]
+    [InlineData("recovery-required", false)]
+    [InlineData("reserved-input", false)]
+    public void FrozenLegacyWithoutAnAcceptedModelUsesHealthyStartingPriorsOnlyWhenItsJournalPermitsIt(string state, bool allowPrior)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var id = Guid.NewGuid();
+        var weightsPath = Path.Join(_dataPath, "ml_weights_" + id.ToString("N") + ".json");
+        var statePath = Path.Join(_dataPath, "ensemble_state_" + id.ToString("N") + ".json");
+        File.WriteAllText(weightsPath, JsonSerializer.Serialize(global.LearnedStrategy.CapturePredictionSnapshot().ExportParameters()));
+        var observed = StableExamples(73, 71).Select(row => row.ObservationId).ToArray();
+        File.WriteAllText(statePath, JsonSerializer.Serialize(new EnsembleScoringStrategy.EnsembleStateData
+        {
+            Alpha = .3, QualityGateFrozen = true, TrainingExampleCount = 73, ObservedTrainingIds = observed
+        }));
+        var assessment = new ModelTrainingAssessment
+        {
+            IndependentAdmissionEnabled = true, HeuristicFallbackRequired = true,
+            TrainingExampleCount = 73, ObservedTrainingIds = observed,
+            Decision = AdmissionDecision.Unknown("HomogeneousObservedOutcomes", 5, 4),
+            IndependentRecoveryRequired = state == "recovery-required",
+            ReservedOperatingInputDigests = state == "reserved-input" ? [new string('A', 64)] : []
+        };
+        if (state != "missing-journal") File.WriteAllText(statePath + ".assessment.json", state == "corrupt-journal" ? "{ broken" : JsonSerializer.Serialize(assessment));
+        var before = File.ReadAllBytes(weightsPath);
+        using var registry = BuildRegistry(global, neural);
+        var (diagnostics, personal) = registry.GetUserModelDiagnostics(id);
+        Assert.Equal(allowPrior ? "GlobalPrior" : state == "missing-journal" ? "Legacy" : "Heuristic", diagnostics.ValidationLevel);
+        Assert.Equal(allowPrior, diagnostics.NeuralShare > 0);
+        Assert.Equal(!allowPrior, diagnostics.QualityGateFrozen);
+        Assert.Equal(73, diagnostics.TrainingExampleCount);
+        if (allowPrior) Assert.False(personal);
+        Assert.Equal(before, File.ReadAllBytes(weightsPath));
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+    }
+
     [Fact]
     public void ColdPriorRestartsWithoutInventingPersonalTrainingOrWritingWeights()
     {

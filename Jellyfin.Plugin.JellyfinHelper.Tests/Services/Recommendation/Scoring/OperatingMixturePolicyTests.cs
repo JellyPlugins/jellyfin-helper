@@ -51,4 +51,36 @@ public sealed class OperatingMixturePolicyTests
         Assert.InRange(adjusted.Neural, 0, .3);
         Assert.InRange(1 - adjusted.Alpha, .25, 1);
     }
+
+    [Theory]
+    [InlineData(149, true, true, 0)]
+    [InlineData(150, true, true, 0)]
+    [InlineData(175, true, true, .1)]
+    [InlineData(180, true, true, .12)]
+    [InlineData(1000, true, true, .12)]
+    [InlineData(0, false, true, .12)]
+    [InlineData(1000, false, true, .12)]
+    [InlineData(1000, false, false, 0)]
+    [InlineData(1000, true, false, 0)]
+    public void NormalNeuralMinimumPreservesTheHistoricalRampAndMissingModelException(int count, bool ownsNeural, bool available, double expected)
+        => Assert.Equal(expected, OperatingMixturePolicy.NeuralMinimum(count, ownsNeural, available), 12);
+
+    [Theory]
+    [InlineData(.3, 0, .3)]
+    [InlineData(.75, 0, .75)]
+    [InlineData(.69, .06, .749999999999487)]
+    [InlineData(.6000000000000001, .15, .75)]
+    [InlineData(.45, .3, .75)]
+    [InlineData(0, .3, .75)]
+    public void NeuralMinimumStaysInsideTheExistingBudgetAndExactPublishedCaps(double learned, double neural, double alphaCap)
+    {
+        var original = new AdmissionMixture(learned, neural);
+        var cap = alphaCap * .4;
+        var result = OperatingMixturePolicy.WithNeuralMinimum(original, .12, alphaCap, cap);
+        Assert.True(result.Alpha <= alphaCap);
+        Assert.True(result.Alpha <= original.Alpha);
+        Assert.InRange(result.Neural, 0, cap);
+        Assert.True(result.Beta >= .12);
+        Assert.InRange(1 - result.Alpha, .25, 1);
+    }
 }

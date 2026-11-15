@@ -35,6 +35,43 @@ internal static class OperatingMixturePolicy
             : EnsembleScoringStrategy.NeuralPerUserBetaFloor + ((EnsembleScoringStrategy.NeuralMaxBetaFraction - EnsembleScoringStrategy.NeuralPerUserBetaFloor) * progress);
     }
 
+    /// <summary>Returns the normal within-ML floor without bypassing the global activation ramp.</summary>
+    /// <param name="count">This scope's observed maturity.</param>
+    /// <param name="ownsNeural">Whether this scope fits the global network.</param>
+    /// <param name="available">Whether a trained, usable predictor is available.</param>
+    /// <returns>The bounded serving floor, never a fixed number of recommendation slots.</returns>
+    internal static double NeuralMinimum(int count, bool ownsNeural, bool available)
+        => Math.Min(EnsembleScoringStrategy.NeuralPerUserBetaFloor, NeuralTarget(count, ownsNeural, available));
+
+    /// <summary>Reserves the usable Neural floor inside the existing ML budget, not on top of it.</summary>
+    /// <param name="mixture">The bounded provisional mixture.</param>
+    /// <param name="minimum">The eligible within-ML floor.</param>
+    /// <param name="alphaCap">The protected total ML ceiling.</param>
+    /// <param name="neuralCap">The protected absolute Neural ceiling.</param>
+    /// <returns>A budget-preserving mixture; a missing/unusable predictor receives no forced weight.</returns>
+    internal static AdmissionMixture WithNeuralMinimum(AdmissionMixture mixture, double minimum, double alphaCap, double neuralCap)
+    {
+        var alpha = Math.Min(mixture.Alpha, alphaCap);
+        if (alpha <= 0)
+        {
+            return default;
+        }
+
+        var neural = Math.Min(alpha, Math.Min(neuralCap, Math.Max(mixture.Neural, alpha * minimum)));
+        if (neural / alpha < minimum)
+        {
+            neural = Math.Min(neuralCap, Math.BitIncrement(neural));
+        }
+
+        var learned = alpha - neural;
+        if (learned + neural > alpha)
+        {
+            learned = Math.BitDecrement(learned);
+        }
+
+        return new AdmissionMixture(learned, neural);
+    }
+
     /// <summary>Softly damps maturity using calibration-only loss, never presenting it as independent ranking proof.</summary>
     /// <param name="ceiling">The maturity ceiling.</param>
     /// <param name="minimum">The operational lower bound.</param>
