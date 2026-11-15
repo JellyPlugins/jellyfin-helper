@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Moq;
@@ -66,6 +67,32 @@ public sealed class EngineContentFitTests
             var copied = JsonSerializer.Deserialize<CandidateFeatures>(JsonSerializer.Serialize(item.ScoringFeatures))!;
             Assert.Equal(Score(item.ScoringFeatures), Score(copied));
         });
+    }
+
+    [Fact]
+    public void ReusedCandidateSnapshotKeepsBothRawAndSemanticTagInputsCoherentAfterLiveMetadataChanges()
+    {
+        var harness = EngineTestFactory.Create(Predictor().Object);
+        using var lifetime = harness.Engine;
+        var user = Guid.NewGuid();
+        var seen = new Movie { Id = Guid.NewGuid(), Name = "Known story", Path = "/media/seen.mkv", Genres = Genres, Tags = StoryTags };
+        var unseen = new Movie { Id = Guid.NewGuid(), Name = "Unseen related story", Path = "/media/unseen.mkv", Genres = Genres, Tags = StoryTags, OfficialRating = "FSK-12", CommunityRating = 8 };
+        var profile = new UserWatchProfile
+        {
+            UserId = user, WatchedMovieCount = 1, GenreDistribution = new Dictionary<string, int> { ["Crime"] = 100 },
+            // No playback timestamp: exact snapshot comparisons must not include wall-clock genre decay.
+            WatchedItems = [new WatchedItemInfo { ItemId = seen.Id, Played = true, PlayCount = 1, Genres = Genres, Tags = StoryTags }]
+        };
+        harness.WatchHistory.Setup(service => service.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(service => service.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [seen, unseen] : []);
+        var first = Assert.Single(harness.Engine.GetRecommendations(user, 1, TestContext.Current.CancellationToken)!.Recommendations).ScoringFeatures!;
+        seen.Tags = ["wizard", "magic"];
+        unseen.Tags = ["wizard", "magic"];
+        var cached = Assert.Single(harness.Engine.GetRecommendations(user, 1, TestContext.Current.CancellationToken)!.Recommendations).ScoringFeatures!;
+        Assert.Equal(first.GenreSimilarity, cached.GenreSimilarity);
+        Assert.Equal(1, first.TagSimilarity);
+        Assert.Equal(first.TagSimilarity, cached.TagSimilarity);
     }
 
     private static Mock<IScoringStrategy> Predictor()

@@ -136,7 +136,7 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreAffinityGap = affinityGap;
 
         ApplyAvailableMetadata(features, candidate, userContext, context.WatchedCollections);
-        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences, candidate.KnownKeywords is not null);
+        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences);
         ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;

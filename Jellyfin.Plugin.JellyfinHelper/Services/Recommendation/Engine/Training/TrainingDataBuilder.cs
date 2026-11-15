@@ -1053,7 +1053,8 @@ internal static class TrainingDataBuilder
             ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null,
             userCtx.UserProfile.WatchedItems.FirstOrDefault(row => row.ItemId == seriesId)?.UserRating,
             ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId),
-            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts));
+            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts),
+            history.Content.ContentFit);
         return 1;
     }
 

@@ -2270,7 +2270,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 GenrePreferences = genres,
                 GenreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genres, context.Profile),
-                User = userContext with { Engagement = ContentScoring.BuildGenreEngagementContext(context.Profile) }
+                User = userContext with
+                {
+                    Engagement = ContentScoring.BuildGenreEngagementContext(context.Profile),
+                    ContentFit = ContentFitProfile.Create(context.Profile)
+                }
             };
         }
 

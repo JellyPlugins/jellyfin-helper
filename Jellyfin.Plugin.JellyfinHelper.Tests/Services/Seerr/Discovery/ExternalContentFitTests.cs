@@ -47,7 +47,11 @@ public sealed class ExternalContentFitTests
         var candidate = Candidate();
         candidate.KnownKeywords = [.. Tags];
         var external = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile);
-        var local = new CandidateFeatures { GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(["Animation", "Action & Adventure"], Genres) };
+        var local = new CandidateFeatures
+        {
+            GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(["Animation", "Action & Adventure"], Genres),
+            TagSimilarity = SimilarityComputer.ComputeJaccardFromSets(new HashSet<string>(Tags, StringComparer.OrdinalIgnoreCase), PreferenceBuilder.BuildTagPreferenceSet(profile, []))
+        };
         ContentFitProfile.Create(profile).Apply(local, ["Animation", "Action & Adventure"], Tags, "FSK-12", Genres);
         Assert.Equal(local.TagSimilarity, external.TagSimilarity);
         Assert.Equal(local.GenreSimilarity, external.GenreSimilarity);

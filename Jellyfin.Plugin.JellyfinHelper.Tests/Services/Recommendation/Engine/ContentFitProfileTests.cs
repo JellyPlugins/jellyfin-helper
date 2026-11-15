@@ -245,6 +245,55 @@ public sealed class ContentFitProfileTests
         Assert.Equal(0, ContentFitProfile.Create(profile, sourceCache: source).ScoreTags(BattleKeywords));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EpisodeProviderIdsCannotMergeWithAnUnrelatedMovie(bool validParent)
+    {
+        var movie = Watch(["Adventure"], ["pirate"]);
+        movie.ItemType = "Movie";
+        movie.TmdbId = 123;
+        var episode = Watch(["Animation"], ["friendship"]);
+        episode.ItemType = "Episode";
+        episode.TmdbId = 123;
+        if (validParent)
+        {
+            episode.SeriesId = Guid.NewGuid();
+            episode.SeriesTmdbId = 123;
+        }
+
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [movie, episode] };
+        Assert.Equal(2.0 / 3.0, ContentFitProfile.Create(profile).ScoreTags(["pirate", "friendship"]), 12);
+    }
+
+    [Theory]
+    [InlineData("German", "1080p")]
+    [InlineData("Shōnen", "friendship")]
+    public void SemanticEnrichmentKeepsTheExactRawV5TagCoordinateAndFittedStatistics(string first, string second)
+    {
+        string[] raw = [first, second];
+        var profile = BattleProfile();
+        profile.WatchedItems.Add(Watch(["Animation"], raw));
+        var preferences = PreferenceBuilder.BuildTagPreferenceSet(profile, []);
+        var original = SimilarityComputer.ComputeJaccardFromSets(new HashSet<string>(raw, StringComparer.OrdinalIgnoreCase), preferences);
+        var features = new CandidateFeatures { GenreSimilarity = .7, TagSimilarity = original };
+        var means = new double[38];
+        var deviations = Enumerable.Repeat(1.0, 38).ToArray();
+        var weights = new double[38];
+        means[(int)FeatureIndex.TagSimilarity] = original;
+        deviations[(int)FeatureIndex.TagSimilarity] = .01;
+        weights[(int)FeatureIndex.TagSimilarity] = .2;
+        var predictor = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData
+        {
+            Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
+        });
+        var before = predictor.Score(features);
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Action"], raw, "FSK-12", BattleGenres);
+        Assert.Equal(original, features.TagSimilarity);
+        Assert.Equal(before, predictor.Score(features));
+        Assert.Equal(.5, before, 12);
+    }
+
     private static UserWatchProfile BattleProfile()
     {
         var profile = new UserWatchProfile { UserId = Guid.NewGuid() };

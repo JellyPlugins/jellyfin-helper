@@ -33,14 +33,12 @@ internal sealed class ContentFitProfile
 
     private readonly KeywordDocument[] _documents;
     private readonly Dictionary<string, double> _termWeights;
-    private readonly HashSet<string> _keywordUnion;
     private readonly bool _prefersOlderAnimation;
 
     private ContentFitProfile(KeywordDocument[] documents, Dictionary<string, double> weights, bool prefersOlderAnimation)
     {
         _documents = documents;
         _termWeights = weights;
-        _keywordUnion = new HashSet<string>(documents.SelectMany(document => document.Keywords), StringComparer.Ordinal);
         _prefersOlderAnimation = prefersOlderAnimation;
     }
 
@@ -61,9 +59,9 @@ internal sealed class ContentFitProfile
         }
 
         var titles = BuildTitleKeywords(profile, lookup ?? (_ => null), excluded, sourceCache ?? new SourceCache());
-        var older = titles.Values.Count(title => title.Genres.Contains("Animation") && title.Keywords.Overlaps(OlderAnimationLabels));
-        var children = titles.Values.Count(title => title.Genres.Contains("Kids") || title.Keywords.Overlaps(ChildrenLabels));
-        var documents = titles.Values.Where(title => title.Keywords.Count > 0).Select(title => title.Keywords).ToArray();
+        var older = titles.Values.Count(title => title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels));
+        var children = titles.Values.Count(title => title.Genres.Contains("Kids") || title.Terms.Overlaps(ChildrenLabels));
+        var documents = titles.Values.Where(title => title.Terms.Count > 0).Select(title => title.Terms).ToArray();
         var weights = BuildTermWeights(documents);
         return new ContentFitProfile(documents.Select(document => new KeywordDocument(document, document.Order(StringComparer.Ordinal).Sum(keyword => weights[keyword]))).ToArray(), weights, older > children);
     }
@@ -92,7 +90,7 @@ internal sealed class ContentFitProfile
 
             title.Genres.UnionWith(GenreNormalizer.Set(row.Genres));
             var tags = PreferenceBuilder.ResolveMetadataPreferenceValues(row, lookup, value => (value.Tags, value.OwnTags, value.SeriesTags));
-            title.Keywords.UnionWith(Keywords(tags, cache.Normalized));
+            title.Terms.UnionWith(Keywords(tags, cache.Normalized));
         }
 
         return titles;
@@ -103,6 +101,13 @@ internal sealed class ContentFitProfile
         var parent = row.SeriesId.GetValueOrDefault();
         var isSeries = parent != Guid.Empty || string.Equals(row.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
         var provider = parent != Guid.Empty ? row.SeriesTmdbId : row.TmdbId;
+        if (parent == Guid.Empty && string.Equals(row.ItemType, "Episode", StringComparison.OrdinalIgnoreCase))
+        {
+            // An orphan episode's provider ID is not a movie title identity. Its library ID
+            // remains distinct from a movie carrying the same numeric provider value.
+            provider = 0;
+        }
+
         var title = parent != Guid.Empty ? parent : row.ItemId;
         if (title == Guid.Empty && provider <= 0)
         {
@@ -150,7 +155,7 @@ internal sealed class ContentFitProfile
         {
             var overlap = 0.0;
             var specific = 0;
-            foreach (var keyword in candidate.Where(document.Keywords.Contains))
+            foreach (var keyword in candidate.Where(document.Terms.Contains))
             {
                 overlap += TermWeight(keyword);
                 specific += BroadLabels.Contains(keyword) ? 0 : 1;
@@ -224,21 +229,10 @@ internal sealed class ContentFitProfile
     /// <param name="tags">Candidate own/provider keywords.</param>
     /// <param name="officialRating">Optional provider certification, not a preference outcome.</param>
     /// <param name="preferences">The unchanged complete genre preference vector.</param>
-    /// <param name="tagsKnown">False when external keywords are unavailable, preserving model-specific imputation.</param>
-    internal void Apply(CandidateFeatures features, IReadOnlyList<string> genres, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences, bool tagsKnown = true)
+    internal void Apply(CandidateFeatures features, IReadOnlyList<string> genres, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences)
     {
         features.GenreSimilarity = AdjustGenreSimilarity(features.GenreSimilarity, genres, tags, officialRating, preferences);
-        if (tagsKnown)
-        {
-            features.TagSimilarity = CoordinateTagSimilarity(tags);
-        }
     }
-
-    /// <summary>Keeps the v5 Jaccard unit for existing learned/neural means and weights; coherent affinity is a separate context signal.</summary>
-    /// <param name="tags">Own provider keywords.</param>
-    /// <returns>Semantic Jaccard on the original coordinate's scale, not a rescaled title-Dice value.</returns>
-    internal double CoordinateTagSimilarity(IEnumerable<string>? tags)
-        => SimilarityComputer.ComputeJaccardFromSets(Keywords(tags), _keywordUnion);
 
     /// <summary>Creates semantic keyword keys without mutating input metadata or interpreting transport labels as taste.</summary>
     /// <param name="tags">Own provider tags, or null when unknown.</param>
@@ -332,7 +326,7 @@ internal sealed class ContentFitProfile
         return normalized is "FSK0" or "FSK6" or "G" or "TVY" or "TVY7";
     }
 
-    private sealed record KeywordDocument(HashSet<string> Keywords, double Weight);
+    private sealed record KeywordDocument(HashSet<string> Terms, double Weight);
 
     /// <summary>Serial feature-cycle memo of pure metadata transforms, never preferences, outcomes or predictions.</summary>
     internal sealed class SourceCache
@@ -346,6 +340,6 @@ internal sealed class ContentFitProfile
     {
         internal HashSet<string> Genres { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        internal HashSet<string> Keywords { get; } = new(StringComparer.Ordinal);
+        internal HashSet<string> Terms { get; } = new(StringComparer.Ordinal);
     }
 }
