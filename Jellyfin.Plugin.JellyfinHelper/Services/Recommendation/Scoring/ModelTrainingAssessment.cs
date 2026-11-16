@@ -47,6 +47,12 @@ internal sealed class ModelTrainingAssessment
     [JsonRequired]
     public long AcceptedModelRevision { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether regular lifecycle retirement removed the personal checkpoint, not its trust receipts.</summary>
+    public bool ModelRetired { get; set; }
+
+    /// <summary>Gets or sets the actual retirement time, separate from fitting/evaluation timestamps.</summary>
+    public DateTime? RetiredAtUtc { get; set; }
+
     /// <summary>Gets or sets outcome-independent progress through bounded fresh acceptance blocks.</summary>
     public long AcceptanceBlockCursor { get; set; }
 

@@ -107,6 +107,7 @@ GitHub Pages uses the shipped admin UI with synthetic `docs/mock/mock-data.js` r
 - Audio/subtitle affinity needs availability and personal playback evidence; saved indexes are not earlier playback events. Historical rows are dated and self-excluded; fitting-only imputation leaves stored snapshots untouched.
 - Franchise IDs need no BoxSets; progression requires real, self-excluded membership.
 - Collection continuation requires every known member to remain resolvable in the scoped population; missing/excluded members keep only that sequence neutral. Genre/alias tags are not narrative evidence.
+- Inactive-model retirement keeps trust assessments and spent acceptance IDs; it never releases withdrawal/recovery restrictions. Ambiguous active Arr mappings withhold orphan verdicts; remote path semantics do not inherit the host's case rules.
 
 ### Running Tests
 
@@ -432,7 +433,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── MediaStatisticsResultLanguageTests.cs # Audio/subtitle language and watched aggregates
 │   │   ├── MediaStatisticsServiceTests.cs # Library scanning, trickplay sizing, cycle guards
 │   │   ├── MediaStatisticsServiceOrphanTests.cs # #405: recursive AV presence, exclusions, Arr placeholders, unresolved trees and optional ownership
-│   │   ├── ArrOrphanProtectionServiceTests.cs # Configured-only Arr fetches, exact/unique root remapping, failures and cancellation
+│   │   ├── ArrOrphanProtectionServiceTests.cs # Scoped Arr fetches, partial/nested remapping, remote path semantics, failures and cancellation
 │   │   ├── OrphanProtectionSnapshotTests.cs # Positive ownership, ancestor/descendant boundaries, scoped uncertainty and platform paths
 │   │   ├── MediaStatisticsServiceBitrateTests.cs # Bitrate tier thresholds, absolute measurement, legacy mapping
 │   │   ├── MediaStatisticsServiceLanguageTests.cs # Audio/subtitle language extraction, track labels, variant collapsing
@@ -535,7 +536,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── LearnedScoringStrategyRobustnessTests.cs # NaN/degenerate inputs discarded, not applied
 │       │   ├── StandardizationTransitionTests.cs      # Warm-start: crossing the standardization threshold rescales weights (not reset), finite weights/scores, learned ranking preserved, zero-variance guard
 │       │   ├── StrategySelectorTests.cs                # Cohort router: exploration gate, deterministic hash bucketing, routing
-│       │   ├── PerUserEnsembleRegistryTests.cs         # Per-user registry: cold-start fallback identity, warm-start, shared-neural-not-disposed, orphan pruning
+│       │   ├── PerUserEnsembleRegistryTests.cs         # Cold/warm priors, durable retirement/ledger/recovery, shared-neural lifetime and pruning
 │       │   ├── EnsembleBlendBoundsTests.cs             # Blend-bounds value: null-config defaults, configured pass-through, record equality
 │       │   ├── PerUserGoldenDigestTests.cs             # Single-user per-user model reproduces the global fit (behaviour preservation)
 │       │   ├── LearnedScoringStrategySeedTests.cs      # SeedFrom warm-start: copies weights/bias/standardization stats, identical scores, source independence
@@ -687,7 +688,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── BackupSanitizer.cs         # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
-│   │   ├── LanguageIdentity.cs      # Shared media language identity: tags to ISO 639-1 codes and stable display names
+│   │   ├── LanguageIdentity.cs      # Shared language identity/aliases and strict language-only thematic exclusion
 │   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   │   ├── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
 │   │   ├── HttpResponseReader.cs    # Size-bounded HTTP body reader (LimitedStream) shared by Arr/Seerr; guards against OOM from unbounded responses
@@ -752,7 +753,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── AcceptedModelStore.cs         # Atomic checkpoint; working models remain intact on rejection or failure
 │   │   │   ├── AcceptanceObservationLedger.cs # Single checksummed exact spent-title set, separate from bounded model archives
 │   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
-│   │   │   ├── ModelTrainingAssessment.cs    # Attempt diagnostics and bounded unique maturity; never grants model trust or stamps trained weights
+│   │   │   ├── ModelTrainingAssessment.cs    # Attempt/retirement receipts and unique maturity; never grants model trust or stamps trained weights
 │   │   │   ├── EnsembleAdmissionEvaluator.cs # Separate calibration/acceptance, paired utility screens, macro-user ranking and incumbent comparisons
 │   │   │   ├── OperatingMixturePolicy.cs      # Shared maturity/ramp and bounded calibration-only operational correction
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing

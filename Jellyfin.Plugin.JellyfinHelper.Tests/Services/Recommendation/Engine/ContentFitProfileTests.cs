@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -108,6 +109,49 @@ public sealed class ContentFitProfileTests
         Assert.Equal(1, features.ContentFitAffinity);
         Assert.Equal(1, features.ContentFitSupport);
         Assert.Equal(1, features.TagSimilarity);
+    }
+
+    [Theory]
+    [InlineData("Spanish", "French")]
+    [InlineData("spa", "fra")]
+    [InlineData("französisch", "español")]
+    [InlineData("Fransızca", "İspanyolca")]
+    [InlineData("fr-FR", "es-ES")]
+    [InlineData("French (Forced)", "Spanish (SDH)")]
+    public void LanguageOnlyTagsCannotCreateNarrativeConfidence(string first, string second)
+        => AssertLanguageOnlyTagsAreNeutral([first, second]);
+
+    [Fact]
+    public void EveryCuratedLanguageNameAndExonymRemainsTechnicalEvidence()
+    {
+        foreach (var names in LanguageIdentity.LanguageExonyms)
+            foreach (var name in names.OfType<string>())
+                AssertLanguageOnlyTagsAreNeutral([name, "French"]);
+    }
+
+    [Fact]
+    public void LanguageWordsInsideActualStorySettingsAreNotRemoved()
+    {
+        string[] tags = ["French revolution", "German occupation", "Spanish civil war"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Drama"], tags)] };
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true, TagSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Drama"], tags, null, new() { ["Drama"] = 1 });
+        Assert.Equal(1, features.ContentFitAffinity);
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Equal(tags.Select(tag => tag.ToLowerInvariant()).Order(), ContentFitProfile.Keywords(tags).Order());
+    }
+
+    private static void AssertLanguageOnlyTagsAreNeutral(string[] tags)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Drama"], tags)] };
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true, TagSimilarity = 1 };
+        var content = ContentFitProfile.Create(profile);
+        content.Apply(features, ["Drama"], tags, null, new() { ["Drama"] = 1 });
+        Assert.Equal(0, content.ScoreTags(tags));
+        Assert.Null(features.ContentFitSupport);
+        Assert.Equal(.7, features.GenreSimilarity);
+        Assert.Equal(1, features.TagSimilarity);
+        Assert.Equal(.4, ScoringHelper.ComputeContextualScore(.4, features, .1));
     }
 
     private static void AssertGenreOnlyTagsAreNeutral(string[] tags)

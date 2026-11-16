@@ -266,6 +266,72 @@ public class ArrOrphanProtectionServiceTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PartiallyMappedActiveRootsWithTheSameNameRemainUncertain(bool sonarr)
+    {
+        _config.RadarrInstances[0].Libraries = "Movies";
+        var other = Path.GetFullPath(Path.Join("other", "unassigned"));
+        _libraries.Add(new VirtualFolderInfo { Name = "Other", CollectionType = CollectionTypeOptions.movies, Locations = [other] });
+        _arr.Setup(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync([_root, "/downloads/movies"]);
+        var owned = Path.Join(_root, "Owned");
+        if (sonarr)
+        {
+            _config.RadarrInstances = [];
+            _config.SonarrInstances = [new ArrInstanceConfig { Url = Url, ApiKey = "key", Libraries = "Movies" }];
+            _libraries[0].CollectionType = CollectionTypeOptions.tvshows;
+            _arr.Setup(a => a.GetSonarrSeriesAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync(
+                [new ArrSeries { Path = owned }, new ArrSeries { Path = "/downloads/movies/Wanted" }]);
+        }
+        else
+        {
+            SetMovies([new ArrMovie { Path = owned }, new ArrMovie { Path = "/downloads/movies/Wanted" }]);
+        }
+
+        var snapshot = await SnapshotAsync();
+        Assert.True(snapshot.ProtectsDirectory(owned));
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "Wanted")));
+        Assert.True(snapshot.IsUncertain(_root));
+        Assert.True(snapshot.IsUncertain(Path.Join(_root, "Wanted")));
+        Assert.False(snapshot.IsUncertain(other));
+        _arr.Verify(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnresolvedNestedActiveRootCannotFallThroughToAMappedAncestor()
+    {
+        var remote = _root.Replace('\\', '/');
+        _arr.Setup(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync([remote, remote + "/nested"]);
+        SetMovies([new ArrMovie { Path = remote + "/nested/Wanted" }]);
+
+        var snapshot = await SnapshotAsync();
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "nested", "Wanted")));
+        Assert.True(snapshot.IsUncertain(_root));
+    }
+
+    [Theory]
+    [InlineData("Z:\\ARR\\movies", "z:\\arr\\MOVIES\\Wanted")]
+    [InlineData("\\\\SERVER\\Share\\movies", "\\\\server\\share\\MOVIES\\Wanted")]
+    public async Task RemoteWindowsPathsAreCaseInsensitiveOnEveryHost(string remoteRoot, string remotePath)
+    {
+        _arr.Setup(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync([remoteRoot]);
+        SetMovies([new ArrMovie { Path = remotePath }]);
+        var snapshot = await SnapshotAsync();
+        Assert.True(snapshot.ProtectsDirectory(Path.Join(_root, "Wanted")));
+        Assert.False(snapshot.IsUncertain(_root));
+    }
+
+    [Fact]
+    public async Task RemotePosixPathsStayCaseSensitiveOnWindowsHostsToo()
+    {
+        _arr.Setup(a => a.GetRootFoldersAsync(Url, "key", false, It.IsAny<CancellationToken>())).ReturnsAsync(["/arr/Movies"]);
+        SetMovies([new ArrMovie { Path = "/arr/movies/Wanted" }]);
+        var snapshot = await SnapshotAsync();
+        Assert.False(snapshot.ProtectsDirectory(Path.Join(_root, "Wanted")));
+        Assert.True(snapshot.IsUncertain(_root));
+    }
+
+    [Theory]
     [InlineData("movie.trickplay")]
     [InlineData(".jellyfin-trash")]
     [InlineData("collections")]

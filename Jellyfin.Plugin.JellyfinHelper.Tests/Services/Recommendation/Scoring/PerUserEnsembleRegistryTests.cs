@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -19,6 +20,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class PerUserEnsembleRegistryTests : IDisposable
 {
+    private static readonly JsonSerializerOptions AssessmentOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+
     private readonly string _dataPath;
     private readonly Mock<IPluginLogService> _pluginLog = new();
 
@@ -713,6 +716,172 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal("spent-titles-must-not-be-recycled", File.ReadAllText(ledgerPath));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void RegularRetirementRetainsSpentTitlesAndHealthyGlobalFallbackAcrossRestart(bool inactiveSweep, bool restartBeforeRetirement)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var id = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{id:N}.json");
+        var store = new AcceptedModelStore(statePath);
+        var registry = BuildRegistry(global, neural);
+        try
+        {
+            var personal = registry.GetOrCreateTrainableEnsembleForUser(id);
+            Assert.True(personal.TrainValidated(StableExamples(72, 80), StableExamples(60, 81), false, TestContext.Current.CancellationToken));
+            var spent = StableExamples(20, 82).Select(row => row.ObservationId).ToArray();
+            new AcceptanceObservationLedger(AcceptedModelStore.GetLedgerPath(statePath), File.WriteAllText).Spend(spent, [], true);
+            var ledgerBefore = File.ReadAllBytes(AcceptedModelStore.GetLedgerPath(statePath)!);
+            var assessmentBefore = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(statePath + ".assessment.json"), AssessmentOptions)!;
+            if (restartBeforeRetirement)
+            {
+                registry.Dispose();
+                registry = BuildRegistry(global, neural);
+            }
+
+            if (inactiveSweep)
+            {
+                var cutoff = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+                Assert.Equal(1, registry.EvictInactiveModels(cutoff, new Dictionary<Guid, DateTime?> { [id] = cutoff.AddDays(-1) }));
+            }
+            else
+            {
+                Assert.True(registry.EvictPerUserModel(id));
+            }
+
+            Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+            Assert.False(File.Exists(Path.Join(_dataPath, $"ml_weights_{id:N}.json")));
+            Assert.Equal(ledgerBefore, File.ReadAllBytes(AcceptedModelStore.GetLedgerPath(statePath)!));
+            Assert.Equal(spent.Order(), store.ReadSpentAcceptanceIds(null, true).Order());
+            Assert.Equal("GlobalPrior", registry.GetDiagnostics(id).ValidationLevel);
+            registry.Dispose();
+            registry = BuildRegistry(global, neural);
+            var diagnostics = registry.GetDiagnostics(id);
+            Assert.Equal("GlobalPrior", diagnostics.ValidationLevel);
+            Assert.True(diagnostics.EffectiveAlpha > 0);
+            Assert.True(diagnostics.NeuralShare > 0);
+            Assert.False(registry.HasPerUserModel(id));
+            var retired = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(statePath + ".assessment.json"), AssessmentOptions)!;
+            Assert.Equal(assessmentBefore.ObservedTrainingIds, retired.ObservedTrainingIds);
+            Assert.Equal(assessmentBefore.ReservedOperatingInputDigests, retired.ReservedOperatingInputDigests);
+            Assert.Equal(assessmentBefore.AcceptanceBlockCursor, retired.AcceptanceBlockCursor);
+            Assert.True(retired.AcceptanceLedgerRequired);
+            Assert.Equal(0, retired.AcceptedModelRevision);
+            Assert.True(retired.ModelRetired);
+            Assert.NotNull(retired.RetiredAtUtc);
+            Assert.Equal(ledgerBefore, File.ReadAllBytes(AcceptedModelStore.GetLedgerPath(statePath)!));
+        }
+        finally
+        {
+            registry.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData("missing-ledger")]
+    [InlineData("corrupt-ledger")]
+    [InlineData("missing-assessment")]
+    [InlineData("corrupt-assessment")]
+    [InlineData("recovery")]
+    [InlineData("reserved")]
+    public void RetirementCannotHideLostTrustDataOrReleaseExistingRecoveryRestrictions(string fault)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var id = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{id:N}.json");
+        var ledger = AcceptedModelStore.GetLedgerPath(statePath)!;
+        var assessmentPath = statePath + ".assessment.json";
+        using (var registry = BuildRegistry(global, neural))
+        {
+            Assert.True(registry.GetOrCreateTrainableEnsembleForUser(id).TrainValidated(StableExamples(72, 90), StableExamples(60, 91), false, TestContext.Current.CancellationToken));
+            if (fault is "recovery" or "reserved")
+            {
+                var journal = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(assessmentPath))!;
+                journal["IndependentRecoveryRequired"] = fault == "recovery";
+                if (fault == "reserved") journal["ReservedOperatingInputDigests"] = new System.Text.Json.Nodes.JsonArray(new string('A', 64));
+                File.WriteAllText(assessmentPath, journal.ToJsonString());
+            }
+
+            Assert.True(registry.EvictPerUserModel(id));
+        }
+
+        if (fault == "missing-ledger") File.Delete(ledger);
+        if (fault == "corrupt-ledger") File.WriteAllText(ledger, "damaged ledger");
+        if (fault == "missing-assessment") File.Delete(assessmentPath);
+        if (fault == "corrupt-assessment") File.WriteAllText(assessmentPath, "{ damaged journal");
+        using var restarted = BuildRegistry(global, neural);
+        var diagnostics = restarted.GetDiagnostics(id);
+        Assert.Equal("Heuristic", diagnostics.ValidationLevel);
+        Assert.Equal(0, diagnostics.EffectiveAlpha);
+        Assert.Equal(0, diagnostics.NeuralShare);
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+        Assert.False(restarted.HasPerUserModel(id));
+        if (fault == "corrupt-ledger") Assert.Equal("damaged ledger", File.ReadAllText(ledger));
+    }
+
+    [Fact]
+    public void LifecycleRetirementCannotReactivateAnIndependentlyWithdrawnModelThroughGlobalPriors()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var id = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{id:N}.json");
+        var store = new AcceptedModelStore(statePath);
+        using (var registry = BuildRegistry(global, neural))
+        {
+            Assert.True(registry.GetOrCreateTrainableEnsembleForUser(id).TrainValidated(StableExamples(72, 92), StableExamples(60, 93), false, TestContext.Current.CancellationToken));
+            var withdrawn = store.Read()!;
+            withdrawn.Revision++;
+            withdrawn.Retired = true;
+            withdrawn.RetirementUtility = new AdmissionUtility(.02, .9, .01, null, .01);
+            withdrawn.State.QualityGateFrozen = true;
+            withdrawn.AcceptanceObservationIds = StableExamples(20, 94).Select(row => row.ObservationId).ToArray();
+            Assert.True(store.Commit(withdrawn));
+            Assert.True(registry.EvictPerUserModel(id));
+        }
+
+        using var restarted = BuildRegistry(global, neural);
+        Assert.Equal("Heuristic", restarted.GetDiagnostics(id).ValidationLevel);
+        Assert.Equal(0, restarted.GetDiagnostics(id).EffectiveAlpha);
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+        var assessment = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(statePath + ".assessment.json"), AssessmentOptions)!;
+        Assert.True(assessment.IndependentRecoveryRequired);
+    }
+
+    [Fact]
+    public void RetirementMigratesPreLedgerAcceptanceIdsBeforeRemovingTheirOnlyCheckpoint()
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        TrainOperatingGlobal(global);
+        var id = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{id:N}.json");
+        var spent = StableExamples(20, 95).Select(row => row.ObservationId).ToArray();
+        var parameters = global.LearnedStrategy.CapturePredictionSnapshot().ExportParameters();
+        var legacy = new AcceptedModelBundle
+        {
+            Version = 1, Revision = 1, Learned = parameters, Mixture = new AdmissionMixture(.5, 0), AlphaCap = .75,
+            AcceptanceObservationIds = spent, Utility = new AdmissionUtility(.02, .9, .01, null, null),
+            State = new EnsembleScoringStrategy.EnsembleStateData { Alpha = .75 }, TrainedAtUtc = DateTime.UtcNow
+        };
+        File.WriteAllText(AcceptedModelStore.GetBundlePath(statePath)!, JsonSerializer.Serialize(legacy));
+        File.WriteAllText(statePath + ".assessment.json", JsonSerializer.Serialize(new ModelTrainingAssessment { AcceptedModelRevision = 1, IndependentAdmissionEnabled = true }));
+        Assert.False(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
+        using (var registry = BuildRegistry(global, neural)) Assert.True(registry.EvictPerUserModel(id));
+        Assert.False(File.Exists(AcceptedModelStore.GetBundlePath(statePath)));
+        Assert.Equal(spent.Order(), new AcceptedModelStore(statePath).ReadSpentAcceptanceIds(null, true).Order());
+        using var restarted = BuildRegistry(global, neural);
+        Assert.Equal("GlobalPrior", restarted.GetDiagnostics(id).ValidationLevel);
+    }
+
     [Fact]
     public void EvictStaleModels_MixedAgesAndOrphanState_OnlyCountsRetiredWeights()
     {
@@ -1160,7 +1329,9 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.True(deletions > 0);
         Assert.False(fittingAfterEvictionStarted);
         Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{id:N}.json.accepted-model.json")));
-        Assert.False(File.Exists(Path.Join(_dataPath, $"ensemble_state_{id:N}.json.assessment.json")));
+        var retirement = JsonSerializer.Deserialize<ModelTrainingAssessment>(File.ReadAllText(Path.Join(_dataPath, $"ensemble_state_{id:N}.json.assessment.json")), AssessmentOptions)!;
+        Assert.True(retirement.ModelRetired);
+        Assert.Equal(0, retirement.AcceptedModelRevision);
     }
 
     [Fact]

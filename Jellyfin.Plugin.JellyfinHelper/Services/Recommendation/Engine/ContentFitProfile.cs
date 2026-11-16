@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -12,7 +13,7 @@ internal sealed class ContentFitProfile
 {
     private static readonly HashSet<string> TechnicalLabels = new(StringComparer.Ordinal)
     {
-        "german", "german dl", "deutsch", "english", "japanese", "de", "en", "ja", "dubbed", "subbed", "dual audio", "multi",
+        "german dl", "dubbed", "subbed", "dual audio", "multi",
         "480p", "720p", "1080p", "2160p", "4k", "h264", "h265", "x264", "x265", "hevc", "hdr", "hdr10", "dolby vision", "bluray", "blu ray", "web dl", "webdl", "remux",
         "aac", "ac3", "eac3", "ddp", "dolby digital", "dolby digital plus", "dts", "dts hd", "truehd", "atmos"
     };
@@ -336,6 +337,11 @@ internal sealed class ContentFitProfile
 
     private static string? CanonicalKeyword(string tag)
     {
+        if (LanguageIdentity.IsLanguageOnlyTag(tag))
+        {
+            return null;
+        }
+
         var normalized = NormalizeKeyword(tag);
         if (normalized is null || IsOperationalKeyword(normalized) || TechnicalLabels.Contains(normalized))
         {

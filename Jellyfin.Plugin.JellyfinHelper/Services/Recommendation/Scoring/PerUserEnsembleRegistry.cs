@@ -30,6 +30,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// </summary>
     internal const int PerUserModelThreshold = LearnedScoringStrategy.MinTrainingExamples;
 
+    private static readonly JsonSerializerOptions AssessmentOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+
     private readonly EnsembleScoringStrategy _globalEnsemble;
     private readonly NeuralScoringStrategy? _sharedNeural;
     private readonly string? _dataPath;
@@ -537,7 +539,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         var weightsPath = GetLearnedWeightsPath(userId);
         var statePath = GetEnsembleStatePath(userId);
         var bundlePath = AcceptedModelStore.GetBundlePath(statePath);
-        foreach (var path in new[] { weightsPath, statePath, bundlePath, statePath is null ? null : statePath + ".assessment.json", bundlePath is null ? null : bundlePath + ".history.0.json", bundlePath is null ? null : bundlePath + ".history.1.json" })
+        var previous = new AcceptedModelStore(statePath, _logger).Read();
+        if (!PreserveAcceptanceBeforeRetirement(statePath, bundlePath, previous))
+        {
+            RemoveCachedEnsemble(userId);
+            return false;
+        }
+
+        foreach (var path in new[] { weightsPath, statePath, bundlePath, bundlePath is null ? null : bundlePath + ".history.0.json", bundlePath is null ? null : bundlePath + ".history.1.json" })
         {
             if (path is null)
             {
@@ -561,7 +570,70 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         // The weights file is the source of truth for a per-user model. If a delete failure left it on disk the
         // model is not actually retired and the read path can rebuild it, so report that back to the caller.
-        return !HasModelFile(userId);
+        var removed = !HasModelFile(userId);
+        if (removed)
+        {
+            PreserveRetirementAssessment(statePath, previous);
+        }
+
+        return removed;
+    }
+
+    private bool PreserveAcceptanceBeforeRetirement(string? statePath, string? bundlePath, AcceptedModelBundle? previous)
+    {
+        if (previous is null)
+        {
+            // An unreadable checkpoint may be the only remaining copy of legacy spent IDs.
+            if (bundlePath is not null && _fileSystem.File.Exists(bundlePath))
+            {
+                _pluginLog.LogWarning(LogSource, "Could not read the personal checkpoint's acceptance receipts; retaining it during retirement.", logger: _logger);
+                return false;
+            }
+
+            return true;
+        }
+
+        try
+        {
+            new AcceptanceObservationLedger(AcceptedModelStore.GetLedgerPath(statePath), (path, text) => AtomicFile.WriteAllText(path, text))
+                .Spend([], previous.AcceptanceObservationIds, previous.AcceptanceLedgerRequired);
+            return true;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, "Could not preserve spent acceptance identities; retaining the personal model checkpoint.", ex, _logger);
+            return false;
+        }
+    }
+
+    private void PreserveRetirementAssessment(string? statePath, AcceptedModelBundle? previous)
+    {
+        if (statePath is null || !_fileSystem.File.Exists(statePath + ".assessment.json"))
+        {
+            return;
+        }
+
+        try
+        {
+            var assessment = EnsembleScoringStrategy.ReadAssessment(statePath + ".assessment.json", requireOperatingReceipts: true);
+            if (assessment is null)
+            {
+                return; // Damaged trust data remains damaged; retirement is not an independent recovery decision.
+            }
+
+            assessment.AcceptanceLedgerRequired |= previous?.AcceptanceLedgerRequired == true || previous?.AcceptanceObservationIds.Length > 0;
+            _ = new AcceptedModelStore(statePath, _logger).ReadSpentAcceptanceIds(null, assessment.AcceptanceLedgerRequired);
+            assessment.IndependentRecoveryRequired |= previous?.Retired == true;
+            assessment.ModelRetired = true;
+            assessment.RetiredAtUtc = DateTime.UtcNow;
+            assessment.AcceptedModelRevision = 0;
+            // Keep maturity, reserved inputs, recovery/withdrawal restrictions and the exact ledger untouched.
+            AtomicFile.WriteAllText(statePath + ".assessment.json", JsonSerializer.Serialize(assessment, AssessmentOptions));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, "Could not persist personal-model retirement; existing trust restrictions remain in force.", ex, _logger);
+        }
     }
 
     private void RemoveCachedEnsemble(Guid userId)

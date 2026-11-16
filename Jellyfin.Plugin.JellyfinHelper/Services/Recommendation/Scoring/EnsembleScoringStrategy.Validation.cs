@@ -1329,6 +1329,12 @@ public sealed partial class EnsembleScoringStrategy
                 return;
             }
 
+            if (assessment.ModelRetired && _acceptedBundle is null)
+            {
+                // Retirement cannot release spent titles or hide a missing/corrupt required ledger.
+                _spentAcceptanceObservations.UnionWith(new AcceptedModelStore(_statePath, _logger).ReadSpentAcceptanceIds(null, assessment.AcceptanceLedgerRequired));
+            }
+
             ApplyAssessment(assessment);
         }
         catch (Exception exception) when (!exception.IsFatal())
@@ -1338,7 +1344,11 @@ public sealed partial class EnsembleScoringStrategy
         }
     }
 
-    private static ModelTrainingAssessment? ReadAssessment(string path, bool requireOperatingReceipts)
+    /// <summary>Reads bounded assessment receipts without granting model trust or repairing malformed journals.</summary>
+    /// <param name="path">The scope-bound assessment file.</param>
+    /// <param name="requireOperatingReceipts">Whether complete recovery and reserved-input fields are required.</param>
+    /// <returns>Validated diagnostics/receipts, or null for an incompatible journal.</returns>
+    internal static ModelTrainingAssessment? ReadAssessment(string path, bool requireOperatingReceipts)
     {
         if (new FileInfo(path).Length > 1024 * 1024)
         {
@@ -1358,15 +1368,23 @@ public sealed partial class EnsembleScoringStrategy
             return null;
         }
 
-        if (assessment.MetricsHistory?.Any(snapshot => snapshot is null) == true
-            || assessment.ReservedOperatingInputDigests is null || assessment.ReservedOperatingInputDigests.Length > MaximumReservedOperatingInputs
-            || assessment.ReservedOperatingInputDigests.Any(digest => digest is null || (digest != "*" && (digest.Length != 64 || !digest.All(Uri.IsHexDigit)))))
+        if (assessment.ModelRetired && (assessment.AcceptedModelRevision != 0 || assessment.RetiredAtUtc is null))
+        {
+            return null;
+        }
+
+        if (!ValidAssessmentReceipts(assessment))
         {
             return null;
         }
 
         return assessment;
     }
+
+    private static bool ValidAssessmentReceipts(ModelTrainingAssessment assessment)
+        => assessment.MetricsHistory?.Any(snapshot => snapshot is null) != true
+            && assessment.ReservedOperatingInputDigests is { Length: <= MaximumReservedOperatingInputs }
+            && !assessment.ReservedOperatingInputDigests.Any(digest => digest is null || (digest != "*" && (digest.Length != 64 || !digest.All(Uri.IsHexDigit))));
 
     private void ApplyAssessment(ModelTrainingAssessment assessment)
     {

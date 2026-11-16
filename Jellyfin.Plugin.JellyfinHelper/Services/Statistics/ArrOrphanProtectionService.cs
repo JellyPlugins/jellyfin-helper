@@ -158,7 +158,7 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
         var mappings = new List<(string Remote, string Local)>();
         foreach (var remote in remoteRoots)
         {
-            var exact = localRoots.Where(local => string.Equals(NormalizeRemotePath(local), remote, PathComparison.Comparison)).ToArray();
+            var exact = localRoots.Where(local => string.Equals(NormalizeRemotePath(local), remote, RemoteComparison(remote))).ToArray();
             if (exact.Length == 1)
             {
                 mappings.Add((remote, exact[0]));
@@ -178,7 +178,7 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
         if (explicitlyAssigned && localRoots.Length == 1 && mappings.Count == 0)
         {
             var activeRoots = remoteRoots.Where(root => paths.Select(NormalizeRemotePath).OfType<string>()
-                .Any(path => path.StartsWith(root.TrimEnd('/') + "/", PathComparison.Comparison))).ToArray();
+                .Any(path => path.StartsWith(root.TrimEnd('/') + "/", RemoteComparison(root)))).ToArray();
             if (activeRoots.Length == 1)
             {
                 mappings.Add((activeRoots[0], localRoots[0]));
@@ -190,30 +190,44 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
 
     private static string RemoteRootName(string root) => root[(root.LastIndexOf('/') + 1)..];
 
+    private static StringComparison RemoteComparison(string path)
+        => path.StartsWith("//", StringComparison.Ordinal) || (path.Length >= 3 && path[1] == ':')
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+    private static string RemoteIdentity(string path)
+        => RemoteComparison(path) == StringComparison.OrdinalIgnoreCase ? path.ToUpperInvariant() : path;
+
     private InstanceProtection MapDirectories(List<string> paths, List<string> roots, string[] localRoots, PluginConfiguration config, bool explicitlyAssigned)
     {
-        var remoteRoots = roots.Select(NormalizeRemotePath).OfType<string>().Distinct(PathComparison.Comparer).ToArray();
+        var remoteRoots = roots.Select(NormalizeRemotePath).OfType<string>().DistinctBy(RemoteIdentity, StringComparer.Ordinal).OrderByDescending(root => root.Length).ToArray();
         var mappings = BuildRootMappings(remoteRoots, localRoots, paths, explicitlyAssigned);
-        var uncertain = localRoots.Except(mappings.Select(mapping => mapping.Local), PathComparison.Comparer).ToList();
+        var uncertain = localRoots.Except(mappings.Select(mapping => mapping.Local), PathComparison.Comparer).ToHashSet(PathComparison.Comparer);
         var managed = new List<string>();
         foreach (var remotePath in paths.Select(NormalizeRemotePath))
         {
             if (remotePath == null)
             {
-                uncertain.AddRange(localRoots);
+                uncertain.UnionWith(localRoots);
                 continue;
             }
 
-            // The most specific root wins; a root folder itself is not a movie/series entry.
-            var matches = mappings.Where(mapping => remotePath.StartsWith(
-                    mapping.Remote.TrimEnd('/') + "/", PathComparison.Comparison))
-                .OrderByDescending(mapping => mapping.Remote.Length).ToList();
-            if (matches.Count == 0)
+            // Choose from ALL reported roots first: an unresolved child cannot fall through to a mapped parent.
+            // A root folder itself is not a movie/series entry.
+            if (remoteRoots.Any(root => string.Equals(remotePath, root, RemoteComparison(root))))
             {
                 continue;
             }
 
-            var mapping = matches[0];
+            var selectedRoot = remoteRoots.FirstOrDefault(root => remotePath.StartsWith(root.TrimEnd('/') + "/", RemoteComparison(root)));
+            var mappingIndex = selectedRoot is null ? -1 : mappings.FindIndex(entry => string.Equals(entry.Remote, selectedRoot, RemoteComparison(selectedRoot)));
+            if (mappingIndex < 0)
+            {
+                uncertain.UnionWith(localRoots);
+                continue;
+            }
+
+            var mapping = mappings[mappingIndex];
             var relative = remotePath[(mapping.Remote.TrimEnd('/').Length + 1)..].Replace('/', Path.DirectorySeparatorChar);
             var localPath = Path.GetFullPath(Path.Join(mapping.Local, relative));
             var trashName = (config.TrashFolderPath ?? string.Empty).Trim();
@@ -227,10 +241,10 @@ public sealed class ArrOrphanProtectionService : IArrOrphanProtectionService
 
         if (uncertain.Count > 0)
         {
-            _ = Unavailable(uncertain);
+            _ = Unavailable(uncertain.ToArray());
         }
 
-        return new InstanceProtection(managed, uncertain);
+        return new InstanceProtection(managed, uncertain.ToArray());
     }
 
     private InstanceProtection Unavailable(IReadOnlyList<string> roots)
