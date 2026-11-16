@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -59,6 +60,70 @@ public sealed class ContentFitProfileTests
         Assert.Equal(0, content.ScoreTags(["JE Arr Tag: german", "German", "1080p", "Sonarr: shounen", "Radarr: pirate"]));
         Assert.Equal(0, content.ScoreTags(null));
         Assert.Equal(0, ContentFitProfile.Empty.ScoreTags(BattleKeywords));
+    }
+
+    [Theory]
+    [InlineData("horror", "thriller")]
+    [InlineData("crime", "mystery")]
+    [InlineData("documentary", "history")]
+    [InlineData("music", "western")]
+    [InlineData("Krimi", "Mystery")]
+    [InlineData("Sci-Fi", "Thriller")]
+    [InlineData("ＮＥＷＳ", "Reality")]
+    [InlineData("Action & Abenteuer", "War & Politics")]
+    [InlineData("Kids", "Talk")]
+    public void PureGenreTagPairsCannotCreateThematicAffinityOrNarrativeConfidence(string first, string second)
+        => AssertGenreOnlyTagsAreNeutral([first, second]);
+
+    [Fact]
+    public void EveryEmbeddedGenreAliasRemainsBroadEvidenceInThematicScoring()
+    {
+        var assembly = typeof(GenreNormalizer).Assembly;
+        foreach (var resource in assembly.GetManifestResourceNames().Where(name => name.Contains(".i18n.", StringComparison.Ordinal) && name.EndsWith(".json", StringComparison.Ordinal)))
+        {
+            using var stream = assembly.GetManifestResourceStream(resource)!;
+            using var document = JsonDocument.Parse(stream);
+            foreach (var entry in document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal)))
+                foreach (var alias in entry.Value.GetString()!.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                    AssertGenreOnlyTagsAreNeutral([alias, "thriller"]);
+        }
+    }
+
+    [Fact]
+    public void RegisteredProviderGenreAliasesRemainBroadInsteadOfBecomingStoryKeywords()
+    {
+        var label = "localized horror " + Guid.NewGuid().ToString("N");
+        _ = ContentFitProfile.Create(BattleProfile()); // Initialize before a new provider catalogue alias arrives.
+        Assert.True(GenreNormalizer.RegisterProviderGenre(27, label));
+        AssertGenreOnlyTagsAreNeutral([label, "thriller"]);
+    }
+
+    [Fact]
+    public void RealStoryKeywordsStillSupportGenreTagsWithoutReplacingRawJaccard()
+    {
+        string[] tags = ["horror", "thriller", "haunted house", "ghost"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Horror", "Thriller"], tags)] };
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true, TagSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Horror", "Thriller"], tags, null, new() { ["Horror"] = 1, ["Thriller"] = 1 });
+        Assert.Equal(1, features.ContentFitAffinity);
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Equal(1, features.TagSimilarity);
+    }
+
+    private static void AssertGenreOnlyTagsAreNeutral(string[] tags)
+    {
+        var genres = GenreNormalizer.Set(tags).ToArray();
+        var preferences = genres.ToDictionary(genre => genre, _ => 1.0);
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(genres, tags)] };
+        var content = ContentFitProfile.Create(profile);
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true, TagSimilarity = 1 };
+        content.Apply(features, genres, tags, null, preferences);
+        Assert.Equal(0, content.ScoreTags(tags));
+        Assert.Equal(0, features.ContentFitAffinity);
+        Assert.Null(features.ContentFitSupport);
+        Assert.Equal(.7, features.GenreSimilarity);
+        Assert.Equal(1, features.TagSimilarity);
+        Assert.Equal(.4, ScoringHelper.ComputeContextualScore(.4, features, .1));
     }
 
     [Fact]

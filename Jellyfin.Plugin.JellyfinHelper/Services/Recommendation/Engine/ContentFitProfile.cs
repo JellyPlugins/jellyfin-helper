@@ -17,11 +17,6 @@ internal sealed class ContentFitProfile
         "aac", "ac3", "eac3", "ddp", "dolby digital", "dolby digital plus", "dts", "dts hd", "truehd", "atmos"
     };
 
-    private static readonly HashSet<string> BroadLabels = new(StringComparer.Ordinal)
-    {
-        "anime", "animation", "action", "adventure", "comedy", "drama", "fantasy", "family", "romance", "science fiction"
-    };
-
     private static readonly HashSet<string> OlderAnimationLabels = new(StringComparer.Ordinal)
     {
         "shounen", "seinen", "adult animation", "dark fantasy", "gore"
@@ -208,8 +203,9 @@ internal sealed class ContentFitProfile
             }
 
             weight += TermWeight(keyword);
-            specific += BroadLabels.Contains(keyword) ? 0 : 1;
-            narrative += BroadLabels.Contains(keyword) || FormatLabels.Contains(keyword) ? 0 : 1;
+            var broad = keyword == "anime" || GenreNormalizer.IsKnownGenreKeyword(keyword);
+            specific += broad ? 0 : 1;
+            narrative += broad || FormatLabels.Contains(keyword) ? 0 : 1;
         }
 
         return new KeywordOverlap(weight, specific, narrative);

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
@@ -9,6 +10,8 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using Moq;
 using Xunit;
@@ -180,6 +183,107 @@ public sealed class CollectionContinuationCatalogTests
         Assert.Equal(profile.WatchedItems[3].LastPlayedDate, fourth.GeneratedAtUtc);
         Assert.True(fourth.IsObserved);
         Assert.DoesNotContain(built.Examples, example => example.ObservationId == TrainingExample.CreateTitleObservationId(profile.UserId, movies[4].Id, 104, false));
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(false, "")]
+    [InlineData(true, "")]
+    [InlineData(false, "/unmapped/part-two.mkv")]
+    [InlineData(true, "/unmapped/part-two.mkv")]
+    [InlineData(false, "/media/unrelated/part-two.mkv")]
+    [InlineData(true, "/media/unrelated/part-two.mkv")]
+    public void ExcludedLibraryCannotHideKnownGapsOrSuppressOtherCompleteCollections(bool batch, string? gapPath)
+    {
+        var movies = Movies();
+        movies[1].Path = gapPath;
+        var other = Movies();
+        for (var index = 0; index < other.Length; index++)
+        {
+            other[index].Path = "/media/other-part-" + index + ".mkv";
+            other[index].ProviderIds["Tmdb"] = (200 + index).ToString(CultureInfo.InvariantCulture);
+        }
+
+        var excluded = new Movie { Id = Guid.NewGuid(), Name = "Unrelated excluded movie", Path = "/media/unrelated/private.mkv", Genres = ["Drama"] };
+        var boxes = new[] { Box(movies), Box(other) };
+        boxes[1].ProviderIds["Tmdb"] = "888";
+        var profile = Profile([movies[0], other[0]]);
+        var configuration = new PluginConfiguration();
+        var harness = EngineTestFactory.Create();
+        using var lifetime = harness.Engine;
+        harness.ConfigService.Setup(service => service.GetConfiguration()).Returns(configuration);
+        harness.LibraryManager.Setup(library => library.GetVirtualFolders()).Returns(
+        [
+            new VirtualFolderInfo { Name = "Movies", Locations = ["/media"] },
+            new VirtualFolderInfo { Name = "Unrelated", Locations = ["/media/unrelated"] }
+        ]);
+        Wire(harness, [.. movies, .. other, excluded], boxes, profile);
+        RecommendationResult Generate() => batch
+            ? Assert.Single(harness.Engine.GetAllRecommendations(20, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(profile.UserId, 20, TestContext.Current.CancellationToken)!;
+
+        var original = Generate();
+        var originalLater = Assert.Single(original.Recommendations, item => item.ItemId == movies[2].Id);
+        Assert.Null(originalLater.ScoringFeatures!.CollectionContinuationSupport);
+        Assert.Equal(.5, Assert.Single(original.Recommendations, item => item.ItemId == other[1].Id).ScoringFeatures!.CollectionContinuationSupport);
+
+        configuration.ExcludedLibraries = "Unrelated";
+        var scoped = Generate();
+        var later = Assert.Single(scoped.Recommendations, item => item.ItemId == movies[2].Id);
+        Assert.Null(later.ScoringFeatures!.CollectionContinuationSupport);
+        Assert.Equal(originalLater.ScoringFeatures.CollectionProgressionBoost, later.ScoringFeatures.CollectionProgressionBoost);
+        Assert.Null(Assert.Single(scoped.RankingDiagnostics!.Entries, entry => entry.ItemId == movies[2].Id).CollectionContinuationSupport);
+        Assert.Equal(.5, Assert.Single(scoped.Recommendations, item => item.ItemId == other[1].Id).ScoringFeatures!.CollectionContinuationSupport);
+        Assert.DoesNotContain(scoped.Recommendations, item => item.ItemId == movies[1].Id || item.ItemId == excluded.Id);
+        Assert.DoesNotContain(scoped.TrainingContrasts ?? [], item => item.ItemId == movies[1].Id || item.ItemId == excluded.Id);
+        Assert.All(scoped.Recommendations, item => Assert.InRange(item.Score, 0, 1));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void UnresolvedAuthoritativeCollectionMembersCannotManufactureContinuation(bool batch, bool linkedService)
+    {
+        var movies = Movies();
+        var box = Box(movies);
+        var missing = Guid.NewGuid();
+        box.LinkedChildren = [.. box.LinkedChildren, new LinkedChild { ItemId = missing, Type = LinkedChildType.Manual }];
+        var linked = new Mock<ILinkedChildrenService>();
+        linked.Setup(service => service.GetLinkedChildrenIds(box.Id, (int)LinkedChildType.Manual)).Returns([.. movies.Select(movie => movie.Id), missing]);
+        var harness = EngineTestFactory.Create(linkedChildren: linkedService ? linked.Object : null);
+        using var lifetime = harness.Engine;
+        var profile = Profile(movies.Take(1));
+        Wire(harness, movies, [box], profile);
+
+        var result = batch
+            ? Assert.Single(harness.Engine.GetAllRecommendations(20, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(profile.UserId, 20, TestContext.Current.CancellationToken)!;
+        Assert.NotEmpty(result.Recommendations);
+        Assert.All(result.Recommendations, item => Assert.Null(item.ScoringFeatures!.CollectionContinuationSupport));
+        Assert.DoesNotContain(result.Recommendations, item => item.ItemId == missing);
+        if (linkedService) linked.Verify(service => service.GetLinkedChildrenIds(box.Id, (int)LinkedChildType.Manual), Times.Once);
+    }
+
+    private static BoxSet Box(IEnumerable<Movie> movies) => new()
+    {
+        Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "777" },
+        LinkedChildren = movies.Select(movie => new LinkedChild { ItemId = movie.Id, Type = LinkedChildType.Manual }).ToArray()
+    };
+
+    private static void Wire(EngineTestFactory.EngineHarness harness, IEnumerable<Movie> movies, BoxSet[] boxes, UserWatchProfile profile)
+    {
+        var items = movies.Cast<BaseItem>().ToArray();
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true) return items;
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.BoxSet) == true) return boxes;
+            return [];
+        });
     }
 
     private static CollectionContinuationCatalog Catalog(Movie[] movies, bool complete = true)

@@ -106,6 +106,7 @@ GitHub Pages uses the shipped admin UI with synthetic `docs/mock/mock-data.js` r
 - Keep unknown/empty metadata distinct, episode/parent provenance separate, and prediction snapshots immutable.
 - Audio/subtitle affinity needs availability and personal playback evidence; saved indexes are not earlier playback events. Historical rows are dated and self-excluded; fitting-only imputation leaves stored snapshots untouched.
 - Franchise IDs need no BoxSets; progression requires real, self-excluded membership.
+- Collection continuation requires every known member to remain resolvable in the scoped population; missing/excluded members keep only that sequence neutral. Genre/alias tags are not narrative evidence.
 
 ### Running Tests
 
@@ -468,7 +469,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── CollectionMembershipResolverTests.cs    # Linked BoxSets, legacy fallback, candidate scope and provider failures
-│       │   ├── CollectionContinuationCatalogTests.cs   # Confirmed next-part ordering, unfinished gaps and historical exclusion
+│       │   ├── CollectionContinuationCatalogTests.cs   # Next-part ordering, scoped/unresolved pipeline gaps and historical exclusion
 │       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
@@ -477,7 +478,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
 │       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
-│       │   ├── ContentFitProfileTests.cs              # Coherent title keywords, audience hints, provenance and detached contexts
+│       │   ├── ContentFitProfileTests.cs              # Story-vs-genre/alias evidence, audience hints, provenance and detached contexts
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -714,8 +715,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
-│   │   │   ├── GenreNormalizer.cs # Loads genre.<TMDb-ID> with pipe-separated spelling variants from all embedded i18n JSON files; shared movie/TV semantic coordinates
-│   │   │   ├── CollectionMembershipResolver.cs # Modern linked BoxSets with scoped parent fallback
+│   │   │   ├── GenreNormalizer.cs # i18n/provider genre identities and aliases, including broad semantic keyword classification
+│   │   │   ├── CollectionMembershipResolver.cs # Linked BoxSets with scoped fallback and unresolved-member sequence guards
 │   │   │   ├── CollectionContinuationCatalog.cs # Detached confirmed movie release sequences; no cached user outcomes
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
