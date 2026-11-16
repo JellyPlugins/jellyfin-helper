@@ -515,7 +515,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralIntegrityTests.cs                  # Complete model schema, Adam checkpoints, fitting-only themes and coordinate-preserving clamps
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
-│       │   ├── LanguageFeatureImputationTests.cs           # Fitting-only priors, legacy refits, normalization isolation and pinned predictions
+│       │   ├── LanguageFeatureImputationTests.cs           # Learned/Neural fitting-only priors, legacy refits/restart and normalization isolation
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction

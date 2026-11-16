@@ -1041,7 +1041,7 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
 
         try
         {
-            means = _featureMeans is null ? null : (double[])_featureMeans.Clone();
+            means = CopyOptional(_imputationMeans);
             return true;
         }
         finally

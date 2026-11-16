@@ -102,23 +102,77 @@ public sealed class LanguageFeatureImputationTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void LearnedLegacyRefitsPreserveSavedImputationWithoutCopyingNormalization(bool savedPrior)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void BothModelsLegacyRefitsPreserveSavedImputationWithoutCopyingNormalization(bool savedPrior, bool neural)
     {
         var prior = savedPrior ? Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray() : null;
         var examples = LegacyExternalExamples();
         var capturedFeatures = examples.Select(row => JsonSerializer.Serialize(row.Features)).ToArray();
         var expected = ModelInputFeatures.FitImputation(examples, Enumerable.Range(0, examples.Length).ToArray(), prior);
-        var model = LearnedWithSeparateMeans(.1, prior);
+        ITrainableStrategy model = neural ? NeuralWithSeparateMeans(.1, prior) : LearnedWithSeparateMeans(.1, prior);
 
-        for (var fit = 0; fit < 2; fit++)
+        try
         {
-            Assert.True(model.Train(examples));
-            var parameters = model.CapturePredictionSnapshot().ExportParameters();
-            Assert.Equal(expected, parameters.ImputationMeans);
-            Assert.Equal(capturedFeatures, examples.Select(row => JsonSerializer.Serialize(row.Features)));
-            model = LearnedScoringStrategy.FromParameters(JsonSerializer.Deserialize<LearnedScoringStrategy.WeightsData>(JsonSerializer.Serialize(parameters))!)!;
+            for (var fit = 0; fit < 2; fit++)
+            {
+                Assert.True(model.Train(examples));
+                Assert.Equal(capturedFeatures, examples.Select(row => JsonSerializer.Serialize(row.Features)));
+                if (model is NeuralScoringStrategy n)
+                {
+                    var checkpoint = n.CaptureTrainingCheckpoint();
+                    Assert.Equal(expected, checkpoint.ImputationMeans);
+                    model = NeuralScoringStrategy.FromParameters(JsonSerializer.Deserialize<NeuralScoringStrategy.NeuralWeightsData>(JsonSerializer.Serialize(checkpoint))!)!;
+                    n.Dispose();
+                }
+                else
+                {
+                    var parameters = ((LearnedScoringStrategy)model).CapturePredictionSnapshot().ExportParameters();
+                    Assert.Equal(expected, parameters.ImputationMeans);
+                    model = LearnedScoringStrategy.FromParameters(JsonSerializer.Deserialize<LearnedScoringStrategy.WeightsData>(JsonSerializer.Serialize(parameters))!)!;
+                }
+            }
+        }
+        finally
+        {
+            (model as IDisposable)?.Dispose();
+        }
+    }
+
+    [Fact]
+    public void NeuralLegacyRefitsPreserveSavedImputationWithoutNormalizationStatistics()
+    {
+        var prior = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        using var model = NeuralWithSeparateMeans(null, prior);
+        var snapshot = model.CapturePredictionSnapshot()!;
+        var probe = LegacyExternalExamples()[0].Features;
+        var pinnedScore = snapshot.Score(probe);
+
+        Assert.True(model.Train(LegacyExternalExamples()));
+        Assert.Equal(prior, model.CaptureTrainingCheckpoint().ImputationMeans);
+        Assert.Equal(prior, snapshot.ExportParameters().ImputationMeans);
+        Assert.Equal(pinnedScore, snapshot.Score(probe));
+        Assert.Equal(snapshot.Score(probe), snapshot.ScoreWithExplanation(probe).FinalScore);
+    }
+
+    [Fact]
+    public void NeuralExternalRefitNormalizationUsesSavedMissingCoordinates()
+    {
+        var prior = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        using var model = NeuralWithSeparateMeans(.1, prior);
+
+        Assert.True(model.Train(LegacyExternalExamples()));
+        var parameters = model.CaptureTrainingCheckpoint();
+        foreach (var coordinate in new[]
+        {
+            FeatureIndex.CollaborativeScore, FeatureIndex.PeopleSimilarity, FeatureIndex.DayOfWeekAffinity,
+            FeatureIndex.LanguageAffinity, FeatureIndex.ContentFitAffinity, FeatureIndex.ContentFitSupport, FeatureIndex.AudienceMismatch
+        })
+        {
+            Assert.Equal(prior[(int)coordinate], parameters.FeatureMeans![(int)coordinate], 12);
+            Assert.Equal(0, parameters.FeatureStdDevs![(int)coordinate], 12);
         }
     }
 
@@ -163,6 +217,17 @@ public sealed class LanguageFeatureImputationTests
             FeatureStdDevs = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray(),
             ImputationMeans = imputation
         })!;
+
+    private static NeuralScoringStrategy NeuralWithSeparateMeans(double? normalizationMean, double[]? imputation)
+    {
+        using var initializer = new NeuralScoringStrategy();
+        var parameters = initializer.CapturePredictionSnapshot()!.ExportParameters();
+        parameters.TrainingGeneration = 1;
+        parameters.FeatureMeans = normalizationMean.HasValue ? Enumerable.Repeat(normalizationMean.Value, CandidateFeatures.FeatureCount).ToArray() : null;
+        parameters.FeatureStdDevs = normalizationMean.HasValue ? Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray() : null;
+        parameters.ImputationMeans = imputation;
+        return NeuralScoringStrategy.FromParameters(parameters)!;
+    }
 
     private static TrainingExample[] LegacyExternalExamples() => Enumerable.Range(0, 60).Select(index => new TrainingExample
     {
