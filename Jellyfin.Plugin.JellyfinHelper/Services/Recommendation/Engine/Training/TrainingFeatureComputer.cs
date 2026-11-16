@@ -326,12 +326,7 @@ internal static class TrainingFeatureComputer
         contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences);
 
         // Label from aggregated completion.
-        var parentRating = NormalizeExplicitRating(parentSeriesRating);
-        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
-            {
-                0 when episodes.Any(e => e.IsFavorite) => 0.65,
-                _ => ContentScoring.ComputeEngagementLabel(completionRatio)
-            };
+        var (label, isObserved) = ComputeAggregatedSeriesOutcome(episodes, parentSeriesRating, playedEps, completionRatio);
 
         examples.Add(
             new TrainingExample
@@ -343,8 +338,27 @@ internal static class TrainingFeatureComputer
                 UserId = userProfile.UserId,
                 ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),
                 HasStableObservationId = true,
-                IsObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
+                IsObserved = isObserved
             });
+    }
+
+    /// <summary>Derives the series label and observation status from current outcomes, never historical features.</summary>
+    /// <param name="episodes">Current episode outcomes.</param>
+    /// <param name="parentSeriesRating">Current explicit parent-series rating.</param>
+    /// <param name="playedEpisodes">Number of played episodes.</param>
+    /// <param name="completionRatio">Aggregated completion ratio.</param>
+    /// <returns>The label and whether any independent outcome was observed.</returns>
+    private static (double Label, bool IsObserved) ComputeAggregatedSeriesOutcome(
+        List<WatchedItemInfo> episodes, double? parentSeriesRating, int playedEpisodes, double completionRatio)
+    {
+        var parentRating = NormalizeExplicitRating(parentSeriesRating);
+        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEpisodes switch
+        {
+            0 when episodes.Any(e => e.IsFavorite) => 0.65,
+            _ => ContentScoring.ComputeEngagementLabel(completionRatio)
+        };
+        var isObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)));
+        return (label, isObserved);
     }
 
     /// <summary>Normalizes a finite positive explicit rating; absent, invalid and unrated values retain the episode-label fallback.</summary>

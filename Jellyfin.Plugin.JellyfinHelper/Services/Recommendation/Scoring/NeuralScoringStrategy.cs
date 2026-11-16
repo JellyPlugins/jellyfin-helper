@@ -2417,7 +2417,7 @@ public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainable
         /// <summary>Gets a value indicating whether these immutable coordinates represent a technically valid trained model.</summary>
         internal bool HasTrainedParameters => _data.TrainingGeneration > 0 && IsValidParameters(_data);
 
-        internal int InputCount => CandidateFeatures.FeatureCount;
+        internal static int InputCount => CandidateFeatures.FeatureCount;
 
         internal int Version => _data.Version;
 

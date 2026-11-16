@@ -232,9 +232,9 @@ public sealed class ContentFitProfileTests
         Assert.Equal(old, features.TagSimilarity);
         Assert.Equal(1, content.ScoreTags(BattleKeywords), 12);
         Assert.True(features.GenreSimilarity > .7);
-        var means = new double[38];
-        var deviations = Enumerable.Repeat(1.0, 38).ToArray();
-        var weights = new double[38];
+        var means = new double[CandidateFeatures.FeatureCount];
+        var deviations = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray();
+        var weights = new double[CandidateFeatures.FeatureCount];
         means[(int)FeatureIndex.TagSimilarity] = old;
         deviations[(int)FeatureIndex.TagSimilarity] = .01;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
@@ -242,6 +242,7 @@ public sealed class ContentFitProfileTests
         {
             Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
         });
+        Assert.True(LearnedScoringStrategy.IsValidParameters(predictor.ExportParameters()));
         Assert.Equal(.5, predictor.Score(features), 12);
     }
 
@@ -299,9 +300,9 @@ public sealed class ContentFitProfileTests
         var preferences = PreferenceBuilder.BuildTagPreferenceSet(profile, []);
         var original = SimilarityComputer.ComputeJaccardFromSets(new HashSet<string>(raw, StringComparer.OrdinalIgnoreCase), preferences);
         var features = new CandidateFeatures { GenreSimilarity = .7, TagSimilarity = original };
-        var means = new double[38];
-        var deviations = Enumerable.Repeat(1.0, 38).ToArray();
-        var weights = new double[38];
+        var means = new double[CandidateFeatures.FeatureCount];
+        var deviations = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray();
+        var weights = new double[CandidateFeatures.FeatureCount];
         means[(int)FeatureIndex.TagSimilarity] = original;
         deviations[(int)FeatureIndex.TagSimilarity] = .01;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
@@ -309,6 +310,7 @@ public sealed class ContentFitProfileTests
         {
             Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
         });
+        Assert.True(LearnedScoringStrategy.IsValidParameters(predictor.ExportParameters()));
         var before = predictor.Score(features);
         ContentFitProfile.Create(profile).Apply(features, ["Animation", "Action"], raw, "FSK-12", BattleGenres);
         Assert.Equal(original, features.TagSimilarity);

@@ -34,9 +34,9 @@ internal static class PersonalDiscoveryRetrieval
             .Where(title => title.Thematic > 0)
             .OrderByDescending(title => title.Favorite).ThenByDescending(title => title.LastPlay).ThenBy(title => title.Key.Id);
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var title in titles)
+        foreach (var title in titles.Select(title => title.Key))
         {
-            result.TryAdd(title.Key.Type, title.Key.Id);
+            result.TryAdd(title.Type, title.Id);
         }
 
         return result;

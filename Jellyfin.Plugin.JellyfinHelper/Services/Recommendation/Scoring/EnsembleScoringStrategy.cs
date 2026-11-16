@@ -431,7 +431,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     {
         if (_independentAdmissionEnabled)
         {
-            return _acceptedPrediction?.Neural is { } prediction ? (prediction.Version, prediction.InputCount) : null;
+            return _acceptedPrediction?.Neural is { } prediction ? (prediction.Version, NeuralScoringStrategy.PredictionSnapshot.InputCount) : null;
         }
 
         return _neural?.GetSchemaInfo();

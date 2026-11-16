@@ -18,7 +18,7 @@ describe('selected-user effective ensemble diagnostics', () => {
 
   test('the actual v6 schema and canonical feature list are escaped without changing the mixture', () => {
     const names = Array.from({ length: 41 }, (_, index) => 'feature-' + index);
-    names[38] = '<img src=x onerror=alert(1)>';
+    names[38] = '"><img src=x onerror=alert(1)>';
     ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .5, NeuralBeta: .2, NeuralEnabled: true,
       NeuralModelVersion: 6, NeuralInputFeatureCount: 41, NeuralFeatures: names });
     expect(shares(host)).toEqual(['50%', '40%', '10%']);

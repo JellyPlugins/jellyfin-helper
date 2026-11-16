@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Adaptive ML scoring strategy using a linear model with learned weights. Learns personalized feature weights from user watch history via stochastic gradient descent (SGD).
 /// </summary>
 /// <remarks>
-///     Architecture: 38 input features -> 38 weights + 1 bias -> clamp(0,1) -> score.
+///     Architecture: 41 input features -> 41 weights + 1 bias -> clamp(0,1) -> score.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrategy
 {
@@ -516,7 +516,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         bool wasWarm;
         lock (_syncRoot)
         {
-            imputationMeans = _featureMeans is null ? null : (double[])_featureMeans.Clone();
+            imputationMeans = CopyOptional(_imputationMeans);
             wasWarm = _hasTrainedWeights;
         }
 
@@ -670,7 +670,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // Clone raw vectors into working copies so per-fold standardization
             // does not mutate the originals (needed for subsequent folds + final pass).
             var foldVectors = CloneVectors(rawVectors);
-            var foldImputationMeans = ModelInputFeatures.FitImputation(examples, foldTrainIndices, _featureMeans);
+            var foldImputationMeans = ModelInputFeatures.FitImputation(examples, foldTrainIndices, _imputationMeans);
             ModelInputFeatures.ApplyMissing(examples, foldVectors, foldImputationMeans);
 
             // Per-fold standardization: compute statistics from TRAINING fold only, then apply to BOTH train and validation vectors using the same stats.
@@ -748,7 +748,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Clone raw vectors for the final pass so standardization doesn't
         // mutate the originals (rawVectors stays pristine for ranking metrics).
         var finalVectors = CloneVectors(rawVectors);
-        var finalImputationMeans = ModelInputFeatures.FitImputation(examples, allIndices, _featureMeans);
+        var finalImputationMeans = ModelInputFeatures.FitImputation(examples, allIndices, _imputationMeans);
         ModelInputFeatures.ApplyMissing(examples, finalVectors, finalImputationMeans);
         double[]? featureMeans = null;
         double[]? featureStdDevs = null;
@@ -1226,68 +1226,60 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <param name="data">The deserialized weights container, or null if deserialization returned null.</param>
     private void ApplyLoadedWeights(WeightsData? data)
     {
-        if (data is { Weights: { Length: CandidateFeatures.FeatureCount }, Version: CurrentWeightsVersion })
+        if (data is null)
         {
-            // Validate standardization stats: both must be null together or both exactly FeatureCount long.
-            var meansValid = data.FeatureMeans is null ||
-                             data.FeatureMeans.Length == CandidateFeatures.FeatureCount;
-            var stdDevsValid = data.FeatureStdDevs is null ||
-                               data.FeatureStdDevs.Length == CandidateFeatures.FeatureCount;
-            var bothNullOrBothPresent = (data.FeatureMeans is null) == (data.FeatureStdDevs is null);
-
-            // Validate all loaded values are finite (not NaN/Infinity). A corrupt-but-parseable JSON could contain NaN values that would silently produce wrong scores without causing obvious failures.
-            if (!AllFinite(data.Weights) || !double.IsFinite(data.Bias))
-            {
-                _logger?.LogWarning(
-                    "LearnedScoringStrategy: Discarding persisted weights containing NaN/Infinity values. Resetting to defaults");
-                return;
-            }
-
-            // Lock field assignments for consistency with Score()/Train() which read these fields under the same lock.
-            lock (_syncRoot)
-            {
-                if (meansValid && stdDevsValid && bothNullOrBothPresent
-                    && TrainingMath.ValidNormalization(data.FeatureMeans, data.FeatureStdDevs, CandidateFeatures.FeatureCount)
-                    && (data.FeatureMeans is null || AllFinite(data.FeatureMeans))
-                    && (data.FeatureStdDevs is null || AllFinite(data.FeatureStdDevs))
-                    && (data.ImputationMeans is null || (data.ImputationMeans.Length == CandidateFeatures.FeatureCount && AllFinite(data.ImputationMeans))))
-                {
-                    _weights = data.Weights;
-                    _bias = data.Bias;
-                    _trainingGeneration = data.TrainingGeneration;
-                    _featureMeans = data.FeatureMeans;
-                    _featureStdDevs = data.FeatureStdDevs;
-                    _imputationMeans = data.ImputationMeans;
-                    _weightLimits = ValidWeightLimits(data) ? (double[])data.WeightLimits!.Clone() : data.Weights.Select(weight => Math.Max(2.0, Math.Abs(weight))).ToArray();
-                    _biasLimit = ValidWeightLimits(data) ? data.BiasLimit!.Value : Math.Max(1.0, Math.Abs(data.Bias));
-                    _hasTrainedWeights = true;
-                    _hasPersistedWeights = true;
-                }
-                else
-                {
-                    // Mismatched stats - can't safely apply loaded weights either, because they may have been trained in standardized space.
-                    _weights = DefaultWeights.CreateWeightArray();
-                    _bias = DefaultWeights.Bias;
-                    _trainingGeneration = 0;
-                    _featureMeans = null;
-                    _featureStdDevs = null;
-                    _logger?.LogWarning(
-                        "LearnedScoringStrategy: Discarding weights + mismatched standardization stats (means={MeansLen}, stdDevs={StdDevsLen})",
-                        data.FeatureMeans?.Length ?? -1,
-                        data.FeatureStdDevs?.Length ?? -1);
-                }
-            }
+            return;
         }
-        else if (data is not null)
+
+        if (data is not { Weights: { Length: CandidateFeatures.FeatureCount }, Version: CurrentWeightsVersion })
         {
-            // Version mismatch or incompatible weights - reset to defaults.
-            // This is expected after feature vector changes (version bump).
+            // Unsupported schemas are rejected without rewriting their files.
             _logger?.LogWarning(
                 "LearnedScoringStrategy: Discarding persisted weights (file version={FileVersion}, "
                 + "expected={ExpectedVersion}, featureCount={FeatureCount}). Resetting to defaults",
                 data.Version,
                 CurrentWeightsVersion,
                 data.Weights?.Length ?? -1);
+            return;
+        }
+
+        if (!AllFinite(data.Weights) || !double.IsFinite(data.Bias))
+        {
+            _logger?.LogWarning(
+                "LearnedScoringStrategy: Discarding persisted weights containing NaN/Infinity values. Resetting to defaults");
+            return;
+        }
+
+        // Keep validation and assignments atomic with respect to Score()/Train().
+        lock (_syncRoot)
+        {
+            if (!TrainingMath.ValidNormalization(data.FeatureMeans, data.FeatureStdDevs, CandidateFeatures.FeatureCount)
+                || !ValidOptionalCoordinates(data.ImputationMeans))
+            {
+                // Normalized weights cannot be used safely without their matching statistics.
+                _weights = DefaultWeights.CreateWeightArray();
+                _bias = DefaultWeights.Bias;
+                _trainingGeneration = 0;
+                _featureMeans = null;
+                _featureStdDevs = null;
+                _logger?.LogWarning(
+                    "LearnedScoringStrategy: Discarding weights + mismatched standardization stats (means={MeansLen}, stdDevs={StdDevsLen})",
+                    data.FeatureMeans?.Length ?? -1,
+                    data.FeatureStdDevs?.Length ?? -1);
+                return;
+            }
+
+            var validLimits = ValidWeightLimits(data);
+            _weights = data.Weights;
+            _bias = data.Bias;
+            _trainingGeneration = data.TrainingGeneration;
+            _featureMeans = data.FeatureMeans;
+            _featureStdDevs = data.FeatureStdDevs;
+            _imputationMeans = data.ImputationMeans;
+            _weightLimits = validLimits ? (double[])data.WeightLimits!.Clone() : data.Weights.Select(weight => Math.Max(2.0, Math.Abs(weight))).ToArray();
+            _biasLimit = validLimits ? data.BiasLimit!.Value : Math.Max(1.0, Math.Abs(data.Bias));
+            _hasTrainedWeights = true;
+            _hasPersistedWeights = true;
         }
     }
 

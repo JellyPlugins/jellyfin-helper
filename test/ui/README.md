@@ -24,6 +24,7 @@ validators are pinned without a browser.
 | Arr instances render, collect, add, remove, test | `tests/arr-integration.test.ts` |
 | Recommendations cards, requests, diagnostics | `tests/recommendations.test.ts`, `tests/recommendations-flow.test.ts` |
 | Selected-user Cold/Warm prior and provisional/verified mix, Neural absence, precise rounding, bounded/stale caches and escaped v6 feature metadata | `tests/ensemble-effective.test.ts` |
+| GitHub Pages mock diagnostics: canonical v6 catalogue, bounded/effective shares, honest global/personal/prior labels and detached responses in the real admin renderer | `tests/demo-ensemble.test.ts` |
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |

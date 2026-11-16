@@ -114,7 +114,7 @@ public sealed class NeuralIntegrityTests
         var probes = Batch(20).Select(example => example.Features).ToArray();
         var expected = probes.Select(model.Score).ToArray();
         Assert.Equal(6, pinned.Version);
-        Assert.Equal(41, pinned.InputCount);
+        Assert.Equal(41, NeuralScoringStrategy.PredictionSnapshot.InputCount);
         Assert.Equal(82 * 41, pinned.ExportParameters().WeightsIH.Length);
         parameters.Version = 0;
         Assert.Null(NeuralScoringStrategy.FromParameters(parameters));
@@ -160,7 +160,7 @@ public sealed class NeuralIntegrityTests
         var holdout = Batch(20);
         Assert.True(model.Train(fit, holdout));
         var predictor = model.CapturePredictionSnapshot()!;
-        Assert.Equal(41, predictor.InputCount);
+        Assert.Equal(41, NeuralScoringStrategy.PredictionSnapshot.InputCount);
         Assert.Equal(new[] { "ContentFitAffinity", "ContentFitSupport", "AudienceMismatch" }, ModelInputFeatures.Names(41).Skip((int)FeatureIndex.ContentFitAffinity));
         Assert.True(model.Score(fit[1].Features) > model.Score(fit[0].Features) + .05);
         Assert.NotEqual(0, predictor.ScoreWithExplanation(fit[1].Features).ContentFitContribution);

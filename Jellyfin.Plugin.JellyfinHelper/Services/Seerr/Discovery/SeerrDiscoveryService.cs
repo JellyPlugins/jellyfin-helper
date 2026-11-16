@@ -2160,7 +2160,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     public async Task<(bool Allowed, bool Verified)> VerifyRequestForUserAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (tmdbId <= 0 || mediaType is not ("movie" or "tv"))
+        if (tmdbId <= 0 || mediaType is not (MediaTypeMovie or "tv"))
         {
             return (false, false);
         }
@@ -2826,7 +2826,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Query B: personal title recommendations when supported by real history; otherwise page-2 variety.
         if (movieGenreIds.Count > 0)
         {
-            await GatherVarietyCandidatesAsync(client, baseUri, apiKey, ("movie", movieGenreIds[0]), personal.Seeds, allCandidates, cancellationToken).ConfigureAwait(false);
+            await GatherVarietyCandidatesAsync(client, baseUri, apiKey, (MediaTypeMovie, movieGenreIds[0]), personal.Seeds, allCandidates, cancellationToken).ConfigureAwait(false);
         }
 
         if (tvGenreIds.Count > 0)
@@ -2860,7 +2860,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         var (mediaType, genreId) = route;
         var seed = seeds.GetValueOrDefault(mediaType);
-        var collection = mediaType == "movie" ? "movies" : "tv";
+        var collection = mediaType == MediaTypeMovie ? "movies" : "tv";
         // Verified Seerr GET routes: /api/v1/movie/{id}/recommendations and /api/v1/tv/{id}/recommendations.
         var path = seed > 0
             ? $"api/v1/{mediaType}/{seed}/recommendations?page=1"

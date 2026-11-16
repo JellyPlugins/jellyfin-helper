@@ -2,7 +2,7 @@
  * Per-user recommendation model lifecycle (filesystem behaviour).
  *
  * Proves, against the real Jellyfin 12 container, what the unit tests (mocked) cannot:
- *  - observed positive fitting/calibration titles can produce bounded provisional v5 bundles, not verified ranking;
+ *  - observed positive fitting/calibration titles can produce bounded provisional v6 bundles, not verified ranking;
  *  - personal bundles and diagnostics expose the same operating mixture and explicit evidence level;
  *  - repeated training retains unique-title maturity without manufacturing fresh acceptance;
  *  - deleting a user and re-running the task prunes that user's per-user files while the global files remain.
@@ -275,8 +275,9 @@ test.describe.serial('per-user recommendation model files', () => {
     expect(bundle.CalibrationTitleCount).toBeGreaterThanOrEqual(CALIBRATION_SEED_TITLES);
     expect(bundle.CalibrationLoss).toBeLessThanOrEqual(.6);
     expect(bundle.AcceptanceObservationIds).toEqual([]);
-    expect(bundle.Learned.Version).toBe(5);
-    expect(bundle.Learned.Weights).toHaveLength(38);
+    expect(bundle.Learned.Version).toBe(6);
+    expect(bundle.Learned.Weights).toHaveLength(41);
+    expect(bundle.Learned.ImputationMeans).toHaveLength(41);
     expect(bundle.Learned.TrainingGeneration).toBeGreaterThan(0);
     // The learned and neural weight files are written only once their own example thresholds are met (learned
     // needs at least twelve pooled examples, the neural MLP at least thirty). The smoke fixture is a couple of
@@ -284,12 +285,19 @@ test.describe.serial('per-user recommendation model files', () => {
     // legitimately gated rather than guaranteed. When the files do appear their JSON must still be well formed,
     // and neither may be present without the ensemble state that accompanies every trained model.
     if (containerFileExists(`${dir}/ml_weights.json`)) {
-      const weights = JSON.parse(readContainerFile(`${dir}/ml_weights.json`)) as { Weights?: number[]; Bias?: number };
+      const weights = JSON.parse(readContainerFile(`${dir}/ml_weights.json`)) as { Weights?: number[]; Bias?: number; Version?: number };
       expect(Array.isArray(weights.Weights), 'global learned weights must be an array').toBeTruthy();
+      expect(weights.Version).toBe(6);
+      expect(weights.Weights).toHaveLength(41);
       expect(typeof weights.Bias, 'global learned bias must be numeric').toBe('number');
     }
     if (containerFileExists(`${dir}/neural_weights.json`)) {
       expect(containerFileExists(`${dir}/ensemble_state.json`), 'neural weights without ensemble state is inconsistent').toBeTruthy();
+      const neural = JSON.parse(readContainerFile(`${dir}/neural_weights.json`));
+      expect(neural.Version).toBe(6);
+      expect(neural.WeightsIH).toHaveLength(41 * 82);
+      expect(neural.BiasH1).toHaveLength(82);
+      expect(neural.WeightsH1H2).toHaveLength(82 * 96);
     }
   });
 
@@ -317,6 +325,12 @@ test.describe.serial('per-user recommendation model files', () => {
     expect(diagnostics.QualityGateFrozen).toBe(false);
     expect(diagnostics.EffectiveAlpha).toBeGreaterThanOrEqual(.3);
     expect(diagnostics.EffectiveAlpha).toBeLessThanOrEqual(.75);
+    if (diagnostics.NeuralModelVersion != null) {
+      expect(diagnostics.NeuralModelVersion).toBe(6);
+      expect(diagnostics.NeuralInputFeatureCount).toBe(41);
+      expect(diagnostics.NeuralFeatures).toHaveLength(41);
+      expect(diagnostics.NeuralFeatures.slice(-3)).toEqual(['ContentFitAffinity', 'ContentFitSupport', 'AudienceMismatch']);
+    }
     const bundle = JSON.parse(readContainerFile(`${resolveDataDir()}/ensemble_state_${id}.json.accepted-model.json`));
     expect(bundle.IsProvisional).toBe(true);
     expect(bundle.Utility).toBeNull();
@@ -338,7 +352,8 @@ test.describe.serial('per-user recommendation model files', () => {
         Version?: number;
       };
       expect(Array.isArray(weights.Weights), 'per-user weights must be an array').toBeTruthy();
-      expect(weights.Weights?.length ?? 0, 'per-user weight vector must be non-empty').toBeGreaterThan(0);
+      expect(weights.Version).toBe(6);
+      expect(weights.Weights).toHaveLength(41);
       expect(typeof weights.Bias, 'per-user bias must be numeric').toBe('number');
 
       const state = JSON.parse(readContainerFile(`${dir}/ensemble_state_${id}.json`)) as {
@@ -384,12 +399,12 @@ test.describe.serial('per-user recommendation model files', () => {
     await sleep(1000);
 
     const dir = resolveDataDir();
-    // Plant a per-user file for a synthetic user id that is NOT in the live user list. Copying an existing
-    // per-user file keeps the JSON valid; the id in the filename is what PruneOrphans reconciles against.
+    // Plant a valid-schema per-user file for a synthetic user id that is NOT in the live user list.
+    // The id in the filename is what PruneOrphans reconciles against.
     const orphanWeights = `${dir}/ml_weights_${ORPHAN_ID}.json`;
     const orphanState = `${dir}/ensemble_state_${ORPHAN_ID}.json`;
-    const legacyWeights = JSON.stringify({ Version: 5, Weights: Array(38).fill(0), Bias: 0.5, TrainingGeneration: 1 });
-    execInContainer(`printf %s ${q(legacyWeights)} > ${q(orphanWeights)}`);
+    const orphanParameters = JSON.stringify({ Version: 6, Weights: Array(41).fill(0), Bias: 0.5, TrainingGeneration: 1 });
+    execInContainer(`printf %s ${q(orphanParameters)} > ${q(orphanWeights)}`);
     // A per-user weight file always pairs with a state file, so require it here rather than skipping the copy.
     // Otherwise the state-pruned assertion below could pass simply because the file was never planted.
     const legacyState = JSON.stringify({ SchemaVersion: 3, Alpha: 0.3, NeuralBeta: 0, TrainingExampleCount: 20, QualityGateFrozen: true });

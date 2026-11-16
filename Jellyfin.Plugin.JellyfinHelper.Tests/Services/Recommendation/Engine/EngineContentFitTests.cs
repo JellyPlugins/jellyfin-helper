@@ -103,10 +103,11 @@ public sealed class EngineContentFitTests
     [InlineData(true)]
     public void FrozenAdverseSeriesPredictorCannotHideCoherentStoryEvidenceBehindBroadAllAgesMatches(bool batch)
     {
-        var weights = new double[38];
+        var weights = new double[CandidateFeatures.FeatureCount];
         weights[(int)FeatureIndex.GenreSimilarity] = .03;
         weights[(int)FeatureIndex.IsSeries] = -.65;
         var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .8 });
+        Assert.True(LearnedScoringStrategy.IsValidParameters(learned.ExportParameters()));
         using var neural = new NeuralScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1);
         var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), heuristic);

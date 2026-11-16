@@ -101,6 +101,84 @@ public sealed class LanguageFeatureImputationTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LearnedLegacyRefitsPreserveSavedImputationWithoutCopyingNormalization(bool savedPrior)
+    {
+        var prior = savedPrior ? Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray() : null;
+        var examples = LegacyExternalExamples();
+        var capturedFeatures = examples.Select(row => JsonSerializer.Serialize(row.Features)).ToArray();
+        var expected = ModelInputFeatures.FitImputation(examples, Enumerable.Range(0, examples.Length).ToArray(), prior);
+        var model = LearnedWithSeparateMeans(.1, prior);
+
+        for (var fit = 0; fit < 2; fit++)
+        {
+            Assert.True(model.Train(examples));
+            var parameters = model.CapturePredictionSnapshot().ExportParameters();
+            Assert.Equal(expected, parameters.ImputationMeans);
+            Assert.Equal(capturedFeatures, examples.Select(row => JsonSerializer.Serialize(row.Features)));
+            model = LearnedScoringStrategy.FromParameters(JsonSerializer.Deserialize<LearnedScoringStrategy.WeightsData>(JsonSerializer.Serialize(parameters))!)!;
+        }
+    }
+
+    [Fact]
+    public void LearnedCrossValidationUsesSavedImputationIndependentOfPreviousNormalization()
+    {
+        var prior = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        var examples = LegacyExternalExamples();
+        var first = LearnedWithSeparateMeans(.1, prior);
+        var second = LearnedWithSeparateMeans(.9, prior);
+
+        Assert.True(first.Train(examples));
+        Assert.True(second.Train(examples));
+        Assert.True(double.IsFinite(first.LastValidationLoss));
+        Assert.Equal(first.LastValidationLoss, second.LastValidationLoss);
+        Assert.Equal(first.LastBaselineValidationLoss, second.LastBaselineValidationLoss);
+    }
+
+    [Fact]
+    public void LearnedRawExternalVectorsUseSavedImputationBeforeFittingNormalization()
+    {
+        var prior = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        var examples = LegacyExternalExamples();
+        var expectedVectors = examples.Select(row => row.Features.ToModelVector(prior)).ToArray();
+        var (expectedMeans, expectedDeviations) = LearnedScoringStrategy.ComputeFeatureStatistics(expectedVectors);
+        var model = LearnedWithSeparateMeans(.1, prior);
+
+        Assert.True(model.Train(examples));
+        var parameters = model.CapturePredictionSnapshot().ExportParameters();
+        Assert.Equal(expectedMeans, parameters.FeatureMeans);
+        Assert.Equal(expectedDeviations, parameters.FeatureStdDevs);
+    }
+
+    private static LearnedScoringStrategy LearnedWithSeparateMeans(double normalizationMean, double[]? imputation) =>
+        LearnedScoringStrategy.FromParameters(new LearnedScoringStrategy.WeightsData
+        {
+            Version = LearnedScoringStrategy.CurrentWeightsVersion,
+            TrainingGeneration = 1,
+            Weights = new double[CandidateFeatures.FeatureCount],
+            Bias = .5,
+            FeatureMeans = Enumerable.Repeat(normalizationMean, CandidateFeatures.FeatureCount).ToArray(),
+            FeatureStdDevs = Enumerable.Repeat(1.0, CandidateFeatures.FeatureCount).ToArray(),
+            ImputationMeans = imputation
+        })!;
+
+    private static TrainingExample[] LegacyExternalExamples() => Enumerable.Range(0, 60).Select(index => new TrainingExample
+    {
+        Features = new CandidateFeatures
+        {
+            GenreSimilarity = index % 2 == 0 ? .3 : .7,
+            LanguageAffinity = .15,
+            SubtitleLanguageAffinity = .85,
+            IsExternalCandidate = true,
+            HasPeopleMetadata = false
+        },
+        Label = index % 2 == 0 ? .2 : .8,
+        IsObserved = true,
+        GeneratedAtUtc = new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    }).ToArray();
+
     private static TrainingExample Example(double affinity, bool? known) => new()
     {
         Features = new CandidateFeatures { GenreSimilarity = .7, LanguageAffinity = affinity, HasAudioLanguageEvidence = known, HasSubtitleLanguageEvidence = false },

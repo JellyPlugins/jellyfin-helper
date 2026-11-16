@@ -1043,7 +1043,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Hidden1Size_MatchesExpansionFactor()
     {
-        // 76 ≈ 2× InputSize (38) - expansion factor for tabular MLPs.
+        // 82 = 2× InputSize (41) - expansion factor for tabular MLPs.
         Assert.Equal(82, NeuralScoringStrategy.Hidden1Size);
     }
 
@@ -1372,7 +1372,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.InRange(result, 0.0, 1.0);
 
-        // With keep-p = 0.5 across 24 + 48 + 96 + 76 = 244 Bernoulli draws, the probability of getting all-ones OR all-zeros is astronomically small (~ 2^-244).
+        // With keep-p = 0.5 across 24 + 48 + 96 + 82 = 250 Bernoulli draws, all-ones or all-zeros across every layer has probability 2^-249.
         Assert.Contains(h4Mask, m => Math.Abs(m - 0.0) <= MaskEpsilon);
         Assert.Contains(h4Mask, m => Math.Abs(m - 1.0) <= MaskEpsilon);
         // Each mask entry must be exactly 0.0 or 1.0 - never in between.

@@ -94,6 +94,7 @@ Keep translation keys consistent with `en.json`. Unknown custom genres remain av
 
 Recommendation tests cover raw, localized and canonical inputs at both training and inference boundaries.
 All trainable models use v6 with 41 shared features. Unsupported parameter schemas require new fitting; they are never rewritten on load. Real API histories and credentials must never be committed as test fixtures.
+GitHub Pages uses the shipped admin UI with synthetic `docs/mock/mock-data.js` responses; keep model metadata, effective shares and evidence labels aligned with the API. The demo regression is listed in `test/ui/README.md`.
 
 - Sort the final filtered, diverse own pool by score; preserve Trakt source order and playlist engine order.
 - Recheck Trakt against the current user's own pool before delivery/capping and browser-cache rendering; match TMDb ID/media type, never score.
@@ -514,7 +515,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralIntegrityTests.cs                  # Complete model schema, Adam checkpoints, fitting-only themes and coordinate-preserving clamps
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
-│       │   ├── LanguageFeatureImputationTests.cs           # Legacy equivalence, fitting-only means and pinned model predictions
+│       │   ├── LanguageFeatureImputationTests.cs           # Fitting-only priors, legacy refits, normalization isolation and pinned predictions
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction

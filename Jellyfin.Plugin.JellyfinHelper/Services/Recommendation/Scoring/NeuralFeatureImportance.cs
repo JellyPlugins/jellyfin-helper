@@ -41,7 +41,7 @@ internal static class NeuralFeatureImportance
             return new Dictionary<string, double>();
         }
 
-        var featureCount = predictor.InputCount;
+        var featureCount = NeuralScoringStrategy.PredictionSnapshot.InputCount;
         var actualSampleSize = Math.Min(sampleSize, examples.Count);
 
         if (actualSampleSize < 2)
