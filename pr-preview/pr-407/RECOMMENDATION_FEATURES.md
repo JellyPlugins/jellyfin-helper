@@ -54,11 +54,12 @@ Indices and names match `FeatureIndex` and the read-only diagnostics catalogue. 
 
 ## Evidence and inference
 
-- Technical transport/language tags supply no thematic evidence. Broad genre/adaptation labels cannot manufacture strong narrative support.
+- Technical transport/language tags supply no thematic evidence. The complete genre/alias catalogue (including provider labels) is broad evidence, never specific story evidence; adaptation labels cannot manufacture narrative support.
 - Known thematic nonmatches are real zeros. Unavailable language/theme inputs use each model's fixed **fitting-only** imputation means; validation, acceptance and future target activity never determine those means.
 - Historical preferences use dated, strictly earlier, self-excluded playback. Saved indexes are not reconstructed earlier stream choices. Missing/partial language metadata and subtitles-off stay distinguishable from genuine preference.
 - The heuristic budgets fine affinity at 0.08, genre affinity at 0.18, collection progress at 0.15 and languages at 0.045. Remaining positive priors share 0.545; total positive weight is 1.0, with separate negative penalties. Narrative confidence and audience mismatch have zero fixed raw coefficients because they are applied once in final score space. Learned and Neural learn all 41 coordinates; final confidence remains consistent across components and mixtures.
 - Permission/certification checks are separate from taste scoring. Untouched suggestions are not independent negative evidence.
+- Collection continuation stays neutral when known members are missing or cannot be placed in the scoped population; exclusions never import those titles into recommendations or training.
 - Saved recommendation features and immutable predictors stay detached. Feedback uses the original prediction-time evidence, not later enrichment.
 
 ## Training state
