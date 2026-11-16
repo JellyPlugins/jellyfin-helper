@@ -518,10 +518,30 @@ var MOCK_RECOMMENDATIONS=[
 ];
 
 var MOCK_WATCH_PROFILES={};
-var MOCK_ENSEMBLE_DIAGNOSTICS={Available:true,IsPerUser:false,Alpha:0.62,NeuralBeta:0.28,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:342,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
+// Synthetic display fixtures, not trained parameters or evidence from a real user.
+// Keep this catalogue aligned with docs/RECOMMENDATION_FEATURES.md and the API.
+var MOCK_NEURAL_FEATURES=[
+"GenreSimilarity","CollaborativeScore","CombinedCriticScore","RecencyScore","YearProximityScore","GenreCountNormalized","IsSeries",
+"GenreCriticInteraction","GenreCollabInteraction","UserRatingScore","CompletionRatio","IsAbandoned","HasInteraction","PeopleSimilarity",
+"StudioMatch","SeriesAffinity","PopularityScore","DayOfWeekAffinity","HourOfDayAffinity","IsWeekend","TagSimilarity","PeopleGenreInteraction",
+"RecencyCriticInteraction","GenreUnderexposure","GenreDominanceRatio","GenreAffinityGap","LibraryAddedRecency","ContentNearestNeighborScore",
+"LanguageAffinity","CollectionProgressionBoost","SubtitleLanguageAffinity","FranchiseAffinity","ProductionLocationAffinity","InheritedTagSimilarity",
+"SeriesCompletability","WriterAffinity","BillingWeightedPeople","GenreStudioIdfPrior","ContentFitAffinity","ContentFitSupport","AudienceMismatch"
+];
+var MOCK_ENSEMBLE_DIAGNOSTICS={Available:true,IsPerUser:false,Alpha:0.62,AlphaOffset:0,EffectiveAlpha:0.62,NeuralBeta:0.28,EffectiveNeuralBeta:0.28,
+HeuristicShare:0.38,LearnedShare:0.4464,NeuralShare:0.1736,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,
+Trend:"Improving",TrainingExampleCount:342,MetricsHistoryCount:10,AlphaMin:0.3,AlphaMax:0.75,NeuralEnabled:true,
+NeuralModelVersion:6,NeuralInputFeatureCount:41,NeuralFeatures:MOCK_NEURAL_FEATURES.slice(),ModelRevision:4,ValidationLevel:"Verified",
+AdmissionReason:"Accepted",CalibrationTitleCount:32,AcceptanceTitleCount:24,CandidateValidationLoss:0.12};
 var MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER={};
-MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid1]={Available:true,IsPerUser:true,UserName:"Alice",Alpha:0.68,NeuralBeta:0.31,QualityGateFrozen:false,SigmoidMidpointOffset:-6,EffectiveSigmoidMidpoint:44,Trend:"Improving",TrainingExampleCount:412,MetricsHistoryCount:10,AlphaMin:0.15,AlphaMax:0.85,NeuralEnabled:true};
-MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid2]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{IsPerUser:true,UserName:"Bob"});
+MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid1]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{IsPerUser:true,UserName:"Alice",Alpha:0.68,EffectiveAlpha:0.68,
+NeuralBeta:0.31,EffectiveNeuralBeta:0.31,HeuristicShare:0.32,LearnedShare:0.4692,NeuralShare:0.2108,TrainingExampleCount:412,
+NeuralFeatures:MOCK_NEURAL_FEATURES.slice(),ModelRevision:2,ValidationLevel:"Provisional",AdmissionReason:"ProvisionalParametersRetained",
+CalibrationTitleCount:12,AcceptanceTitleCount:0,CandidateValidationLoss:null});
+MOCK_ENSEMBLE_DIAGNOSTICS_PER_USER[_uid2]=Object.assign({},MOCK_ENSEMBLE_DIAGNOSTICS,{IsPerUser:false,UserName:"Bob",Alpha:0.3,EffectiveAlpha:0.3,
+NeuralBeta:0.2,EffectiveNeuralBeta:0.2,HeuristicShare:0.7,LearnedShare:0.24,NeuralShare:0.06,TrainingExampleCount:0,MetricsHistoryCount:0,
+NeuralFeatures:MOCK_NEURAL_FEATURES.slice(),ValidationLevel:"GlobalPrior",AdmissionReason:"BorrowedGlobalPrior",Trend:"InsufficientData",
+SigmoidMidpointOffset:0,EffectiveSigmoidMidpoint:50,CalibrationTitleCount:0,AcceptanceTitleCount:0,CandidateValidationLoss:null});
 MOCK_WATCH_PROFILES[_uid1]={WatchedMovieCount:_movieWatchedA.length,WatchedEpisodeCount:_tvWatchedA.length,WatchedSeriesCount:_tvWatchedShows(_tvWatchedA),FavoriteCount:12,GenreDistribution:{"Sci-Fi":60,"Drama":40,"Action":30,"Thriller":18,"Adventure":12,"Comedy":8,"Horror":5}};
 MOCK_WATCH_PROFILES[_uid2]={WatchedMovieCount:_movieWatchedB.length,WatchedEpisodeCount:_tvWatchedC.length,WatchedSeriesCount:_tvWatchedShows(_tvWatchedC),FavoriteCount:4,GenreDistribution:{"Drama":14,"Comedy":12,"Sci-Fi":8,"Thriller":5,"Adventure":3,"War":2}};
 MOCK_USER_ACTIVITY={};
