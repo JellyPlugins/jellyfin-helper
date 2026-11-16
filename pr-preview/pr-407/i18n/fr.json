@@ -6,6 +6,7 @@
   "recsEnsembleStatusProvisional": "Provisoire — classement non encore vérifié",
   "recsEnsembleStatusVerified": "Vérifié indépendamment",
   "recsEnsembleStoredTarget": "Part ML cible enregistrée",
+  "recsEnsembleNeuralSchema": "Modèle neuronal v{0} : {1} caractéristiques",
   "genre.12": "Aventure",
   "genre.14": "Fantastique",
   "genre.16": "Animation",

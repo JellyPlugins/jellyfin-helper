@@ -277,6 +277,11 @@ function renderEnsembleDiagnostics(host, data) {
     var details = T('recsEnsembleStoredTarget', 'Stored ML target') + ': ' + ensembleShareText(Number.isFinite(data.Alpha) ? data.Alpha : 0)
         + ' · Δα: ' + (Number.isFinite(data.AlphaOffset) ? (data.AlphaOffset * 100).toFixed(2) : '0') + '%';
     details += ' · ' + modelScope;
+    if (data.NeuralModelVersion === 6 && data.NeuralInputFeatureCount === 41) {
+        details += ' · ' + T('recsEnsembleNeuralSchema', 'Neural model v{0}: {1} features').replace('{0}', '6').replace('{1}', '41');
+        var names = Array.isArray(data.NeuralFeatures) ? data.NeuralFeatures.filter(function (name) { return typeof name === 'string'; }).slice(0, 41) : [];
+        if (names.length === 41) details += ' · ' + names.join(', ');
+    }
     host.innerHTML =
         '<div class="recs-ensemble-line recs-ensemble-blend" title="' + escAttr(details) + '"><span class="recs-ensemble-label">' + label + '</span> ' + composition + '</div>' +
         '<div class="recs-ensemble-line recs-ensemble-status">' + summary + '</div>';
