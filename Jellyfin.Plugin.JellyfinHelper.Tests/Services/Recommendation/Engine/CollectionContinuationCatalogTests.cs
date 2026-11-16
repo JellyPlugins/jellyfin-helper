@@ -103,6 +103,30 @@ public sealed class CollectionContinuationCatalogTests
         Assert.Empty(Catalog([.. movies, duplicate]).BuildSupport(profile));
     }
 
+    [Fact]
+    public void PreparedNextIdentityRetainsEveryPlayableCopyAndReevaluatesEachHistoricalProfile()
+    {
+        var movies = Movies();
+        var copy = new Movie { Id = Guid.NewGuid(), Path = "/media/next-copy.mkv", ProviderIds = new() { ["Tmdb"] = "103" }, PremiereDate = movies[3].PremiereDate };
+        var placeholder = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "103" }, PremiereDate = movies[3].PremiereDate };
+        var catalog = Catalog([.. movies, copy, placeholder]);
+        var historical = Profile(movies.Take(3));
+        var first = catalog.BuildSupport(historical);
+        Assert.Equal(2, first.Count);
+        Assert.Equal(.75, first[movies[3].Id]);
+        Assert.Equal(.75, first[copy.Id]);
+        Assert.DoesNotContain(placeholder.Id, first.Keys);
+
+        copy.Path = string.Empty;
+        movies[3].PremiereDate = movies[0].PremiereDate;
+        var later = catalog.BuildSupport(Profile(movies.Take(4)));
+        Assert.Equal(movies[4].Id, Assert.Single(later).Key);
+        Assert.Equal(.8, Assert.Single(later).Value);
+        var again = catalog.BuildSupport(historical);
+        Assert.Equal(first.OrderBy(pair => pair.Key), again.OrderBy(pair => pair.Key));
+        Assert.Empty(catalog.BuildSupport(new UserWatchProfile()));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

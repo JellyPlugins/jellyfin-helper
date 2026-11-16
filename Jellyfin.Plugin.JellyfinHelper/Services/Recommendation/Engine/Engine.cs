@@ -1111,12 +1111,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         var entries = new List<CandidateRankingEntry>(trace.Count);
         var rank = 0;
-        foreach (var item in scored.OrderByDescending(item => item.Score))
+        foreach (var item in scored.OrderByDescending(item => item.Score).Select(item => item.Item))
         {
             rank++;
-            if (trace.TryGetValue(item.Item.Id, out var entry))
+            if (trace.TryGetValue(item.Id, out var entry))
             {
-                entries.Add(entry with { InitialRank = rank, SelectionStage = ResolveSelectionStage(selected.Contains(item.Item.Id), rank, count) });
+                entries.Add(entry with { InitialRank = rank, SelectionStage = ResolveSelectionStage(selected.Contains(item.Id), rank, count) });
             }
         }
 

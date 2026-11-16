@@ -5,8 +5,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>One pinned component/mix version; neither a later global refresh nor a disposed trainer changes it.</summary>
 internal sealed class AcceptedPrediction
 {
-    private readonly HeuristicScoringStrategy _heuristic;
-
     /// <summary>Initializes a new instance of the <see cref="AcceptedPrediction"/> class with coherent predictors.</summary>
     /// <param name="heuristic">The immutable unpenalized heuristic.</param>
     /// <param name="learned">Pinned linear inference.</param>
@@ -15,7 +13,7 @@ internal sealed class AcceptedPrediction
     /// <param name="neuralCap">The absolute Neural ceiling at acceptance.</param>
     internal AcceptedPrediction(HeuristicScoringStrategy heuristic, LearnedScoringStrategy.PredictionSnapshot learned, NeuralScoringStrategy.PredictionSnapshot? neural, AdmissionMixture mixture, double neuralCap)
     {
-        _heuristic = heuristic;
+        ArgumentNullException.ThrowIfNull(heuristic);
         Learned = learned;
         Neural = neural;
         Mixture = mixture;
@@ -54,7 +52,7 @@ internal sealed class AcceptedPrediction
     {
         ArgumentNullException.ThrowIfNull(features);
         var mixture = Resolve(alphaMax);
-        var h = _heuristic.ScoreRaw(features);
+        var h = HeuristicScoringStrategy.ScoreRaw(features);
         if (mixture.Alpha <= 0)
         {
             return ScoringHelper.ComputeContextualScore(h, features, genrePenaltyFloor);

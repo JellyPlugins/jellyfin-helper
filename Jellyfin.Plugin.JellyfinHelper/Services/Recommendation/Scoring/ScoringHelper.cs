@@ -120,7 +120,7 @@ internal static class ScoringHelper
         // This affine adjustment commutes with the ensemble mixture, so admission compares EVERY
         // component and incumbent with the same captured context without changing fitting units.
         var (support, mismatch) = ResolveContentAdjustment(features);
-        if (support == 0 && mismatch == 0)
+        if (support <= 0 && mismatch <= 0)
         {
             return score;
         }

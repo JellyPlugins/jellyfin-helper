@@ -166,7 +166,7 @@ public sealed class EngineContentFitTests
         weights[(int)FeatureIndex.CombinedCriticScore] = .1;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
         var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5 });
-        var h = new HeuristicScoringStrategy(genrePenaltyFloor: 1).ScoreRaw(features);
+        var h = HeuristicScoringStrategy.ScoreRaw(features);
         return ScoringHelper.ComputeContextualScore((.25 * h) + (.66 * learned.Score(features)) + (.09 * .75), features, .1);
     }
 

@@ -215,7 +215,7 @@ public class RecommendationController : ControllerBase
             result.GeneratedAt,
             trace.ScoredCandidateCount,
             trace.IsComplete,
-            Entries = itemId.HasValue ? trace.Entries.Where(entry => entry.ItemId == itemId.Value).ToArray() : trace.Entries,
+            Entries = itemId is { } requestedItemId ? trace.Entries.Where(entry => entry.ItemId == requestedItemId).ToArray() : trace.Entries,
             AbsenceMeaning = trace.IsComplete ? "NotScoredInSavedSnapshot" : "NotCapturedInBoundedTrace"
         });
     }

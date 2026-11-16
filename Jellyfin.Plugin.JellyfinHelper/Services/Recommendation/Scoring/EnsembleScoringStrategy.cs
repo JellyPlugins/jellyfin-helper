@@ -487,7 +487,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
     {
-        var heuristicScore = _heuristic.ScoreRaw(features);
+        var heuristicScore = HeuristicScoringStrategy.ScoreRaw(features);
         if (alpha <= 0.0)
         {
             return ScoringHelper.ComputeContextualScore(heuristicScore, features, floor);
@@ -620,7 +620,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     {
         if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
         {
-            var contextual = ScoringHelper.BuildMarginalExplanation(features, value => ComputeBlendedScore(value, alpha, beta, floor), Name);
+            var contextual = ScoringHelper.BuildMarginalExplanation(features, CaptureContextualScore(alpha, beta, floor), Name);
             contextual.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);
             return contextual;
         }
@@ -657,6 +657,35 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         result.DominantSignal = ResolveDominantSignal(result);
 
         return result;
+    }
+
+    private Func<CandidateFeatures, double> CaptureContextualScore(double alpha, double beta, double floor)
+    {
+        if (alpha <= 0)
+        {
+            return features => ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(features), features, floor);
+        }
+
+        var learned = _learned.CapturePredictionSnapshot();
+        var capturedBeta = _neural is not null ? beta : 0;
+        var neural = capturedBeta > 0 ? _neural?.CapturePredictionSnapshot() : null;
+        return features => ComputePinnedBlendedScore(features, learned, neural, alpha, capturedBeta, floor);
+    }
+
+    private static double ComputePinnedBlendedScore(
+        CandidateFeatures features,
+        LearnedScoringStrategy.PredictionSnapshot learned,
+        NeuralScoringStrategy.PredictionSnapshot? neural,
+        double alpha,
+        double beta,
+        double floor)
+    {
+        var heuristicScore = HeuristicScoringStrategy.ScoreRaw(features);
+        var learnedScore = learned.Score(features);
+        var mlScore = beta > 0
+            ? ((1 - beta) * learnedScore) + (beta * (neural?.Score(features) ?? ScoringHelper.NaNFallbackScore))
+            : learnedScore;
+        return ScoringHelper.ComputeContextualScore((alpha * mlScore) + ((1 - alpha) * heuristicScore), features, floor);
     }
 
     private static ScoreExplanation ApplyExplanationPenalty(ScoreExplanation raw, CandidateFeatures features, double floor)

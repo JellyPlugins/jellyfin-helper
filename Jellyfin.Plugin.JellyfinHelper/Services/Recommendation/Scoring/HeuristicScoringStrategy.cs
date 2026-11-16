@@ -44,7 +44,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <summary>Provides the unchanged component prediction; the ensemble applies penalties and context only after blending.</summary>
     /// <param name="features">Raw v5 coordinates.</param>
     /// <returns>The unpenalized heuristic score.</returns>
-    internal double ScoreRaw(CandidateFeatures features)
+    internal static double ScoreRaw(CandidateFeatures features)
     {
         ArgumentNullException.ThrowIfNull(features);
 

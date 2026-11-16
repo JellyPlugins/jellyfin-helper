@@ -11,12 +11,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// <summary>Detached, authoritative movie memberships and release-order metadata; never caches user outcomes.</summary>
 internal sealed class CollectionContinuationCatalog
 {
-    private readonly Title[][] _groups;
+    private readonly Sequence[] _sequences;
     private readonly Dictionary<Guid, Guid> _titleKeys;
 
-    private CollectionContinuationCatalog(Title[][] groups, Dictionary<Guid, Guid> titleKeys)
+    private CollectionContinuationCatalog(Sequence[] sequences, Dictionary<Guid, Guid> titleKeys)
     {
-        _groups = groups;
+        _sequences = sequences;
         _titleKeys = titleKeys;
     }
 
@@ -52,8 +52,8 @@ internal sealed class CollectionContinuationCatalog
             }
         }
 
-        var groups = byCollection.Values.Where(group => group.Count > 1).Select(group => group.ToArray()).ToArray();
-        return new CollectionContinuationCatalog(groups, titles.ToDictionary(title => title.ItemId, title => title.Key));
+        var sequences = byCollection.Values.Where(group => group.Count > 1).Select(PrepareSequence).OfType<Sequence>().ToArray();
+        return new CollectionContinuationCatalog(sequences, titles.ToDictionary(title => title.ItemId, title => title.Key));
     }
 
     /// <summary>Resolves the earliest unfinished title from this user's completed progress, never a later sequel over an unfinished gap.</summary>
@@ -61,7 +61,7 @@ internal sealed class CollectionContinuationCatalog
     /// <returns>Next playable title IDs with bounded completion support; unknown/ambiguous order remains neutral.</returns>
     internal Dictionary<Guid, double> BuildSupport(UserWatchProfile profile)
     {
-        if (_groups.Length == 0)
+        if (_sequences.Length == 0)
         {
             return [];
         }
@@ -79,29 +79,39 @@ internal sealed class CollectionContinuationCatalog
         }
 
         var support = new Dictionary<Guid, double>();
-        foreach (var group in _groups)
+        foreach (var sequence in _sequences)
         {
-            AddNextSupport(group, completed, positive, support);
+            AddNextSupport(sequence, completed, positive, support);
         }
 
         return support;
     }
 
-    private static void AddNextSupport(Title[] group, HashSet<Guid> completed, HashSet<Guid> positive, Dictionary<Guid, double> support)
+    private static Sequence? PrepareSequence(List<Title> group)
     {
-        var merged = group.GroupBy(title => title.Key).Select(MergeCopies).ToArray();
+        var copies = group.GroupBy(title => title.Key).ToArray();
+        var merged = copies.Select(MergeCopies).ToArray();
         if (merged.Any(title => !title.HasValue))
         {
-            return;
+            return null;
         }
 
         var canonical = merged.Select(title => title.GetValueOrDefault()).OrderBy(title => title.Start).ToArray();
         if (canonical.Any(title => !title.Start.HasValue)
             || canonical.Zip(canonical.Skip(1)).Any(pair => pair.First.End >= pair.Second.Start))
         {
-            return;
+            return null;
         }
 
+        var playableCopies = copies.ToDictionary(
+            copiesOfTitle => copiesOfTitle.Key,
+            copiesOfTitle => copiesOfTitle.Where(title => title.Playable).Select(title => title.ItemId).ToArray());
+        return new Sequence(canonical, canonical.Select(title => playableCopies[title.Key]).ToArray());
+    }
+
+    private static void AddNextSupport(Sequence sequence, HashSet<Guid> completed, HashSet<Guid> positive, Dictionary<Guid, double> support)
+    {
+        var canonical = sequence.Ordered;
         var next = Array.FindIndex(canonical, title => !completed.Contains(title.Key));
         if (next < 0 || !canonical[next].Playable)
         {
@@ -115,9 +125,9 @@ internal sealed class CollectionContinuationCatalog
         }
 
         var confidence = positiveProgress / (positiveProgress + 1.0);
-        foreach (var title in group.Where(title => title.Key == canonical[next].Key && title.Playable))
+        foreach (var itemId in sequence.PlayableCopies[next])
         {
-            support[title.ItemId] = Math.Max(support.GetValueOrDefault(title.ItemId), confidence);
+            support[itemId] = Math.Max(support.GetValueOrDefault(itemId), confidence);
         }
     }
 
@@ -151,4 +161,6 @@ internal sealed class CollectionContinuationCatalog
     }
 
     private readonly record struct Title(Guid ItemId, Guid Key, DateTime? Start, DateTime? End, bool Playable);
+
+    private sealed record Sequence(Title[] Ordered, Guid[][] PlayableCopies);
 }

@@ -33,6 +33,16 @@ public sealed class ContentFitConfidenceTests
         }
     }
 
+    [Fact]
+    public void TinyPositiveContextIsNotMistakenForTheExactNeutralSentinel()
+    {
+        var f = new CandidateFeatures { GenreSimilarity = .7, ContentFitSupport = 1e-12 };
+        Assert.Equal(5e-13, ScoringHelper.ComputeContextualScore(0, f, .1));
+        f.ContentFitSupport = null;
+        f.AudienceMismatch = 1e-12;
+        Assert.Equal(1 - 1e-12, ScoringHelper.ComputeContextualScore(1, f, .1));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -97,6 +107,67 @@ public sealed class ContentFitConfidenceTests
         var copy = JsonSerializer.Deserialize<CandidateFeatures>(JsonSerializer.Serialize(f))!;
         Assert.Equal(expected, ensemble.Score(copy), 12);
         Assert.Equal(f.ToVector(), copy.ToVector());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ContextualMarginalsKeepBothPredictorsPinnedWhenLiveCoordinatesChangeAfterTheFullScore(bool external)
+    {
+        var learned = LearnedScoringStrategy.FromParameters(Predictor().ExportParameters())!;
+        using var initializer = new NeuralScoringStrategy();
+        var parameters = initializer.CapturePredictionSnapshot()!.ExportParameters();
+        parameters.BiasOutput = -.5;
+        using var neural = NeuralScoringStrategy.FromParameters(parameters)!;
+        using var ensemble = new EnsembleScoringStrategy(learned, new HeuristicScoringStrategy(1), neural, ownsNeural: false);
+        typeof(EnsembleScoringStrategy).GetField("_alpha", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(ensemble, .75);
+        typeof(EnsembleScoringStrategy).GetField("_neuralBeta", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(ensemble, .12);
+        var f = new CandidateFeatures { IsExternalCandidate = external, GenreSimilarity = .7, CombinedCriticScore = .8, ContentFitSupport = .8, AudienceMismatch = .25 };
+        var capture = typeof(EnsembleScoringStrategy).GetMethod("CaptureContextualScore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var pinned = (Func<CandidateFeatures, double>)capture.Invoke(ensemble, [.75, .12, .1])!;
+        var expected = ScoringHelper.BuildMarginalExplanation(f, pinned, ensemble.Name);
+        Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(ensemble.ScoreWithExplanation(f)));
+        var calls = 0;
+        var actual = ScoringHelper.BuildMarginalExplanation(f, input =>
+        {
+            var value = pinned(input);
+            if (++calls == 1)
+            {
+                // Deterministically reproduce an update between the full and counterfactual reads.
+                // These are isolated in-memory test models, never a production fit or checkpoint.
+                typeof(LearnedScoringStrategy).GetField("_bias", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(learned, -.8);
+                typeof(NeuralScoringStrategy).GetField("_biasOutput", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(neural, 8.0);
+            }
+
+            return value;
+        }, ensemble.Name);
+        Assert.True(calls > 10);
+        Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
+        Assert.Equal(expected.FinalScore, pinned(f));
+        var refreshed = (Func<CandidateFeatures, double>)capture.Invoke(ensemble, [.75, .12, .1])!;
+        Assert.NotEqual(expected.FinalScore, refreshed(f));
+        Assert.Equal(refreshed(f), ScoringHelper.BuildMarginalExplanation(f, refreshed, ensemble.Name).FinalScore);
+        Assert.Equal(refreshed(f), ensemble.ScoreWithExplanation(f).FinalScore);
+    }
+
+    [Fact]
+    public void CapturedContextSurvivesNeuralDisposalAndFreshCapturePreservesTheExistingNeutralFallback()
+    {
+        var learned = LearnedScoringStrategy.FromParameters(Predictor().ExportParameters())!;
+        using var initializer = new NeuralScoringStrategy();
+        var parameters = initializer.CapturePredictionSnapshot()!.ExportParameters();
+        parameters.BiasOutput = -2;
+        using var neural = NeuralScoringStrategy.FromParameters(parameters)!;
+        using var ensemble = new EnsembleScoringStrategy(learned, new HeuristicScoringStrategy(1), neural, ownsNeural: false);
+        var f = new CandidateFeatures { GenreSimilarity = .7, CollectionContinuationSupport = .75 };
+        var capture = typeof(EnsembleScoringStrategy).GetMethod("CaptureContextualScore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var pinned = (Func<CandidateFeatures, double>)capture.Invoke(ensemble, [.75, .12, .1])!;
+        var expected = pinned(f);
+        neural.Dispose();
+        Assert.Equal(expected, pinned(f));
+        var fresh = (Func<CandidateFeatures, double>)capture.Invoke(ensemble, [.75, .12, .1])!;
+        var raw = (.25 * HeuristicScoringStrategy.ScoreRaw(f)) + (.75 * ((.88 * learned.Score(f)) + (.12 * .5)));
+        Assert.Equal(ScoringHelper.ComputeContextualScore(raw, f, .1), fresh(f));
     }
 
     [Fact]

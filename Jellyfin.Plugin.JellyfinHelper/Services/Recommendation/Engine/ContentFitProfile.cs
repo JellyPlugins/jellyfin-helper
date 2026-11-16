@@ -172,34 +172,41 @@ internal sealed class ContentFitProfile
         var support = 0.0;
         foreach (var document in _documents)
         {
-            var overlap = 0.0;
-            var specific = 0;
-            var narrative = 0;
-            foreach (var keyword in candidate.Where(document.Terms.Contains))
-            {
-                overlap += TermWeight(keyword);
-                specific += BroadLabels.Contains(keyword) ? 0 : 1;
-                narrative += BroadLabels.Contains(keyword) || FormatLabels.Contains(keyword) ? 0 : 1;
-            }
+            var overlap = MeasureOverlap(candidate, document.Terms);
 
             // A specific provider keyword is valid evidence even for a sparse profile. Generic
             // Anime/Action alone gives none; scattered matches still cannot become one perfect title.
-            if (specific > 0)
+            if (overlap.SpecificMatches > 0)
             {
-                best = Math.Max(best, 2.0 * overlap / (candidateWeight + document.Weight));
+                best = Math.Max(best, 2.0 * overlap.Weight / (candidateWeight + document.Weight));
             }
 
             // A candidate may add many new story terms without losing the coherent themes of a
             // known title. Require two actual narrative matches and a majority of THAT document;
             // scattered words, language, Anime/Shounen and adaptation format alone give no support.
-            var coverage = overlap / document.Weight;
-            if (narrative >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres))
+            var coverage = overlap.Weight / document.Weight;
+            if (overlap.NarrativeMatches >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres))
             {
                 support = Math.Max(support, coverage);
             }
         }
 
         return new MatchEvidence(Math.Clamp(best, 0, 1), Math.Clamp(support, 0, 1));
+    }
+
+    private KeywordOverlap MeasureOverlap(string[] candidate, HashSet<string> terms)
+    {
+        var weight = 0.0;
+        var specific = 0;
+        var narrative = 0;
+        foreach (var keyword in candidate.Where(terms.Contains))
+        {
+            weight += TermWeight(keyword);
+            specific += BroadLabels.Contains(keyword) ? 0 : 1;
+            narrative += BroadLabels.Contains(keyword) || FormatLabels.Contains(keyword) ? 0 : 1;
+        }
+
+        return new KeywordOverlap(weight, specific, narrative);
     }
 
     /// <summary>Moderates unsupported broad genre enthusiasm, never permitting or excluding an age-rated title.</summary>
@@ -226,8 +233,9 @@ internal sealed class ContentFitProfile
         // Keep the trained v5 tag coordinate's scale. Fine title affinity supports the existing
         // bounded genre-confidence signal instead of feeding old standardizers a different unit.
         var supported = similarity > 0 ? Math.Min(1, similarity + ((1 - similarity) * thematic * 0.5)) : similarity;
+        var mismatchFactor = audienceMismatch >= 0.5 ? 0.3 : 0.5;
         return audienceMismatch > 0
-            ? Math.Min(supported, similarity * (audienceMismatch >= 0.5 ? 0.3 : 0.5))
+            ? Math.Min(supported, similarity * mismatchFactor)
             : supported;
     }
 
@@ -381,6 +389,8 @@ internal sealed class ContentFitProfile
     }
 
     private readonly record struct MatchEvidence(double Affinity, double Support);
+
+    private readonly record struct KeywordOverlap(double Weight, int SpecificMatches, int NarrativeMatches);
 
     private sealed record KeywordDocument(HashSet<string> Terms, double Weight, HashSet<string> Genres);
 
