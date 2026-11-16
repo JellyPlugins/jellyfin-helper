@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "3.1.1.0"
+version: "3.1.1.1"
 targetAbi: ""
 framework: "net10.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis and Library Explorer search, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -12,15 +12,16 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.1.1.0 - Recommendation Engine V5, clearer Discovery and stronger parental checks
+  v3.1.1.1 - Recommendation Engine V6 and reliable personal Discovery
 
-  - Note: Recommendation Engine V5 replaces existing learned and neural models and trains them again over the next scheduled runs with the recommendation task in Activate mode; media, watch history and settings stay intact
-  - More relevant, varied personal Discovery lists filter weak matches and limit repeats from the same collection; Trakt keeps its source ordering
-  - Popular suggestions without personal evidence are labeled honestly instead of showing a match percentage; unchecked availability shows an explanatory status instead of a Request button
-  - Taste matching understands translated and combined genres, verified collection membership and missing metadata; recommendation reasons reflect the actual score
-  - Discovery learns from cards you actually see, keeps requests and dismissals tied to the displayed suggestions, and distinguishes favorites or partial playback from completed viewing
-  - Training uses the context from prediction time, and quality checks keep duplicate copies of the same title out of training and validation overlap
-  - Restricted profiles exclude missing or unverified age ratings; requests recheck the current parental settings and rating-country policy
-  - Playlist updates skip disabled, removed or unverifiable users; compact touch controls avoid iOS focus zoom without oversized checkboxes or forced button heights
-  - Verified by 95% backend unit test coverage, 97% UI test coverage, and 406 end-to-end Docker tests
+  - Recommendation Engine V6 requires fresh Learned/Neural fitting over Activate runs; media, watch history, settings and spent acceptance IDs remain intact, and loading does not rewrite older parameter files
+  - One shared 41-feature contract, rebalanced bounded heuristic scoring, and Neural 41 -> 82 -> 96 -> 48 -> 24 -> 1 with 17,369 parameters
+  - Coherent story keywords and confirmed next-part collections support recommendations without language/genre-only confidence or skipping known collection gaps
+  - Cold/warm personal mixtures and admin/demo diagnostics distinguish global priors, provisional participation and independent verification; saved ranking diagnostics never trigger generation
+  - Personal provider-title Discovery routes reuse existing retrieval slots; 20 optional details share a 15-second per-user budget across fair lanes without weakening certification or request checks
+  - Complete Adam checkpoints preserve early-stopping and restart continuation; normalization/clamp coordinates and fitting-only imputation priors remain consistent
+  - Inactive-model retirement retains trust receipts and exact acceptance ledgers, allowing healthy global fallback only when withdrawal/recovery restrictions permit it
+  - Partial or ambiguous active Arr roots withhold orphan verdicts; remote Windows/UNC and POSIX paths keep independent comparison semantics
+  - Local verification: 8,109 backend, 1,771 UI, 112 browser/documentation fixtures, 64 multilingual demo checks and 4 targeted per-user filesystem E2E tests passed
+  - Published Codecov coverage: 94% backend and 97% UI; full Docker E2E suite inventory: 411 tests in 58 files
   - Requires Jellyfin 12.4
