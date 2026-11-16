@@ -645,6 +645,11 @@
     gap: 0.35em;
 }
 
+/* Cold-start labels have no positioned score bar and must not overlay other controls. */
+.discovery-card-body > .recs-score-text {
+    position: static;
+}
+
 .discovery-card-title {
     font-size: 1.05em;
     font-weight: 600;
@@ -673,20 +678,6 @@
     background: rgba(255, 193, 7, 0.15);
     color: #ffc107;
     font-weight: 600;
-}
-
-/* Keep unknown availability compact without inheriting metadata-chip sizing. */
-.discovery-availability {
-    align-self: flex-start;
-    margin-top: auto;
-    box-sizing: border-box;
-    min-width: 0;
-    max-width: 100%;
-    font-size: 0.78em;
-    line-height: 1.4;
-    color: var(--color-text-muted, rgba(255, 255, 255, 0.7));
-    white-space: normal;
-    overflow-wrap: anywhere;
 }
 
 .discovery-request-btn {

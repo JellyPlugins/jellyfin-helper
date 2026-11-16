@@ -580,16 +580,13 @@ function renderDiscoveryActions(rec, mediaType) {
     var html = '';
     if (rec.AlreadyRequested) {
         html += '<button class="discovery-request-btn discovery-request-done" disabled>';
-        html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
-        html += '</button>';
-    } else if (mediaType && rec.AvailabilityVerified === true) {
-        html += '<button class="discovery-request-btn" ';
-        html += 'data-tmdb-id="' + (Number.parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
-        html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+        html += mi('check_circle') + ' ' + escHtml(T('discoveryRequested', 'Requested'));
         html += '</button>';
     } else if (mediaType) {
-        var hint = T('discoveryAvailabilityUnknownHint', 'Availability not checked');
-        html += '<span class="discovery-availability" role="note" title="' + escHtml(hint) + '" aria-label="' + escHtml(hint) + '">' + escHtml(T('discoveryAvailabilityUnknown', 'Unchecked')) + '</span>';
+        html += '<button class="discovery-request-btn" ';
+        html += 'data-tmdb-id="' + (Number.parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
+        html += mi('cloud_download') + ' ' + escHtml(T('discoveryRequest', 'Request'));
+        html += '</button>';
     }
 
     return html;
@@ -597,7 +594,7 @@ function renderDiscoveryActions(rec, mediaType) {
 
 function renderDiscoveryScore(rec) {
     if (rec.IsPersonalized === false) {
-        return '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Popular suggestions — not personalized yet')) + '</span>';
+        return '<span class="recs-score-text">' + escHtml(T('discoveryColdStart', 'Not personalized')) + '</span>';
     }
     var pct = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var cls = getScoreThresholdClass(pct, 'recs-score-high', 'recs-score-mid', 'recs-score-low');
@@ -803,6 +800,7 @@ function collectSeerrQualityProfiles(services) {
  */
 function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
     if (res?.Success) {
+        if (res.AlreadyRequested === true) window.JellyfinHelperUi.showToast(T('discoveryAlreadyRequested', 'Title has already been requested'));
         btn.disabled = true;
         btn.classList.add('discovery-request-done');
         btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
