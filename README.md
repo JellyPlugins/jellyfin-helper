@@ -64,8 +64,6 @@ All tasks default to **Dry Run** mode. Nothing is deleted until you explicitly a
 
 **Compatibility:** Jellyfin **12.4+** · .NET **10.0**
 
-> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.6**, which remains available in the repository. Version 3.x targets Jellyfin 12.x and will not install on older servers.
-
 ---
 
 ## Installation
