@@ -37,6 +37,10 @@ public sealed class RecommendationResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Collection<RecommendedItem>? TrainingContrasts { get; init; }
 
+    /// <summary>Gets captured, bounded ranking diagnostics. Entries are unshown metadata, never independent feedback or training contrasts.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CandidateRankingDiagnostics? RankingDiagnostics { get; init; }
+
     /// <summary>
     ///     Gets or sets the UTC timestamp when these recommendations were generated. Normalized to UTC on set to ensure consistency after JSON deserialization (mirrors GeneratedAt).
     /// </summary>

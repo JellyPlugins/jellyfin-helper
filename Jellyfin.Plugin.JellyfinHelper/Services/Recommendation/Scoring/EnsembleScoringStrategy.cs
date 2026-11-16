@@ -487,10 +487,10 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
     {
-        var heuristicScore = _heuristic.Score(features);
+        var heuristicScore = _heuristic.ScoreRaw(features);
         if (alpha <= 0.0)
         {
-            return heuristicScore * ScoringHelper.ComputeGenrePenalty(features, floor);
+            return ScoringHelper.ComputeContextualScore(heuristicScore, features, floor);
         }
 
         var learnedScore = _learned.Score(features);
@@ -508,8 +508,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ScoringHelper.ComputeGenrePenalty(features, floor);
-        return blendedScore * penalty;
+        return ScoringHelper.ComputeContextualScore(blendedScore, features, floor);
     }
 
     /// <summary>
@@ -619,6 +618,13 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
     {
+        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        {
+            var contextual = ScoringHelper.BuildMarginalExplanation(features, value => ComputeBlendedScore(value, alpha, beta, floor), Name);
+            contextual.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);
+            return contextual;
+        }
+
         if (alpha <= 0.0)
         {
             var raw = _heuristic.ScoreWithExplanation(features);

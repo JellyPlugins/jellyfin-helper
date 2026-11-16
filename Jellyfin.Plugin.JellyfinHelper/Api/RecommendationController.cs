@@ -182,6 +182,44 @@ public class RecommendationController : ControllerBase
         return Ok(EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics, isPerUser, userName));
     }
 
+    /// <summary>Reads saved ranking diagnostics only. It never generates recommendations or fills a missing cache.</summary>
+    /// <param name="userId">The user whose saved prediction-time ranking is requested.</param>
+    /// <param name="itemId">Optional library item ID to locate without recomputing a score.</param>
+    /// <returns>Existing bounded diagnostics, or 404 when the saved run has none.</returns>
+    [HttpGet("Diagnostics/Ranking")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetRankingDiagnostics([FromQuery] Guid userId, [FromQuery] Guid? itemId = null)
+    {
+        if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, RecommendationsDisabledMessage);
+        }
+
+        if (userId == Guid.Empty || itemId == Guid.Empty)
+        {
+            return BadRequest("Valid, non-empty userId and optional itemId are required.");
+        }
+
+        var result = _cacheService.LoadResults()?.FirstOrDefault(row => row.UserId == userId);
+        if (result?.RankingDiagnostics is not { } trace)
+        {
+            return NotFound("No saved ranking diagnostics are available for this user.");
+        }
+
+        return Ok(new
+        {
+            result.UserId,
+            result.GeneratedAt,
+            trace.ScoredCandidateCount,
+            trace.IsComplete,
+            Entries = itemId.HasValue ? trace.Entries.Where(entry => entry.ItemId == itemId.Value).ToArray() : trace.Entries,
+            AbsenceMeaning = trace.IsComplete ? "NotScoredInSavedSnapshot" : "NotCapturedInBoundedTrace"
+        });
+    }
+
     /// <summary>
     ///     Gets recommendations for a specific user.
     /// </summary>

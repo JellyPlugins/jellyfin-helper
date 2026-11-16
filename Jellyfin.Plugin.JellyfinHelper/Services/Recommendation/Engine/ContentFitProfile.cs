@@ -31,6 +31,12 @@ internal sealed class ContentFitProfile
         "preschool", "children's television", "children's film", "children's adventure", "kinderfilm", "kinderserie"
     };
 
+    private static readonly HashSet<string> FormatLabels = new(StringComparer.Ordinal)
+    {
+        "based on manga", "based on comic", "based on comic book", "based on novel or book", "based on video game",
+        "live action and animation", "shounen", "seinen", "adult animation", "anthology"
+    };
+
     private readonly KeywordDocument[] _documents;
     private readonly Dictionary<string, double> _termWeights;
     private readonly bool _prefersOlderAnimation;
@@ -59,11 +65,14 @@ internal sealed class ContentFitProfile
         }
 
         var titles = BuildTitleKeywords(profile, lookup ?? (_ => null), excluded, sourceCache ?? new SourceCache());
-        var older = titles.Values.Count(title => title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels));
-        var children = titles.Values.Count(title => title.Genres.Contains("Kids") || title.Terms.Overlaps(ChildrenLabels));
-        var documents = titles.Values.Where(title => title.Terms.Count > 0).Select(title => title.Terms).ToArray();
+        var positiveTitles = titles.Values.Where(title => title.HasPositiveInteraction && (title.Ratings.Count == 0 || title.Ratings.Order().Average() > 5)).ToArray();
+        var older = positiveTitles.Count(title => title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels));
+        var children = positiveTitles.Count(title => title.Genres.Contains("Kids") || title.Terms.Overlaps(ChildrenLabels));
+        var documents = positiveTitles.Where(title => title.Terms.Count > 0).Select(title => title.Terms).ToArray();
         var weights = BuildTermWeights(documents);
-        return new ContentFitProfile(documents.Select(document => new KeywordDocument(document, document.Order(StringComparer.Ordinal).Sum(keyword => weights[keyword]))).ToArray(), weights, older > children);
+        var prepared = positiveTitles.Where(title => title.Terms.Count > 0)
+            .Select(title => new KeywordDocument(title.Terms, title.Terms.Order(StringComparer.Ordinal).Sum(keyword => weights[keyword]), title.Genres)).ToArray();
+        return new ContentFitProfile(prepared, weights, older > children);
     }
 
     private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache)
@@ -89,6 +98,12 @@ internal sealed class ContentFitProfile
             }
 
             title.Genres.UnionWith(GenreNormalizer.Set(row.Genres));
+            title.HasPositiveInteraction |= row.Played || row.IsFavorite;
+            if (row.UserRating is > 0 && double.IsFinite(row.UserRating.Value))
+            {
+                title.Ratings.Add(Math.Clamp(row.UserRating.Value, 0, 10));
+            }
+
             var tags = PreferenceBuilder.ResolveMetadataPreferenceValues(row, lookup, value => (value.Tags, value.OwnTags, value.SeriesTags));
             title.Terms.UnionWith(Keywords(tags, cache.Normalized));
         }
@@ -142,23 +157,29 @@ internal sealed class ContentFitProfile
     /// <param name="candidateTags">Own provider keywords, not folder-inherited metadata.</param>
     /// <returns>A bounded affinity; absent tags and broad labels alone do not manufacture a match.</returns>
     internal double ScoreTags(IEnumerable<string>? candidateTags)
+        => Match(candidateTags, null).Affinity;
+
+    private MatchEvidence Match(IEnumerable<string>? candidateTags, IReadOnlySet<string>? genres)
     {
         var candidate = Keywords(candidateTags).Order(StringComparer.Ordinal).ToArray();
         if (candidate.Length == 0 || _documents.Length == 0)
         {
-            return 0;
+            return default;
         }
 
         var candidateWeight = candidate.Sum(TermWeight);
         var best = 0.0;
+        var support = 0.0;
         foreach (var document in _documents)
         {
             var overlap = 0.0;
             var specific = 0;
+            var narrative = 0;
             foreach (var keyword in candidate.Where(document.Terms.Contains))
             {
                 overlap += TermWeight(keyword);
                 specific += BroadLabels.Contains(keyword) ? 0 : 1;
+                narrative += BroadLabels.Contains(keyword) || FormatLabels.Contains(keyword) ? 0 : 1;
             }
 
             // A specific provider keyword is valid evidence even for a sparse profile. Generic
@@ -167,9 +188,18 @@ internal sealed class ContentFitProfile
             {
                 best = Math.Max(best, 2.0 * overlap / (candidateWeight + document.Weight));
             }
+
+            // A candidate may add many new story terms without losing the coherent themes of a
+            // known title. Require two actual narrative matches and a majority of THAT document;
+            // scattered words, language, Anime/Shounen and adaptation format alone give no support.
+            var coverage = overlap / document.Weight;
+            if (narrative >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres))
+            {
+                support = Math.Max(support, coverage);
+            }
         }
 
-        return Math.Clamp(best, 0, 1);
+        return new MatchEvidence(Math.Clamp(best, 0, 1), Math.Clamp(support, 0, 1));
     }
 
     /// <summary>Moderates unsupported broad genre enthusiasm, never permitting or excluding an age-rated title.</summary>
@@ -181,46 +211,58 @@ internal sealed class ContentFitProfile
     /// <returns>A soft genre affinity; unknown evidence and family viewers remain neutral.</returns>
     internal double AdjustGenreSimilarity(double similarity, IReadOnlyList<string> genres, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences)
     {
-        var thematic = ScoreTags(tags);
+        var canonical = GenreNormalizer.Set(genres);
+        if (_prefersOlderAnimation && canonical.Contains("Kids"))
+        {
+            return similarity;
+        }
+
+        var match = Match(tags, canonical);
+        return AdjustGenreSimilarity(similarity, ResolveAudienceMismatch(canonical, tags, officialRating, preferences, match), match.Affinity);
+    }
+
+    private static double AdjustGenreSimilarity(double similarity, double audienceMismatch, double thematic)
+    {
         // Keep the trained v5 tag coordinate's scale. Fine title affinity supports the existing
         // bounded genre-confidence signal instead of feeding old standardizers a different unit.
         var supported = similarity > 0 ? Math.Min(1, similarity + ((1 - similarity) * thematic * 0.5)) : similarity;
-        if (!_prefersOlderAnimation || preferences.Count == 0)
+        return audienceMismatch > 0
+            ? Math.Min(supported, similarity * (audienceMismatch >= 0.5 ? 0.3 : 0.5))
+            : supported;
+    }
+
+    private double ResolveAudienceMismatch(HashSet<string> canonical, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences, MatchEvidence match)
+    {
+        if (!_prefersOlderAnimation || preferences.Count == 0 || canonical.Contains("Kids"))
         {
-            return supported;
+            return 0;
         }
 
-        var canonical = GenreNormalizer.Set(genres);
         var keywords = Keywords(tags);
         var canonicalPreferences = GenreNormalizer.Preferences(preferences);
         var maximum = canonicalPreferences.Values.Where(double.IsFinite).DefaultIfEmpty(0).Max();
         if (maximum <= 0)
         {
-            return supported;
-        }
-
-        if (canonical.Contains("Kids"))
-        {
-            return similarity;
+            return 0;
         }
 
         if (keywords.Overlaps(OlderAnimationLabels)
             || canonicalPreferences.GetValueOrDefault("Family") >= maximum * 0.5 || canonicalPreferences.GetValueOrDefault("Kids") >= maximum * 0.5
-            || thematic >= 0.5)
+            || match.Affinity >= 0.5 || match.Support >= 0.5)
         {
-            return supported;
+            return 0;
         }
 
         if (keywords.Overlaps(ChildrenLabels))
         {
-            return Math.Min(supported, similarity * 0.3);
+            return 0.5;
         }
 
         // Certification is not target audience: combined with Animation/Family this only halves
         // an otherwise unsupported genre match. No title/country/language blacklist or score ban.
         return IsAllAgesHint(officialRating) && (canonical.Contains("Animation") || canonical.Contains("Family"))
-            ? Math.Min(supported, similarity * 0.5)
-            : supported;
+            ? 0.25
+            : 0;
     }
 
     /// <summary>Enriches only a newly built vector; recorded prediction snapshots never pass through this method.</summary>
@@ -231,7 +273,19 @@ internal sealed class ContentFitProfile
     /// <param name="preferences">The unchanged complete genre preference vector.</param>
     internal void Apply(CandidateFeatures features, IReadOnlyList<string> genres, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences)
     {
-        features.GenreSimilarity = AdjustGenreSimilarity(features.GenreSimilarity, genres, tags, officialRating, preferences);
+        var canonical = GenreNormalizer.Set(genres);
+        var match = Match(tags, canonical);
+        var mismatch = ResolveAudienceMismatch(canonical, tags, officialRating, preferences, match);
+        features.GenreSimilarity = canonical.Contains("Kids") && _prefersOlderAnimation
+            ? features.GenreSimilarity
+            : AdjustGenreSimilarity(features.GenreSimilarity, mismatch, match.Affinity);
+        features.ContentFitSupport = null;
+        features.AudienceMismatch = null;
+        if (features.HasGenreEvidence && features.GenreSimilarity > 0)
+        {
+            features.ContentFitSupport = match.Support > 0 ? match.Support : null;
+            features.AudienceMismatch = mismatch > 0 ? mismatch : null;
+        }
     }
 
     /// <summary>Creates semantic keyword keys without mutating input metadata or interpreting transport labels as taste.</summary>
@@ -326,7 +380,9 @@ internal sealed class ContentFitProfile
         return normalized is "FSK0" or "FSK6" or "G" or "TVY" or "TVY7";
     }
 
-    private sealed record KeywordDocument(HashSet<string> Terms, double Weight);
+    private readonly record struct MatchEvidence(double Affinity, double Support);
+
+    private sealed record KeywordDocument(HashSet<string> Terms, double Weight, HashSet<string> Genres);
 
     /// <summary>Serial feature-cycle memo of pure metadata transforms, never preferences, outcomes or predictions.</summary>
     internal sealed class SourceCache
@@ -341,5 +397,9 @@ internal sealed class ContentFitProfile
         internal HashSet<string> Genres { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         internal HashSet<string> Terms { get; } = new(StringComparer.Ordinal);
+
+        internal bool HasPositiveInteraction { get; set; }
+
+        internal List<double> Ratings { get; } = [];
     }
 }

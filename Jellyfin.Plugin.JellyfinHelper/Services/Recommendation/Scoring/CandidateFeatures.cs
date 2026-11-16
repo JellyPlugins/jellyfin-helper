@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -218,6 +219,33 @@ public sealed class CandidateFeatures
     private double _writerAffinity;
     private double _billingWeightedPeople;
     private double _genreStudioIdfPrior;
+    private double? _contentFitSupport;
+    private double? _audienceMismatch;
+    private double? _collectionContinuationSupport;
+
+    /// <summary>Gets or sets captured coherent narrative support outside the unchanged 38 ML coordinates. Missing legacy/unknown evidence is neutral.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ContentFitSupport
+    {
+        get => _contentFitSupport;
+        set => _contentFitSupport = value.HasValue ? Clamp01(value.Value) : null;
+    }
+
+    /// <summary>Gets or sets a captured soft, personal audience mismatch, never a certification permission or outcome label.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? AudienceMismatch
+    {
+        get => _audienceMismatch;
+        set => _audienceMismatch = value.HasValue ? Clamp01(value.Value) : null;
+    }
+
+    /// <summary>Gets or sets captured support for the next unfinished, playable movie in a confirmed collection release sequence; not an ML coordinate.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? CollectionContinuationSupport
+    {
+        get => _collectionContinuationSupport;
+        set => _collectionContinuationSupport = value.HasValue ? Clamp01(value.Value) : null;
+    }
 
     /// <summary>Gets or sets a value indicating whether unavailable external metadata requires model-specific imputation.</summary>
     public bool IsExternalCandidate { get; set; }
@@ -578,6 +606,17 @@ public sealed class CandidateFeatures
     /// <returns>An independent copy.</returns>
     public CandidateFeatures Copy() => (CandidateFeatures)MemberwiseClone();
 
+    /// <summary>Removes only captured content context for a score-space explanation; all v5 coordinates remain intact.</summary>
+    /// <returns>An independent counterfactual.</returns>
+    internal CandidateFeatures WithoutContentFit()
+    {
+        var copy = Copy();
+        copy.ContentFitSupport = null;
+        copy.AudienceMismatch = null;
+        copy.CollectionContinuationSupport = null;
+        return copy;
+    }
+
     /// <summary>Marks an external feature as observed so model-specific imputation cannot erase it.</summary>
     /// <param name="index">The actual computed feature slot.</param>
     internal void MarkExternalFeatureKnown(FeatureIndex index)
@@ -632,6 +671,7 @@ public sealed class CandidateFeatures
                 break;
             case FeatureIndex.CollectionProgressionBoost:
                 copy.CollectionProgressionBoost = 0;
+                copy.CollectionContinuationSupport = null;
                 break;
             case FeatureIndex.PopularityScore:
                 copy.PopularityScore = 0;

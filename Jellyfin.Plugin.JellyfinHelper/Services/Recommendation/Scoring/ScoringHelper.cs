@@ -59,6 +59,11 @@ internal static class ScoringHelper
             PopularityContribution = Effect(FeatureIndex.PopularityScore),
             InteractionContribution = Effect(FeatureIndex.GenreCountNormalized)
         };
+        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        {
+            explanation.ContentFitContribution = full - score(features.WithoutContentFit());
+        }
+
         explanation.DominantSignal = ScoreExplanation.DetermineDominantSignal(
             explanation.GenreContribution,
             explanation.CollaborativeContribution,
@@ -98,6 +103,57 @@ internal static class ScoringHelper
     /// <returns>A neutral multiplier for missing evidence, otherwise the configured genre penalty.</returns>
     internal static double ComputeGenrePenalty(CandidateFeatures features, double floor)
         => features.HasGenreEvidence ? ComputeSoftGenrePenalty(features.GenreSimilarity, floor) : 1.0;
+
+    /// <summary>Applies the existing genre penalty, then bounded captured content confidence once in final score space.</summary>
+    /// <param name="rawScore">The raw component or mixture prediction.</param>
+    /// <param name="features">Original v5 coordinates plus immutable, optional contextual evidence.</param>
+    /// <param name="floor">The existing genre-penalty floor.</param>
+    /// <returns>A contextual score; neutral/legacy evidence preserves the exact old result.</returns>
+    internal static double ComputeContextualScore(double rawScore, CandidateFeatures features, double floor)
+    {
+        var score = rawScore * ComputeGenrePenalty(features, floor);
+        if (!double.IsFinite(score))
+        {
+            return score;
+        }
+
+        // This affine adjustment commutes with the ensemble mixture, so admission compares EVERY
+        // component and incumbent with the same captured context without changing fitting units.
+        var (support, mismatch) = ResolveContentAdjustment(features);
+        if (support == 0 && mismatch == 0)
+        {
+            return score;
+        }
+
+        return (score + ((1 - score) * support * 0.5)) * (1 - mismatch);
+    }
+
+    /// <summary>Reconstructs only the pre-content scalar for diagnostics, never model inputs or outcomes.</summary>
+    /// <param name="score">The initial contextual score.</param>
+    /// <param name="features">The same captured context used to score it.</param>
+    /// <returns>The pre-content score including genre penalty, or null for an invalid prediction.</returns>
+    internal static double? RecoverPreContentScore(double score, CandidateFeatures features)
+    {
+        if (!double.IsFinite(score))
+        {
+            return null;
+        }
+
+        var (support, mismatch) = ResolveContentAdjustment(features);
+        var lift = support * 0.5;
+        return ((score / (1 - mismatch)) - lift) / (1 - lift);
+    }
+
+    private static (double Support, double Mismatch) ResolveContentAdjustment(CandidateFeatures features)
+    {
+        var hasGenres = features.HasGenreEvidence && features.GenreSimilarity > 0;
+        var continuation = features.CollectionContinuationSupport.GetValueOrDefault();
+        var support = Math.Max(continuation, hasGenres ? features.ContentFitSupport.GetValueOrDefault() : 0);
+        var mismatch = hasGenres ? Math.Min(0.5, features.AudienceMismatch.GetValueOrDefault()) : 0;
+        // Completed collection progress is stronger personal evidence than an ambiguous All-Ages hint.
+        // Explicit preschool mismatch remains separate; neither rule changes certification permission.
+        return (support, continuation >= 0.5 && mismatch <= 0.25 ? 0 : mismatch);
+    }
 
     /// <summary>
     ///     Computes the raw linear score from a feature vector, weights, and bias. Returns NaNFallbackScore if the result is NaN or Infinity, which can occur when weights are corrupted or features contain invalid values.

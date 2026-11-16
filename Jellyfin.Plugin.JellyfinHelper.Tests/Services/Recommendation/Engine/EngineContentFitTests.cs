@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -93,6 +94,56 @@ public sealed class EngineContentFitTests
         Assert.Equal(first.GenreSimilarity, cached.GenreSimilarity);
         Assert.Equal(1, first.TagSimilarity);
         Assert.Equal(first.TagSimilarity, cached.TagSimilarity);
+        Assert.Equal(first.ContentFitSupport, cached.ContentFitSupport);
+        Assert.Equal(first.AudienceMismatch, cached.AudienceMismatch);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FrozenAdverseSeriesPredictorCannotHideCoherentStoryEvidenceBehindBroadAllAgesMatches(bool batch)
+    {
+        var weights = new double[38];
+        weights[(int)FeatureIndex.GenreSimilarity] = .03;
+        weights[(int)FeatureIndex.IsSeries] = -.65;
+        var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .8 });
+        using var neural = new NeuralScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1);
+        var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), heuristic);
+        typeof(EnsembleScoringStrategy).GetField("_acceptedPrediction", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(ensemble, new AcceptedPrediction(heuristic, learned, neural.CapturePredictionSnapshot(), new AdmissionMixture(.66, .09), .3));
+        var harness = EngineTestFactory.Create(ensemble);
+        using var lifetime = harness.Engine;
+        var user = Guid.NewGuid();
+        var prior = Series("Known battle story", 100, StoryTags, "FSK-12", 8);
+        var profile = Profile(user, prior.Id);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var story = Series("Unseen pirate adventure", 101, StoryTags.Concat(["ocean", "sea", "ship"]).ToArray(), "FSK-12", 8);
+        var cartoon = Series("Generic all-ages cartoon", 102, ["JE Arr Tag: german"], "FSK-0", 9);
+        var family = new Movie { Id = Guid.NewGuid(), Name = "Generic family adventure", Path = "/media/family.mkv", Genres = ["Animation", "Action & Adventure"], Tags = ["JE Arr Tag: german"], OfficialRating = "FSK-6", CommunityRating = 8 };
+        var episodes = Enumerable.Range(0, 12).Select(index => Episode(prior, index)).Concat(Enumerable.Range(0, 1179).Select(index => Episode(story, index))).Append(Episode(cartoon, 0)).Cast<BaseItem>().ToArray();
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true) return [family];
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.Series) == true) return [prior, story, cartoon];
+            return episodes;
+        });
+        var result = batch
+            ? Assert.Single(harness.Engine.GetAllRecommendations(3, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(user, 3, TestContext.Current.CancellationToken)!;
+        var chosen = Assert.Single(result.Recommendations, item => item.ItemId == story.Id);
+        var broad = Assert.Single(result.Recommendations, item => item.ItemId == family.Id);
+        Assert.True(learned.Score(chosen.ScoringFeatures!) < learned.Score(broad.ScoringFeatures!));
+        Assert.True(chosen.Score > broad.Score);
+        Assert.Equal(story.Id, result.Recommendations[0].ItemId);
+        Assert.InRange(chosen.ScoringFeatures!.ContentFitSupport!.Value, .5, 1);
+        Assert.Equal(.25, broad.ScoringFeatures!.AudienceMismatch);
+        Assert.All(result.Recommendations, item => Assert.Equal(Math.Round(ensemble.Score(item.ScoringFeatures!), 4), item.Score));
+        var trace = Assert.IsType<CandidateRankingDiagnostics>(result.RankingDiagnostics);
+        Assert.True(trace.IsComplete);
+        Assert.DoesNotContain(trace.Entries, entry => entry.ItemId == prior.Id);
+        Assert.Equal("Selected", Assert.Single(trace.Entries, entry => entry.ItemId == story.Id).SelectionStage);
     }
 
     private static Mock<IScoringStrategy> Predictor()
@@ -115,8 +166,8 @@ public sealed class EngineContentFitTests
         weights[(int)FeatureIndex.CombinedCriticScore] = .1;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
         var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5 });
-        var h = new HeuristicScoringStrategy(genrePenaltyFloor: 1).Score(features);
-        return ((.25 * h) + (.66 * learned.Score(features)) + (.09 * .75)) * ScoringHelper.ComputeGenrePenalty(features, .1);
+        var h = new HeuristicScoringStrategy(genrePenaltyFloor: 1).ScoreRaw(features);
+        return ScoringHelper.ComputeContextualScore((.25 * h) + (.66 * learned.Score(features)) + (.09 * .75), features, .1);
     }
 
     private static UserWatchProfile Profile(Guid user, Guid parent)

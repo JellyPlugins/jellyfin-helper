@@ -1552,7 +1552,8 @@ public sealed partial class EnsembleScoringStrategy
 
         public string NameKey => source.NameKey;
 
-        public double Score(CandidateFeatures features) => source.Score(features) * ScoringHelper.ComputeGenrePenalty(features, floor);
+        public double Score(CandidateFeatures features)
+            => ScoringHelper.ComputeContextualScore(source is HeuristicScoringStrategy heuristic ? heuristic.ScoreRaw(features) : source.Score(features), features, floor);
 
         public ScoreExplanation ScoreWithExplanation(CandidateFeatures features) => ScoringHelper.BuildMarginalExplanation(features, Score, Name);
     }

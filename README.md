@@ -65,6 +65,8 @@ Learned is the personal linear ML model; Neural is a globally trained network ca
 
 Content matching uses coherent, title-balanced provider keywords to refine broad genre similarity; technical download/language tags supply no thematic evidence. The exact raw v5 tag-Jaccard coordinate (including technical labels), fitted statistics and recorded prediction snapshots remain unchanged. Audience hints are soft and user-specific, not age bans.
 
+Bounded story and collection-continuation confidence also acts after ensemble blending, outside the 38 ML inputs. Confirmed provider-backed BoxSets support the first unfinished playable movie in known release order, never a later part over an unfinished gap. `/JellyfinHelper/Recommendations/Diagnostics/Ranking` reads only saved, bounded ranking diagnostics; a missing snapshot never triggers generation.
+
 New recommendation calculations and watch profiles respect excluded libraries. Live candidate snapshots refresh when exclusions or library roots change; saved result lists and existing playlists are not retroactively rewritten. Statistics retain excluded libraries' file/size counts, while Discovery ownership checks deliberately cover the whole library.
 
 All tasks default to **Dry Run** mode. Nothing is deleted until you explicitly activate them.

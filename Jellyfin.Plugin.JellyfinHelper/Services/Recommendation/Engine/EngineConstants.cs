@@ -87,6 +87,9 @@ internal static class EngineConstants
     /// </summary>
     internal const int MaxRecommendationsPerUserLimit = 100;
 
+    /// <summary>Bounds scalar ranking diagnostics per user, without retaining full candidate feature vectors.</summary>
+    internal const int MaximumRankingTraceCandidates = 1000;
+
     /// <summary>
     ///     MMR diversity trade-off parameter (0 = pure diversity, 1 = pure relevance).
     ///     A value of 0.7 gives strong relevance with meaningful diversity.

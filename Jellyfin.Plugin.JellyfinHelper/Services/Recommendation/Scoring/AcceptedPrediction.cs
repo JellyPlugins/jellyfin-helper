@@ -54,14 +54,14 @@ internal sealed class AcceptedPrediction
     {
         ArgumentNullException.ThrowIfNull(features);
         var mixture = Resolve(alphaMax);
-        var h = _heuristic.Score(features);
+        var h = _heuristic.ScoreRaw(features);
         if (mixture.Alpha <= 0)
         {
-            return h * ScoringHelper.ComputeGenrePenalty(features, genrePenaltyFloor);
+            return ScoringHelper.ComputeContextualScore(h, features, genrePenaltyFloor);
         }
 
         var l = Learned.Score(features);
         var n = mixture.Neural > 0 ? Neural!.Score(features) : 0;
-        return mixture.Score(new AdmissionScores(h, l, n, 0)) * ScoringHelper.ComputeGenrePenalty(features, genrePenaltyFloor);
+        return ScoringHelper.ComputeContextualScore(mixture.Score(new AdmissionScores(h, l, n, 0)), features, genrePenaltyFloor);
     }
 }

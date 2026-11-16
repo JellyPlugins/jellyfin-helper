@@ -285,6 +285,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── PingControllerTests.cs                        # 200 with { ok, plugin, version }
 │   ├── RecommendationControllerTests.cs
 │   ├── RecommendationControllerDiagnosticsTests.cs      # GET /Recommendations/Diagnostics/Ensemble: 200 populated DTO, Available=false on null, 503 when deactivated
+│   ├── RecommendationRankingDiagnosticsTests.cs         # Cache-only ranking diagnostics; never generate on a miss
 │   ├── TrashControllerTests.cs
 │   ├── TraktOfficialPluginControllerTests.cs           # OfficialPluginStatus mirrors the reader's presence probe (true/false)
 │   ├── UserActivityControllerTests.cs
@@ -464,6 +465,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── CollectionMembershipResolverTests.cs    # Linked BoxSets, legacy fallback, candidate scope and provider failures
+│       │   ├── CollectionContinuationCatalogTests.cs   # Confirmed next-part ordering, unfinished gaps and historical exclusion
 │       │   ├── EngineStaticHelpersTests.cs           # Pure static helpers: episode counting, language parse/dedupe, billing-weight filtering
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
@@ -471,6 +473,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
+│       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
 │       │   ├── ContentFitProfileTests.cs              # Coherent title keywords, audience hints, provenance and detached contexts
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
@@ -507,6 +510,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralScoringStrategyTests.cs
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v5 predictors and inference parity
+│       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
 │       │   ├── AcceptedModelStoreTests.cs                # Complete v5 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
@@ -705,6 +709,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── GenreNormalizer.cs # Loads genre.<TMDb-ID> with pipe-separated spelling variants from all embedded i18n JSON files; shared movie/TV semantic coordinates
 │   │   │   ├── CollectionMembershipResolver.cs # Modern linked BoxSets with scoped parent fallback
+│   │   │   ├── CollectionContinuationCatalog.cs # Detached confirmed movie release sequences; no cached user outcomes
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
 │   │   │   ├── ReasonAnchorContext.cs # Concrete anchors (collection/country/writer/tag/era) for reasons
@@ -761,6 +766,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── IRecommendationEngine.cs
 │   │   ├── IRecommendationCacheService.cs
 │   │   ├── RecommendationCacheService.cs
+│   │   ├── CandidateRankingDiagnostics.cs     # Bounded initial-ranking metadata, not training evidence
+│   │   ├── CandidateRankingEntry.cs           # Captured score/order and selection stage
 │   │   ├── RecommendedItem.cs
 │   │   └── RecommendationResult.cs
 │   ├── Arr/                     # Radarr/Sonarr integration

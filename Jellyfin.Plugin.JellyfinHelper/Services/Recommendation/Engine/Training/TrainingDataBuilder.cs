@@ -142,7 +142,10 @@ internal static class TrainingDataBuilder
                 profile.WatchedItems.Any(row => row.InheritedTags.Count > 0),
                 profile.WatchedItems.Any(row => row.WriterNames.Count > 0))),
             BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata),
-            BuildCollectionIdLookup(previousResults, allProfiles, libraryItemMetadata));
+            BuildCollectionIdLookup(previousResults, allProfiles, libraryItemMetadata))
+        {
+            Continuation = libraryItemMetadata?.Continuation ?? CollectionContinuationCatalog.Empty
+        };
 
         var examples = new List<TrainingExample>();
 
@@ -449,7 +452,8 @@ internal static class TrainingDataBuilder
 
         return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes)
         {
-            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources)
+            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources),
+            CollectionContinuation = ctx.Lookups.Continuation.BuildSupport(profile)
         });
     }
 
@@ -767,6 +771,7 @@ internal static class TrainingDataBuilder
         features.GenreAffinityGap = affinityGap;
 
         contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(rec.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample
         {
@@ -1169,6 +1174,7 @@ internal static class TrainingDataBuilder
         features.GenreAffinityGap = organicAffGap;
 
         history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = history.Content.CollectionContinuation.TryGetValue(w.ItemId, out var continuation) ? continuation : null;
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.
         var label = ComputeOrganicStandaloneLabel(w, completionRatio);
@@ -1445,6 +1451,7 @@ internal static class TrainingDataBuilder
         features.GenreAffinityGap = negAffGap;
 
         contentSets.ContentFit.Apply(features, negGenres, negTags, neg.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(neg.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample
         {
@@ -1511,6 +1518,9 @@ internal static class TrainingDataBuilder
     {
         /// <summary>Gets per-cycle memoized string/identity transforms; historical preference aggregates are always rebuilt.</summary>
         public ContentFitProfile.SourceCache ContentSources { get; init; } = new();
+
+        /// <summary>Gets shared, immutable membership/order metadata; user completion is always evaluated historically.</summary>
+        public CollectionContinuationCatalog Continuation { get; init; } = CollectionContinuationCatalog.Empty;
     }
 
     /// <summary>
@@ -1524,6 +1534,9 @@ internal static class TrainingDataBuilder
     {
         /// <summary>Gets semantic evidence from this historical, self-excluded user view.</summary>
         public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+
+        /// <summary>Gets next collection titles from this self-excluded historical user's completed progress only.</summary>
+        public Dictionary<Guid, double> CollectionContinuation { get; init; } = [];
     }
 
     /// <summary>
