@@ -55,6 +55,7 @@ Indices and names match `FeatureIndex` and the read-only diagnostics catalogue. 
 ## Evidence and inference
 
 - Technical transport/language tags supply no thematic evidence. The complete genre/alias catalogue (including provider labels) is broad evidence, never specific story evidence; adaptation labels cannot manufacture narrative support.
+- Language-only names, aliases, codes and track-flag compounds use the shared language catalogue, not a short language list. Actual story settings such as "French revolution" remain thematic evidence.
 - Known thematic nonmatches are real zeros. Unavailable language/theme inputs use each model's fixed **fitting-only** imputation means; validation, acceptance and future target activity never determine those means.
 - Historical preferences use dated, strictly earlier, self-excluded playback. Saved indexes are not reconstructed earlier stream choices. Missing/partial language metadata and subtitles-off stay distinguishable from genuine preference.
 - The heuristic budgets fine affinity at 0.08, genre affinity at 0.18, collection progress at 0.15 and languages at 0.045. Remaining positive priors share 0.545; total positive weight is 1.0, with separate negative penalties. Narrative confidence and audience mismatch have zero fixed raw coefficients because they are applied once in final score space. Learned and Neural learn all 41 coordinates; final confidence remains consistent across components and mixtures.
@@ -65,3 +66,5 @@ Indices and names match `FeatureIndex` and the read-only diagnostics catalogue. 
 ## Training state
 
 Early-Stopping checkpoints restore both parameters and the matching Adam moments/clock. Neural persistence includes that complete continuing state. Dense input clamp envelopes move with normalization coordinates in both Learned and Neural, avoiding an unrelated projection after rebasing. Negative/nonfinite deviations are rejected; genuine zero/signed-zero constant features remain valid. Invalid optimizer metadata cannot poison otherwise valid inference.
+
+Regular personal-model retirement keeps its assessment receipts and exact spent-title ledger, including legacy IDs. Returning users may borrow a healthy global prior only with intact trust data; withdrawal, reserved-input and independent-recovery restrictions remain in force. Retirement time is not a new fitting timestamp.
