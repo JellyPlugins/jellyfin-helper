@@ -42,7 +42,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
         => ScoringHelper.ComputeContextualScore(ScoreRaw(features), features, GenrePenaltyFloor);
 
     /// <summary>Provides the unchanged component prediction; the ensemble applies penalties and context only after blending.</summary>
-    /// <param name="features">Raw v5 coordinates.</param>
+    /// <param name="features">The shared 41-feature coordinates.</param>
     /// <returns>The unpenalized heuristic score.</returns>
     internal static double ScoreRaw(CandidateFeatures features)
     {

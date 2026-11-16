@@ -353,7 +353,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void HarmfulLegacyV5ModelIsPersistentlySuppressedWithoutFabricatingAnAcceptedBundleOrDeletingWeights()
+    public void HarmfulUnverifiedV6ModelIsPersistentlySuppressedWithoutFabricatingAnAcceptedBundleOrDeletingWeights()
     {
         var statePath = Path.Join(_directory, "legacy-withdraw-state.json");
         var weightsPath = Path.Join(_directory, "legacy-withdraw-ml.json");
@@ -396,7 +396,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
     [InlineData("missing", true)]
     [InlineData("malformed", false)]
     [InlineData("invalid-parameters", true)]
-    public void LostAcceptedBundleAfterLegacyReplacementCannotReactivateWithdrawnV5Weights(string damage, bool removeLegacyState)
+    public void LostAcceptedBundleAfterLegacyReplacementCannotReactivateWithdrawnWeights(string damage, bool removeLegacyState)
     {
         var scope = "lost-promoted-" + damage + "-" + removeLegacyState;
         var statePath = Path.Join(_directory, scope + "-state.json");
@@ -454,7 +454,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
     [Theory]
     [InlineData("ledger")]
     [InlineData("assessment")]
-    public void FailedLegacySuppressionCommitCannotPublishSuppressionOrModifyV5Weights(string blocked)
+    public void FailedLegacySuppressionCommitCannotPublishSuppressionOrModifyV6Weights(string blocked)
     {
         var statePath = Path.Join(_directory, "legacy-write-failure-state.json");
         var weightsPath = Path.Join(_directory, "legacy-write-failure-ml.json");
@@ -1890,7 +1890,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
 
     private static NeuralScoringStrategy.PredictionSnapshot ConstantNeural(double score) => new(new NeuralScoringStrategy.NeuralWeightsData
     {
-        Version = 5, TrainingGeneration = 6, BiasOutput = Math.Log(score / (1 - score)),
+        Version = 6, TrainingGeneration = 6, BiasOutput = Math.Log(score / (1 - score)),
         WeightsIH = new double[NeuralScoringStrategy.Hidden1Size * CandidateFeatures.FeatureCount],
         BiasH1 = new double[NeuralScoringStrategy.Hidden1Size],
         WeightsH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size],
@@ -1917,7 +1917,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
             AlphaCap = .75, NeuralCap = .3, Mixture = mixture,
             CalibrationLoss = Math.Pow(score - .85, 2), CalibrationTitleCount = 20,
             OperatingInputDigest = new string('A', 64),
-            Learned = new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 5, Weights = new double[CandidateFeatures.FeatureCount], Bias = .85 },
+            Learned = new LearnedScoringStrategy.WeightsData { Version = 6, TrainingGeneration = 5, Weights = new double[CandidateFeatures.FeatureCount], Bias = .85 },
             Neural = beta > 0 ? ConstantNeural(.95).ExportParameters() : null,
             State = new EnsembleScoringStrategy.EnsembleStateData
             {
@@ -1934,7 +1934,7 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         weights[(int)FeatureIndex.CombinedCriticScore] = inverted ? -1 : 1;
         return new AcceptedModelBundle
         {
-            Learned = new LearnedScoringStrategy.WeightsData { Version = 5, Weights = weights, Bias = inverted ? .85 : 0, TrainingGeneration = 1 },
+            Learned = new LearnedScoringStrategy.WeightsData { Version = 6, Weights = weights, Bias = inverted ? .85 : 0, TrainingGeneration = 1 },
             Mixture = new AdmissionMixture(.75, 0),
             AlphaCap = .75,
             NeuralCap = .3,

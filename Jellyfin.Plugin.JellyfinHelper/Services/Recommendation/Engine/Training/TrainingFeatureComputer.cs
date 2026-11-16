@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -254,6 +255,7 @@ internal static class TrainingFeatureComputer
         // scans the whole profile: an episode of this series that is absent from the passed-in list
         // (a filtered subset) would otherwise leak its own label back into the aggregate.
         var episodeIds = ContentScoring.BuildSeriesExcludeSet(seriesId, userProfile);
+        var languageProfile = preparedContentFit is null ? TrainingHistory.Before(userProfile, predictionTime, episodeIds) : userProfile;
 
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
         var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
@@ -292,8 +294,10 @@ internal static class TrainingFeatureComputer
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
                     ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
-            LanguageAffinity = 0.5,
-            SubtitleLanguageAffinity = 0.5,
+            LanguageAffinity = ComputeLanguageAffinityFromCache(mostRecent?.AudioLanguages ?? [], languageProfile),
+            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile.Count, mostRecent?.HasAudioLanguageMetadata),
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromCache(mostRecent?.SubtitleLanguages ?? [], languageProfile),
+            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile.Count, mostRecent?.HasSubtitleLanguageMetadata),
             CollectionProgressionBoost = collectionProgressionBoost,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(episodes.Select(episode => episode.TmdbCollectionId).FirstOrDefault(id => id > 0), seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
@@ -568,6 +572,15 @@ internal static class TrainingFeatureComputer
             userProfile.ToleratedLanguages,
             userProfile.LanguageProfile);
     }
+
+    /// <summary>Checks language-input availability without calling a sparse, unlabelled track list a genuine mismatch.</summary>
+    /// <param name="languages">Captured normalized available languages, or null when unknown.</param>
+    /// <param name="personalLanguageCount">The number of evidenced personal language preferences.</param>
+    /// <param name="hasMetadata">Whether every track's language was identified; null preserves legacy list provenance.</param>
+    /// <returns>Whether the affinity is suitable as an observed ML coordinate.</returns>
+    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, int personalLanguageCount, bool? hasMetadata = null)
+        => hasMetadata != false && personalLanguageCount > 0 && languages is { Count: > 0 }
+            && languages.All(language => LanguageIdentity.GetIso6391Code(language) is not null);
 
     /// <summary>
     ///     Core language affinity logic.

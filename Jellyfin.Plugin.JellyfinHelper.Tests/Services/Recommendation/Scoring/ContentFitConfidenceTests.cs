@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
-/// <summary>Content confidence acts once in final score space, without changing v5 predictors or manufacturing outcomes.</summary>
+/// <summary>Shared v6 thematic inputs and score-space confidence remain distinct, immutable and outcome-independent.</summary>
 public sealed class ContentFitConfidenceTests
 {
     private static readonly Dictionary<string, double> Preferences = new() { ["Animation"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
@@ -46,10 +46,10 @@ public sealed class ContentFitConfidenceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void CapturedConfidenceDoesNotChangeAnyOfThe38RawOrImputedModelCoordinates(bool external)
+    public void V6ThemeCoordinatesAreExplicitAndCollectionContinuationDoesNotBecomeAnExtraModelInput(bool external)
     {
         var f = new CandidateFeatures { IsExternalCandidate = external, GenreSimilarity = .7, TagSimilarity = .004, LanguageAffinity = 1, IsSeries = true };
-        var means = Enumerable.Repeat(.3, 38).ToArray();
+        var means = Enumerable.Repeat(.3, CandidateFeatures.FeatureCount).ToArray();
         var raw = f.ToVector();
         var imputed = f.ToModelVector(means);
         var predictor = Predictor();
@@ -60,11 +60,16 @@ public sealed class ContentFitConfidenceTests
         f.ContentFitSupport = .8;
         f.AudienceMismatch = .25;
         f.CollectionContinuationSupport = .75;
-        Assert.Equal(raw, f.ToVector());
-        Assert.Equal(imputed, f.ToModelVector(means));
-        Assert.Equal(38, f.ToVector().Length);
+        Assert.Equal(raw.Take((int)FeatureIndex.ContentFitAffinity), f.ToVector().Take((int)FeatureIndex.ContentFitAffinity));
+        Assert.Equal(imputed.Take((int)FeatureIndex.ContentFitAffinity), f.ToModelVector(means).Take((int)FeatureIndex.ContentFitAffinity));
+        Assert.Equal(.8, f.ToVector()[(int)FeatureIndex.ContentFitSupport]);
+        Assert.Equal(.25, f.ToVector()[(int)FeatureIndex.AudienceMismatch]);
+        Assert.Equal(41, f.ToVector().Length);
         Assert.Equal(learnedScore, predictor.Score(f));
-        Assert.Equal(neuralScore, snapshot.Score(f));
+        Assert.NotEqual(neuralScore, snapshot.Score(f));
+        var withoutContinuation = f.Copy();
+        withoutContinuation.CollectionContinuationSupport = null;
+        Assert.Equal(snapshot.Score(f), snapshot.Score(withoutContinuation));
         Assert.Equal(raw, f.WithoutContentFit().ToVector());
     }
 
@@ -270,9 +275,9 @@ public sealed class ContentFitConfidenceTests
 
     private static LearnedScoringStrategy.PredictionSnapshot Predictor()
     {
-        var weights = new double[38];
+        var weights = new double[CandidateFeatures.FeatureCount];
         weights[(int)FeatureIndex.GenreSimilarity] = .03;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
-        return new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .6 });
+        return new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .6 });
     }
 }

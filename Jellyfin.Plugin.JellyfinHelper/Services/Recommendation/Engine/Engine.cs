@@ -1111,12 +1111,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         var entries = new List<CandidateRankingEntry>(trace.Count);
         var rank = 0;
-        foreach (var item in scored.OrderByDescending(item => item.Score).Select(item => item.Item))
+        foreach (var itemId in scored.OrderByDescending(item => item.Score).Select(item => item.Item.Id))
         {
             rank++;
-            if (trace.TryGetValue(item.Id, out var entry))
+            if (trace.TryGetValue(itemId, out var entry))
             {
-                entries.Add(entry with { InitialRank = rank, SelectionStage = ResolveSelectionStage(selected.Contains(item.Id), rank, count) });
+                entries.Add(entry with { InitialRank = rank, SelectionStage = ResolveSelectionStage(selected.Contains(itemId), rank, count) });
             }
         }
 
@@ -1471,12 +1471,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 context.WatchedPeopleSets,
                 context.WatchedStudioSets),
             LanguageAffinity = languageAffinity,
+            HasAudioLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Audio, context.Profile.LanguageProfile.Count, candidateMediaLanguages.AudioKnown),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
                 context.CandidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
                 context.WatchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(context.Profile, candidateMediaLanguages.Subtitles),
+            HasSubtitleLanguageEvidence = Training.TrainingFeatureComputer.HasLanguageEvidence(candidateMediaLanguages.Subtitles, context.Profile.SubtitleLanguageProfile.Count, candidateMediaLanguages.SubtitlesKnown),
             FranchiseAffinity = franchiseAffinity,
             ProductionLocationAffinity = productionLocationAffinity,
             InheritedTagSimilarity = inheritedTagSimilarity,
@@ -1634,7 +1636,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A tuple of (Audio languages, Subtitle languages) as distinct, normalized ISO 639 codes.</returns>
-    private (List<string> Audio, List<string> Subtitles) ResolveMediaLanguages(BaseItem candidate)
+    private (List<string> Audio, List<string> Subtitles, bool AudioKnown, bool SubtitlesKnown) ResolveMediaLanguages(BaseItem candidate)
     {
         try
         {
@@ -1663,14 +1665,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             if (streams is null)
             {
-                return ([], []);
+                return ([], [], false, false);
             }
 
-            return ParseLanguagesFromStreams(streams);
+            var (audio, subtitles) = ParseLanguagesFromStreams(streams);
+            return (audio, subtitles,
+                streams.Where(stream => stream.Type == MediaStreamType.Audio).All(stream => LanguageIdentity.GetIso6391Code(stream.Language) is not null),
+                streams.Where(stream => stream.Type == MediaStreamType.Subtitle).All(stream => LanguageIdentity.GetIso6391Code(stream.Language) is not null));
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            return ([], []); // Graceful: no stream data available
+            return ([], [], false, false); // Graceful: no stream data available
         }
     }
 
@@ -2091,7 +2096,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private double ComputeLanguageAffinityFromStreams(
         UserWatchProfile userProfile,
         BaseItem candidate,
-        out (List<string> Audio, List<string> Subtitles) mediaLanguages)
+        out (List<string> Audio, List<string> Subtitles, bool AudioKnown, bool SubtitlesKnown) mediaLanguages)
     {
         mediaLanguages = ResolveMediaLanguages(candidate);
 

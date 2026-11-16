@@ -59,7 +59,7 @@ internal static class ScoringHelper
             PopularityContribution = Effect(FeatureIndex.PopularityScore),
             InteractionContribution = Effect(FeatureIndex.GenreCountNormalized)
         };
-        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        if (features.ContentFitAffinity.HasValue || features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
         {
             explanation.ContentFitContribution = full - score(features.WithoutContentFit());
         }
@@ -106,7 +106,7 @@ internal static class ScoringHelper
 
     /// <summary>Applies the existing genre penalty, then bounded captured content confidence once in final score space.</summary>
     /// <param name="rawScore">The raw component or mixture prediction.</param>
-    /// <param name="features">Original v5 coordinates plus immutable, optional contextual evidence.</param>
+    /// <param name="features">Shared v6 coordinates and immutable contextual evidence.</param>
     /// <param name="floor">The existing genre-penalty floor.</param>
     /// <returns>A contextual score; neutral/legacy evidence preserves the exact old result.</returns>
     internal static double ComputeContextualScore(double rawScore, CandidateFeatures features, double floor)
@@ -233,6 +233,9 @@ internal static class ScoringHelper
         var franchiseContrib = GetContribution(vector, weights, FeatureIndex.FranchiseAffinity);
         var collectionContrib = GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost);
         var popularityContrib = GetContribution(vector, weights, FeatureIndex.PopularityScore);
+        var contentContrib = GetContribution(vector, weights, FeatureIndex.ContentFitAffinity)
+            + GetContribution(vector, weights, FeatureIndex.ContentFitSupport)
+            + GetContribution(vector, weights, FeatureIndex.AudienceMismatch);
 
         // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend, tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,.
         var interactionSum =
@@ -269,7 +272,7 @@ internal static class ScoringHelper
         // the interaction bucket so they can be the dominant signal and drive a concrete recommendation reason.
         var contributionSum = genreContrib + collabContrib + ratingContrib + recencyContrib +
             yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib +
-            franchiseContrib + collectionContrib + popularityContrib;
+            franchiseContrib + collectionContrib + popularityContrib + contentContrib;
         var rawScore = GuardScore(contributionSum + bias);
         var score = Math.Clamp(rawScore, 0.0, 1.0);
 
@@ -288,6 +291,7 @@ internal static class ScoringHelper
             FranchiseContribution = franchiseContrib,
             CollectionProgressionContribution = collectionContrib,
             PopularityContribution = popularityContrib,
+            ContentFitContribution = contentContrib,
             GenrePenaltyMultiplier = 1.0, // No penalty in individual strategies - applied in Ensemble
             DominantSignal = ScoreExplanation.DetermineDominantSignal(
                 genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib, interactionContrib, peopleContrib, studioContrib, franchiseContrib, collectionContrib, popularityContrib),

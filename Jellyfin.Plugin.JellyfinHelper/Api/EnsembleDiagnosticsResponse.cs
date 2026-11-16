@@ -1,4 +1,6 @@
 using System;
+using System.Collections.ObjectModel;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -9,6 +11,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 public sealed class EnsembleDiagnosticsResponse
 {
+    private Collection<string> _neuralFeatures = [];
+
     /// <summary>
     ///     Gets or sets a value indicating whether ensemble diagnostics are available. False when the active
     ///     strategy is not an ensemble or no state has been produced yet; the remaining fields carry defaults.
@@ -84,6 +88,19 @@ public sealed class EnsembleDiagnosticsResponse
     /// <summary>Gets or sets a value indicating whether a neural sub-strategy was constructed for this ensemble.</summary>
     public bool NeuralEnabled { get; set; }
 
+    /// <summary>Gets or sets the actual retained Neural parameter schema, separate from mixture revision.</summary>
+    public int? NeuralModelVersion { get; set; }
+
+    /// <summary>Gets or sets the schema's actual Neural input count.</summary>
+    public int? NeuralInputFeatureCount { get; set; }
+
+    /// <summary>Gets or sets the versioned canonical Neural feature names.</summary>
+    public Collection<string> NeuralFeatures
+    {
+        get => _neuralFeatures;
+        set => _neuralFeatures = value ?? [];
+    }
+
     /// <summary>
     ///     Gets or sets a value indicating whether these diagnostics describe a per-user model. False means
     ///     the coordinates come from a global prior/model; ValidationLevel distinguishes a user's bounded starting mixture.
@@ -145,6 +162,9 @@ public sealed class EnsembleDiagnosticsResponse
             AlphaMin = diagnostics.AlphaMin,
             AlphaMax = diagnostics.AlphaMax,
             NeuralEnabled = diagnostics.NeuralEnabled,
+            NeuralModelVersion = diagnostics.NeuralModelVersion,
+            NeuralInputFeatureCount = diagnostics.NeuralInputFeatureCount,
+            NeuralFeatures = new Collection<string>(diagnostics.NeuralFeatures.ToList()),
             IsPerUser = isPerUser,
             UserName = userName
         };

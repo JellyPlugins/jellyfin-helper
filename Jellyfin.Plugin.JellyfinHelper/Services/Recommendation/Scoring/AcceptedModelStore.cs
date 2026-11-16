@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
-/// <summary>Reads/writes one authoritative model bundle without overwriting valid legacy v5 checkpoint files.</summary>
+/// <summary>Reads/writes one authoritative v6 model bundle; unsupported files are not rewritten while loading.</summary>
 internal sealed class AcceptedModelStore
 {
     private const long MaximumBundleBytes = 10 * 1024 * 1024;

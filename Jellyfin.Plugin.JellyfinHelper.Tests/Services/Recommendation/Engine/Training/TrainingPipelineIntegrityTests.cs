@@ -358,7 +358,8 @@ public sealed class TrainingPipelineIntegrityTests
         Assert.Equal(0.9, raw.CollaborativeScore);
         var library = raw.Copy();
         library.IsExternalCandidate = false;
-        Assert.Equal(library.ToVector(), library.ToModelVector(personalMeans));
+        Assert.Equal(library.ToVector().Take((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(personalMeans).Take((int)FeatureIndex.ContentFitAffinity));
+        Assert.Equal(personalMeans.Skip((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(personalMeans).Skip((int)FeatureIndex.ContentFitAffinity));
     }
 
     [Fact]

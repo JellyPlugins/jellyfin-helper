@@ -20,7 +20,7 @@ public sealed class AcceptedModelStoreTests : IDisposable
     }
 
     [Fact]
-    public void AtomicBundleRoundTripPreservesV5ParametersAndDoesNotRewriteLegacyFiles()
+    public void AtomicBundleRoundTripPreservesV6ParametersAndDoesNotRewriteOtherFiles()
     {
         var statePath = Path.Join(_directory, "ensemble_state.json");
         var weightsPath = Path.Join(_directory, "ml_weights.json");
@@ -31,8 +31,8 @@ public sealed class AcceptedModelStoreTests : IDisposable
         Assert.True(store.Commit(bundle));
         var restored = Assert.IsType<AcceptedModelBundle>(store.Read());
         Assert.Equal(bundle.Mixture, restored.Mixture);
-        Assert.Equal(5, restored.Learned.Version);
-        Assert.Equal(5, restored.Neural!.Version);
+        Assert.Equal(6, restored.Learned.Version);
+        Assert.Equal(6, restored.Neural!.Version);
         Assert.Equal(bundle.Revision, restored.Revision);
         Assert.Equal(bundle.AcceptanceObservationIds, restored.AcceptanceObservationIds);
         Assert.Equal("legacy-state-canary", File.ReadAllText(statePath));

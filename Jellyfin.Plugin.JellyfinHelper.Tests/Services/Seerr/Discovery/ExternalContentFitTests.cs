@@ -21,11 +21,11 @@ public sealed class ExternalContentFitTests
         var profile = Profile();
         var candidate = Candidate();
         candidate.KnownKeywords = known ? [.. Tags] : null;
-        var means = Enumerable.Repeat(.42, 38).ToArray();
+        var means = Enumerable.Repeat(.42, CandidateFeatures.FeatureCount).ToArray();
         var features = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile, means);
         Assert.Equal(known ? 1 : .42, features.TagSimilarity, 12);
         Assert.Equal(known, features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity));
-        Assert.Equal(38, features.ToVector().Length);
+        Assert.Equal(41, features.ToVector().Length);
         Assert.Equal(features.GenreSimilarity * features.CombinedCriticScore, features.ToVector()[(int)FeatureIndex.GenreCriticInteraction]);
     }
 
@@ -35,7 +35,7 @@ public sealed class ExternalContentFitTests
         var profile = Profile();
         var candidate = Candidate();
         candidate.KnownKeywords = [];
-        var features = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile, Enumerable.Repeat(.8, 38).ToArray());
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile, Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray());
         Assert.Equal(0, features.TagSimilarity);
         Assert.True(features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity));
     }
@@ -75,7 +75,7 @@ public sealed class ExternalContentFitTests
     }
 
     [Fact]
-    public void ConfirmedFeedbackRetainsItsOriginalV5PredictionAfterMetadataImproves()
+    public void ConfirmedFeedbackRetainsItsOriginalV6PredictionAfterMetadataImproves()
     {
         var profile = Profile();
         var original = new CandidateFeatures { IsExternalCandidate = true, GenreSimilarity = .7, TagSimilarity = .001, ContentNearestNeighborScore = .3 };
@@ -85,7 +85,7 @@ public sealed class ExternalContentFitTests
             RequestedAtUtc = DateTime.UtcNow.AddDays(-1), PredictionEvidenceAtUtc = DateTime.UtcNow.AddDays(-1), ScoringFeatures = original
         };
         var (examples, _) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new DiscoveryFeedbackResult { UserId = profile.UserId, Entries = [entry] }],
-            new Dictionary<Guid, UserWatchProfile> { [profile.UserId] = profile }, null, Enumerable.Repeat(.8, 38).ToArray(), TestContext.Current.CancellationToken);
+            new Dictionary<Guid, UserWatchProfile> { [profile.UserId] = profile }, null, Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray(), TestContext.Current.CancellationToken);
         var retained = Assert.Single(examples).Features;
         Assert.Equal(original.ToVector(), retained.ToVector());
         Assert.NotSame(original, retained);

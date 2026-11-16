@@ -13,7 +13,8 @@ internal sealed class ContentFitProfile
     private static readonly HashSet<string> TechnicalLabels = new(StringComparer.Ordinal)
     {
         "german", "german dl", "deutsch", "english", "japanese", "de", "en", "ja", "dubbed", "subbed", "dual audio", "multi",
-        "480p", "720p", "1080p", "2160p", "4k", "h264", "h265", "x264", "x265", "hevc", "hdr", "hdr10", "dolby vision", "bluray", "blu ray", "web dl", "webdl", "remux"
+        "480p", "720p", "1080p", "2160p", "4k", "h264", "h265", "x264", "x265", "hevc", "hdr", "hdr10", "dolby vision", "bluray", "blu ray", "web dl", "webdl", "remux",
+        "aac", "ac3", "eac3", "ddp", "dolby digital", "dolby digital plus", "dts", "dts hd", "truehd", "atmos"
     };
 
     private static readonly HashSet<string> BroadLabels = new(StringComparer.Ordinal)
@@ -199,8 +200,13 @@ internal sealed class ContentFitProfile
         var weight = 0.0;
         var specific = 0;
         var narrative = 0;
-        foreach (var keyword in candidate.Where(terms.Contains))
+        foreach (var keyword in candidate)
         {
+            if (!terms.Contains(keyword))
+            {
+                continue;
+            }
+
             weight += TermWeight(keyword);
             specific += BroadLabels.Contains(keyword) ? 0 : 1;
             narrative += BroadLabels.Contains(keyword) || FormatLabels.Contains(keyword) ? 0 : 1;
@@ -230,7 +236,7 @@ internal sealed class ContentFitProfile
 
     private static double AdjustGenreSimilarity(double similarity, double audienceMismatch, double thematic)
     {
-        // Keep the trained v5 tag coordinate's scale. Fine title affinity supports the existing
+        // Keep raw tag-Jaccard separate. Fine title affinity supports the existing
         // bounded genre-confidence signal instead of feeding old standardizers a different unit.
         var supported = similarity > 0 ? Math.Min(1, similarity + ((1 - similarity) * thematic * 0.5)) : similarity;
         var mismatchFactor = audienceMismatch >= 0.5 ? 0.3 : 0.5;
@@ -274,7 +280,7 @@ internal sealed class ContentFitProfile
     }
 
     /// <summary>Enriches only a newly built vector; recorded prediction snapshots never pass through this method.</summary>
-    /// <param name="features">The newly built v5 vector.</param>
+    /// <param name="features">The newly built 41-feature vector.</param>
     /// <param name="genres">Candidate genres.</param>
     /// <param name="tags">Candidate own/provider keywords.</param>
     /// <param name="officialRating">Optional provider certification, not a preference outcome.</param>
@@ -283,6 +289,8 @@ internal sealed class ContentFitProfile
     {
         var canonical = GenreNormalizer.Set(genres);
         var match = Match(tags, canonical);
+        features.HasContentMetadata = tags is not null && _documents.Length > 0;
+        features.ContentFitAffinity = features.HasContentMetadata == true ? match.Affinity : null;
         var mismatch = ResolveAudienceMismatch(canonical, tags, officialRating, preferences, match);
         features.GenreSimilarity = canonical.Contains("Kids") && _prefersOlderAnimation
             ? features.GenreSimilarity

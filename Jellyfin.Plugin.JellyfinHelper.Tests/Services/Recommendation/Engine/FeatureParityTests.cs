@@ -171,7 +171,7 @@ public sealed class FeatureParityTests
         var prepared = new ExternalCandidateFeatureBuilder.Context { GenrePreferences = [], PreferredPeople = [], GenreExposure = PreferenceBuilder.BuildGenreExposureAnalysis([], profile), User = context };
         var features = ExternalCandidateFeatureBuilder.Build(candidate, prepared);
         Assert.Equal(1, features.TagSimilarity);
-        // The legacy v5 coordinate remains Jaccard; the separate coherent signal cannot
+        // Raw tag similarity remains Jaccard; the separate coherent signal cannot
         // assemble one perfect thematic title from three unrelated historical documents.
         Assert.True(context.ContentFit.ScoreTags(candidate.KnownKeywords) < context.ContentFit.ScoreTags(["item tag", "parent tag"]));
         Assert.True(features.StudioMatch);

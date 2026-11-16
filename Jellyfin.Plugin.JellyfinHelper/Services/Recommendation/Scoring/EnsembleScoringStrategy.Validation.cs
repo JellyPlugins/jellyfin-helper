@@ -863,7 +863,7 @@ public sealed partial class EnsembleScoringStrategy
                 CalibrationTitleCount = provisional?.Calibration.Titles ?? 0,
                 OperatingInputDigest = provisional?.Digest ?? bounds.InputDigest,
                 Learned = candidates.Learned.ExportParameters(),
-                Neural = candidates.Neural?.ExportParameters(),
+                Neural = candidates.NeuralTrainer is { } trainer ? trainer.CaptureTrainingCheckpoint() : RetainedNeuralParameters(candidates.Neural),
                 Mixture = decision.Candidate,
                 AlphaCap = bounds.AlphaCap,
                 NeuralCap = bounds.NeuralCap,
@@ -920,6 +920,23 @@ public sealed partial class EnsembleScoringStrategy
             SaveAssessment(DateTime.UtcNow);
             return true;
         }
+    }
+
+    private NeuralScoringStrategy.NeuralWeightsData? RetainedNeuralParameters(NeuralScoringStrategy.PredictionSnapshot? prediction)
+    {
+        if (prediction is null)
+        {
+            return null;
+        }
+
+        var data = prediction.ExportParameters();
+        // Serving-only snapshots deliberately omit Adam state. Preserve the complete checkpoint only for the same retained predictor.
+        if (ReferenceEquals(prediction, _acceptedPrediction?.Neural) && _acceptedBundle?.Neural?.TrainingState is { } state)
+        {
+            data.TrainingState = state.Copy();
+        }
+
+        return data;
     }
 
     private void EnableIndependentAdmission()
@@ -1433,7 +1450,7 @@ public sealed partial class EnsembleScoringStrategy
             return;
         }
 
-        // An unreadable/missing suppression journal cannot grant old v5 weights influence again.
+        // An unreadable/missing suppression journal cannot grant suppressed weights influence again.
         // Keep the parameter checkpoint intact; a genuinely useful fresh candidate can still be admitted.
         _qualityGateFrozen = true;
         _requiresIndependentRecovery = true;

@@ -2,7 +2,7 @@ using System;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
-/// <summary>One atomic accepted model version. Parameter schemas remain v5; transaction metadata is additive.</summary>
+/// <summary>One atomic accepted v6 model version; transaction metadata is independent of parameter schema.</summary>
 internal sealed class AcceptedModelBundle
 {
     /// <summary>Gets or sets the compound-model metadata version.</summary>

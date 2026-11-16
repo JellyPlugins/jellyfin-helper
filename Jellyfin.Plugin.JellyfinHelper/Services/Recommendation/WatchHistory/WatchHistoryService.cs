@@ -757,10 +757,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IReadOnlyList<BaseItem> allItems,
         IReadOnlyDictionary<Guid, UserItemData>? itemUserDataLookup)
     {
+        var rowsById = profile.WatchedItems.ToLookup(row => row.ItemId);
         foreach (var item in allItems)
         {
             var userData = LookupUserData(itemUserDataLookup, item, user);
-            if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
+            if (userData is null || !rowsById.Contains(item.Id))
             {
                 continue;
             }
@@ -783,126 +784,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            if (allStreams is null || allStreams.Count == 0)
+            foreach (var row in rowsById[item.Id])
             {
-                continue;
-            }
-
-            // Single-pass partition: split audio and subtitle streams in one iteration.
-            var streamsByType = allStreams.ToLookup(s => s.Type);
-            var audioStreams = streamsByType[MediaStreamType.Audio].ToList();
-            var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
-
-            AccumulateAudioLanguage(profile, userData, audioStreams);
-
-            AccumulateSubtitleLanguage(profile, userData, subtitleStreams);
-        }
-    }
-
-    /// <summary>
-    ///     Folds the audio language the user watched an item in into the profile's language profile, distinguishing "chosen" (alternatives existed) from "forced" (single option).
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="userData">The user data for the item.</param>
-    /// <param name="audioStreams">The item's audio streams.</param>
-    private static void AccumulateAudioLanguage(
-        UserWatchProfile profile,
-        UserItemData userData,
-        List<MediaStream> audioStreams)
-    {
-        if (audioStreams.Count > 0)
-        {
-            string? usedAudioLanguage = null;
-
-            if (userData.AudioStreamIndex.HasValue)
-            {
-                var chosenStream = audioStreams
-                    .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
-                usedAudioLanguage = NormalizeLanguage(chosenStream?.Language);
-            }
-
-            if (string.IsNullOrEmpty(usedAudioLanguage))
-            {
-                usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
-            }
-
-            if (!string.IsNullOrEmpty(usedAudioLanguage))
-            {
-                // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
-                // from the same audioStreams list), so the old "> 0" guard was dead code.
-                var availableAudioLanguages = audioStreams
-                    .Select(s => NormalizeLanguage(s.Language))
-                    .Where(l => !string.IsNullOrEmpty(l))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count();
-
-                if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
+                PlaybackLanguageEvidence.Capture(row, userData, allStreams);
+                if (row.HasPlaybackActivity())
                 {
-                    audioEntry = new LanguageProfileEntry();
-                    profile.LanguageProfile[usedAudioLanguage] = audioEntry;
-                }
-
-                if (availableAudioLanguages > 1)
-                {
-                    audioEntry.ChosenCount++;
-                }
-                else
-                {
-                    audioEntry.ForcedCount++;
+                    PlaybackLanguageEvidence.Accumulate(profile, row);
                 }
             }
-        }
-    }
-
-    /// <summary>
-    ///     Folds the subtitle language the user selected for an item into the profile's subtitle language profile, distinguishing "chosen" from "forced".
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="userData">The user data for the item.</param>
-    /// <param name="subtitleStreams">The item's subtitle streams.</param>
-    private static void AccumulateSubtitleLanguage(
-        UserWatchProfile profile,
-        UserItemData userData,
-        List<MediaStream> subtitleStreams)
-    {
-        if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0 || subtitleStreams.Count == 0)
-        {
-            return;
-        }
-
-        var chosenSubStream = subtitleStreams
-            .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-        var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
-
-        if (string.IsNullOrEmpty(usedSubLanguage))
-        {
-            return;
-        }
-
-        var availableSubLanguages = subtitleStreams
-            .Select(s => NormalizeLanguage(s.Language))
-            .Where(l => !string.IsNullOrEmpty(l))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-
-        if (availableSubLanguages <= 0)
-        {
-            return;
-        }
-
-        if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
-        {
-            subEntry = new LanguageProfileEntry();
-            profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
-        }
-
-        if (availableSubLanguages > 1)
-        {
-            subEntry.ChosenCount++;
-        }
-        else
-        {
-            subEntry.ForcedCount++;
         }
     }
 

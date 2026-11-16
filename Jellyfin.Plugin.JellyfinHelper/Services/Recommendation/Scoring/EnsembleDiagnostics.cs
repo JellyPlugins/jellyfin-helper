@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -109,6 +110,15 @@ public sealed record EnsembleDiagnostics
     ///     Gets a value indicating whether a neural sub-strategy was constructed for this ensemble.
     /// </summary>
     public bool NeuralEnabled { get; init; }
+
+    /// <summary>Gets the actual retained/serving Neural schema, not the newest rejected training attempt.</summary>
+    public int? NeuralModelVersion { get; init; }
+
+    /// <summary>Gets the actual 41-input Neural schema.</summary>
+    public int? NeuralInputFeatureCount { get; init; }
+
+    /// <summary>Gets the canonical versioned Neural feature list, without altering evidence counts or coefficients.</summary>
+    public IReadOnlyList<string> NeuralFeatures { get; init; } = [];
 
     /// <summary>Gets a value indicating whether this snapshot has personal fitting coordinates rather than inherited priors.</summary>
     internal bool HasOwnOperatingModel { get; init; }

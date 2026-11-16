@@ -17,13 +17,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <remarks>
 ///     Training uses Adam with L2 regularization, Z-score standardization, He/Xavier init, temporal sample weighting, dropout, and early stopping.
 /// </remarks>
-public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
+public sealed partial class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>
     ///     Number of neurons in the first hidden layer.
-    ///     ~2× InputSize (38->76) - best-practice expansion factor for tabular MLPs.
+    ///     2× InputSize (41→82), followed by the existing 96→48→24 representation layers.
     /// </summary>
-    internal const int Hidden1Size = 76;
+    internal const int Hidden1Size = 82;
 
     /// <summary>
     ///     Neurons in the second hidden layer. 96, deliberately WIDER than Hidden1 so the model can compose high-order feature interactions (genre×critic, people×genre) instead of being forced through an early bottleneck.
@@ -95,11 +95,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MinExamplesForDropout = 50;
 
     /// <summary>
-    ///     Schema version for persisted weights. A set whose array lengths no longer match the current layer sizes (feature-count or hidden-size change) is discarded on load: the load path warns and resets to defaults so the next training run rebuilds from scratch.
+    ///     v6 uses the shared 41 inputs and an 82-neuron first hidden layer. Unsupported files are not rewritten while loading.
     /// </summary>
-    // V5 unifies provider-title holdouts across library and discovery. Older fits may have
-    // learned an alias of a now-held-out title; array shape alone cannot reject that leakage.
-    internal const int CurrentWeightsVersion = 5;
+    // Model schema is independent of the accepted bundle's transaction metadata version.
+    internal const int CurrentWeightsVersion = 6;
 
     /// <summary>
     ///     JSON options for weight persistence. Compact (non-indented) output cuts the file to ~a third with no information loss; weights are machine-read only.
@@ -436,7 +435,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         // Reuse a thread-local input buffer to avoid a heap allocation per candidate. WriteToVector
         // fully overwrites every element, so no stale data leaks between calls.
-        var vector = GetThreadLocalInputBuffer();
         PrepareThreadLocalHiddenBuffers();
         try
         {
@@ -449,7 +447,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         try
         {
-            features.WriteForModel(vector, _imputationMeans);
+            var vector = GetThreadLocalInputBuffer();
+            ModelInputFeatures.Write(features, vector, _imputationMeans, _inputSize);
             return ComputeLockedVectorScore(vector);
         }
         finally
@@ -486,6 +485,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         try
         {
+            if (vector.Length != CandidateFeatures.FeatureCount)
+            {
+                throw new ArgumentException("Neural vector length does not match its model schema.", nameof(vector));
+            }
+
             return ComputeLockedVectorScore(vector);
         }
         finally
@@ -581,7 +585,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
-    /// <summary>Loads independent v5 model coordinates without adopting caller arrays or a legacy persistence path.</summary>
+    /// <summary>Loads independent v6 model coordinates without adopting caller arrays or a persistence path.</summary>
     /// <param name="data">The accepted neural parameters.</param>
     /// <returns>A detached model, or null for an incompatible model.</returns>
     internal static NeuralScoringStrategy? FromParameters(NeuralWeightsData data)
@@ -593,11 +597,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         var model = new NeuralScoringStrategy();
-        model.ApplyLoadedWeights(new PredictionSnapshot(data).ExportParameters());
+        var copy = new PredictionSnapshot(data).ExportParameters();
+        copy.TrainingState = data.TrainingState is { } state && state.Valid(CandidateFeatures.FeatureCount) ? state.Copy() : data.TrainingState;
+        model.ApplyLoadedWeights(copy);
         return model;
     }
 
-    /// <summary>Requires both the legacy v5 shape contract and finite values before restoring a bundle.</summary>
+    /// <summary>Requires the v6 shape contract and finite values before restoring a bundle.</summary>
     /// <param name="data">Complete neural parameters.</param>
     /// <returns>Whether constructing a model from these coordinates is safe.</returns>
     internal static bool IsValidParameters(NeuralWeightsData data) => IsValidWeightsData(data) && !HasNonFiniteWeights(data);
@@ -644,6 +650,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         target._vBH3 = CopyOptional(_vBH3);
         target._vBH4 = CopyOptional(_vBH4);
         target._vBO = _vBO;
+        target._inputWeightLimits = (double[])_inputWeightLimits.Clone();
+        target._inputBiasLimits = (double[])_inputBiasLimits.Clone();
     }
 
     private double ComputeLockedVectorScore(double[] vector)
@@ -734,8 +742,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return new ScoreExplanation { FinalScore = 0.5, StrategyName = Name };
         }
 
-        var vector = new double[CandidateFeatures.FeatureCount];
-
         try
         {
             try
@@ -747,6 +753,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 return new ScoreExplanation { FinalScore = 0.5, StrategyName = Name };
             }
 
+            var vector = new double[_inputSize];
             var h1Pre = new double[Hidden1Size];
             var h1Act = new double[Hidden1Size];
             var h2Pre = new double[Hidden2Size];
@@ -757,7 +764,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h4Act = new double[Hidden4Size];
             double ScorePinned(CandidateFeatures candidate)
             {
-                candidate.WriteForModel(vector, _imputationMeans);
+                ModelInputFeatures.Write(candidate, vector, _imputationMeans, _inputSize);
                 if (_featureMeans is not null && _featureStdDevs is not null)
                 {
                     LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
@@ -837,7 +844,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         for (var i = 0; i < examples.Count; i++)
         {
-            rawVectors[i] = examples[i].Features.ToModelVector(imputationMeans);
+            rawVectors[i] = ModelInputFeatures.Vector(examples[i].Features, imputationMeans, inputSize);
             weights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
@@ -872,6 +879,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // Clone raw vectors into working copies so standardization doesn't mutate originals.
             // Compute stats from TRAINING split only to prevent validation data leakage.
             var vectors = LearnedScoringStrategy.CloneVectors(rawVectors);
+            imputationMeans = ModelInputFeatures.FitImputation(examples, trainIdx, imputationMeans);
+            for (var index = 0; index < examples.Count; index++)
+            {
+                ModelInputFeatures.Write(examples[index].Features, vectors[index], imputationMeans, inputSize);
+            }
+
             double[]? featureMeans = null;
             double[]? featureStdDevs = null;
 
@@ -879,7 +892,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             {
                 // Canonical order avoids floating-point statistic drift from optimizer shuffling alone.
                 var trainOnly = trainIdx.Order().Select(index => vectors[index]).ToArray();
-                (featureMeans, featureStdDevs) = LearnedScoringStrategy.ComputeFeatureStatistics(trainOnly);
+                (featureMeans, featureStdDevs) = LearnedScoringStrategy.ComputeFeatureStatistics(trainOnly, inputSize);
                 LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
             }
 
@@ -934,7 +947,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 h3Mask,
                 h4Mask);
             var bestWeights = new WeightSnapshot(
-                bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O);
+                bestWIH, bestBH1, bestWH1H2, bestBH2, bestWH2H3, bestBH3, bestWH3H4, bestBH4, bestWH4O, CaptureOptimizerState());
             // Gate on the training-split size, not examples.Count: the held-out validation slice gets
             // no gradient updates, so counting it would activate dropout below the starvation threshold.
             var dropoutActive = trainIdx.Length >= MinExamplesForDropout;
@@ -1055,11 +1068,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="inputSize">The unchanged feature count.</param>
     private void RebaseWarmInputNormalization(double[]? means, double[]? stdDevs, int inputSize)
     {
-        if (_hasTrainedWeights && TrainingMath.RebaseInputLayer(_weightsIH, _biasH1, _featureMeans, _featureStdDevs, means, stdDevs))
+        if (_hasTrainedWeights)
         {
-            // Adam moments belong to the previous parameter coordinates.
-            _mWIH = null;
-            EnsureAdamState(inputSize);
+            RebaseInputLimits(means, stdDevs);
+            if (TrainingMath.RebaseInputLayer(_weightsIH, _biasH1, _featureMeans, _featureStdDevs, means, stdDevs, inputSize))
+            {
+                // Adam moments belong to the previous parameter coordinates.
+                _mWIH = null;
+                EnsureAdamState(inputSize);
+            }
         }
     }
 
@@ -1336,6 +1353,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         Array.Copy(_weightsH3H4, best.BestWH3H4, _weightsH3H4.Length);
         Array.Copy(_biasH4, best.BestBH4, _biasH4.Length);
         Array.Copy(_weightsH4O, best.BestWH4O, _weightsH4O.Length);
+        CaptureOptimizerState(best.TrainingState);
     }
 
     /// <summary>
@@ -1353,6 +1371,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         Array.Copy(best.BestWH3H4, _weightsH3H4, _weightsH3H4.Length);
         Array.Copy(best.BestBH4, _biasH4, _biasH4.Length);
         Array.Copy(best.BestWH4O, _weightsH4O, _weightsH4O.Length);
+        RestoreOptimizerState(best.TrainingState);
     }
 
     /// <summary>
@@ -1561,10 +1580,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _vWIH![p] = (AdamBeta2 * _vWIH[p]) + ((1 - AdamBeta2) * g * g);
                 var updated = _weightsIH[p] - (DefaultLearningRate * (_mWIH[p] / bc1) /
                                  (Math.Sqrt(_vWIH[p] / bc2) + AdamEpsilon));
-                _weightsIH[p] = Math.Clamp(updated, -WeightClamp, WeightClamp);
+                _weightsIH[p] = Math.Clamp(updated, -_inputWeightLimits[i], _inputWeightLimits[i]);
             }
 
-            ApplyAdamBiasStep(ref _mBH1![j], ref _vBH1![j], ref _biasH1[j], h1Err[j], bc1, bc2);
+            ApplyAdamBiasStep(ref _mBH1![j], ref _vBH1![j], ref _biasH1[j], h1Err[j], bc1, bc2, _inputBiasLimits[j]);
         }
     }
 
@@ -1577,18 +1596,20 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="grad">The gradient (error signal) for the bias.</param>
     /// <param name="bc1">Adam first-moment bias-correction denominator (1 - β1^t).</param>
     /// <param name="bc2">Adam second-moment bias-correction denominator (1 - β2^t).</param>
+    /// <param name="limit">The bias limit in the current input coordinates.</param>
     private static void ApplyAdamBiasStep(
         ref double m,
         ref double v,
         ref double bias,
         double grad,
         double bc1,
-        double bc2)
+        double bc2,
+        double limit = WeightClamp)
     {
         m = (AdamBeta1 * m) + ((1 - AdamBeta1) * grad);
         v = (AdamBeta2 * v) + ((1 - AdamBeta2) * grad * grad);
         bias -= DefaultLearningRate * (m / bc1) / (Math.Sqrt(v / bc2) + AdamEpsilon);
-        bias = Math.Clamp(bias, -WeightClamp, WeightClamp);
+        bias = Math.Clamp(bias, -limit, limit);
     }
 
     /// <summary>
@@ -2046,19 +2067,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <returns><c>true</c> when the payload is structurally valid and safe to apply.</returns>
     private static bool IsValidWeightsData(NeuralWeightsData data)
     {
-        // Validate standardization arrays: both null, or both FeatureCount length.
-        var hasValidStandardization = (data.FeatureMeans is null && data.FeatureStdDevs is null)
-                                      || data is
-                                      {
-                                          FeatureMeans: { Length: CandidateFeatures.FeatureCount },
-                                          FeatureStdDevs.Length: CandidateFeatures.FeatureCount
-                                      };
-
-        return hasValidStandardization
-            && (data.ImputationMeans is null || data.ImputationMeans.Length == CandidateFeatures.FeatureCount)
+        var inputSize = CandidateFeatures.FeatureCount;
+        return data.Version == CurrentWeightsVersion
+            && TrainingMath.ValidNormalization(data.FeatureMeans, data.FeatureStdDevs, inputSize)
+            && (data.ImputationMeans is null || data.ImputationMeans.Length == inputSize)
+            && data.WeightsIH is { } && data.WeightsIH.Length == Hidden1Size * inputSize
             && data is
             {
-                Version: CurrentWeightsVersion, WeightsIH.Length: Hidden1Size * CandidateFeatures.FeatureCount,
                 BiasH1.Length: Hidden1Size, WeightsH1H2.Length: Hidden2Size * Hidden1Size,
                 BiasH2.Length: Hidden2Size, WeightsH2H3.Length: Hidden3Size * Hidden2Size,
                 BiasH3.Length: Hidden3Size, WeightsH3H4.Length: Hidden4Size * Hidden3Size,
@@ -2103,7 +2118,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _featureStdDevs = data.FeatureStdDevs;
         _imputationMeans = data.ImputationMeans;
         _trainingGeneration = data.TrainingGeneration;
-        _adamTimestep = 0;
+        RestoreTrainingState(data.TrainingState);
         _hasTrainedWeights = true;
     }
 
@@ -2146,25 +2161,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             try
             {
-                data = new NeuralWeightsData
-                {
-                    WeightsIH = (double[])_weightsIH.Clone(),
-                    BiasH1 = (double[])_biasH1.Clone(),
-                    WeightsH1H2 = (double[])_weightsH1H2.Clone(),
-                    BiasH2 = (double[])_biasH2.Clone(),
-                    WeightsH2H3 = (double[])_weightsH2H3.Clone(),
-                    BiasH3 = (double[])_biasH3.Clone(),
-                    WeightsH3H4 = (double[])_weightsH3H4.Clone(),
-                    BiasH4 = (double[])_biasH4.Clone(),
-                    WeightsH4O = (double[])_weightsH4O.Clone(),
-                    BiasOutput = _biasOutput,
-                    FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
-                    FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
-                    ImputationMeans = _imputationMeans is not null ? (double[])_imputationMeans.Clone() : null,
-                    TrainingGeneration = _trainingGeneration,
-                    UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                    Version = CurrentWeightsVersion
-                };
+                data = CaptureParametersLocked();
+                data.TrainingState = _mWIH is null ? null : CaptureOptimizerState();
+                data.UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             }
             finally
             {
@@ -2333,6 +2332,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="BestWH3H4">Best-so-far hidden3->hidden4 weights.</param>
     /// <param name="BestBH4">Best-so-far hidden4 biases.</param>
     /// <param name="BestWH4O">Best-so-far hidden4->output weights.</param>
+    /// <param name="TrainingState">The matching best-epoch optimizer and clamp coordinates.</param>
     private readonly record struct WeightSnapshot(
         double[] BestWIH,
         double[] BestBH1,
@@ -2342,7 +2342,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         double[] BestBH3,
         double[] BestWH3H4,
         double[] BestBH4,
-        double[] BestWH4O);
+        double[] BestWH4O,
+        NeuralTrainingState TrainingState);
 
     /// <summary>
     ///     Scalar configuration for the training epoch loop, grouped so
@@ -2416,12 +2417,28 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         /// <summary>Gets a value indicating whether these immutable coordinates represent a technically valid trained model.</summary>
         internal bool HasTrainedParameters => _data.TrainingGeneration > 0 && IsValidParameters(_data);
 
+        internal int InputCount => CandidateFeatures.FeatureCount;
+
+        internal int Version => _data.Version;
+
+        internal double[]? ImputationMeans => CopyOptional(_data.ImputationMeans);
+
         /// <inheritdoc />
         public double Score(CandidateFeatures features)
         {
             ArgumentNullException.ThrowIfNull(features);
             var vector = GetThreadLocalInputBuffer();
-            features.WriteForModel(vector, _data.ImputationMeans);
+            ModelInputFeatures.Write(features, vector, _data.ImputationMeans, InputCount);
+            return ScoreVector(vector);
+        }
+
+        internal double ScoreVector(double[] vector)
+        {
+            if (vector.Length != InputCount)
+            {
+                throw new ArgumentException("Neural vector length does not match the pinned schema.", nameof(vector));
+            }
+
             PrepareThreadLocalHiddenBuffers();
             if (_data.FeatureMeans is not null && _data.FeatureStdDevs is not null)
             {
@@ -2454,7 +2471,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
             => ScoringHelper.BuildMarginalExplanation(features, Score, Name);
 
-        /// <summary>Exports independent v5 arrays without leaking mutable references from the pinned model.</summary>
+        /// <summary>Exports independent v6 arrays without leaking mutable references from the pinned model.</summary>
         /// <returns>A mutable serialization copy.</returns>
         internal NeuralWeightsData ExportParameters() => CloneParameters(_data);
 
@@ -2520,6 +2537,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         /// <summary>Gets or sets the fixed raw means used for external missing metadata during fitting.</summary>
         public double[]? ImputationMeans { get; set; }
+
+        /// <summary>Gets or sets the matching optional continuing-training state; legacy files may omit it without changing inference.</summary>
+        public NeuralTrainingState? TrainingState { get; set; }
 
         /// <summary>Gets or sets the training generation counter.</summary>
         public int TrainingGeneration { get; set; }

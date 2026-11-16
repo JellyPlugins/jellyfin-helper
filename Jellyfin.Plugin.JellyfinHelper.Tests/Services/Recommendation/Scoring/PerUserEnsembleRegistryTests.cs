@@ -624,20 +624,20 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
     }
 
     [Fact]
-    public void ValidV5Weights_AreRetainedIncludingFilesWithGenerationZero()
+    public void ValidV6Weights_AreRetainedIncludingFilesWithGenerationZero()
     {
         using var neural = new NeuralScoringStrategy();
         using var global = BuildGlobal(neural);
         using var registry = BuildRegistry(global, neural);
         var user = Guid.NewGuid();
         var path = Path.Join(_dataPath, $"ml_weights_{user:N}.json");
-        var valid = JsonSerializer.Serialize(new { Version = 5, Weights = DefaultWeights.CreateWeightArray(), Bias = 0.1, TrainingGeneration = 0 });
+        var valid = JsonSerializer.Serialize(new { Version = 6, Weights = DefaultWeights.CreateWeightArray(), Bias = 0.1, TrainingGeneration = 0 });
         File.WriteAllText(path, valid);
         Assert.NotSame(global, registry.GetScoringStrategyForUser(user));
         Assert.True(registry.HasPerUserModel(user));
         Assert.Equal(valid, File.ReadAllText(path));
-        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
-        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

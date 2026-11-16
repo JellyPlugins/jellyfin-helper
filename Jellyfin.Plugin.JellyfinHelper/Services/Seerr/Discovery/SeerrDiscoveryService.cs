@@ -55,7 +55,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private const int MaxPoolPerUser = 20;
 
     /// <summary>
-    ///     Number of top candidates (by pre-score) to enrich with credits data. Credits calls are expensive (1 API call per item), so we only enrich the most promising candidates after an initial genre/rating-based pre-score.
+    ///     Maximum optional detail requests per user. Own-source pre-scores and personal/type/genre lanes share this limit; Trakt retains source order.
     /// </summary>
     private const int CreditsEnrichmentBudget = 20;
 
@@ -87,6 +87,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Per-request timeout for metadata enrichment calls, in milliseconds.
     /// </summary>
     private const int MetadataEnrichmentTimeoutMs = 8_000;
+
+    /// <summary>One shared optional deadline per user for up to twenty details at three-way parallelism.</summary>
+    private const int OptionalMetadataBudgetMs = 15_000;
 
     /// <summary>One separate deadline for mandatory certification metadata; partial results stay fail-closed.</summary>
     private const int RequiredMetadataBudgetMs = 30_000;
@@ -1830,7 +1833,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else if (topGenres.Count > 0)
         {
-            await GatherNormalCandidatesAsync(client, baseUri, apiKey, topGenres, primaryLanguage, allCandidates, cancellationToken).ConfigureAwait(false);
+            await GatherNormalCandidatesAsync(client, baseUri, apiKey, topGenres, new PersonalRetrievalContext(primaryLanguage, PersonalDiscoveryRetrieval.Seeds(profile)), allCandidates, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -2452,11 +2455,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private async Task EnrichOptionalCandidatesAsync(CandidateScoringContext context, List<TmdbDiscoverItem> ordered, CancellationToken cancellationToken)
     {
+        var inspected = context.RankBasedOrdering
+            ? ordered.Where(candidate => CanFinalScore(context, candidate)).Take(CreditsEnrichmentBudget).ToList()
+            : PersonalDiscoveryRetrieval.DetailFrontier(ordered.Where(candidate => CanFinalScore(context, candidate)), CreditsEnrichmentBudget);
         // Phase 2: one bounded shared detail pass for top candidates. Credits, collection, keywords,
         // studios and certifications come from the same response; failed required fetches are not retried here.
         using (var enrichmentBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            enrichmentBudget.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
+            enrichmentBudget.CancelAfter(TimeSpan.FromMilliseconds(OptionalMetadataBudgetMs));
             try
             {
                 if (context.RankBasedOrdering)
@@ -2465,9 +2471,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 }
                 else
                 {
-                    var pending = ordered.Where(candidate => CanFinalScore(context, candidate)).Take(CreditsEnrichmentBudget)
-                        .Where(candidate => !candidate.MetadataFetchAttempted).ToList();
-                    await FetchOptionalDetailsAsync(context, pending, enrichmentBudget.Token).ConfigureAwait(false);
+                    await FetchOptionalDetailsAsync(context, inspected, enrichmentBudget.Token).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -2475,7 +2479,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // Optional metadata times out as one pass, not one timeout per batch/user candidate.
             }
 
-            var inspected = ordered.Where(candidate => CanFinalScore(context, candidate)).Take(CreditsEnrichmentBudget).ToList();
             var enrichedCount = inspected.Count(c => c.KnownPeople != null);
             _pluginLog.LogDebug(
                 LogCategory,
@@ -2783,17 +2786,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Runs the standard discovery queries (top-3 preferred genres, page-2 variety, and optional language-based discovery) and appends the results to .
+    ///     Runs genre/language retrieval; personal provider-title routes replace, rather than add to, the two page-2 variety slots.
     /// </summary>
     private async Task GatherNormalCandidatesAsync(
         HttpClient client,
         Uri baseUri,
         string apiKey,
         List<string> topGenres,
-        string? primaryLanguage,
+        PersonalRetrievalContext personal,
         List<TmdbDiscoverItem> allCandidates,
         CancellationToken cancellationToken)
     {
+        var primaryLanguage = personal.PrimaryLanguage;
         // Normal users: query their top-3 preferred genres
         var movieGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToMovieTmdbId);
         foreach (var genreId in movieGenreIds)
@@ -2819,20 +2823,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             allCandidates.AddRange(items);
         }
 
-        // Query B: Page 2 of top genre for more variety
+        // Query B: personal title recommendations when supported by real history; otherwise page-2 variety.
         if (movieGenreIds.Count > 0)
         {
-            var items = await ExecuteDiscoverQueryAsync(
-                client, baseUri, apiKey, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
-            allCandidates.AddRange(items);
+            await GatherVarietyCandidatesAsync(client, baseUri, apiKey, ("movie", movieGenreIds[0]), personal.Seeds, allCandidates, cancellationToken).ConfigureAwait(false);
         }
 
         if (tvGenreIds.Count > 0)
         {
-            var items = await ExecuteDiscoverQueryAsync(
-                client, baseUri, apiKey, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
-            StampMediaType(items, "tv");
-            allCandidates.AddRange(items);
+            await GatherVarietyCandidatesAsync(client, baseUri, apiKey, ("tv", tvGenreIds[0]), personal.Seeds, allCandidates, cancellationToken).ConfigureAwait(false);
         }
 
         // Query C: Language-based discovery if user has clear preference.
@@ -2848,6 +2847,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             StampMediaType(langTv, "tv");
             allCandidates.AddRange(langTv);
         }
+    }
+
+    private async Task GatherVarietyCandidatesAsync(
+        HttpClient client,
+        Uri baseUri,
+        string apiKey,
+        (string MediaType, string GenreId) route,
+        IReadOnlyDictionary<string, int> seeds,
+        List<TmdbDiscoverItem> candidates,
+        CancellationToken cancellationToken)
+    {
+        var (mediaType, genreId) = route;
+        var seed = seeds.GetValueOrDefault(mediaType);
+        var collection = mediaType == "movie" ? "movies" : "tv";
+        // Verified Seerr GET routes: /api/v1/movie/{id}/recommendations and /api/v1/tv/{id}/recommendations.
+        var path = seed > 0
+            ? $"api/v1/{mediaType}/{seed}/recommendations?page=1"
+            : $"api/v1/discover/{collection}/genre/{genreId}?page=2";
+        var items = await ExecuteDiscoverQueryAsync(client, baseUri, apiKey, path, cancellationToken).ConfigureAwait(false);
+        StampMediaType(items, mediaType);
+        foreach (var item in items)
+        {
+            item.PersonalSeedKey = seed > 0 ? $"{mediaType}:{seed}" : null;
+        }
+
+        candidates.AddRange(items);
     }
 
     /// <summary>
@@ -3267,6 +3292,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // occupy separate ID spaces - the same integer can refer to both a movie and a TV show.
         var seen = new HashSet<(int Id, string MediaType)>();
         var result = new List<TmdbDiscoverItem>();
+        var seedLanes = candidates.Where(candidate => candidate.PersonalSeedKey is not null)
+            .GroupBy(candidate => (candidate.Id, (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant()))
+            .ToDictionary(group => group.Key, group => group.First().PersonalSeedKey);
 
         // For year-based post-filtering: compute acceptable year range
         var minYear = ComputeMinYear(avgYear, isChildAccount);
@@ -3279,6 +3307,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var mediaTypeKey = (candidate.MediaType ?? MediaTypeMovie).ToLowerInvariant();
+            candidate.PersonalSeedKey ??= seedLanes.GetValueOrDefault((candidate.Id, mediaTypeKey));
 
             if (!PassesPreDedupFilters(candidate, mediaTypeKey, excludedTmdbIds, minVoteAverage))
             {
@@ -3984,6 +4013,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="EnrichedKeys">Successfully fetched provider identities.</param>
     /// <param name="Complete">Whether every candidate's detail metadata was available.</param>
     private sealed record MetadataEnrichmentResult(HashSet<(int TmdbId, string MediaType)> EnrichedKeys, bool Complete);
+
+    private sealed record PersonalRetrievalContext(string? PrimaryLanguage, IReadOnlyDictionary<string, int> Seeds);
 
     /// <summary>
     ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared scoring pipeline

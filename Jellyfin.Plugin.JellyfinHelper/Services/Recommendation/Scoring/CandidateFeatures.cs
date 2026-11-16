@@ -72,7 +72,7 @@ public enum FeatureIndex
     /// <summary>Weekend flag (0 or 1). Whether the current request is on a weekend day (Sat/Sun).</summary>
     IsWeekend = 19,
 
-    /// <summary>Tag-based content similarity (0-1). Raw Jaccard overlap of candidate tags with the user's preferred tags, preserving v5 fitted statistics.</summary>
+    /// <summary>Raw tag-Jaccard overlap, distinct from coherent title-level thematic evidence.</summary>
     TagSimilarity = 20,
 
     /// <summary>People × Genre interaction: actors/directors you like in genres you prefer.</summary>
@@ -155,6 +155,15 @@ public enum FeatureIndex
     ///     Genre/studio IDF (inverse-document-frequency) rarity prior (0-1). Library-wide rarity of the candidate's genres and studios: ubiquitous genres are down-weighted, rare ones up-weighted.
     /// </summary>
     GenreStudioIdfPrior = 37,
+
+    /// <summary>Coherent title-level thematic keyword affinity, kept separate from raw tag-Jaccard.</summary>
+    ContentFitAffinity = 38,
+
+    /// <summary>Verified narrative matches and title coverage with overlapping genres.</summary>
+    ContentFitSupport = 39,
+
+    /// <summary>Soft personal audience mismatch; never a certification permission.</summary>
+    AudienceMismatch = 40,
 }
 
 /// <summary>
@@ -166,7 +175,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 38;
+    public const int FeatureCount = 41;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with >= this many genres map to 1.0).
@@ -222,8 +231,21 @@ public sealed class CandidateFeatures
     private double? _contentFitSupport;
     private double? _audienceMismatch;
     private double? _collectionContinuationSupport;
+    private double? _contentFitAffinity;
 
-    /// <summary>Gets or sets captured coherent narrative support outside the unchanged 38 ML coordinates. Missing legacy/unknown evidence is neutral.</summary>
+    /// <summary>Gets or sets captured title-level thematic affinity; never replaces raw tag-Jaccard.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ContentFitAffinity
+    {
+        get => _contentFitAffinity;
+        set => _contentFitAffinity = value.HasValue ? Clamp01(value.Value) : null;
+    }
+
+    /// <summary>Gets or sets whether own provider keywords and a positive personal title document were available; known nonmatches remain real zeros.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasContentMetadata { get; set; }
+
+    /// <summary>Gets or sets coherent narrative support, shared by v6 model inputs and bounded final confidence. Missing evidence remains unknown.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? ContentFitSupport
     {
@@ -258,6 +280,14 @@ public sealed class CandidateFeatures
     /// known non-match; null preserves the raw people signal in legacy prediction snapshots.
     /// </summary>
     public bool? HasPeopleMetadata { get; set; }
+
+    /// <summary>Gets or sets whether audio availability and personal playback evidence support this affinity.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasAudioLanguageEvidence { get; set; }
+
+    /// <summary>Gets or sets whether subtitle availability and personal playback evidence support this affinity.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasSubtitleLanguageEvidence { get; set; }
 
     /// <summary>Gets or sets a value indicating whether both candidate genres and personal genre preferences are available. Missing evidence is not a mismatch; legacy snapshots retain their original penalty behaviour.</summary>
     public bool HasGenreEvidence { get; set; } = true;
@@ -600,13 +630,16 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.WriterAffinity] = WriterAffinity;
         buffer[(int)FeatureIndex.BillingWeightedPeople] = BillingWeightedPeople;
         buffer[(int)FeatureIndex.GenreStudioIdfPrior] = GenreStudioIdfPrior;
+        buffer[(int)FeatureIndex.ContentFitAffinity] = ContentFitAffinity.GetValueOrDefault();
+        buffer[(int)FeatureIndex.ContentFitSupport] = ContentFitSupport.GetValueOrDefault();
+        buffer[(int)FeatureIndex.AudienceMismatch] = AudienceMismatch.GetValueOrDefault();
     }
 
     /// <summary>Copies raw scalar signals so later feedback cannot change prediction-time features.</summary>
     /// <returns>An independent copy.</returns>
     public CandidateFeatures Copy() => (CandidateFeatures)MemberwiseClone();
 
-    /// <summary>Removes only captured content context for a score-space explanation; all v5 coordinates remain intact.</summary>
+    /// <summary>Removes captured thematic inputs and score-space confidence together for a coherent explanation.</summary>
     /// <returns>An independent counterfactual.</returns>
     internal CandidateFeatures WithoutContentFit()
     {
@@ -614,6 +647,8 @@ public sealed class CandidateFeatures
         copy.ContentFitSupport = null;
         copy.AudienceMismatch = null;
         copy.CollectionContinuationSupport = null;
+        copy.ContentFitAffinity = null;
+        copy.HasContentMetadata = null;
         return copy;
     }
 
@@ -714,6 +749,17 @@ public sealed class CandidateFeatures
     internal void WriteForModel(double[] buffer, IReadOnlyList<double>? means)
     {
         WriteToVector(buffer);
+        if (HasAudioLanguageEvidence == false)
+        {
+            buffer[(int)FeatureIndex.LanguageAffinity] = means?.Count == FeatureCount ? Clamp01(means[(int)FeatureIndex.LanguageAffinity], 0.5) : 0.5;
+        }
+
+        if (HasSubtitleLanguageEvidence == false)
+        {
+            buffer[(int)FeatureIndex.SubtitleLanguageAffinity] = means?.Count == FeatureCount ? Clamp01(means[(int)FeatureIndex.SubtitleLanguageAffinity], 0.5) : 0.5;
+        }
+
+        ModelInputFeatures.WriteContext(this, buffer, means);
         if (!IsExternalCandidate)
         {
             return;
@@ -727,7 +773,7 @@ public sealed class CandidateFeatures
             }
 
             var i = (int)index;
-            buffer[i] = means is { Count: FeatureCount } ? Clamp01(means[i]) : ExternalPrior(index);
+            buffer[i] = means?.Count == FeatureCount ? Clamp01(means[i]) : ExternalPrior(index);
         }
 
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * buffer[(int)FeatureIndex.CollaborativeScore];

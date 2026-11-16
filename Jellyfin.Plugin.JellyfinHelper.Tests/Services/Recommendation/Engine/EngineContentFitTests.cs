@@ -15,7 +15,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
-/// <summary>Real ranking-pipeline counterprobes with synthetic v5 predictors, never private production fixtures.</summary>
+/// <summary>Real ranking-pipeline counterprobes with synthetic v6 predictors, never private production fixtures.</summary>
 public sealed class EngineContentFitTests
 {
     private static readonly string[] StoryTags = ["anime", "shounen", "pirate", "friendship", "super power"];
@@ -63,7 +63,7 @@ public sealed class EngineContentFitTests
         Assert.True(story.GenreSimilarity > generic.GenreSimilarity);
         Assert.All(result.Recommendations, item =>
         {
-            Assert.Equal(38, item.ScoringFeatures!.ToVector().Length);
+            Assert.Equal(41, item.ScoringFeatures!.ToVector().Length);
             Assert.Equal(Math.Round(Score(item.ScoringFeatures), 4), item.Score);
             var copied = JsonSerializer.Deserialize<CandidateFeatures>(JsonSerializer.Serialize(item.ScoringFeatures))!;
             Assert.Equal(Score(item.ScoringFeatures), Score(copied));
@@ -106,7 +106,7 @@ public sealed class EngineContentFitTests
         var weights = new double[38];
         weights[(int)FeatureIndex.GenreSimilarity] = .03;
         weights[(int)FeatureIndex.IsSeries] = -.65;
-        var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .8 });
+        var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .8 });
         using var neural = new NeuralScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1);
         var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), heuristic);
@@ -149,12 +149,12 @@ public sealed class EngineContentFitTests
     private static Mock<IScoringStrategy> Predictor()
     {
         var strategy = new Mock<IScoringStrategy>();
-        strategy.SetupGet(value => value.Name).Returns("synthetic v5 ensemble");
+        strategy.SetupGet(value => value.Name).Returns("synthetic v6 ensemble");
         strategy.SetupGet(value => value.NameKey).Returns("strategyEnsemble");
         strategy.Setup(value => value.Score(It.IsAny<CandidateFeatures>())).Returns((CandidateFeatures features) => Score(features));
         strategy.Setup(value => value.ScoreWithExplanation(It.IsAny<CandidateFeatures>())).Returns((CandidateFeatures features) => new ScoreExplanation
         {
-            FinalScore = Score(features), StrategyName = "synthetic v5 ensemble", DominantSignal = "genre"
+            FinalScore = Score(features), StrategyName = "synthetic v6 ensemble", DominantSignal = "genre"
         });
         return strategy;
     }
@@ -165,7 +165,7 @@ public sealed class EngineContentFitTests
         weights[(int)FeatureIndex.GenreSimilarity] = .1;
         weights[(int)FeatureIndex.CombinedCriticScore] = .1;
         weights[(int)FeatureIndex.TagSimilarity] = .2;
-        var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5 });
+        var learned = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData { Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .5 });
         var h = HeuristicScoringStrategy.ScoreRaw(features);
         return ScoringHelper.ComputeContextualScore((.25 * h) + (.66 * learned.Score(features)) + (.09 * .75), features, .1);
     }

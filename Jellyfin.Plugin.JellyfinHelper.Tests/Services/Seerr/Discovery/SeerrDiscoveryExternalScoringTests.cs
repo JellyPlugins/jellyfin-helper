@@ -551,7 +551,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Null(result); // An expired optional budget cannot verify the availability of these titles.
         Assert.InRange(_maxConcurrentDelayedDetails, 1, 3);
         Assert.InRange(_detailCalls, 1, 20);
-        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Unrestricted Trakt details must not run a forty-candidate pre-enrichment pass.");
+        Assert.True(timer.Elapsed >= TimeSpan.FromSeconds(14), "Trakt's optional pass must share the new fifteen-second per-user deadline.");
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(26), "The fifteen-second optional pass and separate eight-second status check must not become a forty-candidate pre-enrichment pass.");
     }
 
     [Theory]

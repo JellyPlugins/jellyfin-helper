@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
-/// <summary>Detached fits preserve active predictions, full optimizer coordinates and v5 parameter isolation.</summary>
+/// <summary>Detached fits preserve active predictions, full optimizer coordinates and v6 parameter isolation.</summary>
 public sealed class ModelSnapshotTests : IDisposable
 {
     private readonly string _directory = Path.Join(Path.GetTempPath(), "jfh-model-snapshots-" + Guid.NewGuid().ToString("N"));
@@ -117,8 +117,8 @@ public sealed class ModelSnapshotTests : IDisposable
         Assert.Equal(neuralExpected, features.Select(neuralSnapshot.Score).ToArray());
         var exportedLearned = learnedSnapshot.ExportParameters();
         var exportedNeural = neuralSnapshot.ExportParameters();
-        Assert.Equal(5, exportedLearned.Version);
-        Assert.Equal(5, exportedNeural.Version);
+        Assert.Equal(6, exportedLearned.Version);
+        Assert.Equal(6, exportedNeural.Version);
         Array.Fill(exportedLearned.Weights, 99);
         Array.Fill(exportedNeural.WeightsIH, 99);
         if (exportedLearned.FeatureMeans is not null) Array.Fill(exportedLearned.FeatureMeans, 99);

@@ -16,6 +16,25 @@ describe('selected-user effective ensemble diagnostics', () => {
 
   const shares = (host: HTMLElement) => Array.from(host.querySelectorAll('.recs-ensemble-blend strong'), el => el.textContent);
 
+  test('the actual v6 schema and canonical feature list are escaped without changing the mixture', () => {
+    const names = Array.from({ length: 41 }, (_, index) => 'feature-' + index);
+    names[38] = '<img src=x onerror=alert(1)>';
+    ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .5, NeuralBeta: .2, NeuralEnabled: true,
+      NeuralModelVersion: 6, NeuralInputFeatureCount: 41, NeuralFeatures: names });
+    expect(shares(host)).toEqual(['50%', '40%', '10%']);
+    const title = host.querySelector('.recs-ensemble-blend')!.getAttribute('title')!;
+    expect(title).toContain('v6');
+    expect(title).toContain('41');
+    expect(title).toContain(names[38]);
+    expect(host.querySelector('img')).toBeNull();
+  });
+
+  test.each([{ NeuralModelVersion: '6', NeuralInputFeatureCount: 41 }, { NeuralModelVersion: 6, NeuralInputFeatureCount: NaN }, {}])(
+    'missing or malformed schema metadata never invents a v6 model', data => {
+      ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .5, ...data });
+      expect(host.querySelector('.recs-ensemble-blend')!.getAttribute('title')).not.toContain('v6');
+    });
+
   test('Frozen suppresses all ML, including a stored Neural budget', () => {
     ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: 0.3, NeuralBeta: 0.4, NeuralEnabled: true, QualityGateFrozen: true });
     expect(shares(host)).toEqual(['100%', '0%', 'off']);

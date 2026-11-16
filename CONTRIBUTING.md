@@ -93,16 +93,17 @@ The normalizer loads every embedded language file automatically; adding a langua
 Keep translation keys consistent with `en.json`. Unknown custom genres remain available, and compound TV genres share movie semantics without changing the original display metadata.
 
 Recommendation tests cover raw, localized and canonical inputs at both training and inference boundaries.
-Weight schemas remain v5; real API histories and credentials must never be committed as test fixtures.
+All trainable models use v6 with 41 shared features. Unsupported parameter schemas require new fitting; they are never rewritten on load. Real API histories and credentials must never be committed as test fixtures.
 
 - Sort the final filtered, diverse own pool by score; preserve Trakt source order and playlist engine order.
 - Recheck Trakt against the current user's own pool before delivery/capping and browser-cache rendering; match TMDb ID/media type, never score.
 - Restricted profiles require verified current-country certifications; fail closed (30-second budget).
-- Optional enrichment: top 20 / eight seconds. Selected-title status checks: separate eight-second deadline.
+- Optional enrichment: at most 20 details / 15 seconds per user, three parallel reads; own-source title/type/genre lanes share the frontier. Selected-title status checks: separate eight-second deadline.
 - Recheck requests and coordinate TMDb ID/media type; Seerr decides TV seasons. Enrichment never gates Request.
 - Only confirmed duplicate intent earns feedback from the current user's original snapshot; errors and ownership do not.
 - After successful card removal, fetch fresh delivery-bound reserve cards; never automatically repeat an action.
 - Keep unknown/empty metadata distinct, episode/parent provenance separate, and prediction snapshots immutable.
+- Audio/subtitle affinity needs availability and personal playback evidence; saved indexes are not earlier playback events. Historical rows are dated and self-excluded; fitting-only imputation leaves stored snapshots untouched.
 - Franchise IDs need no BoxSets; progression requires real, self-excluded membership.
 
 ### Running Tests
@@ -249,8 +250,8 @@ precise totals and bounded/stale diagnostic caches;
 Recommendation changes must preserve:
 
 - One per-user mixture via `OperatingMixturePolicy.cs`, with immutable global Cold Start priors, personal Warm Start fitting and bounded usable-Neural participation during provisional retention.
-- v5/38-feature inference, paired predictors/coefficients, permissions, child safety and protected scoring goldens.
-- Coherent semantic metadata must retain v5 coordinate units, own/parent provenance and self-excluded historical inputs; audience preference never replaces child certification policy.
+- Shared v6/41-feature inference with Neural 41→82→96→48→24→1. Paired predictors/coefficients, permissions, child safety and versioned scoring goldens remain intact.
+- Coherent semantic metadata must retain coordinate units, own/parent provenance and self-excluded historical inputs; audience preference never replaces child certification policy.
 - Separate fitting, calibration and acceptance; only examined identities may be spent. Oversized fresh blocks need outcome-independent, restart-safe progress; provisional serving is not verified ranking.
 - Atomic publication, retained working models, bounded verified history and replay-safe journal/ledger recovery. Disposal stops publication before eviction deletes files; older-assessment safety receipts survive revision guards.
 - Disabled/deleted-user cleanup, including fileless caches; current-user diagnostics must match the scoring snapshot.
@@ -396,6 +397,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
 │   │       ├── DiscoverySelectionTests.cs             # Relevant varied pools, source-rank preservation and honest cold-start scores
+│   │       ├── PersonalDiscoveryRetrievalTests.cs      # Title-balanced personal seeds and fair bounded detail dispatch
 │   │       ├── ExternalAvailableMetadataTests.cs      # Collection IDs, keywords/studios and observed-feature imputation masks
 │   │       ├── ExternalContentFitTests.cs            # Semantic keyword parity, unknown means and immutable confirmed predictions
 │   │       ├── DiscoveryFeedbackStoreConstructionTests.cs # NormalizeMediaType defaults, directory creation, graceful save degradation
@@ -493,6 +495,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── HistoricalRecencyTests.cs          # Prediction/watch-time recency, unchanged stored snapshots and separate temporal weight decay
+│       │       ├── HistoricalLanguageFeaturesTests.cs # Dated/self-excluded language evidence and organic train/serve units
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
@@ -508,12 +511,14 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── Scoring/               # Strategy-specific tests
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
+│       │   ├── NeuralIntegrityTests.cs                  # Complete model schema, Adam checkpoints, fitting-only themes and coordinate-preserving clamps
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
-│       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v5 predictors and inference parity
+│       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
+│       │   ├── LanguageFeatureImputationTests.cs           # Legacy equivalence, fitting-only means and pinned model predictions
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
-│       │   ├── AcceptedModelStoreTests.cs                # Complete v5 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
+│       │   ├── AcceptedModelStoreTests.cs                # Complete v6 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
 │       │   ├── AcceptanceObservationLedgerTests.cs       # Exact replay prevention beyond 1,000 IDs, migration, checksum failures and distinct-only growth
 │       │   ├── ValidatedEnsembleLifecycleTests.cs        # Real promotion/rollback, fresh Neural evidence, persistent legacy suppression, restart, IO/configuration races and replay
 │       │   ├── FeatureDiagnosticTests.cs                 # Every feature log slot/name/weight, including the legacy SeriesAffinity alias
@@ -540,10 +545,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── PerUserRankingMetricsTests.cs        # Per-user macro averaging: equal weight per user regardless of library size
 │       │   ├── ScoringAblationEvalTests.cs          # Offline ablation eval: synthetic taste-driven population, NDCG@10 with vs without genre-engagement + SeriesAffinity across Heuristic / Heuristic+Learned / full Ensemble tiers
 │       │   ├── ScoringGoldenLockTests.cs            # Behavior-lock test: pins deterministic digest of Heuristic+Learned+Neural scoring output
-│       │   ├── GenreEvidencePenaltyTests.cs          # Missing-genre neutrality, observed mismatch penalties, explanations and v5-compatible snapshots
-│       │   └── ScoringParityTests.cs                # 38-feature parity pins: Score vs explanation agreement, weight-sum range, enum count
+│       │   ├── GenreEvidencePenaltyTests.cs          # Missing-genre neutrality, observed mismatch penalties, explanations and v6 snapshots
+│       │   └── ScoringParityTests.cs                # 41-feature parity pins: Score vs explanation agreement, weight-sum range, enum count
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
+│       │   ├── PlaybackLanguageEvidenceTests.cs       # Saved-index provenance, missing/empty availability and detached copies
 │       │   ├── WatchHistoryServiceLanguageProfileTests.cs # Language-profile aggregation from watch history; NormalizeLanguage rows
 │       │   ├── UserWatchProfileTests.cs        # Cache invalidation for lazy props, case-insensitive dictionary re-assignment (guards case-sensitive cache-deserialisation from silently regressing genre/language matching), null-safe setters, TopPeople boundaries (min-count filter, tie-break, cap at 20)
 │       │   ├── WatchHistoryCompatTests.cs      # IUserManager API compatibility (MissingMethodException handling)
@@ -728,6 +734,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
+│   │   │   ├── NeuralScoringStrategy.TrainingState.cs # Atomic continuing optimizer checkpoints and coordinate-covariant clamps
+│   │   │   ├── NeuralTrainingState.cs       # Validated detached moments, clock and input-coordinate limits
+│   │   │   ├── ModelInputFeatures.cs        # Shared v6 thematic inputs, names and fitting-only imputation
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
 │   │   │   ├── EnsembleScoringStrategy.Validation.cs # Detached fitting, independent mixture approval and atomic scope-bound promotion
 │   │   │   ├── EnsembleDiagnostics.cs        # Immutable live state; effective shares use scoring's frozen/offset rules without changing model state
@@ -737,8 +746,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── AdmissionDecision.cs          # Assessment without model mutation or persistence
 │   │   │   ├── AdmissionEvidence.cs          # Unique effective calibration/acceptance support
 │   │   │   ├── AdmissionUtility.cs           # Nullable ranking/calibration and paired improvement evidence
-│   │   │   ├── AcceptedModelBundle.cs        # One complete accepted v5 parameter/mix/evidence version
-│   │   │   ├── AcceptedModelStore.cs         # Atomic additive checkpoint; legacy v5 models remain intact on rejection or failure
+│   │   │   ├── AcceptedModelBundle.cs        # One complete accepted v6 parameter/mix/evidence version
+│   │   │   ├── AcceptedModelStore.cs         # Atomic checkpoint; working models remain intact on rejection or failure
 │   │   │   ├── AcceptanceObservationLedger.cs # Single checksummed exact spent-title set, separate from bounded model archives
 │   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
 │   │   │   ├── ModelTrainingAssessment.cs    # Attempt diagnostics and bounded unique maturity; never grants model trust or stamps trained weights
@@ -746,7 +755,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── OperatingMixturePolicy.cs      # Shared maturity/ramp and bounded calibration-only operational correction
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
-│   │   │   ├── CandidateFeatures.cs         # 38-feature vector with FeatureIndex enum
+│   │   │   ├── CandidateFeatures.cs         # Shared 41-feature vector with FeatureIndex enum
+│   │   │   ├── LanguageFeatureImputation.cs  # Fitting-only observed language means; nullable legacy-compatible availability flags
 │   │   │   ├── DefaultWeights.cs            # Centralized default weights
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
@@ -758,6 +768,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── WatchHistoryService.cs
 │   │   │   ├── UserWatchProfile.cs
 │   │   │   ├── LanguageProfileEntry.cs
+│   │   │   ├── PlaybackLanguageEvidence.cs   # Single-pass availability capture and conservative saved selections
 │   │   │   └── WatchedItemInfo.cs
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
@@ -800,8 +811,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrRequestCoordinator.cs # Per-title async coordination, independent cancellation and idle-lock disposal
 │   │       ├── SeerrTitleStatus.cs       # Status-only detail parsing, separate from scoring enrichment and certification
 │   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
-│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 38-feature vector for TMDb items
+│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds the shared 41-feature vector for TMDb items
 │   │       ├── DiscoverySelection.cs                # Personal relevance floor, genre diversity and collection saturation
+│   │       ├── PersonalDiscoveryRetrieval.cs        # Provider-title seeds replace variety slots; fair optional frontier without score bonuses
 │   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
 │   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
 │   │       ├── CertificationResolver.cs   # Actual Seerr movie/TV certifications resolved through Jellyfin's own country-aware rating mapper
@@ -1636,7 +1648,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History → Feature Extraction (38 features) → Scoring Strategy → Ranked Results
+User Watch History → Feature Extraction (41 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
                                                     │  EnsembleScoringStrategy  │
@@ -1650,7 +1662,7 @@ User Watch History → Feature Extraction (38 features) → Scoring Strategy →
 
 - **HeuristicScoringStrategy**: Fixed hand-tuned weights, always available
 - **LearnedScoringStrategy**: Linear model trained via SGD on implicit feedback
-- **NeuralScoringStrategy**: 4-hidden-layer MLP (38→76→96→48→24→1) with Adam optimizer
+- **NeuralScoringStrategy**: 4-hidden-layer MLP (41→82→96→48→24→1) with complete Adam checkpoints
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
@@ -1670,14 +1682,14 @@ UserWatchProfiles → Genre/People/Language preferences
                          ↓
          Phase 2: Enrich top-20 with credits (actors/directors via Seerr)
                          ↓
-         Phase 3: Final score with EnsembleScoringStrategy (full 38 features)
+         Phase 3: Final score with EnsembleScoringStrategy (full 41 features)
                          ↓
          Top-10 per user → DiscoveryCacheService → Frontend
 ```
 
 - Coupled to **Seerr configuration** (URL + API Key) - independent of Seerr Cleanup task mode
 - Runs as part of `HelperCleanupTask` when `RecommendationsTaskMode != Deactivate`
-- Uses `ExternalCandidateFeatureBuilder` to construct the same 38-feature vector used for internal recommendations
+- Uses `ExternalCandidateFeatureBuilder` to construct the same 41-feature vector used for internal recommendations
 - Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
 - Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
 

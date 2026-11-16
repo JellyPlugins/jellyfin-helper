@@ -130,11 +130,11 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     }
 
     [Fact]
-    public void CurrentWeightsVersion_IsV5()
+    public void CurrentWeightsVersion_IsV6()
     {
-        // V5 rejects fits trained before library/discovery aliases shared a permanent holdout.
+        // V6 requires the complete shared feature schema and title-isolated fitting.
         // The feature slots and default weights remain unchanged; shape validation is insufficient.
-        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, LearnedScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

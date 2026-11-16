@@ -199,7 +199,29 @@ public sealed class ContentFitProfileTests
     }
 
     [Fact]
-    public void NewThematicConfidenceDoesNotRescaleAnExistingStandardizedV5TagCoordinate()
+    public void WeightedFullMatchKeepsExactUnitAffinityAndSupportWithoutChangingIterationOrder()
+    {
+        string[] terms = ["pirate", "friendship", "sea", "ship", "ocean", "super power", "shounen", "anime", "treasure"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation", "Action"], terms)] };
+        for (var i = 0; i < 75; i++) profile.WatchedItems.Add(Watch(["Drama"], ["friendship", "sea", "unrelated " + i]));
+        var content = ContentFitProfile.Create(profile);
+        var first = new CandidateFeatures { GenreSimilarity = .7, TagSimilarity = .003 };
+        content.Apply(first, ["Animation", "Action"], terms.Reverse(), "FSK-12", BattleGenres);
+        Assert.Equal(1, content.ScoreTags(terms.Reverse()));
+        Assert.Equal(1, first.ContentFitSupport);
+        foreach (var row in profile.WatchedItems) row.Tags = row.Tags.Reverse().ToArray();
+        profile.WatchedItems = [.. profile.WatchedItems.Reverse()];
+        var reordered = ContentFitProfile.Create(profile);
+        var second = new CandidateFeatures { GenreSimilarity = .7, TagSimilarity = .003 };
+        reordered.Apply(second, ["Animation", "Action"], terms, "FSK-12", BattleGenres);
+        Assert.Equal(first.GenreSimilarity, second.GenreSimilarity);
+        Assert.Equal(first.ContentFitSupport, second.ContentFitSupport);
+        Assert.Equal(first.ToVector(), second.ToVector());
+        Assert.Equal(content.ScoreTags(["pirate", "sea", "friendship", "new theme"]), reordered.ScoreTags(["new theme", "friendship", "sea", "pirate"]));
+    }
+
+    [Fact]
+    public void V6ThematicInputsDoNotRescaleTheStandardizedRawTagCoordinate()
     {
         var profile = BattleProfile();
         for (var i = 0; i < 100; i++) profile.WatchedItems.Add(Watch(["Drama"], Enumerable.Range(0, 10).Select(j => $"unrelated {i} {j}").ToArray()));
@@ -218,7 +240,7 @@ public sealed class ContentFitProfileTests
         weights[(int)FeatureIndex.TagSimilarity] = .2;
         var predictor = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData
         {
-            Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
+            Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
         });
         Assert.Equal(.5, predictor.Score(features), 12);
     }
@@ -269,7 +291,7 @@ public sealed class ContentFitProfileTests
     [Theory]
     [InlineData("German", "1080p")]
     [InlineData("Shōnen", "friendship")]
-    public void SemanticEnrichmentKeepsTheExactRawV5TagCoordinateAndFittedStatistics(string first, string second)
+    public void SemanticEnrichmentKeepsTheExactRawTagCoordinateAndFittedStatistics(string first, string second)
     {
         string[] raw = [first, second];
         var profile = BattleProfile();
@@ -285,7 +307,7 @@ public sealed class ContentFitProfileTests
         weights[(int)FeatureIndex.TagSimilarity] = .2;
         var predictor = new LearnedScoringStrategy.PredictionSnapshot(new LearnedScoringStrategy.WeightsData
         {
-            Version = 5, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
+            Version = 6, TrainingGeneration = 1, Weights = weights, Bias = .5, FeatureMeans = means, FeatureStdDevs = deviations
         });
         var before = predictor.Score(features);
         ContentFitProfile.Create(profile).Apply(features, ["Animation", "Action"], raw, "FSK-12", BattleGenres);

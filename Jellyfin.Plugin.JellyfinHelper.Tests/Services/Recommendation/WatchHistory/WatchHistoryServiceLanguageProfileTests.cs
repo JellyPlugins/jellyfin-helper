@@ -69,6 +69,9 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.NotNull(profile);
         Assert.Empty(profile!.LanguageProfile);
         Assert.Empty(profile.SubtitleLanguageProfile);
+        Assert.Empty(Assert.Single(profile.WatchedItems).AudioLanguages!);
+        Assert.Empty(Assert.Single(profile.WatchedItems).SubtitleLanguages!);
+        mockItem.Verify(item => item.GetMediaStreams(), Times.Once);
     }
 
     [Fact]
@@ -88,6 +91,8 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.NotNull(profile);
         Assert.Empty(profile!.LanguageProfile);
         Assert.Empty(profile.SubtitleLanguageProfile);
+        Assert.Null(Assert.Single(profile.WatchedItems).AudioLanguages);
+        Assert.Null(Assert.Single(profile.WatchedItems).SubtitleLanguages);
     }
 
     [Fact]
@@ -138,6 +143,10 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.True(profile!.LanguageProfile.ContainsKey("de"));
         Assert.Equal(1, profile.LanguageProfile["de"].ChosenCount);
         Assert.Equal(0, profile.LanguageProfile["de"].ForcedCount);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.Equal(new[] { "de", "en" }, row.AudioLanguages);
+        Assert.Equal("de", row.PlaybackAudioLanguage);
+        mockItem.Verify(item => item.GetMediaStreams(), Times.Once);
     }
 
     [Fact]

@@ -396,6 +396,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     {
         lock (_syncRoot)
         {
+            var neuralSchema = GetNeuralSchema();
             return new EnsembleDiagnostics
             {
                 Alpha = _alpha,
@@ -409,6 +410,9 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 AlphaMin = _alphaMin,
                 AlphaMax = _alphaMax,
                 NeuralEnabled = _independentAdmissionEnabled ? _acceptedPrediction?.Neural is not null : _neural is not null,
+                NeuralModelVersion = neuralSchema?.Version,
+                NeuralInputFeatureCount = neuralSchema?.InputCount,
+                NeuralFeatures = neuralSchema.HasValue ? ModelInputFeatures.Names(neuralSchema.Value.InputCount) : [],
                 AdmittedAlpha = _acceptedPrediction?.Resolve(_alphaMax).Alpha,
                 AdmittedNeuralBeta = _acceptedPrediction?.Resolve(_alphaMax).Beta,
                 AllowsExploration = !_independentAdmissionEnabled,
@@ -421,6 +425,16 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 CandidateValidationLoss = _lastAdmission?.Utility.CandidateLoss
             };
         }
+    }
+
+    private (int Version, int InputCount)? GetNeuralSchema()
+    {
+        if (_independentAdmissionEnabled)
+        {
+            return _acceptedPrediction?.Neural is { } prediction ? (prediction.Version, prediction.InputCount) : null;
+        }
+
+        return _neural?.GetSchemaInfo();
     }
 
     /// <summary>

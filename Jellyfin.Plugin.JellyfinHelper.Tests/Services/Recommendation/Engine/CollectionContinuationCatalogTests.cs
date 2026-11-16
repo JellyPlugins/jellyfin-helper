@@ -155,7 +155,7 @@ public sealed class CollectionContinuationCatalogTests
         Assert.Null(later.CollectionContinuationSupport);
         Assert.Equal(next.CollectionProgressionBoost, later.CollectionProgressionBoost);
         Assert.True(result.Recommendations[0].Score > result.Recommendations[1].Score);
-        Assert.All(result.Recommendations, item => Assert.Equal(38, item.ScoringFeatures!.ToVector().Length));
+        Assert.All(result.Recommendations, item => Assert.Equal(41, item.ScoringFeatures!.ToVector().Length));
         Assert.Equal(.75, Assert.Single(result.RankingDiagnostics!.Entries, entry => entry.ItemId == movies[3].Id).CollectionContinuationSupport);
     }
 

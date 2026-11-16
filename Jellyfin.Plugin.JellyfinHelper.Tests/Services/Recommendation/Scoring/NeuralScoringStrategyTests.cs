@@ -1044,7 +1044,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void Hidden1Size_MatchesExpansionFactor()
     {
         // 76 ≈ 2× InputSize (38) - expansion factor for tabular MLPs.
-        Assert.Equal(76, NeuralScoringStrategy.Hidden1Size);
+        Assert.Equal(82, NeuralScoringStrategy.Hidden1Size);
     }
 
     [Fact]
@@ -1069,10 +1069,10 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void CurrentWeightsVersion_IsV5()
+    public void CurrentWeightsVersion_IsV6()
     {
-        // V5 rejects pre-canonical-title fits without changing feature count or layer sizes.
-        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
+        // V6 requires the shared 41 inputs and the 82-neuron input representation.
+        Assert.Equal(6, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]
