@@ -7,20 +7,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>Recognizes an intact discarded schema for fresh fitting only; never constructs or converts a V5 predictor.</summary>
 internal static class SupersededModelSchema
 {
+    private const string VersionField = "Version";
+    private const string NeuralField = "Neural";
     private const int PreviousFeatureCount = 38;
     private const int PreviousHidden1Size = 76;
 
     internal static bool IsIntact(AcceptedModelBundle bundle, JsonElement root)
-        => HasUniqueFields(root) && HasFields(root, "Version", "IsProvisional", "Revision", "TrainedAtUtc", "Learned", "Neural", "Mixture", "AlphaCap", "NeuralCap", "AcceptanceObservationIds", "AcceptanceLedgerRequired", "State", "Retired")
+        => HasUniqueFields(root) && HasFields(root, VersionField, "IsProvisional", "Revision", "TrainedAtUtc", "Learned", NeuralField, "Mixture", "AlphaCap", "NeuralCap", "AcceptanceObservationIds", "AcceptanceLedgerRequired", "State", "Retired")
             && !bundle.Retired && bundle.Revision < long.MaxValue
-            && HasFields(root.GetProperty("Mixture"), "Learned", "Neural")
+            && HasFields(root.GetProperty("Mixture"), "Learned", NeuralField)
             && HasFields(root.GetProperty("State"), "SchemaVersion", "Alpha", "NeuralBeta", "QualityGateFrozen", "ObservedTrainingIds", "TrainingExampleCount", "MetricsHistory")
             && bundle.State.ObservedTrainingIds is { } ids && ids.All(id => id != Guid.Empty)
             && ids.Distinct().Count() == ids.Length && bundle.State.TrainingExampleCount == ids.Length && ids.Length <= EnsembleScoringStrategy.MaxTrackedObservations
-            && HasFields(root.GetProperty("Learned"), "Version", "Weights", "Bias", "TrainingGeneration")
+            && HasFields(root.GetProperty("Learned"), VersionField, "Weights", "Bias", "TrainingGeneration")
             && IntactLearned(bundle.Learned)
-            && (bundle.Neural is null || (HasFields(root.GetProperty("Neural"), "Version", "WeightsIH", "BiasH1", "WeightsH1H2", "BiasH2", "WeightsH2H3", "BiasH3", "WeightsH3H4", "BiasH4", "WeightsH4O", "BiasOutput", "TrainingGeneration")
-                && IntactNeural(bundle.Neural) && IntactOptimizerFields(root.GetProperty("Neural"))))
+            && (bundle.Neural is null || (HasFields(root.GetProperty(NeuralField), VersionField, "WeightsIH", "BiasH1", "WeightsH1H2", "BiasH2", "WeightsH2H3", "BiasH3", "WeightsH3H4", "BiasH4", "WeightsH4O", "BiasOutput", "TrainingGeneration")
+                && IntactNeural(bundle.Neural) && IntactOptimizerFields(root.GetProperty(NeuralField))))
             && (!bundle.IsProvisional || HasFields(root, "CalibrationLoss", "CalibrationTitleCount", "OperatingInputDigest", "Utility"))
             && (!bundle.IsProvisional || (bundle.OperatingInputDigest is { Length: 64 } digest && digest.All(Uri.IsHexDigit)));
 
@@ -57,7 +59,7 @@ internal static class SupersededModelSchema
 
     private static bool IntactOptimizerFields(JsonElement neural)
         => !neural.TryGetProperty("TrainingState", out var state) || state.ValueKind == JsonValueKind.Null
-            || HasFields(state, "Version", "Timestep", "FirstMoments", "SecondMoments", "OutputFirstMoment", "OutputSecondMoment", "InputWeightLimits", "InputBiasLimits");
+            || HasFields(state, VersionField, "Timestep", "FirstMoments", "SecondMoments", "OutputFirstMoment", "OutputSecondMoment", "InputWeightLimits", "InputBiasLimits");
 
     private static bool HasFields(JsonElement element, params string[] names)
     {
