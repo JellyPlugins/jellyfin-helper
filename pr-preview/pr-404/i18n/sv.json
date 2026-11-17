@@ -6,6 +6,7 @@
   "recsEnsembleStatusProvisional": "Preliminär — rankningen ännu inte verifierad",
   "recsEnsembleStatusVerified": "Oberoende verifierad",
   "recsEnsembleStoredTarget": "Sparad målandel för ML",
+  "recsEnsembleNeuralSchema": "Neural modell v{0}: {1} egenskaper",
   "genre.12": "Äventyr",
   "genre.14": "Fantasy",
   "genre.16": "Animerat",

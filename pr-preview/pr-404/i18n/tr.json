@@ -6,6 +6,7 @@
   "recsEnsembleStatusProvisional": "Geçici — sıralama henüz doğrulanmadı",
   "recsEnsembleStatusVerified": "Bağımsız olarak doğrulandı",
   "recsEnsembleStoredTarget": "Kaydedilmiş ML hedef payı",
+  "recsEnsembleNeuralSchema": "Sinir ağı modeli v{0}: {1} özellik",
   "genre.12": "Macera",
   "genre.14": "Fantastik",
   "genre.16": "Animasyon",

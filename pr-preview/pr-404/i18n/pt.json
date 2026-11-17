@@ -6,6 +6,7 @@
   "recsEnsembleStatusProvisional": "Provisório — classificação ainda não verificada",
   "recsEnsembleStatusVerified": "Verificado de forma independente",
   "recsEnsembleStoredTarget": "Meta de ML guardada",
+  "recsEnsembleNeuralSchema": "Modelo neural v{0}: {1} características",
   "genre.12": "Aventura",
   "genre.14": "Fantasia",
   "genre.16": "Animação",
