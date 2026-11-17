@@ -190,12 +190,14 @@ public sealed class ScoringStrategyTests : IDisposable
             GenreCount = 5, // normalizes to 1.0
             IsSeries = true, // 1.0
             UserRatingScore = 1.0,
-            CompletionRatio = 1.0
+            CompletionRatio = 1.0,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
         var score = strategy.Score(features);
 
-        // With all basic features = 1.0 but many features (PeopleSimilarity, StudioMatch, HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity, and the newer content features) at their neutral defaults, the weighted sum stays in this band.
+        // Basic positive features and a verified full thematic match earn this band; unrelated signals remain neutral.
         Assert.InRange(score, 0.55, 1.00);
     }
 
@@ -388,8 +390,14 @@ public sealed class ScoringStrategyTests : IDisposable
                 $"FeatureIndex.{index} ({i}) is out of bounds for weight array (length {weights.Length}). " +
                 $"Update CandidateFeatures.FeatureCount and DefaultWeights.CreateWeightArray().");
 
-            // Every feature must have a non-zero default weight (positive or negative).
-            // IsAbandoned intentionally has a negative weight (-0.10).
+            // Confidence and mismatch are applied once in score space, not as duplicate fixed raw contributions.
+            if (index is FeatureIndex.ContentFitSupport or FeatureIndex.AudienceMismatch)
+            {
+                Assert.Equal(0, weights[i]);
+                continue;
+            }
+
+            // Every other feature has an explicit nonzero relative prior.
             Assert.True(
                 Math.Abs(weights[i]) > 1e-12,
                 $"FeatureIndex.{index} ({i}) has weight 0.0 in DefaultWeights.CreateWeightArray(). " +
@@ -451,7 +459,9 @@ public sealed class ScoringStrategyTests : IDisposable
             RecencyScore = 0.5,
             YearProximityScore = 0.7,
             GenreCount = 3,
-            IsSeries = false
+            IsSeries = false,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
         var score = strategy.Score(features);
@@ -822,7 +832,9 @@ public sealed class ScoringStrategyTests : IDisposable
             CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
-            GenreCount = 4
+            GenreCount = 4,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
         var chuckyFeatures = new CandidateFeatures
@@ -859,7 +871,9 @@ public sealed class ScoringStrategyTests : IDisposable
             CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
-            GenreCount = 4
+            GenreCount = 4,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
         var chuckyFeatures = new CandidateFeatures
@@ -1065,7 +1079,9 @@ public sealed class ScoringStrategyTests : IDisposable
             CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
-            GenreCount = 4
+            GenreCount = 4,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
         var chuckyFeatures = new CandidateFeatures
@@ -1538,7 +1554,7 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void DefaultWeights_WeightsExcludingBias_SumToOne()
+    public void DefaultWeights_PositiveBudgetIsOneAndSignedSumIncludesEveryCoordinate()
     {
         var weights = DefaultWeights.CreateWeightArray();
         var sum = 0.0;
@@ -1548,7 +1564,8 @@ public sealed class ScoringStrategyTests : IDisposable
         }
 
         // Verify the weight array sum matches the exact expected total from all DefaultWeights constants. This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned, GenreUnderexposure, GenreAffinityGap).
-        var expectedSum =
+        Assert.Equal(1, weights.Where(weight => weight > 0).Sum(), 12);
+        var expectedSum = DefaultWeights.ContentFitAffinity + DefaultWeights.ContentFitSupport + DefaultWeights.AudienceMismatch +
             DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
             DefaultWeights.CombinedCriticScore + DefaultWeights.RecencyScore +
             DefaultWeights.YearProximityScore + DefaultWeights.GenreCountNormalized +

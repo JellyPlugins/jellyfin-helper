@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -18,6 +19,49 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 public sealed class EngineFeatureSnapshotTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LanguageAvailabilityFlags_AreCapturedWithoutBorrowingSubtitleEvidenceOrInventingUnknownAudio(bool partialAudio)
+    {
+        var strategy = new Mock<IScoringStrategy>();
+        strategy.SetupGet(value => value.Name).Returns("capture");
+        strategy.SetupGet(value => value.NameKey).Returns("capture");
+        strategy.Setup(value => value.Score(It.IsAny<CandidateFeatures>())).Returns(.9);
+        strategy.Setup(value => value.ScoreWithExplanation(It.IsAny<CandidateFeatures>()))
+            .Returns(new ScoreExplanation { FinalScore = .9, StrategyName = "capture", DominantSignal = "rating" });
+        var harness = EngineTestFactory.Create(strategy.Object);
+        using var lifetime = harness.Engine;
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] }] };
+        profile.LanguageProfile["de"] = new LanguageProfileEntry { ChosenCount = 5 };
+        profile.SubtitleLanguageProfile["de"] = new LanguageProfileEntry { ChosenCount = 5 };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var movie = new Mock<Movie> { CallBase = true };
+        movie.Object.Id = Guid.NewGuid();
+        movie.Object.Name = "Synthetic language availability";
+        movie.Object.Path = "/media/language-availability.mkv";
+        movie.Object.Genres = ["Action"];
+        movie.Object.CommunityRating = 8;
+        movie.Setup(item => item.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Index = 1, Type = MediaStreamType.Audio, Language = "eng" },
+            new MediaStream { Index = 2, Type = MediaStreamType.Audio, Language = partialAudio ? null : "eng" },
+            new MediaStream { Index = 3, Type = MediaStreamType.Subtitle, Language = "deu" }
+        ]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [movie.Object] : []);
+        var result = Assert.IsType<RecommendationResult>(harness.Engine.GetRecommendations(user, 1, TestContext.Current.CancellationToken));
+        var features = Assert.Single(result.Recommendations).ScoringFeatures!;
+        Assert.Equal(!partialAudio, features.HasAudioLanguageEvidence);
+        Assert.True(features.HasSubtitleLanguageEvidence);
+        Assert.Equal(1, features.SubtitleLanguageAffinity);
+        var means = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        Assert.Equal(partialAudio ? .8 : .1, features.ToModelVector(means)[28]);
+        Assert.Equal(1, features.ToModelVector(means)[30]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

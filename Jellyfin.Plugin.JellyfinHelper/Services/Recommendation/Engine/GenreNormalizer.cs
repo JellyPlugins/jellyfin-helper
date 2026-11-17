@@ -15,11 +15,22 @@ internal static class GenreNormalizer
 {
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
     private static readonly ConcurrentDictionary<string, string> ProviderAliases = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> GenreKeywords = Aliases.Keys.Concat(Set(Aliases.Values))
+        .Select(NormalizeGenreKeyword).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+    private static readonly ConcurrentDictionary<string, byte> ProviderGenreKeywords = new(StringComparer.Ordinal);
     private static readonly Lock CatalogLock = new();
     private static int _catalogVersion;
 
     /// <summary>Gets the version of provider-supplied aliases used by derived genre analyses.</summary>
     internal static int CatalogVersion => Volatile.Read(ref _catalogVersion);
+
+    /// <summary>Separates every known genre/alias from specific story evidence without allocations during overlap scoring.</summary>
+    /// <param name="keyword">An already normalized semantic keyword (compatibility Unicode, lowercase, hyphens/whitespace folded).</param>
+    /// <returns>True for catalogued genre labels, never for unrelated custom story words.</returns>
+    internal static bool IsKnownGenreKeyword(string keyword)
+        => GenreKeywords.Contains(keyword) || ProviderGenreKeywords.ContainsKey(keyword);
 
     /// <summary>Normalizes one label without changing the meaning of compound genres.</summary>
     /// <param name="genre">The original metadata label.</param>
@@ -72,6 +83,11 @@ internal static class GenreNormalizer
             if (ProviderAliases.Count >= 4096 || !ProviderAliases.TryAdd(name, canonical))
             {
                 return false;
+            }
+
+            if (NormalizeGenreKeyword(name) is { } keyword)
+            {
+                ProviderGenreKeywords.TryAdd(keyword, 0);
             }
 
             Interlocked.Increment(ref _catalogVersion);
@@ -184,6 +200,19 @@ internal static class GenreNormalizer
 
     private static bool IsCompound(string name)
         => name is "Action & Adventure" or "Sci-Fi & Fantasy" or "War & Politics";
+
+    private static string? NormalizeGenreKeyword(string label)
+    {
+        try
+        {
+            return string.Join(' ', label.Normalize(NormalizationForm.FormKC).Trim().ToLowerInvariant().Replace('-', ' ').Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        }
+        catch (ArgumentException)
+        {
+            // Malformed metadata has no semantic keyword, matching the thematic normalization boundary.
+            return null;
+        }
+    }
 
     private static void Add(HashSet<string> result, string name)
     {

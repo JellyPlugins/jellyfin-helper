@@ -1,6 +1,7 @@
 using System;
 using System.Net.Mime;
 using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Microsoft.AspNetCore.Authorization;
@@ -61,11 +62,12 @@ public class MediaStatisticsController : ControllerBase
     /// <summary>
     ///     Gets media statistics for all libraries. Results are cached for 5 minutes.
     /// </summary>
+    /// <param name="cancellationToken">Request cancellation.</param>
     /// <returns>The media statistics.</returns>
     [HttpGet("ScanLibraries")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-    public ActionResult<MediaStatisticsResult> ScanLibraries()
+    public async Task<ActionResult<MediaStatisticsResult>> ScanLibraries(CancellationToken cancellationToken = default)
     {
         lock (RateLimitLock)
         {
@@ -86,7 +88,7 @@ public class MediaStatisticsController : ControllerBase
             SetLastScanTime(now);
         }
 
-        var result = _statisticsService.CalculateStatistics();
+        var result = await _statisticsService.CalculateStatisticsAsync(cancellationToken).ConfigureAwait(false);
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);

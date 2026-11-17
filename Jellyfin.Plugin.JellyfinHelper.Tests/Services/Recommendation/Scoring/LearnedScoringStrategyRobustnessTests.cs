@@ -57,6 +57,43 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
         VerifyWarning(logger, "Skipping load");
     }
 
+    [Theory]
+    [InlineData("""{"Version":6,"Weights":null,"Bias":0.9}""")]
+    [InlineData("""{"Version":6,"Bias":0.9}""")]
+    [InlineData("""{"Version":6,"Weights":[],"Bias":0.9}""")]
+    [InlineData("""{"Version":6,"Weights":[1],"Bias":0.9}""")]
+    public void MissingOrMalformedWeightArraysFailClosedWithoutRewritingTheParameterFile(string json)
+    {
+        var path = Path.Join(_tempDir, "missing-weights.json");
+        File.WriteAllText(path, json);
+        var before = File.ReadAllBytes(path);
+        var strategy = new LearnedScoringStrategy(path);
+        Assert.False(strategy.HasOwnWeights);
+        Assert.Equal(DefaultWeights.CreateWeightArray(), strategy.GetCurrentWeights());
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.True(double.IsFinite(strategy.Score(new CandidateFeatures { GenreSimilarity = .7 })));
+    }
+
+    [Fact]
+    public void ValidLegacyClampFallbackPreservesEveryLoadedWeightInsteadOfProjectingLargeCoordinates()
+    {
+        var path = Path.Join(_tempDir, "large-weights.json");
+        var weights = new double[CandidateFeatures.FeatureCount];
+        weights[0] = 4.5;
+        weights[1] = -7;
+        File.WriteAllText(path, JsonSerializer.Serialize(new LearnedScoringStrategy.WeightsData
+        {
+            Version = 6, TrainingGeneration = 6, Weights = weights, Bias = .75
+        }));
+        var before = File.ReadAllBytes(path);
+        var strategy = new LearnedScoringStrategy(path);
+        Assert.True(strategy.HasOwnWeights);
+        Assert.Equal(weights, strategy.GetCurrentWeights());
+        var limits = (double[])typeof(LearnedScoringStrategy).GetField("_weightLimits", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(strategy)!;
+        Assert.Equal(weights.Select(weight => Math.Max(2, Math.Abs(weight))), limits);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
     [Fact]
     public void TryLoadWeights_NaNInWeights_DiscardsAndResetsToDefaults()
     {
@@ -130,11 +167,11 @@ public sealed class LearnedScoringStrategyRobustnessTests : IDisposable
     }
 
     [Fact]
-    public void CurrentWeightsVersion_IsV5()
+    public void CurrentWeightsVersion_IsV6()
     {
-        // V5 rejects fits trained before library/discovery aliases shared a permanent holdout.
+        // V6 requires the complete shared feature schema and title-isolated fitting.
         // The feature slots and default weights remain unchanged; shape validation is insufficient.
-        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, LearnedScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

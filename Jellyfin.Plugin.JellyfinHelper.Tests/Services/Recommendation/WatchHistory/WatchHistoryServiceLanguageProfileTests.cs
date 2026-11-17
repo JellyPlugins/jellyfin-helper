@@ -69,6 +69,9 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.NotNull(profile);
         Assert.Empty(profile!.LanguageProfile);
         Assert.Empty(profile.SubtitleLanguageProfile);
+        Assert.Empty(Assert.Single(profile.WatchedItems).AudioLanguages!);
+        Assert.Empty(Assert.Single(profile.WatchedItems).SubtitleLanguages!);
+        mockItem.Verify(item => item.GetMediaStreams(), Times.Once);
     }
 
     [Fact]
@@ -88,6 +91,8 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.NotNull(profile);
         Assert.Empty(profile!.LanguageProfile);
         Assert.Empty(profile.SubtitleLanguageProfile);
+        Assert.Null(Assert.Single(profile.WatchedItems).AudioLanguages);
+        Assert.Null(Assert.Single(profile.WatchedItems).SubtitleLanguages);
     }
 
     [Fact]
@@ -138,6 +143,10 @@ public sealed class WatchHistoryServiceLanguageProfileTests
         Assert.True(profile!.LanguageProfile.ContainsKey("de"));
         Assert.Equal(1, profile.LanguageProfile["de"].ChosenCount);
         Assert.Equal(0, profile.LanguageProfile["de"].ForcedCount);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.Equal(new[] { "de", "en" }, row.AudioLanguages);
+        Assert.Equal("de", row.PlaybackAudioLanguage);
+        mockItem.Verify(item => item.GetMediaStreams(), Times.Once);
     }
 
     [Fact]
@@ -318,5 +327,39 @@ public sealed class WatchHistoryServiceLanguageProfileTests
 
         Assert.NotNull(profile);
         Assert.True(profile!.LanguageProfile.ContainsKey("en"));
+    }
+
+    [Theory]
+    [InlineData("failed")]
+    [InlineData("partial")]
+    [InlineData("mutable-batch")]
+    public void RowAndLanguageEvidenceShareOneDetachedPlaybackSnapshot(string batch)
+    {
+        var user = CreateTestUser("snapshot");
+        var item = new Mock<BaseItem>();
+        item.Object.Id = Guid.NewGuid();
+        var playedAt = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
+        var first = new UserItemData { Key = "synthetic", Played = true, PlayCount = 1, LastPlayedDate = playedAt, AudioStreamIndex = 1 };
+        var later = new UserItemData { Key = "synthetic", Played = true, PlayCount = 2, LastPlayedDate = playedAt.AddMinutes(1), AudioStreamIndex = 2 };
+        item.Setup(video => video.GetMediaStreams()).Callback(() =>
+        {
+            first.LastPlayedDate = later.LastPlayedDate;
+            first.AudioStreamIndex = later.AudioStreamIndex;
+        }).Returns([new() { Index = 1, Type = MediaStreamType.Audio, Language = "eng" }, new() { Index = 2, Type = MediaStreamType.Audio, Language = "ger" }]);
+        _mockUserDataManager.SetupSequence(manager => manager.GetUserData(user, item.Object)).Returns(first).Returns(later);
+        if (batch == "failed")
+            _mockUserDataManager.Setup(manager => manager.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user)).Throws(new IOException("batch unavailable"));
+        else
+            _mockUserDataManager.Setup(manager => manager.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+                .Returns(batch == "partial" ? new Dictionary<Guid, UserItemData>() : new Dictionary<Guid, UserItemData> { [item.Object.Id] = first });
+
+        var profile = _service.BuildProfile(user, [item.Object], []);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.Equal(playedAt, row.LastPlayedDate);
+        Assert.Equal(playedAt, row.LanguagePlaybackDate);
+        Assert.Equal("en", row.PlaybackAudioLanguage);
+        Assert.Equal("en", row.CopyPlaybackHistory().PlaybackAudioLanguage);
+        Assert.Equal(1, profile.LanguageProfile["en"].ChosenCount);
+        _mockUserDataManager.Verify(manager => manager.GetUserData(user, item.Object), batch == "mutable-batch" ? Times.Never() : Times.Once());
     }
 }

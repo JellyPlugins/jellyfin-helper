@@ -33,7 +33,7 @@ public sealed class GenreEvidencePenaltyTests
     }
 
     [Fact]
-    public void Heuristic_UsesTheSameEvidencePolicyAndSnapshotsStayV5Compatible()
+    public void Heuristic_UsesTheSameEvidencePolicyAndSharedV6Snapshots()
     {
         var strategy = new HeuristicScoringStrategy();
         var unpenalized = new HeuristicScoringStrategy(genrePenaltyFloor: 1);
@@ -44,8 +44,8 @@ public sealed class GenreEvidencePenaltyTests
         Assert.False(loaded.HasGenreEvidence);
         Assert.Equal(strategy.Score(unknown), strategy.Score(loaded));
         Assert.True(JsonSerializer.Deserialize<CandidateFeatures>("{}")!.HasGenreEvidence);
-        Assert.Equal(38, loaded.ToVector().Length);
-        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
-        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(41, loaded.ToVector().Length);
+        Assert.Equal(6, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 }

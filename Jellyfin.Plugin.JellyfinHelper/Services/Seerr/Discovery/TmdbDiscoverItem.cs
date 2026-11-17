@@ -177,4 +177,8 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public int? SourceRank { get; set; }
+
+    /// <summary>Gets or sets the personal seed-title retrieval lane, never a keyword match, outcome or score bonus.</summary>
+    [JsonIgnore]
+    public string? PersonalSeedKey { get; set; }
 }

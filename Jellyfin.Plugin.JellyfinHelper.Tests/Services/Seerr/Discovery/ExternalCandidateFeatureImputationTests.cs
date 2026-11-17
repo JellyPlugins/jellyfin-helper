@@ -145,7 +145,8 @@ public sealed class ExternalCandidateFeatureImputationTests
         Assert.Equal(0.0, features.ToModelVector(null)[(int)FeatureIndex.PeopleGenreInteraction]);
         var library = features.Copy();
         library.IsExternalCandidate = false;
-        Assert.Equal(library.ToVector(), library.ToModelVector(secondMeans));
+        Assert.Equal(library.ToVector().Take((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(secondMeans).Take((int)FeatureIndex.ContentFitAffinity));
+        Assert.Equal(secondMeans.Skip((int)FeatureIndex.ContentFitAffinity), library.ToModelVector(secondMeans).Skip((int)FeatureIndex.ContentFitAffinity));
     }
 
     [Theory]

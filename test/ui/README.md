@@ -10,7 +10,7 @@ validators are pinned without a browser.
 | Area | File |
 |---|---|
 | Shared helpers (bytes, escaping, thresholds, paths) | `tests/shared-utils.test.ts` |
-| Modal focus, keyboard tabs, hidden panels, stable Discovery cards, reduced motion and toast lifetimes | `tests/ui-primitives.test.ts` |
+| Modal focus, keyboard tabs, hidden panels, animation reversal/resize/deadline teardown, stable Discovery cards, reduced motion and toast lifetimes | `tests/ui-primitives.test.ts` |
 | Shared trees, dialogs, api errors, indicators | `tests/shared-trees.test.ts`, `tests/shared-indicators.test.ts`, `tests/shared-indicators-behavior.test.ts` |
 | Reviewed edge cases pinned (tree key decode, dir icon, zero coercion, union dedup, capped note, ensemble share) | `tests/shared-safety.test.ts` |
 | Settings visibility (Discovery access, Trakt row, Recs tab, Seerr state) | `tests/settings-visibility.test.ts` |
@@ -23,15 +23,19 @@ validators are pinned without a browser.
 | Explorer helper edge cases (dimension index, filter intersection) and full behavioral coverage | `tests/codecs-explorer-interactions.test.ts`, `tests/codecs-explorer-coverage.test.ts` |
 | Arr instances render, collect, add, remove, test | `tests/arr-integration.test.ts` |
 | Recommendations cards, requests, diagnostics | `tests/recommendations.test.ts`, `tests/recommendations-flow.test.ts` |
+| Selected-user Cold/Warm prior and provisional/verified mix, Neural absence, precise rounding, bounded/stale caches and escaped v6 feature metadata | `tests/ensemble-effective.test.ts` |
+| GitHub Pages mock diagnostics: canonical v6 catalogue, bounded/effective shares, honest global/personal/prior labels and detached responses in the real admin renderer | `tests/demo-ensemble.test.ts` |
 | Trends math, charts, insights | `tests/trends.test.ts`, `tests/trends-render.test.ts`, `tests/trends-interaction.test.ts` |
 | Health checks, trash section and overview | `tests/health-overview.test.ts`, `tests/health-trash.test.ts` |
 | Logs tab and log level | `tests/logs-tab.test.ts`, `tests/logs-level.test.ts` |
 | E2E mock Seerr log control-character escaping (no network listener) | `tests/mock-seerr-log.test.ts` |
+| E2E temporary-account playlist cleanup, identity prevalidation, all-settled failure ordering and cold-start fixture isolation | `tests/playlist-fixture.test.ts` |
+| Shipped statistics fixture backup-failure/uncertain-write restoration and per-user observed-seed hook budget (no Docker or network) | `tests/e2e-statistics-fixture.test.ts` |
 | Folder browser dialog and navigation | `tests/folder-browser-dialog.test.ts`, `tests/folder-browser-paths.test.ts` |
 | Discovery bundle load + double-init guard (the tab matrix needs real layout, see e2e `discovery-native-tab.ui.spec.ts`) | `tests/discovery-load.test.ts` |
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Discovery impressions (opaque deliveries, refreshed/protected cards, stale acknowledgements, retries and session isolation) | `tests/discovery-impressions.test.ts` |
-| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
+| Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, refreshed/reordered/hidden-backfill own-pool Trakt exclusion, request-time tab switches and consumed-title profile selection, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
 | Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |

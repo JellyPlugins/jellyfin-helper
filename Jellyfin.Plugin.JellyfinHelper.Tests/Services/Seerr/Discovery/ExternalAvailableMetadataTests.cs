@@ -173,8 +173,8 @@ public sealed class ExternalAvailableMetadataTests
         var boxset = new CandidateFeatures { GenreSimilarity = 1, CollectionProgressionBoost = EngineConstants.ComputeCollectionProgressionBoost(1) };
         var franchise = new CandidateFeatures { GenreSimilarity = 1, FranchiseAffinity = 1 };
         Assert.True(heuristic.Score(boxset) > heuristic.Score(franchise));
-        Assert.Equal(5, LearnedScoringStrategy.CurrentWeightsVersion);
-        Assert.Equal(5, NeuralScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, LearnedScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(6, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     private static double[] Means() => Enumerable.Repeat(0.37, CandidateFeatures.FeatureCount).ToArray();

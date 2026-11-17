@@ -25,6 +25,13 @@ internal static class ScoringHelper
     internal static string GetFeatureName(FeatureIndex index)
         => index == FeatureIndex.SeriesAffinity ? nameof(FeatureIndex.SeriesAffinity) : index.ToString();
 
+    /// <summary>Compares copied configuration state exactly, not computed numerical approximations.</summary>
+    /// <param name="left">The previously captured setting.</param>
+    /// <param name="right">The current setting.</param>
+    /// <returns>True only for identical bits; even an adjacent representable change invalidates evaluation.</returns>
+    internal static bool SameConfigurationValue(double left, double right)
+        => BitConverter.DoubleToInt64Bits(left) == BitConverter.DoubleToInt64Bits(right);
+
     /// <summary>Explains each named signal as an actual score-space removal effect, not a logit gradient.</summary>
     /// <param name="features">The observed raw features.</param>
     /// <param name="score">A scorer pinned to a coherent model state by its caller.</param>
@@ -52,6 +59,11 @@ internal static class ScoringHelper
             PopularityContribution = Effect(FeatureIndex.PopularityScore),
             InteractionContribution = Effect(FeatureIndex.GenreCountNormalized)
         };
+        if (features.ContentFitAffinity.HasValue || features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        {
+            explanation.ContentFitContribution = full - score(features.WithoutContentFit());
+        }
+
         explanation.DominantSignal = ScoreExplanation.DetermineDominantSignal(
             explanation.GenreContribution,
             explanation.CollaborativeContribution,
@@ -91,6 +103,57 @@ internal static class ScoringHelper
     /// <returns>A neutral multiplier for missing evidence, otherwise the configured genre penalty.</returns>
     internal static double ComputeGenrePenalty(CandidateFeatures features, double floor)
         => features.HasGenreEvidence ? ComputeSoftGenrePenalty(features.GenreSimilarity, floor) : 1.0;
+
+    /// <summary>Applies the existing genre penalty, then bounded captured content confidence once in final score space.</summary>
+    /// <param name="rawScore">The raw component or mixture prediction.</param>
+    /// <param name="features">Shared v6 coordinates and immutable contextual evidence.</param>
+    /// <param name="floor">The existing genre-penalty floor.</param>
+    /// <returns>A contextual score; neutral/legacy evidence preserves the exact old result.</returns>
+    internal static double ComputeContextualScore(double rawScore, CandidateFeatures features, double floor)
+    {
+        var score = rawScore * ComputeGenrePenalty(features, floor);
+        if (!double.IsFinite(score))
+        {
+            return score;
+        }
+
+        // This affine adjustment commutes with the ensemble mixture, so admission compares EVERY
+        // component and incumbent with the same captured context without changing fitting units.
+        var (support, mismatch) = ResolveContentAdjustment(features);
+        if (support <= 0 && mismatch <= 0)
+        {
+            return score;
+        }
+
+        return (score + ((1 - score) * support * 0.5)) * (1 - mismatch);
+    }
+
+    /// <summary>Reconstructs only the pre-content scalar for diagnostics, never model inputs or outcomes.</summary>
+    /// <param name="score">The initial contextual score.</param>
+    /// <param name="features">The same captured context used to score it.</param>
+    /// <returns>The pre-content score including genre penalty, or null for an invalid prediction.</returns>
+    internal static double? RecoverPreContentScore(double score, CandidateFeatures features)
+    {
+        if (!double.IsFinite(score))
+        {
+            return null;
+        }
+
+        var (support, mismatch) = ResolveContentAdjustment(features);
+        var lift = support * 0.5;
+        return ((score / (1 - mismatch)) - lift) / (1 - lift);
+    }
+
+    private static (double Support, double Mismatch) ResolveContentAdjustment(CandidateFeatures features)
+    {
+        var hasGenres = features.HasGenreEvidence && features.GenreSimilarity > 0;
+        var continuation = features.CollectionContinuationSupport.GetValueOrDefault();
+        var support = Math.Max(continuation, hasGenres ? features.ContentFitSupport.GetValueOrDefault() : 0);
+        var mismatch = hasGenres ? Math.Min(0.5, features.AudienceMismatch.GetValueOrDefault()) : 0;
+        // Completed collection progress is stronger personal evidence than an ambiguous All-Ages hint.
+        // Explicit preschool mismatch remains separate; neither rule changes certification permission.
+        return (support, continuation >= 0.5 && mismatch <= 0.25 ? 0 : mismatch);
+    }
 
     /// <summary>
     ///     Computes the raw linear score from a feature vector, weights, and bias. Returns NaNFallbackScore if the result is NaN or Infinity, which can occur when weights are corrupted or features contain invalid values.
@@ -170,6 +233,9 @@ internal static class ScoringHelper
         var franchiseContrib = GetContribution(vector, weights, FeatureIndex.FranchiseAffinity);
         var collectionContrib = GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost);
         var popularityContrib = GetContribution(vector, weights, FeatureIndex.PopularityScore);
+        var contentContrib = GetContribution(vector, weights, FeatureIndex.ContentFitAffinity)
+            + GetContribution(vector, weights, FeatureIndex.ContentFitSupport)
+            + GetContribution(vector, weights, FeatureIndex.AudienceMismatch);
 
         // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend, tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,.
         var interactionSum =
@@ -206,7 +272,7 @@ internal static class ScoringHelper
         // the interaction bucket so they can be the dominant signal and drive a concrete recommendation reason.
         var contributionSum = genreContrib + collabContrib + ratingContrib + recencyContrib +
             yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib +
-            franchiseContrib + collectionContrib + popularityContrib;
+            franchiseContrib + collectionContrib + popularityContrib + contentContrib;
         var rawScore = GuardScore(contributionSum + bias);
         var score = Math.Clamp(rawScore, 0.0, 1.0);
 
@@ -225,6 +291,7 @@ internal static class ScoringHelper
             FranchiseContribution = franchiseContrib,
             CollectionProgressionContribution = collectionContrib,
             PopularityContribution = popularityContrib,
+            ContentFitContribution = contentContrib,
             GenrePenaltyMultiplier = 1.0, // No penalty in individual strategies - applied in Ensemble
             DominantSignal = ScoreExplanation.DetermineDominantSignal(
                 genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib, interactionContrib, peopleContrib, studioContrib, franchiseContrib, collectionContrib, popularityContrib),

@@ -111,13 +111,15 @@ internal static class CollectionMembershipResolver
     /// <param name="collections">The server's BoxSets.</param>
     /// <param name="linkedChildren">Optional authoritative Jellyfin linked-children query.</param>
     /// <param name="onFailure">Reports failed queries without losing other collections.</param>
+    /// <param name="incompleteCollections">Optional sequence guard: collects BoxSets with known members absent from the scoped title population, without changing membership-query completeness.</param>
     /// <returns>Whether all authoritative membership queries succeeded; false must not become an observed zero.</returns>
     internal static bool Merge(
         Dictionary<Guid, List<Guid>> lookup,
         HashSet<Guid> allowedItems,
         IEnumerable<BoxSet> collections,
         Func<Guid, IReadOnlyList<Guid>?>? linkedChildren = null,
-        Action<Exception>? onFailure = null)
+        Action<Exception>? onFailure = null,
+        ISet<Guid>? incompleteCollections = null)
     {
         ArgumentNullException.ThrowIfNull(lookup);
         ArgumentNullException.ThrowIfNull(allowedItems);
@@ -132,6 +134,11 @@ internal static class CollectionMembershipResolver
 
             var resolved = ReadChildren(collection, linkedChildren, onFailure);
             complete &= resolved.Complete;
+            if (incompleteCollections is not null && resolved.Children.Any(child => !allowedItems.Contains(child)))
+            {
+                incompleteCollections.Add(collection.Id);
+            }
+
             AddMemberships(lookup, allowedItems, collection.Id, resolved.Children);
         }
 

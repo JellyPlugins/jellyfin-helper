@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -175,6 +176,7 @@ internal static class TrainingFeatureComputer
     /// <param name="parentSeriesRating">The current explicit parent-series outcome rating, never a historical feature.</param>
     /// <param name="seriesTmdbId">The known provider identity of the aggregated title, or zero for a library fallback.</param>
     /// <param name="collectionProgressionBoost">Confirmed parent-series membership scored against the historical, self-excluded sibling counts.</param>
+    /// <param name="preparedContentFit">Already self-excluded historical semantic evidence, or null for direct callers.</param>
     internal static void AddAggregatedSeriesExample(
         List<TrainingExample> examples,
         List<WatchedItemInfo> episodes,
@@ -200,7 +202,8 @@ internal static class TrainingFeatureComputer
         ContentScoring.SeriesAffinityContext? seriesAffinityContext = null,
         double? parentSeriesRating = null,
         int seriesTmdbId = 0,
-        double collectionProgressionBoost = 0.0)
+        double collectionProgressionBoost = 0.0,
+        ContentFitProfile? preparedContentFit = null)
     {
         // Use latest episode for temporal signals.
         var mostRecent = episodes
@@ -252,6 +255,7 @@ internal static class TrainingFeatureComputer
         // scans the whole profile: an episode of this series that is absent from the passed-in list
         // (a filtered subset) would otherwise leak its own label back into the aggregate.
         var episodeIds = ContentScoring.BuildSeriesExcludeSet(seriesId, userProfile);
+        var languageProfile = preparedContentFit is null ? TrainingHistory.Before(userProfile, predictionTime, episodeIds) : userProfile;
 
         var (familiarity3, genreAvgCompletion3, genreAbandonRate3) = ContentScoring.ComputeGenreEngagement(genreList, userProfile, episodeIds);
         var userRatingScore3 = ContentScoring.ComputeGenreRatingScore(genreList, userProfile, episodeIds);
@@ -290,8 +294,10 @@ internal static class TrainingFeatureComputer
                 episodes.Select(e => e.DateCreated).Where(d => d.HasValue).Min() is { } minDate
                     ? ContentScoring.ComputeRecencyScore(minDate, predictionTime)
                     : 0.5,
-            LanguageAffinity = 0.5,
-            SubtitleLanguageAffinity = 0.5,
+            LanguageAffinity = ComputeLanguageAffinityFromCache(mostRecent?.AudioLanguages ?? [], languageProfile),
+            HasAudioLanguageEvidence = HasLanguageEvidence(mostRecent?.AudioLanguages, languageProfile.LanguageProfile.Count, mostRecent?.HasAudioLanguageMetadata),
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromCache(mostRecent?.SubtitleLanguages ?? [], languageProfile),
+            HasSubtitleLanguageEvidence = HasLanguageEvidence(mostRecent?.SubtitleLanguages, languageProfile.SubtitleLanguageProfile.Count, mostRecent?.HasSubtitleLanguageMetadata),
             CollectionProgressionBoost = collectionProgressionBoost,
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(episodes.Select(episode => episode.TmdbCollectionId).FirstOrDefault(id => id > 0), seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
@@ -316,13 +322,11 @@ internal static class TrainingFeatureComputer
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
 
+        var contentFit = preparedContentFit ?? ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
+        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences);
+
         // Label from aggregated completion.
-        var parentRating = NormalizeExplicitRating(parentSeriesRating);
-        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEps switch
-            {
-                0 when episodes.Any(e => e.IsFavorite) => 0.65,
-                _ => ContentScoring.ComputeEngagementLabel(completionRatio)
-            };
+        var (label, isObserved) = ComputeAggregatedSeriesOutcome(episodes, parentSeriesRating, playedEps, completionRatio);
 
         examples.Add(
             new TrainingExample
@@ -334,8 +338,27 @@ internal static class TrainingFeatureComputer
                 UserId = userProfile.UserId,
                 ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, seriesId, seriesTmdbId, isSeries: true),
                 HasStableObservationId = true,
-                IsObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)))
+                IsObserved = isObserved
             });
+    }
+
+    /// <summary>Derives the series label and observation status from current outcomes, never historical features.</summary>
+    /// <param name="episodes">Current episode outcomes.</param>
+    /// <param name="parentSeriesRating">Current explicit parent-series rating.</param>
+    /// <param name="playedEpisodes">Number of played episodes.</param>
+    /// <param name="completionRatio">Aggregated completion ratio.</param>
+    /// <returns>The label and whether any independent outcome was observed.</returns>
+    private static (double Label, bool IsObserved) ComputeAggregatedSeriesOutcome(
+        List<WatchedItemInfo> episodes, double? parentSeriesRating, int playedEpisodes, double completionRatio)
+    {
+        var parentRating = NormalizeExplicitRating(parentSeriesRating);
+        var label = parentRating ?? AverageExplicitRatings(episodes) ?? playedEpisodes switch
+        {
+            0 when episodes.Any(e => e.IsFavorite) => 0.65,
+            _ => ContentScoring.ComputeEngagementLabel(completionRatio)
+        };
+        var isObserved = parentRating.HasValue || episodes.Any(e => e.Played || e.IsFavorite || (e.UserRating is > 0 && double.IsFinite(e.UserRating.Value)));
+        return (label, isObserved);
     }
 
     /// <summary>Normalizes a finite positive explicit rating; absent, invalid and unrated values retain the episode-label fallback.</summary>
@@ -563,6 +586,15 @@ internal static class TrainingFeatureComputer
             userProfile.ToleratedLanguages,
             userProfile.LanguageProfile);
     }
+
+    /// <summary>Checks language-input availability without calling a sparse, unlabelled track list a genuine mismatch.</summary>
+    /// <param name="languages">Captured normalized available languages, or null when unknown.</param>
+    /// <param name="personalLanguageCount">The number of evidenced personal language preferences.</param>
+    /// <param name="hasMetadata">Whether every track's language was identified; null preserves legacy list provenance.</param>
+    /// <returns>Whether the affinity is suitable as an observed ML coordinate.</returns>
+    internal static bool HasLanguageEvidence(IReadOnlyList<string>? languages, int personalLanguageCount, bool? hasMetadata = null)
+        => hasMetadata != false && personalLanguageCount > 0 && languages is { Count: > 0 }
+            && languages.All(language => LanguageIdentity.GetIso6391Code(language) is not null);
 
     /// <summary>
     ///     Core language affinity logic.

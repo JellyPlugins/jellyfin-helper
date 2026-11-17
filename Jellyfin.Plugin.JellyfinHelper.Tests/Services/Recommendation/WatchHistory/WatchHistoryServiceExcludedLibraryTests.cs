@@ -1,6 +1,8 @@
+using Jellyfin.Data;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -101,6 +103,47 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
         Assert.Equal(2, result.Count);
         Assert.Contains(result, i => i.Id == allowed.Id);
         Assert.Contains(result, i => i.Id == underOther.Id);
+    }
+
+    [Fact]
+    public void FreshProfilesAndContentFitDropExcludedAndRemovedMovieAndParentSeriesEvidence()
+    {
+        var service = CreateService(string.Empty);
+        var configuration = new PluginConfiguration();
+        _mockConfigService.Setup(config => config.GetConfiguration()).Returns(configuration);
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "prov", "res") { Id = Guid.NewGuid() };
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var allowed = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/film.mkv", Genres = ["Crime"], Tags = ["detective"] };
+        var excluded = new Movie { Id = Guid.NewGuid(), Path = ExcludedRoot + "/film.mkv", Genres = ["Adventure"], Tags = ["wizard"] };
+        var parent = new Series { Id = Guid.NewGuid(), Path = ExcludedRoot + "/series", Genres = ["Animation"], Tags = ["shounen", "pirate"] };
+        var episode = new Episode { Id = Guid.NewGuid(), SeriesId = parent.Id, Path = parent.Path + "/episode.mkv" };
+        IReadOnlyList<BaseItem> videos = [allowed, excluded, episode];
+        IReadOnlyList<BaseItem> series = [parent];
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) => query.IsFolder == true ? series : videos);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "watched", Played = true, PlayCount = 1 });
+
+        var first = service.GetUserWatchProfile(user.Id)!;
+        Assert.Contains(first.WatchedItems, row => row.ItemId == excluded.Id);
+        Assert.Contains(first.WatchedItems, row => row.ItemId == episode.Id);
+        Assert.Equal(1, ContentFitProfile.Create(first).ScoreTags(["shounen", "pirate"]));
+
+        configuration.ExcludedLibraries = "Anime";
+        var filtered = service.GetUserWatchProfile(user.Id)!;
+        Assert.Equal(allowed.Id, Assert.Single(filtered.WatchedItems).ItemId);
+        Assert.DoesNotContain("Animation", filtered.GenreDistribution.Keys);
+        Assert.Equal(0, ContentFitProfile.Create(filtered).ScoreTags(["shounen", "pirate", "wizard"]));
+        Assert.Equal(1, ContentFitProfile.Create(filtered).ScoreTags(["detective"]));
+
+        configuration.ExcludedLibraries = string.Empty;
+        videos = [allowed];
+        series = [];
+        _mockLibraryManager.Setup(manager => manager.GetVirtualFolders()).Returns([new VirtualFolderInfo { Name = "Movies", Locations = [AllowedRoot] }]);
+        var removed = service.GetUserWatchProfile(user.Id)!;
+        Assert.Equal(allowed.Id, Assert.Single(removed.WatchedItems).ItemId);
+        Assert.Equal(0, ContentFitProfile.Create(removed).ScoreTags(["shounen", "pirate", "wizard"]));
+        Assert.Equal(1, ContentFitProfile.Create(removed).ScoreTags(["detective"]));
     }
 
     [Fact]

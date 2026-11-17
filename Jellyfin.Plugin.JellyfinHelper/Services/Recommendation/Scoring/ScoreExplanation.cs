@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -20,6 +21,10 @@ public sealed class ScoreExplanation
 
     /// <summary>Gets or sets a value indicating whether effects are score-removal deltas rather than additive summands.</summary>
     public bool ContributionsAreMarginalEffects { get; set; }
+
+    /// <summary>Gets or sets the score-removal effect of captured content confidence, not an additional ML feature or additive budget share.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ContentFitContribution { get; set; }
 
     /// <summary>Gets or sets the score contribution from genre similarity.</summary>
     public double GenreContribution { get; set; }
@@ -96,6 +101,9 @@ public sealed class ScoreExplanation
         {
             FinalScore = (oneMinusAlpha * FinalScore) + (alpha * other.FinalScore),
             ContributionsAreMarginalEffects = ContributionsAreMarginalEffects || other.ContributionsAreMarginalEffects,
+            ContentFitContribution = ContentFitContribution.HasValue || other.ContentFitContribution.HasValue
+                ? (oneMinusAlpha * ContentFitContribution.GetValueOrDefault()) + (alpha * other.ContentFitContribution.GetValueOrDefault())
+                : null,
             GenreContribution = blendedGenre,
             CollaborativeContribution = blendedCollab,
             RatingContribution = blendedRating,
@@ -139,6 +147,7 @@ public sealed class ScoreExplanation
         {
             FinalScore = Math.Clamp(FinalScore * penaltyMultiplier, 0.0, 1.0),
             ContributionsAreMarginalEffects = ContributionsAreMarginalEffects,
+            ContentFitContribution = ContentFitContribution * penaltyMultiplier,
             GenreContribution = GenreContribution * penaltyMultiplier,
             CollaborativeContribution = CollaborativeContribution * penaltyMultiplier,
             RatingContribution = RatingContribution * penaltyMultiplier,
@@ -284,8 +293,9 @@ public sealed class ScoreExplanation
     /// <returns>A formatted string with all score components and the dominant signal.</returns>
     public override string ToString()
     {
-        return string.Create(
+        var text = string.Create(
             CultureInfo.InvariantCulture,
             $"[{StrategyName}] score={FinalScore:F4} (genre={GenreContribution:F3}, collab={CollaborativeContribution:F3}, rating={RatingContribution:F3}, recency={RecencyContribution:F3}, yearProx={YearProximityContribution:F3}, userRating={UserRatingContribution:F3}, interact={InteractionContribution:F3}, people={PeopleContribution:F3}, studio={StudioContribution:F3}, franchise={FranchiseContribution:F3}, collection={CollectionProgressionContribution:F3}, popularity={PopularityContribution:F3}, penalty={GenrePenaltyMultiplier:F2}) dominant={DominantSignal}");
+        return ContentFitContribution.HasValue ? string.Create(CultureInfo.InvariantCulture, $"{text} contentConfidence={ContentFitContribution.Value:F3}") : text;
     }
 }

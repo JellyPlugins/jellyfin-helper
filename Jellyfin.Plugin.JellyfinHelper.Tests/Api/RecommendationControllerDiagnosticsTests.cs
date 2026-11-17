@@ -46,6 +46,7 @@ public class RecommendationControllerDiagnosticsTests
         var diagnostics = new EnsembleDiagnostics
         {
             Alpha = 0.55,
+            AlphaOffset = 0.12,
             NeuralBeta = 0.2,
             QualityGateFrozen = false,
             SigmoidMidpointOffset = -3.0,
@@ -65,6 +66,12 @@ public class RecommendationControllerDiagnosticsTests
         var dto = Assert.IsType<EnsembleDiagnosticsResponse>(ok.Value);
         Assert.True(dto.Available);
         Assert.Equal(0.55, dto.Alpha);
+        Assert.Equal(0.12, dto.AlphaOffset);
+        Assert.Equal(0.67, dto.EffectiveAlpha, 12);
+        Assert.Equal(0.2, dto.EffectiveNeuralBeta);
+        Assert.Equal(0.33, dto.HeuristicShare, 12);
+        Assert.Equal(0.536, dto.LearnedShare, 12);
+        Assert.Equal(0.134, dto.NeuralShare, 12);
         Assert.Equal(0.2, dto.NeuralBeta);
         Assert.False(dto.QualityGateFrozen);
         Assert.Equal(-3.0, dto.SigmoidMidpointOffset);

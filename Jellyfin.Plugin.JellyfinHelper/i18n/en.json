@@ -1,4 +1,12 @@
 {
+  "recsEnsembleModelPersonal": "Personal model",
+  "recsEnsembleModelGlobal": "Global model",
+  "recsEnsembleModelPrior": "Global priors, personal mixture",
+  "recsEnsembleStatusPrior": "Starting mixture from global priors",
+  "recsEnsembleStatusProvisional": "Provisional — ranking not yet verified",
+  "recsEnsembleStatusVerified": "Independently verified",
+  "recsEnsembleStoredTarget": "Stored ML target",
+  "recsEnsembleNeuralSchema": "Neural model v{0}: {1} features",
   "genre.12": "Adventure",
   "genre.14": "Fantasy",
   "genre.16": "Animation",

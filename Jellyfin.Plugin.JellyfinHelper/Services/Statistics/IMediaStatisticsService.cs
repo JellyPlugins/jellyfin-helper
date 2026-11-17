@@ -1,3 +1,6 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 
 /// <summary>
@@ -6,8 +9,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public interface IMediaStatisticsService
 {
     /// <summary>
-    /// Calculates statistics for all configured libraries.
+    /// Calculates local statistics without network lookups. Production scans use
+    /// <see cref="CalculateStatisticsAsync"/> for optional Arr ownership protection.
     /// </summary>
     /// <returns>The aggregated media statistics.</returns>
     MediaStatisticsResult CalculateStatistics();
+
+    /// <summary>Calculates statistics with bounded, optional Arr ownership protection.</summary>
+    /// <param name="cancellationToken">Scan cancellation.</param>
+    /// <returns>The aggregated media statistics.</returns>
+    Task<MediaStatisticsResult> CalculateStatisticsAsync(CancellationToken cancellationToken = default);
 }

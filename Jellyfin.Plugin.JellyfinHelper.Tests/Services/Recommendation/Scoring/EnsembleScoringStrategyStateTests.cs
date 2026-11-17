@@ -309,7 +309,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
     [InlineData("shape", false)]
     [InlineData("valid", true)]
     [InlineData("valid", false)]
-    public void RestoreBeta_RequiresUsableV5NeuralWeightsWithoutDiscardingValidLearnedWeights(string fileState, bool ownsNeural)
+    public void RestoreBeta_RequiresUsableV6NeuralWeightsWithoutDiscardingValidLearnedWeights(string fileState, bool ownsNeural)
     {
         var neuralPath = Path.Join(_tempDir, "neural_weights.json");
         var examples = CleanExamples(300);
@@ -322,7 +322,7 @@ public sealed class EnsembleScoringStrategyStateTests : IDisposable
             Assert.True(fitted.Train(CleanExamples(30)));
             Assert.True(fitted.HasTrainedWeights);
             var payload = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(neuralPath))!;
-            Assert.Equal(5, payload["Version"]!.GetValue<int>());
+            Assert.Equal(6, payload["Version"]!.GetValue<int>());
             if (fileState == "version") payload["Version"] = 999;
             if (fileState == "shape") payload["WeightsIH"] = new System.Text.Json.Nodes.JsonArray();
             File.WriteAllText(neuralPath, payload.ToJsonString());

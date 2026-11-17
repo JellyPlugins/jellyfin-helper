@@ -55,6 +55,11 @@ internal static class TrainingHistory
             }
         }
 
+        foreach (var row in rows)
+        {
+            PlaybackLanguageEvidence.Accumulate(profile, row);
+        }
+
         // Neither aggregate counters nor current favorite/rating edits have event timestamps.
         // Only recorded prediction snapshots can preserve those preferences faithfully.
         return profile;

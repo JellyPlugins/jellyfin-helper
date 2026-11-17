@@ -2308,12 +2308,24 @@ describe('request + dismiss edge branches', () => {
     ajaxRouter({ 'RequestPermissions': { CanRequest: true, Profiles: [] } }, { userId: 'u1' });
     const el = cardFixture(ui);
     const btn = el.querySelector('.jfh-discovery-btn:not(.jfh-discovery-btn-dismiss)') as HTMLButtonElement & { _resetTimer?: unknown };
-    btn._resetTimer = setTimeout(() => { btn.textContent = 'STALE'; }, 10);
+    const staleReset = vi.fn(() => { btn.textContent = 'STALE'; });
+    const oldTimer = setTimeout(staleReset, 10);
+    btn._resetTimer = oldTimer;
     ui.fetchPermissionsAndRequest(603, 'movie', btn);
+    expect(btn._resetTimer).toBeNull();
     await vi.advanceTimersByTimeAsync(20);
     await flush();
+    expect(staleReset).not.toHaveBeenCalled();
     expect(btn.textContent).not.toBe('STALE');
+    // The stub's unsuccessful Request legitimately installs a new, tracked failure-reset timer.
+    expect(btn._resetTimer).not.toBeNull();
+    expect(btn._resetTimer).not.toBe(oldTimer);
+    expect(btn.disabled).toBe(true);
+    expect(btn.classList.contains('jfh-discovery-btn-failed')).toBe(true);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(btn._resetTimer).toBeNull();
+    expect(btn.textContent).toBe('Request');
+    expect(btn.disabled).toBe(false);
   });
 
   test('a denied permission shows a failed button that auto-resets with the dismiss sibling', async () => {
@@ -2663,7 +2675,7 @@ describe('probe + own-fetch residual branches', () => {
     expect(resolveTrending).not.toBeNull();
     ui.renderShell(el, true);
     expect(typeof resolveTrending).toBe('function');
-    resolveTrending!({ Recommendations: [rec({ Title: 'trendy' })] });
+    resolveTrending!({ Recommendations: [rec({ Title: 'trendy', TmdbId: 456 })] });
     await flush();
     (el.querySelector('[data-tab="trending"]') as HTMLElement).click();
     await flush();
