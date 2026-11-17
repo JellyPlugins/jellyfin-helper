@@ -1,4 +1,6 @@
 using System;
+using System.Collections.ObjectModel;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -9,14 +11,70 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </summary>
 public sealed class EnsembleDiagnosticsResponse
 {
+    private Collection<string> _neuralFeatures = [];
+
     /// <summary>
     ///     Gets or sets a value indicating whether ensemble diagnostics are available. False when the active
     ///     strategy is not an ensemble or no state has been produced yet; the remaining fields carry defaults.
     /// </summary>
     public bool Available { get; set; }
 
-    /// <summary>Gets or sets the current blending factor alpha (ML weight; (1 - alpha) is the heuristic weight).</summary>
+    /// <summary>Gets or sets the stored ML target before quality suppression and user exploration.</summary>
     public double Alpha { get; set; }
+
+    /// <summary>Gets or sets the selected user's requested exploration offset.</summary>
+    public double AlphaOffset { get; set; }
+
+    /// <summary>Gets or sets the effective ML coefficient used for scoring this user now.</summary>
+    public double EffectiveAlpha { get; set; }
+
+    /// <summary>Gets or sets the operative Neural fraction of ML, zero when Neural is absent.</summary>
+    public double EffectiveNeuralBeta { get; set; }
+
+    /// <summary>Gets or sets the current heuristic coefficient.</summary>
+    public double HeuristicShare { get; set; }
+
+    /// <summary>Gets or sets the current Learned coefficient.</summary>
+    public double LearnedShare { get; set; }
+
+    /// <summary>Gets or sets the current Neural coefficient.</summary>
+    public double NeuralShare { get; set; }
+
+    /// <summary>Gets or sets the accepted model revision, separate from fitting attempts.</summary>
+    public long ModelRevision { get; set; }
+
+    /// <summary>Gets or sets the operating evidence level; provisional participation is not verified ranking approval.</summary>
+    public string ValidationLevel { get; set; } = "Legacy";
+
+    /// <summary>Gets or sets the latest independent admission/retention reason.</summary>
+    public string? AdmissionReason { get; set; }
+
+    /// <summary>Gets or sets the independent evidence limitation, separate from provisional serving.</summary>
+    public string? IndependentAdmissionReason { get; set; }
+
+    /// <summary>Gets or sets calibration-only provisional mixture loss, never acceptance loss.</summary>
+    public double? ProvisionalCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only Learned component loss.</summary>
+    public double? ProvisionalLearnedCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only Neural component loss, null when absent.</summary>
+    public double? ProvisionalNeuralCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only heuristic comparison loss.</summary>
+    public double? ProvisionalHeuristicCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only incumbent comparison loss, null when absent.</summary>
+    public double? ProvisionalIncumbentCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets unique calibration title support.</summary>
+    public int CalibrationTitleCount { get; set; }
+
+    /// <summary>Gets or sets unique independent acceptance support.</summary>
+    public int AcceptanceTitleCount { get; set; }
+
+    /// <summary>Gets or sets observed candidate loss, null when no usable acceptance measurement exists.</summary>
+    public double? CandidateValidationLoss { get; set; }
 
     /// <summary>Gets or sets the current neural blending factor beta (fraction of the ML budget allocated to the neural strategy).</summary>
     public double NeuralBeta { get; set; }
@@ -48,9 +106,22 @@ public sealed class EnsembleDiagnosticsResponse
     /// <summary>Gets or sets a value indicating whether a neural sub-strategy was constructed for this ensemble.</summary>
     public bool NeuralEnabled { get; set; }
 
+    /// <summary>Gets or sets the actual retained Neural parameter schema, separate from mixture revision.</summary>
+    public int? NeuralModelVersion { get; set; }
+
+    /// <summary>Gets or sets the schema's actual Neural input count.</summary>
+    public int? NeuralInputFeatureCount { get; set; }
+
+    /// <summary>Gets or sets the versioned canonical Neural feature names.</summary>
+    public Collection<string> NeuralFeatures
+    {
+        get => _neuralFeatures;
+        set => _neuralFeatures = value ?? [];
+    }
+
     /// <summary>
     ///     Gets or sets a value indicating whether these diagnostics describe a per-user model. False means
-    ///     the values come from the shared global model (the user has no dedicated model yet / cold-start).
+    ///     the coordinates come from a global prior/model; ValidationLevel distinguishes a user's bounded starting mixture.
     /// </summary>
     public bool IsPerUser { get; set; }
 
@@ -87,6 +158,24 @@ public sealed class EnsembleDiagnosticsResponse
         {
             Available = true,
             Alpha = diagnostics.Alpha,
+            AlphaOffset = diagnostics.AlphaOffset,
+            EffectiveAlpha = diagnostics.EffectiveAlpha,
+            EffectiveNeuralBeta = diagnostics.EffectiveNeuralBeta,
+            HeuristicShare = diagnostics.HeuristicShare,
+            LearnedShare = diagnostics.LearnedShare,
+            NeuralShare = diagnostics.NeuralShare,
+            ModelRevision = diagnostics.ModelRevision,
+            ValidationLevel = diagnostics.ValidationLevel,
+            AdmissionReason = diagnostics.AdmissionReason,
+            IndependentAdmissionReason = diagnostics.IndependentAdmissionReason,
+            ProvisionalCalibrationLoss = diagnostics.ProvisionalCalibrationLoss,
+            ProvisionalLearnedCalibrationLoss = diagnostics.ProvisionalLearnedCalibrationLoss,
+            ProvisionalNeuralCalibrationLoss = diagnostics.ProvisionalNeuralCalibrationLoss,
+            ProvisionalHeuristicCalibrationLoss = diagnostics.ProvisionalHeuristicCalibrationLoss,
+            ProvisionalIncumbentCalibrationLoss = diagnostics.ProvisionalIncumbentCalibrationLoss,
+            CalibrationTitleCount = diagnostics.CalibrationTitleCount,
+            AcceptanceTitleCount = diagnostics.AcceptanceTitleCount,
+            CandidateValidationLoss = diagnostics.CandidateValidationLoss,
             NeuralBeta = diagnostics.NeuralBeta,
             QualityGateFrozen = diagnostics.QualityGateFrozen,
             SigmoidMidpointOffset = diagnostics.SigmoidMidpointOffset,
@@ -97,6 +186,9 @@ public sealed class EnsembleDiagnosticsResponse
             AlphaMin = diagnostics.AlphaMin,
             AlphaMax = diagnostics.AlphaMax,
             NeuralEnabled = diagnostics.NeuralEnabled,
+            NeuralModelVersion = diagnostics.NeuralModelVersion,
+            NeuralInputFeatureCount = diagnostics.NeuralInputFeatureCount,
+            NeuralFeatures = new Collection<string>(diagnostics.NeuralFeatures.ToList()),
             IsPerUser = isPerUser,
             UserName = userName
         };

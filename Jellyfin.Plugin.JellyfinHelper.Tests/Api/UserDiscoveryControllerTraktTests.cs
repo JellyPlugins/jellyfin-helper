@@ -319,6 +319,125 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         _feedbackStoreMock.Verify(store => store.RecordImpressions(user, It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => BitConverter.DoubleToInt64Bits(items.Single().ScoringFeatures!.GenreSimilarity) == BitConverter.DoubleToInt64Bits(0.3)), pool.GeneratedAt), Times.Once);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WarmTraktDeliveryRechecksCurrentOwnPoolBeforeCappingWithoutChangingScoresOrTheCachedPool(bool trending)
+    {
+        var user = Guid.NewGuid();
+        var otherUser = Guid.NewGuid();
+        var pool = ResultWith(user, 20);
+        pool.Recommendations[0].Title = "Disclosure Day";
+        pool.Recommendations[0].Score = .43;
+        var unrelated = ResultWith(otherUser, 1);
+        _cache.Save([unrelated]);
+        _traktDiscovery.Setup(service => service.IsLinkedForAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(service => service.GetPersonalAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        _traktDiscovery.Setup(service => service.GetTrendingAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        var controller = CreateController(user);
+        async Task<DiscoveryResult> Read()
+        {
+            if (trending)
+            {
+                var result = await controller.GetMyTraktTrending(TestContext.Current.CancellationToken);
+                return Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            }
+
+            var personal = await controller.GetMyTrakt(TestContext.Current.CancellationToken);
+            return Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(personal.Result).Value).Result!;
+        }
+
+        Assert.Equal(1000, (await Read()).Recommendations[0].TmdbId);
+        var own = new DiscoveryResult
+        {
+            UserId = user,
+            Recommendations = [new DiscoveryRecommendation { TmdbId = 1000, MediaType = " Movie ", Title = "Disclosure Day", Score = .55 }]
+        };
+        _cache.Save([own, unrelated]);
+        var filtered = await Read();
+        Assert.Equal(Enumerable.Range(1001, 10), filtered.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(20, pool.Recommendations.Count);
+        Assert.Equal(.43, pool.Recommendations[0].Score);
+        Assert.Equal(.55, (await _cache.LoadAsync(TestContext.Current.CancellationToken)).Single(result => result.UserId == user).Recommendations[0].Score);
+        Assert.Null(pool.DeliveryId);
+        _cache.Save([unrelated]);
+        Assert.Equal(1000, (await Read()).Recommendations[0].TmdbId);
+        _feedbackStoreMock.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnTraktExclusionsAreTypedAndOnlySurvivingItemsBelongToTheNewDelivery(bool trending)
+    {
+        var user = Guid.NewGuid();
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        var pool = ResultWith(user, 1);
+        pool.Recommendations.Add(new DiscoveryRecommendation
+        {
+            TmdbId = 1000, MediaType = "tv", Score = .43, ScoringFeatures = new CandidateFeatures { GenreSimilarity = .43 }
+        });
+        _cache.Save([new DiscoveryResult
+        {
+            UserId = user,
+            Recommendations = [new DiscoveryRecommendation { TmdbId = 1000, MediaType = "", Score = .55 }]
+        }]);
+        _traktDiscovery.Setup(service => service.IsLinkedForAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _traktDiscovery.Setup(service => service.GetPersonalAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        _traktDiscovery.Setup(service => service.GetTrendingAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(pool);
+        var controller = CreateController(user);
+        DiscoveryResult delivery;
+        if (trending)
+        {
+            var result = await controller.GetMyTraktTrending(TestContext.Current.CancellationToken);
+            delivery = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        }
+        else
+        {
+            var result = await controller.GetMyTrakt(TestContext.Current.CancellationToken);
+            delivery = Assert.IsType<TraktDiscoveryResponse>(Assert.IsType<OkObjectResult>(result.Result).Value).Result!;
+        }
+
+        Assert.Equal("tv", Assert.Single(delivery.Recommendations).MediaType);
+        Assert.Equal(.43, delivery.Recommendations[0].Score);
+        Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto
+        {
+            DeliveryId = delivery.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1000, MediaType = "movie" }]
+        }));
+        Assert.IsType<NoContentResult>(controller.RecordImpressions(new DiscoveryImpressionsDto
+        {
+            DeliveryId = delivery.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1000, MediaType = "tv" }]
+        }));
+        // Feedback must retain the exact server snapshot, not merely a score within a tolerance.
+        _feedbackStoreMock.Verify(store => store.RecordImpressions(user,
+            It.Is<IReadOnlyList<DiscoveryRecommendation>>(items => items.Count == 1 && items[0].MediaType == "tv"
+                && BitConverter.DoubleToInt64Bits(items[0].Score) == BitConverter.DoubleToInt64Bits(.43)), pool.GeneratedAt), Times.Once);
+    }
+
+    [Fact]
+    public async Task OwnDeliveryIncludesHiddenPoolMembershipWithoutDeliveringItsCardsOrFeedbackEvidence()
+    {
+        var user = Guid.NewGuid();
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        var pool = ResultWith(user, 20);
+        _cache.Save([pool]);
+        _discoveryMock.Setup(service => service.ReconcileRequestedItemsAsync(user, It.IsAny<CancellationToken>())).ReturnsAsync(0);
+        var controller = CreateController(user);
+        var response = await controller.GetMyDiscoveryResults(TestContext.Current.CancellationToken);
+        var delivered = Assert.IsType<DiscoveryResult>(Assert.IsType<OkObjectResult>(response.Result).Value);
+
+        Assert.Equal(10, delivered.Recommendations.Count);
+        Assert.Equal(20, delivered.OwnPoolItemKeys!.Count);
+        Assert.Contains("movie-1010", delivered.OwnPoolItemKeys);
+        Assert.DoesNotContain(delivered.Recommendations, item => item.TmdbId == 1010);
+        Assert.Null(pool.OwnPoolItemKeys);
+        Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto
+        {
+            DeliveryId = delivered.DeliveryId, Items = [new DiscoveryDismissDto { TmdbId = 1010, MediaType = "movie" }]
+        }));
+        _feedbackStoreMock.Verify(store => store.RecordImpressions(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime>()), Times.Never);
+    }
+
     [Fact]
     public async Task GetMyTrakt_MasterSwitchOff_Returns403()
     {
@@ -331,11 +450,26 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         Assert.Equal(403, Status(result.Result!));
     }
 
-    [Fact]
-    public async Task TraktEndpoints_RequireAuthentication()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TraktEndpoints_RequireAuthentication(bool trending)
     {
         // No user claim -> Unauthorized from the Caller-ID guard.
-        var result = await CreateController(userId: null).GetMyTrakt(CancellationToken.None);
-        Assert.IsType<UnauthorizedResult>(result.Result);
+        var controller = CreateController(userId: null);
+        if (trending)
+        {
+            var result = await controller.GetMyTraktTrending(TestContext.Current.CancellationToken);
+            Assert.IsType<UnauthorizedResult>(result.Result);
+        }
+        else
+        {
+            var result = await controller.GetMyTrakt(TestContext.Current.CancellationToken);
+            Assert.IsType<UnauthorizedResult>(result.Result);
+        }
+
+        _traktDiscovery.VerifyNoOtherCalls();
+        _discoveryMock.VerifyNoOtherCalls();
+        _feedbackStoreMock.VerifyNoOtherCalls();
     }
 }

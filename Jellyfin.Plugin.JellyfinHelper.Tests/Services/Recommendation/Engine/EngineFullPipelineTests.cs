@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
@@ -250,6 +252,73 @@ public sealed class EngineFullPipelineTests
             Assert.False(string.IsNullOrEmpty(r.Name));
         });
     }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void TrainedPriorsReachColdAndWarmLiveAndBatchScoringWithoutBypassingChildSafety(bool batch, bool warm, bool restricted)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1), neural);
+        Assert.True(global.TrainValidated(OperatingExamples(300, 1), OperatingExamples(100, 2), true, TestContext.Current.CancellationToken));
+        Assert.True(global.GetDiagnosticsSnapshot().NeuralShare > 0);
+        using var registry = new PerUserEnsembleRegistry(global, neural, null, new EnsembleBlendBounds(.3, .75, .1), Mock.Of<IPluginLogService>());
+        var harness = EngineTestFactory.Create(global);
+        harness.PerUserRegistry.Setup(service => service.GetScoringStrategyForUser(It.IsAny<Guid>())).Returns((Guid user) => registry.GetScoringStrategyForUser(user));
+        var userId = Guid.NewGuid();
+        var watchedId = Guid.NewGuid();
+        var profile = warm ? MakeWarmProfile(userId, "warm", watchedId) : new UserWatchProfile { UserId = userId, UserName = "cold", WatchedItems = [] };
+        if (restricted) profile.MaxParentalRating = 12;
+        harness.WatchHistory.Setup(service => service.GetUserWatchProfile(userId)).Returns(profile);
+        harness.WatchHistory.Setup(service => service.GetAllUserWatchProfiles()).Returns(new Collection<UserWatchProfile> { profile });
+        var candidates = new List<BaseItem> { MakeMovie("A"), MakeMovie("B"), MakeMovie("C") };
+        WireLibrary(harness, candidates);
+        var result = batch
+            ? Assert.Single(harness.Engine.GetAllRecommendations(3, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(userId, 3, TestContext.Current.CancellationToken)!;
+        Assert.NotNull(result);
+        Assert.Equal("strategyEnsemble", result.ScoringStrategyKey);
+        var diagnostics = registry.GetDiagnostics(userId);
+        Assert.Equal("GlobalPrior", diagnostics.ValidationLevel);
+        Assert.Equal(.3, diagnostics.EffectiveAlpha, 12);
+        Assert.True(diagnostics.NeuralShare > 0);
+        if (restricted)
+        {
+            // Unknown certifications fail closed even with a trained operating prior.
+            Assert.Empty(result.Recommendations);
+            Assert.NotNull(result.TrainingContrasts);
+            Assert.Empty(result.TrainingContrasts);
+        }
+        else
+        {
+            Assert.NotEmpty(result.Recommendations);
+            Assert.All(result.Recommendations, item =>
+            {
+                Assert.NotNull(item.ScoringFeatures);
+                // The public recommendation DTO intentionally rounds the immutable prediction to four decimals.
+                Assert.Equal(Math.Round(registry.GetScoringStrategyForUser(userId).Score(item.ScoringFeatures!), 4), item.Score);
+                Assert.InRange(item.Score, 0, 1);
+            });
+            Assert.Equal(result.Recommendations.Count, result.Recommendations.Select(item => item.ItemId).Distinct().Count());
+            Assert.Equal(result.Recommendations.OrderByDescending(item => item.Score).Select(item => item.ItemId), result.Recommendations.Select(item => item.ItemId));
+        }
+    }
+
+    private static TrainingExample[] OperatingExamples(int count, short partition)
+        => Enumerable.Range(1, count).Select(index => new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = .8, CombinedCriticScore = .7, GenreCount = 2 },
+            ObservationId = new Guid(index, partition, 0, new byte[8]),
+            HasStableObservationId = true,
+            Label = .85,
+            GeneratedAtUtc = new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        }).ToArray();
 
     [Fact]
     public void GetRecommendations_WarmUser_WithCandidates_ReturnsScoredRecommendations()

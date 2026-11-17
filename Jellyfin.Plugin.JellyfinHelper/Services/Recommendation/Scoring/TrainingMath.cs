@@ -127,6 +127,7 @@ internal static class TrainingMath
     /// <param name="oldStdDevs">Previous standard deviations, or null for raw inputs.</param>
     /// <param name="newMeans">New means, or null for raw inputs.</param>
     /// <param name="newStdDevs">New standard deviations, or null for raw inputs.</param>
+    /// <param name="featureCount">The versioned dense layer's row stride.</param>
     /// <returns>Whether the input coordinate system changed.</returns>
     internal static bool RebaseInputLayer(
         double[] weights,
@@ -134,10 +135,11 @@ internal static class TrainingMath
         double[]? oldMeans,
         double[]? oldStdDevs,
         double[]? newMeans,
-        double[]? newStdDevs)
+        double[]? newStdDevs,
+        int featureCount = CandidateFeatures.FeatureCount)
     {
         var changed = false;
-        for (var f = 0; f < CandidateFeatures.FeatureCount; f++)
+        for (var f = 0; f < featureCount; f++)
         {
             var oldScale = InputScale(oldStdDevs, f);
             var newScale = InputScale(newStdDevs, f);
@@ -154,7 +156,7 @@ internal static class TrainingMath
             changed = true;
             for (var h = 0; h < biases.Length; h++)
             {
-                var p = (h * CandidateFeatures.FeatureCount) + f;
+                var p = (h * featureCount) + f;
                 var weight = weights[p];
                 biases[h] += weight * offset;
                 weights[p] = weight * coefficient;
@@ -162,6 +164,47 @@ internal static class TrainingMath
         }
 
         return changed;
+    }
+
+    /// <summary>Validates normalization units, retaining genuine zero and signed-zero constant features.</summary>
+    /// <param name="means">Raw fitting means, or null for raw inference.</param>
+    /// <param name="stdDevs">Nonnegative fitting deviations, or null with means.</param>
+    /// <param name="count">The version's exact input count.</param>
+    /// <returns>Whether normalization is complete, finite and semantically valid.</returns>
+    internal static bool ValidNormalization(double[]? means, double[]? stdDevs, int count)
+        => (means is null && stdDevs is null) || (means is { } && stdDevs is { }
+            && means.Length == count && stdDevs.Length == count
+            && means.All(double.IsFinite) && stdDevs.All(value => double.IsFinite(value) && value >= 0));
+
+    /// <summary>Moves a dense layer's clamp envelope with its normalization rather than clipping a re-expressed working function.</summary>
+    /// <param name="limits">The current weight and bias envelopes.</param>
+    /// <param name="oldMeans">Current fitting means.</param>
+    /// <param name="oldDeviations">Current fitting deviations.</param>
+    /// <param name="newMeans">Next fitting means.</param>
+    /// <param name="newDeviations">Next fitting deviations.</param>
+    /// <returns>Finite detached clamp envelopes in the next coordinates.</returns>
+    internal static (double[] Weights, double[] Biases) RebaseLimits(
+        (double[] Weights, double[] Biases) limits, double[]? oldMeans, double[]? oldDeviations, double[]? newMeans, double[]? newDeviations)
+    {
+        var weights = (double[])limits.Weights.Clone();
+        var biases = (double[])limits.Biases.Clone();
+        for (var feature = 0; feature < weights.Length; feature++)
+        {
+            var coefficient = InputScale(oldDeviations, feature) / InputScale(newDeviations, feature);
+            var offset = InputOffset(oldMeans, oldDeviations, feature) - (coefficient * InputOffset(newMeans, newDeviations, feature));
+            weights[feature] = limits.Weights[feature] * coefficient;
+            for (var neuron = 0; neuron < biases.Length; neuron++)
+            {
+                biases[neuron] += limits.Weights[feature] * Math.Abs(offset);
+            }
+        }
+
+        if (weights.Concat(biases).Any(value => !double.IsFinite(value) || value <= 0))
+        {
+            throw new ArithmeticException("Model input coordinates cannot be safely rebased into finite clamp limits.");
+        }
+
+        return (weights, biases);
     }
 
     private static double InputScale(double[]? stdDevs, int feature) =>

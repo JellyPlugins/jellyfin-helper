@@ -23,12 +23,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 {
     private const string LogSource = "Recommendations";
+    private const string AssessmentSuffix = ".assessment.json";
 
     /// <summary>
     ///     Minimum training examples before a user gets a dedicated learned model. Mirrors the learned
     ///     strategy's own minimum so a per-user model is only created when the learned SGD can actually train.
     /// </summary>
     internal const int PerUserModelThreshold = LearnedScoringStrategy.MinTrainingExamples;
+
+    private static readonly JsonSerializerOptions AssessmentOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     private readonly EnsembleScoringStrategy _globalEnsemble;
     private readonly NeuralScoringStrategy? _sharedNeural;
@@ -80,7 +83,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
         _globalEnsemble = globalEnsemble;
         _sharedNeural = sharedNeural;
-        _dataPath = dataPath;
+        _dataPath = string.IsNullOrEmpty(dataPath) ? null : dataPath;
         _blendBounds = blendBounds;
         _pluginLog = pluginLog;
         _fileSystem = fileSystem ?? new FileSystem();
@@ -105,15 +108,21 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         if (_perUser.TryGetValue(userId, out var existing))
         {
             var ensemble = existing.Value;
-            return ensemble.LearnedStrategy.HasOwnWeights ? ensemble : _globalEnsemble;
+            return ResolveOperatingEnsemble(ensemble);
         }
 
-        // Cold-start: only adopt a per-user model when its weights file is actually present on disk. A user
-        // below the training threshold has no file and must score with the global model (byte-identical to
-        // the previous global-only behaviour), so the read path never creates an empty per-user model.
+        // A trained global prior supplies immutable coordinates, never the user's permanent mixture.
+        // Without a usable operating prior/model, preserve the original heuristic cold-start fallback.
         var weightsPath = GetLearnedWeightsPath(userId);
-        if (_dataPath is null || weightsPath is null || !_fileSystem.File.Exists(weightsPath))
+        if (_dataPath is null || weightsPath is null || !HasModelFile(userId))
         {
+            if (_globalEnsemble.GetOperatingPrior() is { } prior)
+            {
+                var contextual = GetOrAddPerUser(userId);
+                contextual.InitializeOperatingPrior(prior);
+                return contextual;
+            }
+
             return _globalEnsemble;
         }
 
@@ -123,7 +132,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         // between the check above and the build here, leaving a freshly warm-started ensemble cached for a user
         // who should be back on the global model. If the file has since gone, discard that entry so eviction
         // wins and the user falls back to the global model rather than lingering on a stray per-user instance.
-        if (!_fileSystem.File.Exists(weightsPath) && _perUser.TryRemove(userId, out var stray))
+        if (!HasModelFile(userId) && _perUser.TryRemove(userId, out var stray))
         {
             if (stray.IsValueCreated)
             {
@@ -133,7 +142,24 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return _globalEnsemble;
         }
 
-        return perUser.LearnedStrategy.HasOwnWeights ? perUser : _globalEnsemble;
+        return ResolveOperatingEnsemble(perUser);
+    }
+
+    private EnsembleScoringStrategy ResolveOperatingEnsemble(EnsembleScoringStrategy personal)
+    {
+        if (personal.HasOwnOperatingModel)
+        {
+            return personal;
+        }
+
+        var prior = _globalEnsemble.GetOperatingPrior();
+        personal.InitializeOperatingPrior(prior);
+        if (prior is not null || personal.GetDiagnosticsSnapshot().ValidationLevel is "GlobalPrior" or "Heuristic")
+        {
+            return personal;
+        }
+
+        return personal.LearnedStrategy.HasOwnWeights ? personal : _globalEnsemble;
     }
 
     /// <inheritdoc />
@@ -149,10 +175,18 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
     // Returns the cached per-user ensemble, building it exactly once even under concurrent callers. The
     // Lazy value factory is what actually constructs the ensemble, so a losing GetOrAdd wrapper never runs it.
-    private EnsembleScoringStrategy GetOrAddPerUser(Guid userId) =>
-        _perUser.GetOrAdd(
-            userId,
-            id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id))).Value;
+    private EnsembleScoringStrategy GetOrAddPerUser(Guid userId)
+    {
+        var cached = _perUser.GetOrAdd(userId, id => new Lazy<EnsembleScoringStrategy>(() => BuildPerUserEnsemble(id)));
+        var ensemble = cached.Value;
+        if (!_perUser.TryGetValue(userId, out var current) || !ReferenceEquals(cached, current))
+        {
+            // An eviction that won during lazy construction also stops a late training caller.
+            ensemble.Dispose();
+        }
+
+        return ensemble;
+    }
 
     /// <inheritdoc />
     public void Reconfigure(EnsembleBlendBounds blendBounds)
@@ -183,13 +217,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <inheritdoc />
     public (EnsembleDiagnostics Diagnostics, bool IsPerUser) GetUserModelDiagnostics(Guid userId)
     {
-        // Resolve once so the snapshot and the per-user flag describe the same ensemble. The flag is derived
-        // from the resolved instance itself: GetEnsembleForUser returns the shared global ensemble for a
-        // cold-start user and a distinct instance otherwise, so a reference check is authoritative here (no
-        // second file probe that could disagree with the resolution).
+        // Resolve once and derive scope from the same locked snapshot as the displayed coefficients.
         var ensemble = GetEnsembleForUser(userId);
-        var isPerUser = userId != Guid.Empty && !ReferenceEquals(ensemble, _globalEnsemble);
-        return (ensemble.GetDiagnosticsSnapshot(), isPerUser);
+        var diagnostics = ensemble.GetDiagnosticsSnapshot();
+        var isPerUser = userId != Guid.Empty && !ReferenceEquals(ensemble, _globalEnsemble) && diagnostics.HasOwnOperatingModel;
+        return (diagnostics, isPerUser);
     }
 
     /// <inheritdoc />
@@ -200,7 +232,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        return !ReferenceEquals(GetEnsembleForUser(userId), _globalEnsemble);
+        var ensemble = GetEnsembleForUser(userId);
+        return !ReferenceEquals(ensemble, _globalEnsemble) && ensemble.HasOwnOperatingModel;
     }
 
     /// <inheritdoc />
@@ -208,12 +241,17 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     {
         ArgumentNullException.ThrowIfNull(liveUserIds);
 
+        var live = new HashSet<Guid>(liveUserIds);
+        // Cold priors are fileless, including memory-only scopes. Account removal/disablement still evicts them.
+        foreach (var id in _perUser.Keys.Where(id => !live.Contains(id)))
+        {
+            RemoveCachedEnsemble(id);
+        }
+
         if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
             return;
         }
-
-        var live = new HashSet<Guid>(liveUserIds);
 
         try
         {
@@ -223,6 +261,11 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             }
 
             foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json"))
+            {
+                PruneIfOrphan(file, live);
+            }
+
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json.acceptance-ledger.txt"))
             {
                 PruneIfOrphan(file, live);
             }
@@ -242,9 +285,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         }
 
         var hadCached = _perUser.ContainsKey(userId);
-        var learnedPath = GetLearnedWeightsPath(userId);
         var statePath = GetEnsembleStatePath(userId);
-        var hadFiles = (learnedPath is not null && _fileSystem.File.Exists(learnedPath))
+        var hadFiles = HasModelFile(userId)
                        || (statePath is not null && _fileSystem.File.Exists(statePath));
 
         if (!hadCached && !hadFiles)
@@ -261,6 +303,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
     /// <inheritdoc />
     public int EvictStaleModels(DateTime cutoffUtc)
+        => EvictInactiveModelsCore(cutoffUtc, null);
+
+    /// <inheritdoc />
+    public int EvictInactiveModels(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?> lastActivityUtc)
+    {
+        ArgumentNullException.ThrowIfNull(lastActivityUtc);
+        return EvictInactiveModelsCore(cutoffUtc, lastActivityUtc);
+    }
+
+    private int EvictInactiveModelsCore(DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
     {
         if (_dataPath is null || !_fileSystem.Directory.Exists(_dataPath))
         {
@@ -275,9 +327,16 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             // training pass never revisits, so they are usually not materialized this session and only exist
             // on disk. The state file's last-trained time drives the decision, so a user retrained within the
             // window (which rewrites that time) is never seen as stale here.
-            foreach (var file in _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json"))
+            var processed = new HashSet<Guid>();
+            var modelFiles = _fileSystem.Directory.EnumerateFiles(_dataPath, "ml_weights_*.json")
+                .Concat(_fileSystem.Directory.EnumerateFiles(_dataPath, "ensemble_state_*.json.accepted-model.json")).ToArray();
+            foreach (var file in modelFiles)
             {
-                evicted += EvictStaleWeightsFile(file, cutoffUtc) ? 1 : 0;
+                var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
+                if (match.Success && Guid.TryParseExact(match.Groups["id"].Value, "N", out var id) && processed.Add(id))
+                {
+                    evicted += EvictStaleWeightsFile(id, file, cutoffUtc, lastActivityUtc) ? 1 : 0;
+                }
             }
 
             // A state file with no companion weights file is not a model the read path can ever rebuild, so it
@@ -298,22 +357,18 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     }
 
     /// <summary>Evicts one stale weights file, counting it only when deletion is confirmed.</summary>
+    /// <param name="id">The user identity already validated by the filename scan.</param>
     /// <param name="file">The per-user weights file.</param>
     /// <param name="cutoffUtc">The oldest acceptable last-trained time.</param>
+    /// <param name="lastActivityUtc">Authoritative observed activity, or null for legacy compatibility only.</param>
     /// <returns>True when the stale model was removed.</returns>
-    private bool EvictStaleWeightsFile(string file, DateTime cutoffUtc)
+    private bool EvictStaleWeightsFile(Guid id, string file, DateTime cutoffUtc, IReadOnlyDictionary<Guid, DateTime?>? lastActivityUtc)
     {
-        var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
-        if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
-        {
-            return false;
-        }
-
-        var lastTrained = ResolveLastTrainedUtc(id, file);
+        var lastTrained = ResolveRetirementActivity(id, file, lastActivityUtc);
         if (lastTrained is null)
         {
             // Unknown age must not delete a possibly healthy model after a transient metadata failure.
-            _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: last-trained time could not be resolved.", logger: _logger);
+            _pluginLog.LogWarning(LogSource, $"Skipping stale check for user {id:N}: activity/legacy age is unknown.", logger: _logger);
             return false;
         }
 
@@ -322,22 +377,36 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             return false;
         }
 
-        _pluginLog.LogInfo(LogSource, $"Evicted stale per-user model for user {id:N} (not retrained since {cutoffUtc:O}).", _logger);
+        _pluginLog.LogInfo(LogSource, $"Evicted inactive per-user model for user {id:N} (activity before {cutoffUtc:O}).", _logger);
         return true;
+    }
+
+    private DateTime? ResolveRetirementActivity(Guid userId, string weightsFile, IReadOnlyDictionary<Guid, DateTime?>? activity)
+    {
+        if (activity is null)
+        {
+            return ResolveLastTrainedUtc(userId, weightsFile);
+        }
+
+        return activity.TryGetValue(userId, out var lastActivity) ? lastActivity : null;
     }
 
     /// <summary>Removes state-only metadata that cannot rebuild a per-user model.</summary>
     /// <param name="file">The per-user ensemble state file.</param>
     private void RemoveOrphanedEnsembleState(string file)
     {
+        if (file.EndsWith(AssessmentSuffix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var match = PerUserFileIdPattern().Match(Path.GetFileName(file));
         if (!match.Success || !Guid.TryParseExact(match.Groups["id"].Value, "N", out var id))
         {
             return;
         }
 
-        var weightsPath = GetLearnedWeightsPath(id);
-        if (weightsPath is not null && _fileSystem.File.Exists(weightsPath))
+        if (HasModelFile(id))
         {
             return;
         }
@@ -396,7 +465,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         lock (_blendBoundsLock)
         {
             var bounds = _blendBounds;
-            return new EnsembleScoringStrategy(
+            var ensemble = new EnsembleScoringStrategy(
                 learned,
                 _sharedHeuristic,
                 _sharedNeural,
@@ -406,6 +475,8 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
                 bounds.GenrePenaltyFloor,
                 _logger,
                 ownsNeural: false);
+            ensemble.SetSharedPredictionProvider(_globalEnsemble.GetAcceptedNeuralPrediction);
+            return ensemble;
         }
     }
 
@@ -430,10 +501,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
         try
         {
             _fileSystem.File.Delete(file);
-            if (_perUser.TryRemove(id, out var evicted) && evicted.IsValueCreated)
-            {
-                evicted.Value.Dispose();
-            }
+            RemoveCachedEnsemble(id);
 
             _pluginLog.LogInfo(LogSource, $"Pruned per-user model file for removed user {id:N}.", _logger);
         }
@@ -454,13 +522,32 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <returns>True when the weights file no longer exists after the attempt.</returns>
     private bool EvictUser(Guid userId)
     {
-        // Delete the persisted files before dropping the cached instance. The read path resolves a per-user
-        // model only when the weights file exists and re-checks that file after building, so deleting first
-        // means a score racing this eviction either sees the file already gone (and stays on the global model)
-        // or discards its freshly built instance on the re-check. Removing the cache entry first would leave
-        // that ordering open to a stray rebuild that outlives the eviction.
+        lock (_blendBoundsLock)
+        {
+            return EvictUserCore(userId);
+        }
+    }
+
+    private bool EvictUserCore(Guid userId)
+    {
+        // Keep the cache entry until deletion finishes, but stop its publisher first. Disposal waits
+        // for an already-started atomic publication, so no old trainer can recreate files afterwards.
+        if (_perUser.TryGetValue(userId, out var cached) && cached.IsValueCreated)
+        {
+            cached.Value.Dispose();
+        }
+
         var weightsPath = GetLearnedWeightsPath(userId);
-        foreach (var path in new[] { weightsPath, GetEnsembleStatePath(userId) })
+        var statePath = GetEnsembleStatePath(userId);
+        var bundlePath = AcceptedModelStore.GetBundlePath(statePath);
+        var previous = new AcceptedModelStore(statePath, _logger).Read();
+        if (!PreserveAcceptanceBeforeRetirement(statePath, bundlePath, previous))
+        {
+            RemoveCachedEnsemble(userId);
+            return false;
+        }
+
+        foreach (var path in new[] { weightsPath, statePath, bundlePath, bundlePath is null ? null : bundlePath + ".history.0.json", bundlePath is null ? null : bundlePath + ".history.1.json" })
         {
             if (path is null)
             {
@@ -480,14 +567,82 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             }
         }
 
-        if (_perUser.TryRemove(userId, out var evicted) && evicted.IsValueCreated)
-        {
-            evicted.Value.Dispose();
-        }
+        RemoveCachedEnsemble(userId);
 
         // The weights file is the source of truth for a per-user model. If a delete failure left it on disk the
         // model is not actually retired and the read path can rebuild it, so report that back to the caller.
-        return weightsPath is null || !_fileSystem.File.Exists(weightsPath);
+        var removed = !HasModelFile(userId);
+        if (removed)
+        {
+            PreserveRetirementAssessment(statePath, previous);
+        }
+
+        return removed;
+    }
+
+    private bool PreserveAcceptanceBeforeRetirement(string? statePath, string? bundlePath, AcceptedModelBundle? previous)
+    {
+        if (previous is null)
+        {
+            // An unreadable checkpoint may be the only remaining copy of legacy spent IDs.
+            if (bundlePath is not null && _fileSystem.File.Exists(bundlePath))
+            {
+                _pluginLog.LogWarning(LogSource, "Could not read the personal checkpoint's acceptance receipts; retaining it during retirement.", logger: _logger);
+                return false;
+            }
+
+            return true;
+        }
+
+        try
+        {
+            new AcceptanceObservationLedger(AcceptedModelStore.GetLedgerPath(statePath), (path, text) => AtomicFile.WriteAllText(path, text))
+                .Spend([], previous.AcceptanceObservationIds, previous.AcceptanceLedgerRequired);
+            return true;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, "Could not preserve spent acceptance identities; retaining the personal model checkpoint.", ex, _logger);
+            return false;
+        }
+    }
+
+    private void PreserveRetirementAssessment(string? statePath, AcceptedModelBundle? previous)
+    {
+        if (statePath is null || !_fileSystem.File.Exists(statePath + AssessmentSuffix))
+        {
+            return;
+        }
+
+        try
+        {
+            var assessment = EnsembleScoringStrategy.ReadAssessment(statePath + AssessmentSuffix, requireOperatingReceipts: true);
+            if (assessment is null)
+            {
+                return; // Damaged trust data remains damaged; retirement is not an independent recovery decision.
+            }
+
+            assessment.AcceptanceLedgerRequired |= previous?.AcceptanceLedgerRequired == true || previous?.AcceptanceObservationIds.Length > 0;
+            _ = new AcceptedModelStore(statePath, _logger).ReadSpentAcceptanceIds(null, assessment.AcceptanceLedgerRequired);
+            assessment.IndependentRecoveryRequired |= previous?.Retired == true;
+            assessment.ModelRetired = true;
+            assessment.RetiredAtUtc = DateTime.UtcNow;
+            assessment.AcceptedModelRevision = 0;
+            // Keep maturity, reserved inputs, recovery/withdrawal restrictions and the exact ledger untouched.
+            AtomicFile.WriteAllText(statePath + AssessmentSuffix, JsonSerializer.Serialize(assessment, AssessmentOptions));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogSource, "Could not persist personal-model retirement; existing trust restrictions remain in force.", ex, _logger);
+        }
+    }
+
+    private void RemoveCachedEnsemble(Guid userId)
+    {
+        if (_perUser.TryRemove(userId, out var cached) && cached.IsValueCreated)
+        {
+            cached.Value.Dispose();
+        }
     }
 
     /// <summary>
@@ -502,6 +657,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     private DateTime? ResolveLastTrainedUtc(Guid userId, string weightsFile)
     {
         var statePath = GetEnsembleStatePath(userId);
+        var acceptedPath = AcceptedModelStore.GetBundlePath(statePath);
+        if (acceptedPath is not null && _fileSystem.File.Exists(acceptedPath))
+        {
+            // An accepted training date is not evidence of user inactivity. Production supplies activity
+            // separately; compatibility callers without it must retain an independently accepted model.
+            return null;
+        }
+
         if (statePath is not null && _fileSystem.File.Exists(statePath))
         {
             try
@@ -539,6 +702,13 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             ? null
             : Path.Join(_dataPath, string.Create(CultureInfo.InvariantCulture, $"ml_weights_{userId:N}.json"));
 
+    private bool HasModelFile(Guid userId)
+    {
+        var weights = GetLearnedWeightsPath(userId);
+        var bundle = AcceptedModelStore.GetBundlePath(GetEnsembleStatePath(userId));
+        return (weights is not null && _fileSystem.File.Exists(weights)) || (bundle is not null && _fileSystem.File.Exists(bundle));
+    }
+
     /// <summary>Builds the per-user ensemble-state path, or null when no data path is configured.</summary>
     /// <param name="userId">The user id.</param>
     /// <returns>The path, or null.</returns>
@@ -552,7 +722,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     ///     Anchored so the unsuffixed global files (<c>ml_weights.json</c>, <c>ensemble_state.json</c>) never match.
     /// </summary>
     /// <returns>The compiled regex.</returns>
-    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_(?<id>[0-9a-fA-F]{32})\.json$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:ml_weights|ensemble_state)_(?<id>[0-9a-fA-F]{32})\.json(?:\.(?:accepted-model\.json(?:\.history\.[01]\.json)?|assessment\.json|acceptance-ledger\.txt))?$", RegexOptions.CultureInvariant)]
     private static partial Regex PerUserFileIdPattern();
 
     /// <summary>

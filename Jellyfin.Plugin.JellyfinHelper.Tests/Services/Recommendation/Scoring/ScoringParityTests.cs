@@ -7,7 +7,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-/// Cross-strategy parity pins for the 38-feature contract shared by the heuristic,
+/// Cross-strategy parity pins for the 41-feature contract shared by the heuristic,
 /// learned, and neural strategies: FeatureIndex &lt;-&gt; vector slots &lt;-&gt; default weights.
 /// <para>
 /// Score explanations must stay in lock-step. If a feature is added to scoring
@@ -146,7 +146,9 @@ public sealed class ScoringParityTests
             SeriesCompletability = 1.0,
             WriterAffinity = 1.0,
             BillingWeightedPeople = 1.0,
-            GenreStudioIdfPrior = 1.0
+            GenreStudioIdfPrior = 1.0,
+            HasContentMetadata = true,
+            ContentFitAffinity = 1.0
         };
 
     private static CandidateFeatures PseudoRandomFeatures(int index)

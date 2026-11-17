@@ -269,8 +269,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         _config = AllDeactivatedConfig();
 
         _statisticsServiceMock
-            .Setup(s => s.CalculateStatistics())
-            .Throws(new OperationCanceledException());
+            .Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             _task.ExecuteAsync(new Progress<double>(), CancellationToken.None));
@@ -284,8 +284,8 @@ public sealed class HelperCleanupTaskErrorHandlingTests
         _config = AllDeactivatedConfig();
 
         _statisticsServiceMock
-            .Setup(s => s.CalculateStatistics())
-            .Throws(new InvalidOperationException("boom"));
+            .Setup(s => s.CalculateStatisticsAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 

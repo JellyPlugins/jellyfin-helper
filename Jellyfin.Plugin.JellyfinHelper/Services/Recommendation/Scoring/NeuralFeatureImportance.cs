@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Measures feature importance as the increase in weighted MSE after permuting a feature column.
 /// </summary>
 /// <remarks>
-///     Complexity: O(FeatureCount × SampleSize) forward passes. At 38 features × 200 samples = 7,600 forward passes on a 4-layer MLP.
+///     Complexity: O(FeatureCount × SampleSize) forward passes. At 41 features × 200 samples = 8,200 forward passes on a 4-layer MLP.
 /// </remarks>
 internal static class NeuralFeatureImportance
 {
@@ -35,7 +35,13 @@ internal static class NeuralFeatureImportance
 
         var referenceTime = referenceTimeUtc ?? DateTime.UtcNow;
         examples = TrainingMath.FilterEffectiveExamples(examples, referenceTime, NeuralScoringStrategy.MinSampleWeight).Where(e => e.IsObserved).ToArray();
-        var featureCount = CandidateFeatures.FeatureCount;
+        var predictor = strategy.CapturePredictionSnapshot();
+        if (predictor is null)
+        {
+            return new Dictionary<string, double>();
+        }
+
+        var featureCount = NeuralScoringStrategy.PredictionSnapshot.InputCount;
         var actualSampleSize = Math.Min(sampleSize, examples.Count);
 
         if (actualSampleSize < 2)
@@ -59,22 +65,22 @@ internal static class NeuralFeatureImportance
         }
 
         var samples = new ImportanceSample[actualSampleSize];
-        var imputationMeans = strategy.GetImputationMeans();
+        var imputationMeans = predictor.ImputationMeans;
         for (var i = 0; i < actualSampleSize; i++)
         {
             var example = examples[indices[i]];
-            samples[i] = new ImportanceSample(example.Features.ToModelVector(imputationMeans), example.Label, example.ComputeEffectiveWeight(referenceTime));
+            samples[i] = new ImportanceSample(ModelInputFeatures.Vector(example.Features, imputationMeans, featureCount), example.Label, example.ComputeEffectiveWeight(referenceTime));
         }
 
-        var baselineLoss = ComputeBaselineLoss(strategy, samples);
+        var baselineLoss = ComputeBaselineLoss(predictor, samples);
 
         var importance = new Dictionary<string, double>(featureCount);
         var shuffledVector = new double[featureCount];
 
         for (var f = 0; f < featureCount; f++)
         {
-            var shuffledLoss = ComputeShuffledFeatureLoss(strategy, samples, shuffledVector, f, rng);
-            importance[ScoringHelper.GetFeatureName((FeatureIndex)f)] = shuffledLoss - baselineLoss;
+            var shuffledLoss = ComputeShuffledFeatureLoss(predictor, samples, shuffledVector, f, rng);
+            importance[ModelInputFeatures.Name(f)] = shuffledLoss - baselineLoss;
         }
 
         return importance;
@@ -87,7 +93,7 @@ internal static class NeuralFeatureImportance
     /// <param name="samples">The sampled features, labels and effective weights.</param>
     /// <returns>The baseline weighted MSE.</returns>
     private static double ComputeBaselineLoss(
-        NeuralScoringStrategy strategy,
+        NeuralScoringStrategy.PredictionSnapshot strategy,
         ImportanceSample[] samples)
     {
         var loss = 0.0;
@@ -112,7 +118,7 @@ internal static class NeuralFeatureImportance
     /// <param name="rng">The (seeded) RNG driving the column shuffle.</param>
     /// <returns>The weighted MSE after permuting feature <paramref name="f"/>.</returns>
     private static double ComputeShuffledFeatureLoss(
-        NeuralScoringStrategy strategy,
+        NeuralScoringStrategy.PredictionSnapshot strategy,
         ImportanceSample[] samples,
         double[] shuffledVector,
         int f,

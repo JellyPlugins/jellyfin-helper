@@ -73,6 +73,9 @@ public sealed class WatchedItemInfo
     /// </summary>
     public float? CommunityRating { get; set; }
 
+    /// <summary>Gets or sets captured provider certification, never the user's explicit rating or a target-age ban.</summary>
+    public string? OfficialRating { get; set; }
+
     /// <summary>
     ///     Gets or sets the genres associated with this item.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
@@ -150,6 +153,27 @@ public sealed class WatchedItemInfo
 
     /// <summary>Gets or sets detached parent-series tags, separate from the item's own metadata.</summary>
     public IReadOnlyList<string>? SeriesTags { get; set; }
+
+    /// <summary>Gets or sets captured normalized audio availability; null is unknown, empty is known empty.</summary>
+    public IReadOnlyList<string>? AudioLanguages { get; set; }
+
+    /// <summary>Gets or sets captured normalized subtitle availability; null is unknown, empty is known empty.</summary>
+    public IReadOnlyList<string>? SubtitleLanguages { get; set; }
+
+    /// <summary>Gets or sets whether every captured audio track has identifiable language metadata; null denotes legacy availability.</summary>
+    public bool? HasAudioLanguageMetadata { get; set; }
+
+    /// <summary>Gets or sets whether every captured subtitle track has identifiable language metadata; null denotes legacy availability.</summary>
+    public bool? HasSubtitleLanguageMetadata { get; set; }
+
+    /// <summary>Gets or sets the valid saved audio selection, or the sole fully labelled audio language; never an ambiguous default.</summary>
+    public string? PlaybackAudioLanguage { get; set; }
+
+    /// <summary>Gets or sets the valid saved subtitle selection; off, absent and invalid indexes establish no language preference.</summary>
+    public string? PlaybackSubtitleLanguage { get; set; }
+
+    /// <summary>Gets or sets the last-play timestamp associated with captured saved stream selections, not a reconstructed earlier play.</summary>
+    public DateTime? LanguagePlaybackDate { get; set; }
 
     /// <summary>
     ///     Gets or sets the production countries.
@@ -240,6 +264,16 @@ public sealed class WatchedItemInfo
         copy.OwnTags = OwnTags?.ToArray();
         copy.SeriesStudios = SeriesStudios?.ToArray();
         copy.SeriesTags = SeriesTags?.ToArray();
+        copy.AudioLanguages = AudioLanguages?.ToArray();
+        copy.SubtitleLanguages = SubtitleLanguages?.ToArray();
+        copy.LanguagePlaybackDate = LanguagePlaybackDate.HasValue ? DateTimeNormalization.ToUtc(LanguagePlaybackDate.Value) : null;
+        if (!copy.HasPlaybackActivity() || !copy.LastPlayedDate.HasValue || copy.LanguagePlaybackDate != copy.LastPlayedDate)
+        {
+            copy.PlaybackAudioLanguage = null;
+            copy.PlaybackSubtitleLanguage = null;
+            copy.LanguagePlaybackDate = null;
+        }
+
         return copy;
     }
 }

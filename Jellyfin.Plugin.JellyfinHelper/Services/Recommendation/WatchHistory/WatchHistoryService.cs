@@ -324,6 +324,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             UserId = user.Id,
             UserName = user.Username,
+            LastSessionActivityDate = user.LastActivityDate,
             MaxParentalRating = user.MaxParentalRatingScore
         };
 
@@ -353,7 +354,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Studios?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (IReadOnlyList<string>)(series.Tags?.ToArray() ?? [])),
             uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
-            collectionIds ?? LoadCollectionIds(allItems));
+            collectionIds ?? LoadCollectionIds(allItems))
+        {
+            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating)
+        };
 
         var ratingSum = 0.0;
         var ratingCount = 0;
@@ -361,10 +365,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Pre-fetch user data for every video item in one batch call (Jellyfin 12+ API).
         var itemUserDataLookup = TryLoadUserDataBatch(user, allItems);
+        var playbackSnapshots = new Dictionary<Guid, UserItemData?>();
 
         foreach (var item in allItems)
         {
-            var userData = LookupUserData(itemUserDataLookup, item, user);
+            var userData = GetPlaybackSnapshot(playbackSnapshots, itemUserDataLookup, item, user);
             if (userData is null)
             {
                 continue;
@@ -394,7 +399,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         // Build audio + subtitle language profiles in a single pass over allItems. Previously these were two separate methods each iterating allItems and calling GetUserData per item, causing 2× the UserData lookups.
-        BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
+        BuildLanguageProfiles(profile, allItems, playbackSnapshots);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
         BuildPeopleProfile(profile, allItems, allSeries);
@@ -414,6 +419,36 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     private static bool IsIncludedInHistory(UserItemData data)
         => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+
+    private UserItemData? GetPlaybackSnapshot(
+        Dictionary<Guid, UserItemData?> snapshots,
+        IReadOnlyDictionary<Guid, UserItemData>? lookup,
+        BaseItem item,
+        Jellyfin.Database.Implementations.Entities.User user)
+    {
+        if (snapshots.TryGetValue(item.Id, out var snapshot))
+        {
+            return snapshot;
+        }
+
+        var loaded = LookupUserData(lookup, item, user);
+        snapshot = loaded is null ? null : DetachPlaybackData(loaded);
+        snapshots.Add(item.Id, snapshot);
+        return snapshot;
+    }
+
+    private static UserItemData DetachPlaybackData(UserItemData data) => new()
+    {
+        Key = data.Key,
+        Played = data.Played,
+        PlayCount = data.PlayCount,
+        PlaybackPositionTicks = data.PlaybackPositionTicks,
+        IsFavorite = data.IsFavorite,
+        Rating = data.Rating,
+        LastPlayedDate = data.LastPlayedDate,
+        AudioStreamIndex = data.AudioStreamIndex,
+        SubtitleStreamIndex = data.SubtitleStreamIndex
+    };
 
     private Dictionary<Guid, int> LoadCollectionIds(IReadOnlyList<BaseItem> items)
     {
@@ -486,6 +521,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var lifecycle = seriesId.HasValue && metadata.Lifecycle.TryGetValue(seriesId.Value, out var parentLifecycle)
             ? parentLifecycle
             : (Status: ContentAffinityResolver.ResolveSeriesStatus(item), EndDate: ContentAffinityResolver.ResolveSeriesEndDate(item));
+        var officialRating = seriesId is { } ratedSeries && metadata.OfficialRatings.TryGetValue(ratedSeries, out var parentRating)
+            ? parentRating
+            : item.OfficialRating;
 
         var watchedItem = new WatchedItemInfo
         {
@@ -500,6 +538,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFavorite = userData.IsFavorite,
             UserRating = userData.Rating,
             CommunityRating = item.CommunityRating,
+            OfficialRating = officialRating,
             Genres = genres,
             Year = item.ProductionYear,
             SeriesId = seriesId,
@@ -687,6 +726,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             IsFavorite = true,
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
+            OfficialRating = series.OfficialRating,
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
@@ -735,23 +775,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Builds both the audio language and subtitle language preference profiles in a single pass over allItems.
     /// </summary>
     /// <param name="profile">The user profile to populate with language data.</param>
-    /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
-    /// <param name="itemUserDataLookup">
-    ///     Pre-fetched batch dictionary from <see cref="TryLoadUserDataBatch"/>, or <c>null</c>
-    ///     if the batch call failed. When <c>null</c>, this method falls back to per-item
-    ///     <c>GetUserData</c> calls via <see cref="LookupUserData"/>.
-    /// </param>
-    private void BuildLanguageProfiles(
+    /// <param name="playbackSnapshots">The same detached per-item playback data used to create each watch row.</param>
+    private static void BuildLanguageProfiles(
         UserWatchProfile profile,
-        Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> allItems,
-        IReadOnlyDictionary<Guid, UserItemData>? itemUserDataLookup)
+        Dictionary<Guid, UserItemData?> playbackSnapshots)
     {
+        var rowsById = profile.WatchedItems.ToLookup(row => row.ItemId);
         foreach (var item in allItems)
         {
-            var userData = LookupUserData(itemUserDataLookup, item, user);
-            if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
+            if (!playbackSnapshots.TryGetValue(item.Id, out var userData) || userData is null || !rowsById.Contains(item.Id))
             {
                 continue;
             }
@@ -774,126 +808,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            if (allStreams is null || allStreams.Count == 0)
+            foreach (var row in rowsById[item.Id])
             {
-                continue;
-            }
-
-            // Single-pass partition: split audio and subtitle streams in one iteration.
-            var streamsByType = allStreams.ToLookup(s => s.Type);
-            var audioStreams = streamsByType[MediaStreamType.Audio].ToList();
-            var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
-
-            AccumulateAudioLanguage(profile, userData, audioStreams);
-
-            AccumulateSubtitleLanguage(profile, userData, subtitleStreams);
-        }
-    }
-
-    /// <summary>
-    ///     Folds the audio language the user watched an item in into the profile's language profile, distinguishing "chosen" (alternatives existed) from "forced" (single option).
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="userData">The user data for the item.</param>
-    /// <param name="audioStreams">The item's audio streams.</param>
-    private static void AccumulateAudioLanguage(
-        UserWatchProfile profile,
-        UserItemData userData,
-        List<MediaStream> audioStreams)
-    {
-        if (audioStreams.Count > 0)
-        {
-            string? usedAudioLanguage = null;
-
-            if (userData.AudioStreamIndex.HasValue)
-            {
-                var chosenStream = audioStreams
-                    .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
-                usedAudioLanguage = NormalizeLanguage(chosenStream?.Language);
-            }
-
-            if (string.IsNullOrEmpty(usedAudioLanguage))
-            {
-                usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
-            }
-
-            if (!string.IsNullOrEmpty(usedAudioLanguage))
-            {
-                // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
-                // from the same audioStreams list), so the old "> 0" guard was dead code.
-                var availableAudioLanguages = audioStreams
-                    .Select(s => NormalizeLanguage(s.Language))
-                    .Where(l => !string.IsNullOrEmpty(l))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count();
-
-                if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
+                PlaybackLanguageEvidence.Capture(row, userData, allStreams);
+                if (row.HasPlaybackActivity())
                 {
-                    audioEntry = new LanguageProfileEntry();
-                    profile.LanguageProfile[usedAudioLanguage] = audioEntry;
-                }
-
-                if (availableAudioLanguages > 1)
-                {
-                    audioEntry.ChosenCount++;
-                }
-                else
-                {
-                    audioEntry.ForcedCount++;
+                    PlaybackLanguageEvidence.Accumulate(profile, row);
                 }
             }
-        }
-    }
-
-    /// <summary>
-    ///     Folds the subtitle language the user selected for an item into the profile's subtitle language profile, distinguishing "chosen" from "forced".
-    /// </summary>
-    /// <param name="profile">The user profile being populated.</param>
-    /// <param name="userData">The user data for the item.</param>
-    /// <param name="subtitleStreams">The item's subtitle streams.</param>
-    private static void AccumulateSubtitleLanguage(
-        UserWatchProfile profile,
-        UserItemData userData,
-        List<MediaStream> subtitleStreams)
-    {
-        if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0 || subtitleStreams.Count == 0)
-        {
-            return;
-        }
-
-        var chosenSubStream = subtitleStreams
-            .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-        var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
-
-        if (string.IsNullOrEmpty(usedSubLanguage))
-        {
-            return;
-        }
-
-        var availableSubLanguages = subtitleStreams
-            .Select(s => NormalizeLanguage(s.Language))
-            .Where(l => !string.IsNullOrEmpty(l))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-
-        if (availableSubLanguages <= 0)
-        {
-            return;
-        }
-
-        if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
-        {
-            subEntry = new LanguageProfileEntry();
-            profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
-        }
-
-        if (availableSubLanguages > 1)
-        {
-            subEntry.ChosenCount++;
-        }
-        else
-        {
-            subEntry.ForcedCount++;
         }
     }
 
@@ -1214,5 +1136,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         Dictionary<Guid, IReadOnlyList<string>> Studios,
         Dictionary<Guid, IReadOnlyList<string>> Tags,
         Dictionary<Guid, (string? Status, DateTime? EndDate)> Lifecycle,
-        Dictionary<Guid, int> CollectionIds);
+        Dictionary<Guid, int> CollectionIds)
+    {
+        /// <summary>Gets detached parent certification metadata without another library query.</summary>
+        public Dictionary<Guid, string?> OfficialRatings { get; init; } = [];
+    }
 }

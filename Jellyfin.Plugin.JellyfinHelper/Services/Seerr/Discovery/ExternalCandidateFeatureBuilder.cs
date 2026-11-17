@@ -136,6 +136,7 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreAffinityGap = affinityGap;
 
         ApplyAvailableMetadata(features, candidate, userContext, context.WatchedCollections);
+        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences);
         ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;
@@ -210,7 +211,10 @@ internal static class ExternalCandidateFeatureBuilder
             profile is null ? new Dictionary<string, double>() : PreferenceBuilder.BuildFranchisePreferenceVector(profile),
             profile is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : PreferenceBuilder.BuildTagPreferenceSet(profile, []),
             profile is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : PreferenceBuilder.BuildStudioPreferenceSet(profile, []),
-            profile is null ? null : ContentScoring.BuildGenreEngagementContext(profile));
+            profile is null ? null : ContentScoring.BuildGenreEngagementContext(profile))
+        {
+            ContentFit = ContentFitProfile.Create(profile)
+        };
     }
 
     private static void ApplyAvailableMetadata(CandidateFeatures features, TmdbDiscoverItem candidate, UserContext userContext, IReadOnlyDictionary<int, int>? watchedCollections)
@@ -302,7 +306,11 @@ internal static class ExternalCandidateFeatureBuilder
     /// <param name="Tags">Own item/series tags, never folder-inherited tags.</param>
     /// <param name="Studios">Preferred production companies.</param>
     /// <param name="Engagement">Cached genre completion/rating inputs.</param>
-    internal sealed record UserContext(Dictionary<string, double> Franchises, HashSet<string> Tags, HashSet<string> Studios, ContentScoring.GenreEngagementContext? Engagement);
+    internal sealed record UserContext(Dictionary<string, double> Franchises, HashSet<string> Tags, HashSet<string> Studios, ContentScoring.GenreEngagementContext? Engagement)
+    {
+        /// <summary>Gets detached, title-balanced semantic evidence without guessing absent provider keywords.</summary>
+        public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+    }
 
     /// <summary>Inputs shared between pre-scoring and final scoring; only genre-derived values change after alias updates.</summary>
     internal sealed record Context

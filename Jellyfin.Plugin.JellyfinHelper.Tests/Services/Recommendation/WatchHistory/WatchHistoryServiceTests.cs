@@ -57,6 +57,18 @@ public sealed class WatchHistoryServiceTests
         Assert.Null(_service.GetUserWatchProfile(userId));
     }
 
+    [Fact]
+    public void SessionActivityIsKeptSeparateFromWatchedOutcomes()
+    {
+        var user = CreateTestUser("active-without-watches");
+        user.LastActivityDate = DateTime.UtcNow.AddHours(-1);
+        var profile = _service.BuildProfile(user, [], [], collectionIds: []);
+        Assert.Equal(user.LastActivityDate, profile.LastSessionActivityDate);
+        Assert.Null(profile.LastActivityDate);
+        Assert.Empty(profile.WatchedItems);
+        Assert.Equal(0, profile.WatchedMovieCount);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData(6)]
@@ -262,14 +274,15 @@ public sealed class WatchHistoryServiceTests
         var user = CreateTestUser("duplicates");
         var id = Guid.NewGuid();
         var episode = new Episode { Id = Guid.NewGuid(), SeriesId = id };
-        var first = new Series { Id = id, Studios = ["Old Studio"], Tags = ["old tag"], Status = MediaBrowser.Model.Entities.SeriesStatus.Continuing };
-        var last = new Series { Id = id, Studios = ["Current Studio"], Tags = ["current tag"], Status = MediaBrowser.Model.Entities.SeriesStatus.Ended };
+        var first = new Series { Id = id, Studios = ["Old Studio"], Tags = ["old tag"], OfficialRating = "FSK-0", Status = MediaBrowser.Model.Entities.SeriesStatus.Continuing };
+        var last = new Series { Id = id, Studios = ["Current Studio"], Tags = ["current tag"], OfficialRating = "FSK-12", Status = MediaBrowser.Model.Entities.SeriesStatus.Ended };
         _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "played", Played = true });
         var profile = _service.BuildProfile(user, [episode], [first, last]);
         var watched = Assert.Single(profile.WatchedItems);
         Assert.Equal(["Current Studio"], watched.SeriesStudios);
         Assert.Equal(["current tag"], watched.SeriesTags);
         Assert.Equal("Ended", watched.SeriesStatus);
+        Assert.Equal("FSK-12", watched.OfficialRating);
     }
 
     [Fact]
@@ -280,9 +293,9 @@ public sealed class WatchHistoryServiceTests
         var user = CreateTestUser("erin");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var seriesId = Guid.NewGuid();
-        var episode = new Episode { Id = Guid.NewGuid(), Name = "Genreless Episode", SeriesId = seriesId, Genres = System.Array.Empty<string>(), Studios = ["Episode Studio"], Tags = ["episode tag"], RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "Genreless Episode", SeriesId = seriesId, Genres = System.Array.Empty<string>(), Studios = ["Episode Studio"], Tags = ["episode tag"], OfficialRating = "FSK-0", RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
         var endDate = DateTime.UtcNow.AddDays(-30);
-        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres, Studios = ["Parent Studio"], Tags = ["series tag"], Status = MediaBrowser.Model.Entities.SeriesStatus.Ended, EndDate = endDate };
+        var series = new Series { Id = seriesId, Name = "Parent Show", Genres = ParentSeriesGenres, Studios = ["Parent Studio"], Tags = ["series tag"], OfficialRating = "FSK-16", Status = MediaBrowser.Model.Entities.SeriesStatus.Ended, EndDate = endDate };
         _mockLibraryManager
             .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { episode })
@@ -304,6 +317,7 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(["Parent Studio"], watched.SeriesStudios);
         Assert.Equal("Ended", watched.SeriesStatus);
         Assert.Equal(endDate, watched.EndDate);
+        Assert.Equal("FSK-16", watched.OfficialRating);
         var examples = TrainingDataBuilder.BuildExamples([], new Collection<UserWatchProfile> { profile }, TestContext.Current.CancellationToken).Examples;
         Assert.Equal(1, Assert.Single(examples).Features.SeriesCompletability);
     }

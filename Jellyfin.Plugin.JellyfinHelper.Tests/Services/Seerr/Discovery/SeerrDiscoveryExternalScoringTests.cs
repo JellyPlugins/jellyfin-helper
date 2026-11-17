@@ -380,6 +380,29 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public async Task ProviderGenreAliasRefreshRebuildsSemanticAudienceEvidenceBeforeFinalScoring()
+    {
+        var user = Guid.NewGuid();
+        var alias = "animation alias " + Guid.NewGuid().ToString("N");
+        var profile = new UserWatchProfile
+        {
+            UserId = user,
+            WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = [alias], Tags = ["shounen", "pirate"] }]
+        };
+        _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        var before = GenreNormalizer.CatalogVersion;
+        _detailById[101] = $$"""{"id":101,"genres":[{"id":16,"name":"{{alias}}"}],"keywords":[{"name":"preschool"},{"name":"children's television"}]}""";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var delivered = Assert.Single(result!.Recommendations).ScoringFeatures!;
+        Assert.True(GenreNormalizer.CatalogVersion > before);
+        var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var baseline = SimilarityComputer.ComputeGenreSimilarity(["Animation"], genres);
+        var expected = ContentFitProfile.Create(profile).AdjustGenreSimilarity(baseline, ["Animation"], ["preschool", "children's television"], null, genres);
+        Assert.Equal(expected, delivered.GenreSimilarity, 12);
+        Assert.Equal(baseline * .3, expected, 12);
+    }
+
+    [Fact]
     public void LegacyCachedRatingWithoutCountryEvidence_FailsClosedForRestrictedUsers()
     {
         var user = Guid.NewGuid();
@@ -528,7 +551,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Null(result); // An expired optional budget cannot verify the availability of these titles.
         Assert.InRange(_maxConcurrentDelayedDetails, 1, 3);
         Assert.InRange(_detailCalls, 1, 20);
-        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Unrestricted Trakt details must not run a forty-candidate pre-enrichment pass.");
+        Assert.True(timer.Elapsed >= TimeSpan.FromSeconds(14), "Trakt's optional pass must share the new fifteen-second per-user deadline.");
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(26), "The fifteen-second optional pass and separate eight-second status check must not become a forty-candidate pre-enrichment pass.");
     }
 
     [Theory]

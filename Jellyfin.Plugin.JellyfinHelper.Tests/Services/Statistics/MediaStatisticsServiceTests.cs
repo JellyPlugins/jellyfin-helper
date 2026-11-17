@@ -23,6 +23,7 @@ public class MediaStatisticsServiceTests
     public MediaStatisticsServiceTests()
     {
         _libraryManagerMock = TestMockFactory.CreateLibraryManager();
+        _libraryManagerMock.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
@@ -3035,8 +3036,8 @@ public class EmbeddedSubtitleDetectionTests
         internal override bool HasEmbeddedSubtitles(string filePath, IReadOnlyList<MediaStream>? streams)
             => _embeddedSubtitles.TryGetValue(filePath, out var result) && result;
 
-        internal override Dictionary<string, BaseItem> BuildItemLookup()
-            => new(StringComparer.OrdinalIgnoreCase);
+        internal override LibraryItemLookup BuildItemLookup()
+            => new(new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase), true);
     }
 }
 
@@ -3843,8 +3844,8 @@ public class MetadataExtractionTests
 
         var lookup = baseService.BuildItemLookup();
 
-        Assert.NotNull(lookup);
-        Assert.Empty(lookup);
+        Assert.False(lookup.IsComplete);
+        Assert.Empty(lookup.Items);
     }
 
     [Fact]
@@ -4164,8 +4165,10 @@ public class MetadataExtractionTests
             TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
             TestMockFactory.CreateCleanupConfigHelper().Object);
 
-        var lookup = baseService.BuildItemLookup();
+        var snapshot = baseService.BuildItemLookup();
+        var lookup = snapshot.Items;
 
+        Assert.True(snapshot.IsComplete);
         Assert.Equal(2, lookup.Count);
         Assert.True(lookup.TryGetValue(pathA, out var firstItem));
         Assert.True(lookup.ContainsKey(pathB));
@@ -4192,8 +4195,8 @@ public class MetadataExtractionTests
         public void SetItemLookup(string filePath, BaseItem item)
             => _itemLookup[filePath] = item;
 
-        internal override Dictionary<string, BaseItem> BuildItemLookup()
-            => new(_itemLookup, StringComparer.OrdinalIgnoreCase);
+        internal override LibraryItemLookup BuildItemLookup()
+            => new(new Dictionary<string, BaseItem>(_itemLookup, StringComparer.OrdinalIgnoreCase), true);
 
         internal override bool HasEmbeddedSubtitles(string filePath, IReadOnlyList<MediaStream>? streams)
             => false;

@@ -44,6 +44,7 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - YearlyRewind settings keep day/month side by side at 320px and 1440px; start/end dates share a row when space permits, and the opt-in enables their inputs.
 - Invalid YearlyRewind dates show inline messages and accessible field errors before saving; manual saves focus the first error and send no PUT. Corrections clear validation and allow the corrected dates to save.
 - Compact cold-start Discovery labels stay inside their cards and do not block recommendation toggles in all eight languages on mobile or desktop.
+- Selected-user Cold/Warm ensemble percentages and provisional/verified/global-prior status use all eight locales without horizontal overflow on mobile or desktop.
 - Stable Discovery cards with poster-based details, keyboard activation, Escape focus restoration and touch toggling; no separate Details button.
 - Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
 - Reduced motion, larger text on touch devices, and log-filter alignment.
@@ -59,6 +60,19 @@ UI sources with a stubbed API; live server integration remains in the main suite
 - Default toasts are styled and dismissible without Discovery CSS at mobile/desktop widths in light/dark mode.
 - Losing a Discovery prerequisite immediately closes an animating setup hint and lets the first click after reenabling open it again.
 - Closing a language editor preserves lazy tree expansion and file details opened before its transition completes.
+
+
+### GitHub Pages demo → `demo.fixture.spec.ts`
+
+- The static admin, Discovery and YearlyRewind views load the shipped scripts without a Jellyfin server.
+- Narrow and wide Chromium/WebKit views switch independently and retain the selected genre period.
+- Annual sample charts include estimated playback, measured habits and a previous-report comparison without top-title lists or JavaScript errors.
+
+### YearlyRewind → `yearly-rewind.fixture.spec.ts`
+
+- English, German and Chinese reports fit narrow and wide screens, with accessible charts, localized headings and a secondary date range.
+- Pie charts, monthly genre selection, viewing habits, streaks and previous-period comparisons render from frozen report data.
+- Reconstructed reports show estimated bars and provenance, leave unmeasured active days unavailable and avoid fabricated viewing distributions.
 
 ---
 

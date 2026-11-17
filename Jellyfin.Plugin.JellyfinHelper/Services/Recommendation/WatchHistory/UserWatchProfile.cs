@@ -59,6 +59,9 @@ public sealed class UserWatchProfile
     /// </summary>
     public DateTime? LastActivityDate { get; set; }
 
+    /// <summary>Gets or sets the most recent authenticated Jellyfin activity, used only for inactivity retirement, not preference labels.</summary>
+    public DateTime? LastSessionActivityDate { get; set; }
+
     /// <summary>
     ///     Gets or sets the genre distribution (genre name to watch count). The setter preserves OrdinalIgnoreCase to ensure genre aggregation is always case-insensitive, even when a new dictionary is assigned.
     /// </summary>

@@ -838,6 +838,13 @@ public class TrainingFeatureComputerTests
         {
             ["AliceDirector"] = 1.0
         };
+        // A non-target Mystery title supports the thematic match without leaking this series'
+        // own episodes into its tag or Drama-engagement features.
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), Played = true, Genres = ["Mystery"], Tags = ["SlowBurn", "PrestigeTV"],
+            LastPlayedDate = DateTime.UtcNow.AddDays(-10)
+        });
 
         TrainingFeatureComputer.AddAggregatedSeriesExample(
             examples,
@@ -885,6 +892,43 @@ public class TrainingFeatureComputerTests
         Assert.Equal(episodes.Max(e => e.LastPlayedDate!.Value), ex.GeneratedAtUtc);
         // SampleWeight for aggregated series is 0.7 by contract.
         Assert.Equal(0.7, ex.SampleWeight);
+    }
+
+    [Fact]
+    public void AggregatedSeriesReuseThePreparedHistoricalContentProfileAndKeepDirectCallerFallback()
+    {
+        var (series, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        foreach (var row in episodes)
+        {
+            row.Genres = ["Animation", "Action"];
+            row.OfficialRating = "FSK-0";
+        }
+
+        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation", "Action"], Tags = ["shounen", "pirate", "friendship"] };
+        profile.WatchedItems.Add(prior);
+        var preferences = new Dictionary<string, double> { ["Animation"] = 1, ["Action"] = 1 };
+        var tags = new Dictionary<Guid, IReadOnlyList<string>> { [series] = ["JE Arr Tag: german"] };
+        var excluded = ContentScoring.BuildSeriesExcludeSet(series, profile);
+        var prepared = ContentFitProfile.Create(profile, tags.GetValueOrDefault, excluded);
+        TrainingExample Emit(ContentFitProfile? content)
+        {
+            var output = new List<TrainingExample>();
+            TrainingFeatureComputer.AddAggregatedSeriesExample(output, episodes, series, profile, preferences,
+                coOccurrence: [], collaborativeMax: 0, avgYear: 2020, BuildExposure(preferences, profile),
+                cachedPeopleLookup: [], preferredPeopleWeights: new Dictionary<string, double>(), itemStudiosLookup: [], preferredStudios: [],
+                itemTagsLookup: tags, preferredTags: [], preferredFranchises: new Dictionary<string, double>(), preferredCountries: new Dictionary<string, double>(),
+                preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
+                organicFallbackTimestamp: DateTime.UtcNow, preparedContentFit: content);
+            return Assert.Single(output);
+        }
+
+        var reused = Emit(prepared);
+        var fallback = Emit(null);
+        Assert.Equal(fallback.Features.ToVector(), reused.Features.ToVector());
+        Assert.Equal(fallback.Label, reused.Label);
+        prior.Tags = [];
+        Assert.Equal(reused.Features.GenreSimilarity, Emit(prepared).Features.GenreSimilarity);
+        Assert.True(Emit(null).Features.GenreSimilarity > reused.Features.GenreSimilarity);
     }
 
     [Fact]

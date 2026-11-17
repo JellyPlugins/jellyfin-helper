@@ -19,7 +19,7 @@ public sealed class FeatureDiagnosticTests
         "RecencyCriticInteraction", "GenreUnderexposure", "GenreDominanceRatio", "GenreAffinityGap", "LibraryAddedRecency",
         "ContentNearestNeighborScore", "LanguageAffinity", "CollectionProgressionBoost", "SubtitleLanguageAffinity",
         "FranchiseAffinity", "ProductionLocationAffinity", "InheritedTagSimilarity", "SeriesCompletability", "WriterAffinity",
-        "BillingWeightedPeople", "GenreStudioIdfPrior"
+        "BillingWeightedPeople", "GenreStudioIdfPrior", "ContentFitAffinity", "ContentFitSupport", "AudienceMismatch"
     ];
 
     [Fact]

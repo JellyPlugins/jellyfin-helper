@@ -142,7 +142,10 @@ internal static class TrainingDataBuilder
                 profile.WatchedItems.Any(row => row.InheritedTags.Count > 0),
                 profile.WatchedItems.Any(row => row.WriterNames.Count > 0))),
             BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata),
-            BuildCollectionIdLookup(previousResults, allProfiles, libraryItemMetadata));
+            BuildCollectionIdLookup(previousResults, allProfiles, libraryItemMetadata))
+        {
+            Continuation = libraryItemMetadata?.Continuation ?? CollectionContinuationCatalog.Empty
+        };
 
         var examples = new List<TrainingExample>();
 
@@ -447,7 +450,11 @@ internal static class TrainingDataBuilder
             boxes = BuildWatchedBoxSetCounts(ids, ctx.Lookups.ItemBoxSetIdsLookup);
         }
 
-        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes));
+        return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes)
+        {
+            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources),
+            CollectionContinuation = ctx.Lookups.Continuation.BuildSupport(profile)
+        });
     }
 
     /// <summary>
@@ -745,8 +752,10 @@ internal static class TrainingDataBuilder
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.AudioLanguages, userProfile.LanguageProfile.Count),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(candidateCollections, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(rec.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(rec.ItemId, rec.TmdbCollectionId), rec.TmdbCollectionName, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(rec.ProductionCountries, preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(rec.InheritedTags, preferredInheritedTags),
@@ -762,6 +771,9 @@ internal static class TrainingDataBuilder
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
+
+        contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(rec.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample
         {
@@ -1048,7 +1060,8 @@ internal static class TrainingDataBuilder
             ctx.SeriesEpisodeCounts is not null ? ContentScoring.BuildSeriesAffinityContext(history.Profile, ctx.SeriesEpisodeCounts) : null,
             userCtx.UserProfile.WatchedItems.FirstOrDefault(row => row.ItemId == seriesId)?.UserRating,
             ctx.Lookups.TmdbIds.GetValueOrDefault(seriesId),
-            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts));
+            ComputeCollectionProgressionBoostWithCounts(ctx.Lookups.ItemBoxSetIdsLookup.GetValueOrDefault(seriesId) ?? [], history.Content.WatchedBoxSetCounts),
+            history.Content.ContentFit);
         return 1;
     }
 
@@ -1142,8 +1155,10 @@ internal static class TrainingDataBuilder
             LibraryAddedRecency = w.DateCreated.HasValue
                 ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value, predictionTime)
                 : ContentScoring.ComputeRecencyScore(default, predictionTime),
-            LanguageAffinity = 0.5,
-            SubtitleLanguageAffinity = 0.5,
+            LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(w.AudioLanguages ?? [], userProfile),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.AudioLanguages, userProfile.LanguageProfile.Count, w.HasAudioLanguageMetadata),
+            SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(w.SubtitleLanguages ?? [], userProfile),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(w.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count, w.HasSubtitleLanguageMetadata),
             ContentNearestNeighborScore = TrainingFeatureComputer.ComputeContentNearestNeighborFromCache(
                 wGenres, w.PeopleNames, organicStudios ?? [], history.Content.WatchedGenreSets, history.Content.WatchedPeopleSets, history.Content.WatchedStudioSets),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(w.ItemId, w.TmdbCollectionId), w.TmdbCollectionName, preferredFranchisesOrganic),
@@ -1161,6 +1176,9 @@ internal static class TrainingDataBuilder
         features.GenreUnderexposure = organicUnderexp;
         features.GenreDominanceRatio = organicDomRatio;
         features.GenreAffinityGap = organicAffGap;
+
+        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = history.Content.CollectionContinuation.TryGetValue(w.ItemId, out var continuation) ? continuation : null;
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.
         var label = ComputeOrganicStandaloneLabel(w, completionRatio);
@@ -1418,8 +1436,10 @@ internal static class TrainingDataBuilder
                 contentSets.WatchedPeopleSets,
                 contentSets.WatchedStudioSets),
             LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
+            HasAudioLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.AudioLanguages, userProfile.LanguageProfile.Count),
             CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(lookups.ItemBoxSetIdsLookup.GetValueOrDefault(neg.ItemId) ?? neg.BoxSetIds, contentSets.WatchedBoxSetCounts),
             SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
+            HasSubtitleLanguageEvidence = TrainingFeatureComputer.HasLanguageEvidence(neg.SubtitleLanguages, userProfile.SubtitleLanguageProfile.Count),
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(lookups.TmdbCollectionIds.GetValueOrDefault(neg.ItemId, neg.TmdbCollectionId), neg.TmdbCollectionName, preferredFranchisesNeg),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(neg.ProductionCountries, preferredCountriesNeg),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(neg.InheritedTags, preferredInheritedTagsNeg),
@@ -1435,6 +1455,9 @@ internal static class TrainingDataBuilder
         features.GenreUnderexposure = negUnderexp;
         features.GenreDominanceRatio = negDomRatio;
         features.GenreAffinityGap = negAffGap;
+
+        contentSets.ContentFit.Apply(features, negGenres, negTags, neg.OfficialRating, genrePreferences);
+        features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(neg.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample
         {
@@ -1497,7 +1520,14 @@ internal static class TrainingDataBuilder
         Dictionary<CachedContentSets, CachedContentSets> SharedContent,
         Dictionary<Guid, AvailablePreferenceMetadata> AvailableMetadata,
         Dictionary<Guid, int> TmdbIds,
-        Dictionary<Guid, int> TmdbCollectionIds);
+        Dictionary<Guid, int> TmdbCollectionIds)
+    {
+        /// <summary>Gets per-cycle memoized string/identity transforms; historical preference aggregates are always rebuilt.</summary>
+        public ContentFitProfile.SourceCache ContentSources { get; init; } = new();
+
+        /// <summary>Gets shared, immutable membership/order metadata; user completion is always evaluated historically.</summary>
+        public CollectionContinuationCatalog Continuation { get; init; } = CollectionContinuationCatalog.Empty;
+    }
 
     /// <summary>
     ///     Groups per user watched content sets and BoxSet counts.
@@ -1506,7 +1536,14 @@ internal static class TrainingDataBuilder
         List<HashSet<string>> WatchedGenreSets,
         List<HashSet<string>> WatchedPeopleSets,
         List<HashSet<string>> WatchedStudioSets,
-        Dictionary<Guid, int> WatchedBoxSetCounts);
+        Dictionary<Guid, int> WatchedBoxSetCounts)
+    {
+        /// <summary>Gets semantic evidence from this historical, self-excluded user view.</summary>
+        public ContentFitProfile ContentFit { get; init; } = ContentFitProfile.Empty;
+
+        /// <summary>Gets next collection titles from this self-excluded historical user's completed progress only.</summary>
+        public Dictionary<Guid, double> CollectionContinuation { get; init; } = [];
+    }
 
     /// <summary>
     ///     Per-user scoring contexts built once and reused across a user's random-negative samples: the

@@ -22,4 +22,8 @@ internal readonly record struct LibraryItemMetadata(
     IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> BoxSetIds,
     IReadOnlyDictionary<Guid, int>? TmdbIds = null,
     IReadOnlyDictionary<Guid, int>? TmdbCollectionIds = null,
-    bool BoxSetMembershipsComplete = true);
+    bool BoxSetMembershipsComplete = true)
+{
+    /// <summary>Gets the same authoritative movie release sequences used by inference; only metadata is reused across historical profiles.</summary>
+    public CollectionContinuationCatalog? Continuation { get; init; }
+}

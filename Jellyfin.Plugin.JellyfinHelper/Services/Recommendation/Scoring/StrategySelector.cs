@@ -60,7 +60,15 @@ internal sealed class StrategySelector : IStrategySelector
     /// <inheritdoc />
     public double GetAlphaOffset(Guid userId)
     {
-        if (!IsExplorationActive(userId))
+        var scoringEnsemble = _registry?.GetEnsembleForUser(userId) ?? _ensemble;
+        return GetAlphaOffset(userId, scoringEnsemble.GetDiagnosticsSnapshot());
+    }
+
+    /// <inheritdoc />
+    public double GetAlphaOffset(Guid userId, EnsembleDiagnostics scoringDiagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(scoringDiagnostics);
+        if (!IsExplorationActive(scoringDiagnostics))
         {
             return 0.0;
         }
@@ -108,9 +116,14 @@ internal sealed class StrategySelector : IStrategySelector
     /// </summary>
     private bool IsExplorationActive(Guid userId)
     {
-        var diagnostics = _ensemble.GetDiagnosticsSnapshot();
         var scoringEnsemble = _registry?.GetEnsembleForUser(userId) ?? _ensemble;
-        return !scoringEnsemble.IsQualityGateFrozen
+        return IsExplorationActive(scoringEnsemble.GetDiagnosticsSnapshot());
+    }
+
+    private bool IsExplorationActive(EnsembleDiagnostics scoringDiagnostics)
+    {
+        var diagnostics = _ensemble.GetDiagnosticsSnapshot();
+        return scoringDiagnostics.AllowsExploration && !scoringDiagnostics.QualityGateFrozen
                && diagnostics.TrainingExampleCount >= MinExamplesForExploration
                && diagnostics.MetricsHistoryCount >= MinMetricsHistoryForExploration;
     }

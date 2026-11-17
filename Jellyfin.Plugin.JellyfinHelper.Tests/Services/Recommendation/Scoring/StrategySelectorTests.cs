@@ -17,6 +17,28 @@ public class StrategySelectorTests
     }
 
     [Fact]
+    public void SnapshotOffset_NeverResolvesTheUserAgain_AndHonorsTheCapturedGate()
+    {
+        using var ensemble = BuildActivatedEnsemble();
+        var registry = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
+        var selector = new StrategySelector(ensemble, registry.Object);
+        var snapshot = ensemble.GetDiagnosticsSnapshot() with { QualityGateFrozen = false };
+        Assert.Equal(0.12, selector.GetAlphaOffset(Guid.Empty, snapshot));
+        Assert.Equal(0, selector.GetAlphaOffset(Guid.Empty, snapshot with { QualityGateFrozen = true }));
+        Assert.Equal(-0.12, selector.GetAlphaOffset(new Guid(10, 0, 0, new byte[8]), snapshot));
+        Assert.Equal(0, selector.GetAlphaOffset(new Guid(20, 0, 0, new byte[8]), snapshot));
+        Assert.Throws<ArgumentNullException>(() => selector.GetAlphaOffset(Guid.Empty, null!));
+        registry.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void SnapshotOffset_DefaultOverloadPreservesLegacySelectors()
+    {
+        IStrategySelector selector = new LegacySelector();
+        Assert.Equal(0.08, selector.GetAlphaOffset(Guid.Empty, new EnsembleDiagnostics()));
+    }
+
+    [Fact]
     public void FrozenQualityGate_DisablesCohortsEvenWithEnoughDataAndHistory()
     {
         using var ensemble = new EnsembleScoringStrategy();
@@ -350,5 +372,12 @@ public class StrategySelectorTests
             });
         }
         return list;
+    }
+
+    private sealed class LegacySelector : IStrategySelector
+    {
+        public double GetAlphaOffset(Guid userId) => 0.08;
+
+        public string GetCohortName(Guid userId) => "control";
     }
 }

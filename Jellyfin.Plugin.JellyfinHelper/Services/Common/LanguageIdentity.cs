@@ -168,10 +168,83 @@ internal static class LanguageIdentity
     // Canonical code to stable English display, curated first, cultures after.
     private static readonly Dictionary<string, string> _codeDisplays = BuildCodeDisplays();
 
+    private static readonly FrozenSet<string> LanguageLabels = _codeAliases.Keys.Concat(_codeDisplays.Values)
+        .Select(LanguageLabelKey).OfType<string>().ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly char[] LanguageCodeSeparators = ['-', '_'];
+
+    // Recognized culture qualifiers, not arbitrary BCP-47-shaped story words such as "cat-and-mouse".
+    private static readonly FrozenSet<string> RegionCodes = CultureInfo.GetCultures(CultureTypes.SpecificCultures)
+        .SelectMany(culture => culture.Name.Split('-').Skip(1))
+        .Where(part => (part.Length == 2 && part.All(char.IsAsciiLetter)) || (part.Length == 3 && part.All(char.IsAsciiDigit)))
+        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenSet<string> ScriptCodes = CultureInfo.GetCultures(CultureTypes.AllCultures)
+        .SelectMany(culture => culture.Name.Split('-').Skip(1))
+        .Where(part => part.Length == 4 && part.All(char.IsAsciiLetter)).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
     // Flag words per locale for flag-only detection, stored folded like the lookups.
     // Resolution always runs first, so no entry here can ever shadow a real language.
     // Exposed for tests so every word stays pinned. Frozen: safe for concurrent scans.
     internal static readonly FrozenSet<string> TrackFlagWords = BuildTrackFlagWords();
+
+    /// <summary>Recognizes language-only metadata without stripping genuine story text after a language word.</summary>
+    /// <param name="tag">A complete provider keyword or media language label.</param>
+    /// <returns>True for exact aliases, compact language-region codes or language/track-flag compounds.</returns>
+    internal static bool IsLanguageOnlyTag(string tag)
+    {
+        if (LanguageLabelKey(tag) is not { } key)
+        {
+            return false;
+        }
+
+        if (LanguageLabels.Contains(key) || IsLanguageRegionCode(tag))
+        {
+            return true;
+        }
+
+        var language = false;
+        foreach (var token in tag.Split([' ', '\t', '/', '|', ',', '-', '_', '–', '—', '(', ')', '[', ']'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (LanguageLabelKey(token) is { } word && LanguageLabels.Contains(word))
+            {
+                language = true;
+            }
+            else if (!IsFlagOnlyTag(token))
+            {
+                return false;
+            }
+        }
+
+        return language;
+    }
+
+    private static bool IsLanguageRegionCode(string tag)
+    {
+        var parts = tag.Trim().Split(LanguageCodeSeparators, StringSplitOptions.None);
+        return parts.Length is 2 or 3 && parts[0].Length is 2 or 3
+            && LanguageLabelKey(parts[0]) is { } language && LanguageLabels.Contains(language)
+            && (parts.Length == 2
+                ? RegionCodes.Contains(parts[1]) || ScriptCodes.Contains(parts[1])
+                : ScriptCodes.Contains(parts[1]) && RegionCodes.Contains(parts[2]));
+    }
+
+    private static string? LanguageLabelKey(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label) || label.Length > 256)
+        {
+            return null;
+        }
+
+        try
+        {
+            return string.Join(' ', FoldDiacritics(label.Normalize(NormalizationForm.FormKC).ToLowerInvariant().Replace('-', ' ')).ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     ///     Cleans a raw track tag for lookup: trims, cuts parenthetical qualifiers

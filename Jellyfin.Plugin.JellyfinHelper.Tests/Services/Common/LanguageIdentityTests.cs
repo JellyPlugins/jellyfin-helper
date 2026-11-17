@@ -10,6 +10,45 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 public class LanguageIdentityTests
 {
     [Theory]
+    [InlineData("cat-and-mouse")]
+    [InlineData("cat and mouse")]
+    [InlineData("en-war")]
+    [InlineData("fr-revolution")]
+    [InlineData("de-unknown")]
+    [InlineData("cat_and_mouse")]
+    [InlineData("en_war")]
+    public void StoryWordsAfterLanguageAliasesAreNotLanguageOnlyMetadata(string tag)
+        => Assert.False(LanguageIdentity.IsLanguageOnlyTag(tag));
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("fr_FR")]
+    [InlineData("deu-DE")]
+    [InlineData("zh-Hant")]
+    [InlineData("zh-Hans-CN")]
+    [InlineData("es-419")]
+    [InlineData("French (Forced)")]
+    [InlineData("zh_Hans_CN")]
+    [InlineData("zh_Hant")]
+    [InlineData("sr_Latn_RS")]
+    [InlineData("es_419")]
+    [InlineData("en_Latn_US")]
+    [InlineData("zh_Hans-CN")]
+    public void RecognizedRegionScriptAndTrackQualifiersRemainLanguageOnly(string tag)
+        => Assert.True(LanguageIdentity.IsLanguageOnlyTag(tag));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("\uD800")]
+    public void EmptyOrMalformedUnicodeCannotClaimLanguageOnlyEvidence(string tag)
+        => Assert.False(LanguageIdentity.IsLanguageOnlyTag(tag));
+
+    [Fact]
+    public void OverlongLanguageOnlyLabelsAreUnavailableRatherThanPartiallyMatched()
+        => Assert.False(LanguageIdentity.IsLanguageOnlyTag("en-" + new string('a', 300)));
+
+    [Theory]
     [InlineData("ger", "de")]
     [InlineData("deu", "de")]
     [InlineData("de", "de")]

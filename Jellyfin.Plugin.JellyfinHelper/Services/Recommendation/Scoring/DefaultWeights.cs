@@ -8,60 +8,64 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// </summary>
 public static class DefaultWeights
 {
+    // Genre (0.18), collection progress (0.15), fine affinity (0.08) and languages (0.045)
+    // share one positive budget. The remaining relative priors share exactly 0.545.
+    private const double SecondaryScale = 0.545 / 0.670;
+
     /// <summary>Weight for genre similarity signal.</summary>
-    public const double GenreSimilarity = 0.155;
+    public const double GenreSimilarity = 0.180;
 
     /// <summary>Weight for collaborative filtering signal.</summary>
-    public const double CollaborativeScore = 0.070;
+    public const double CollaborativeScore = 0.060 * SecondaryScale;
 
     /// <summary>Weight for combined critic score signal (TMDb 55% + Tomatometer 45%).</summary>
-    public const double CombinedCriticScore = 0.050;
+    public const double CombinedCriticScore = 0.050 * SecondaryScale;
 
     /// <summary>Weight for recency signal.</summary>
-    public const double RecencyScore = 0.045;
+    public const double RecencyScore = 0.035 * SecondaryScale;
 
     /// <summary>Weight for year proximity signal.</summary>
-    public const double YearProximityScore = 0.040;
+    public const double YearProximityScore = 0.030 * SecondaryScale;
 
     /// <summary>Weight for normalized genre count signal. Near-neutral - ML can learn if it matters.</summary>
-    public const double GenreCountNormalized = 0.005;
+    public const double GenreCountNormalized = 0.005 * SecondaryScale;
 
     /// <summary>
     ///     Weight for series type signal. Near-neutral initial weight - does not blindly prefer series over movies.
     /// </summary>
-    public const double IsSeries = 0.010;
+    public const double IsSeries = 0.005 * SecondaryScale;
 
     /// <summary>Weight for genre × combined critic interaction signal.</summary>
-    public const double GenreCriticInteraction = 0.035;
+    public const double GenreCriticInteraction = 0.020 * SecondaryScale;
 
     /// <summary>Weight for genre × collaborative interaction signal.</summary>
-    public const double GenreCollabInteraction = 0.035;
+    public const double GenreCollabInteraction = 0.020 * SecondaryScale;
 
     /// <summary>Weight for user personal rating signal (stronger than community rating).</summary>
-    public const double UserRatingScore = 0.070;
+    public const double UserRatingScore = 0.060 * SecondaryScale;
 
     /// <summary>Weight for genre average completion.</summary>
-    public const double CompletionRatio = 0.050;
+    public const double CompletionRatio = 0.040 * SecondaryScale;
 
     /// <summary>Weight for genre abandon rate.</summary>
-    public const double IsAbandoned = -0.10;
+    public const double IsAbandoned = -0.10 * SecondaryScale;
 
     /// <summary>Weight for genre familiarity.</summary>
-    public const double HasInteraction = 0.005;
+    public const double HasInteraction = 0.005 * SecondaryScale;
 
     /// <summary>
     ///     Weight for people (cast/director) similarity signal. Items featuring actors or directors from the user's watched content get a boost.
     /// </summary>
-    public const double PeopleSimilarity = 0.050;
+    public const double PeopleSimilarity = 0.040 * SecondaryScale;
 
     /// <summary>
     ///     Weight for studio match signal.
     ///     Items from studios the user has watched before get a small positive boost.
     /// </summary>
-    public const double StudioMatch = 0.020;
+    public const double StudioMatch = 0.015 * SecondaryScale;
 
     /// <summary>Weight for series affinity to progressing series.</summary>
-    public const double SeriesAffinity = 0.045;
+    public const double SeriesAffinity = 0.035 * SecondaryScale;
 
     /// <summary>Legacy name for SeriesAffinity.</summary>
     public const double SeriesProgressionBoost = SeriesAffinity;
@@ -69,63 +73,63 @@ public static class DefaultWeights
     /// <summary>
     ///     Weight for popularity score signal. Provides a baseline signal from global watch counts, particularly useful for cold-start users who have little personal history.
     /// </summary>
-    public const double PopularityScore = 0.005;
+    public const double PopularityScore = 0.005 * SecondaryScale;
 
     /// <summary>
     ///     Weight for day-of-week affinity signal. Captures temporal viewing patterns (e.g., comedies on weekends, dramas on weeknights).
     /// </summary>
-    public const double DayOfWeekAffinity = 0.015;
+    public const double DayOfWeekAffinity = 0.010 * SecondaryScale;
 
     /// <summary>
     ///     Weight for hour-of-day affinity signal. Captures intra-day viewing patterns (e.g., lighter content in the morning, thrillers in the evening).
     /// </summary>
-    public const double HourOfDayAffinity = 0.02;
+    public const double HourOfDayAffinity = 0.010 * SecondaryScale;
 
     /// <summary>
     ///     Weight for weekend flag signal. Captures weekend vs.
     /// </summary>
     /// <remarks>Micro-trimmed from 0.01 for LanguageAffinity budget.</remarks>
-    public const double IsWeekend = 0.005;
+    public const double IsWeekend = 0.005 * SecondaryScale;
 
     /// <summary>
     ///     Weight for tag-based content similarity signal. Measures Jaccard overlap between the candidate's tags and the user's preferred tags derived from watch history.
     /// </summary>
-    public const double TagSimilarity = 0.015;
+    public const double TagSimilarity = 0.010 * SecondaryScale;
 
     /// <summary>
     ///     Weight for people × genre interaction (actors you like in genres you prefer).
     /// </summary>
-    public const double PeopleGenreInteraction = 0.025;
+    public const double PeopleGenreInteraction = 0.015 * SecondaryScale;
 
     /// <summary>
     ///     Weight for recency × combined critic interaction (trending: new + highly rated).
     /// </summary>
-    public const double RecencyCriticInteraction = 0.025;
+    public const double RecencyCriticInteraction = 0.015 * SecondaryScale;
 
     /// <summary>
     ///     Negative weight for genre underexposure signal. Items whose genres the user rarely watches receive a soft penalty.
     /// </summary>
-    public const double GenreUnderexposure = -0.12;
+    public const double GenreUnderexposure = -0.12 * SecondaryScale;
 
     /// <summary>
     ///     Positive weight for genre dominance ratio signal. Items matching the user's core genres (top-3) get a boost.
     /// </summary>
-    public const double GenreDominanceRatio = 0.070;
+    public const double GenreDominanceRatio = 0.045 * SecondaryScale;
 
     /// <summary>
     ///     Negative weight for genre affinity gap signal. Items whose genres are well below the user's average preference weight receive a soft penalty.
     /// </summary>
-    public const double GenreAffinityGap = -0.08;
+    public const double GenreAffinityGap = -0.08 * SecondaryScale;
 
     /// <summary>
     ///     Weight for library-added recency signal. Captures new additions to the user's collection separately from content release date.
     /// </summary>
-    public const double LibraryAddedRecency = 0.025;
+    public const double LibraryAddedRecency = 0.020 * SecondaryScale;
 
     /// <summary>
     ///     Weight for content-based nearest-neighbor signal. Composite item-to-item similarity (genre 50%, people 30%, studio 20%) between the candidate and the user's most similar watched item.
     /// </summary>
-    public const double ContentNearestNeighborScore = 0.020;
+    public const double ContentNearestNeighborScore = 0.015 * SecondaryScale;
 
     /// <summary>
     ///     Weight for audio language affinity signal. Items available in the user's preferred audio language get a moderate boost.
@@ -145,37 +149,46 @@ public static class DefaultWeights
     /// <summary>
     ///     Weight for franchise affinity signal (TMDb collection membership the user has engaged with).
     /// </summary>
-    public const double FranchiseAffinity = 0.025;
+    public const double FranchiseAffinity = 0.025 * SecondaryScale;
 
     /// <summary>
     ///     Weight for production-location (country-of-origin) affinity signal. Anchored just below StudioMatch (0.020) as a content-origin taste axis.
     /// </summary>
-    public const double ProductionLocationAffinity = 0.018;
+    public const double ProductionLocationAffinity = 0.015 * SecondaryScale;
 
     /// <summary>
     ///     Weight for inherited-tag similarity signal. Same magnitude as the leaf-tag TagSimilarity (0.015) - a parallel Jaccard channel over inherited tags.
     /// </summary>
-    public const double InheritedTagSimilarity = 0.015;
+    public const double InheritedTagSimilarity = 0.010 * SecondaryScale;
 
     /// <summary>
     ///     Weight for series completability signal (Ended vs Continuing vs Unreleased). Small positive prior; the ML model learns the true sign/strength.
     /// </summary>
-    public const double SeriesCompletability = 0.020;
+    public const double SeriesCompletability = 0.015 * SecondaryScale;
 
     /// <summary>
     ///     Weight for writer/creator affinity signal. Deliberately below PeopleSimilarity (0.050) - writers are less predictive than cast/director; kept in a separate profile so it does not dilute the people channel.
     /// </summary>
-    public const double WriterAffinity = 0.030;
+    public const double WriterAffinity = 0.020 * SecondaryScale;
 
     /// <summary>
     ///     Weight for billing-weighted people affinity signal. Kept low because it overlaps heavily with PeopleSimilarity (0.050); a small weight avoids double-counting the people channel while still rewarding top-billed matches.
     /// </summary>
-    public const double BillingWeightedPeople = 0.010;
+    public const double BillingWeightedPeople = 0.005 * SecondaryScale;
 
     /// <summary>
     ///     Weight for the genre/studio IDF rarity prior. Near-neutral soft tiebreaker (anchored near PopularityScore); the ML model learns the true magnitude.
     /// </summary>
-    public const double GenreStudioIdfPrior = 0.010;
+    public const double GenreStudioIdfPrior = 0.010 * SecondaryScale;
+
+    /// <summary>Fine title-level thematic affinity, financed within the positive weight budget.</summary>
+    public const double ContentFitAffinity = 0.080;
+
+    /// <summary>Narrative confidence is applied once in score space, not as a second fixed raw boost.</summary>
+    public const double ContentFitSupport = 0;
+
+    /// <summary>The soft personal mismatch is applied once in score space; trainable models may learn this input.</summary>
+    public const double AudienceMismatch = 0;
 
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
@@ -243,6 +256,9 @@ public static class DefaultWeights
         Set(FeatureIndex.WriterAffinity, WriterAffinity);
         Set(FeatureIndex.BillingWeightedPeople, BillingWeightedPeople);
         Set(FeatureIndex.GenreStudioIdfPrior, GenreStudioIdfPrior);
+        Set(FeatureIndex.ContentFitAffinity, ContentFitAffinity);
+        Set(FeatureIndex.ContentFitSupport, ContentFitSupport);
+        Set(FeatureIndex.AudienceMismatch, AudienceMismatch);
 
         // Detect missing per-index assignments. The count check above catches new enum values without FeatureCount bump, but this catches the more likely failure mode of adding a new enum+count without adding a Set() call.
         for (var i = 0; i < assigned.Length; i++)

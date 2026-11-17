@@ -12,9 +12,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public class ScoringGoldenLockTests
 {
-    // Rebaselined for the deliberate BoxSet-over-franchise prior: collection 0.045 -> 0.150,
-    // franchise 0.040 -> 0.025. The seed-to-feature mapping and all three scoring algorithms stay locked.
-    private const string ExpectedDigest = "9825A32ABD237D833B8FB460EFFB42B4CA0A6C0486A37C1588605317BFEF3EC7";
+    // User-authorized v6: 41 shared coordinates, Neural 41→82→96→48→24→1 and a rebalanced
+    // one-unit positive heuristic budget. The independent layer oracle below checks all 500
+    // seeded Neural outputs; weight-budget and thematic tests check the deliberate prior changes.
+    private const string ExpectedDigest = "A8D3F78126E9D75C704271C94116073B16B6E38C43FCF8A6E8C61BAAD5FD2C41";
 
     [Fact]
     public void ScoringStrategies_ProduceStableDigest_AcrossSeededFeatureBatch()
@@ -24,6 +25,52 @@ public class ScoringGoldenLockTests
 
         // If this fails, a change altered scoring output. For a deliberate scoring-math change, regenerate ExpectedDigest from the new value (after reviewing the diff); otherwise the refactor was not behavior-preserving and must be fixed.
         Assert.Equal(ExpectedDigest, digest);
+    }
+
+    [Fact]
+    public void V6DefaultNeuralMatchesIndependent41By82LayerEvaluation()
+    {
+        var random = new Random(42);
+        double[] Weights(int input, int output, bool final = false)
+        {
+            var limit = Math.Sqrt(6.0 / (final ? input + output : input));
+            return Enumerable.Range(0, input * output).Select(_ => (random.NextDouble() * 2.0 * limit) - limit).ToArray();
+        }
+
+        var first = Weights(41, 82);
+        var second = Weights(82, 96);
+        var third = Weights(96, 48);
+        var fourth = Weights(48, 24);
+        var last = Weights(24, 1, final: true);
+        using var model = new NeuralScoringStrategy();
+        var properties = typeof(CandidateFeatures).GetProperties().Where(property => property.CanWrite && property.Name != nameof(CandidateFeatures.IsExternalCandidate)
+            && property.Name != nameof(CandidateFeatures.HasGenreEvidence)).OrderBy(property => property.Name, StringComparer.Ordinal).ToArray();
+        for (var seed = 1; seed <= 500; seed++)
+        {
+            var features = BuildDeterministicFeatures(properties, seed);
+            var hidden = Relu(features.ToVector(), first, 82);
+            hidden = Relu(hidden, second, 96);
+            hidden = Relu(hidden, third, 48);
+            hidden = Relu(hidden, fourth, 24);
+            var logit = 0.0;
+            for (var index = 0; index < last.Length; index++) logit += last[index] * hidden[index];
+            var exponent = Math.Exp(-Math.Abs(logit));
+            var expected = logit >= 0 ? 1 / (1 + exponent) : exponent / (1 + exponent);
+            Assert.Equal(expected, model.Score(features), 12);
+        }
+    }
+
+    private static double[] Relu(double[] input, double[] weights, int outputs)
+    {
+        var result = new double[outputs];
+        for (var row = 0; row < outputs; row++)
+        {
+            var value = 0.0;
+            for (var column = 0; column < input.Length; column++) value += weights[row * input.Length + column] * input[column];
+            result[row] = Math.Max(0, value);
+        }
+
+        return result;
     }
 
     internal static string ComputeDigest()

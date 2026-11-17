@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -57,6 +60,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     private readonly IPluginLogService _pluginLog;
     private readonly IUserDataManager? _userDataManager;
     private readonly IUserManager? _userManager;
+    private readonly IArrOrphanProtectionService? _arrOrphanProtection;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="MediaStatisticsService" /> class.
@@ -68,6 +72,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="configHelper">The cleanup configuration helper.</param>
     /// <param name="userDataManager">The user data manager for watched status.</param>
     /// <param name="userManager">The user manager for user enumeration.</param>
+    /// <param name="arrOrphanProtection">Optional, positive-only Arr ownership protection.</param>
     public MediaStatisticsService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -75,7 +80,8 @@ public class MediaStatisticsService : IMediaStatisticsService
         ILogger<MediaStatisticsService> logger,
         ICleanupConfigHelper configHelper,
         IUserDataManager? userDataManager = null,
-        IUserManager? userManager = null)
+        IUserManager? userManager = null,
+        IArrOrphanProtectionService? arrOrphanProtection = null)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -84,6 +90,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         _configHelper = configHelper;
         _userDataManager = userDataManager!;
         _userManager = userManager!;
+        _arrOrphanProtection = arrOrphanProtection;
         if (userDataManager == null || userManager == null)
         {
             _pluginLog.LogWarning(
@@ -94,26 +101,47 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Calculates statistics for all configured libraries.
+    ///     Calculates local statistics without network ownership lookups.
     /// </summary>
     /// <returns>The aggregated media statistics.</returns>
     public MediaStatisticsResult CalculateStatistics()
     {
+        return CalculateStatistics(_configHelper.GetConfig(), _libraryManager.GetVirtualFolders(), OrphanProtectionSnapshot.Empty, CancellationToken.None);
+    }
+
+    /// <inheritdoc />
+    public async Task<MediaStatisticsResult> CalculateStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var config = _configHelper.GetConfig();
+        var libraries = _libraryManager.GetVirtualFolders();
+        var protection = _arrOrphanProtection == null
+            ? OrphanProtectionSnapshot.Empty
+            : await _arrOrphanProtection.GetSnapshotAsync(config, libraries, cancellationToken).ConfigureAwait(false);
+        return CalculateStatistics(config, libraries, protection, cancellationToken);
+    }
+
+    private MediaStatisticsResult CalculateStatistics(
+        PluginConfiguration scanConfig,
+        List<VirtualFolderInfo> virtualFolders,
+        OrphanProtectionSnapshot protection,
+        CancellationToken cancellationToken)
+    {
         var result = new MediaStatisticsResult();
 
         // Resolve trash folder name once - constant for the entire scan.
-        var scanConfig = _configHelper.GetConfig();
         var scanTrashFolderName = (scanConfig.TrashFolderPath ?? string.Empty).Trim()
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        var virtualFolders = _libraryManager.GetVirtualFolders();
         _pluginLog.LogInfo(
             LogCategory,
             $"Starting media statistics scan for {virtualFolders.Count} libraries",
             _logger);
 
         // Pre-build a lookup of file paths -> BaseItem for all known library items. This avoids calling FindByPath() per file during the scan, significantly improving performance for large libraries.
-        var itemLookup = BuildItemLookup();
+        var libraryItems = BuildItemLookup();
+        var itemLookup = libraryItems.Items;
+        var excludedLibraries = CleanupConfigHelper.ParseCommaSeparated(scanConfig.ExcludedLibraries);
         _pluginLog.LogDebug(
             LogCategory,
             $"Pre-loaded {itemLookup.Count} library items for metadata lookup",
@@ -134,6 +162,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
         foreach (var vf in virtualFolders)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var collectionType = vf.CollectionType;
 
             var isBoxsets = collectionType is CollectionTypeOptions.boxsets;
@@ -164,13 +193,21 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 // One visited set per library: symlink cycles terminate instead of
                 // recursing until the stack overflows, and bind-mounted duplicates count once.
-                var visitedDirectories = new HashSet<string>(StringComparer.Ordinal);
+                var visitedDirectories = new HashSet<string>(PathComparison.Comparer);
 
                 // The resolved absolute trash path is computed once per library root so it
                 // is not re-derived on every recursive directory call.
                 var resolvedFullTrashPath = ResolveLibraryTrashPath(location);
 
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(scanTrashFolderName, skipHealth, resolvedFullTrashPath, visitedDirectories));
+                var skipOrphan = !libraryItems.IsComplete || !CleanupConfigHelper.IsCleanupEligibleLibrary(vf, excludedLibraries)
+                    || CleanupConfigHelper.IsCollectionsPath(location) || IsSkippedLink(location);
+                var registeredDirectories = BuildRegisteredMediaDirectories(libraryItems, location, resolvedFullTrashPath, scanTrashFolderName);
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, userContext, new SubdirectoryScanContext(
+                    scanTrashFolderName,
+                    skipHealth,
+                    resolvedFullTrashPath,
+                    visitedDirectories,
+                    new OrphanScanContext(skipOrphan, registeredDirectories, new Dictionary<string, DirectoryAnalysis>(PathComparison.Comparer), protection, cancellationToken)));
             }
 
             _pluginLog.LogDebug(
@@ -203,7 +240,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
-        result.InternalTrickplaySize = MeasureInternalTrickplaySize();
+        result.InternalTrickplaySize = MeasureInternalTrickplaySize(cancellationToken);
 
         // Log summary
         var totalFiles = result.Libraries.Sum(l =>
@@ -219,17 +256,20 @@ public class MediaStatisticsService : IMediaStatisticsService
             _logger);
 
         result.ScanTimestamp = DateTime.UtcNow;
+        cancellationToken.ThrowIfCancellationRequested();
         return result;
     }
 
     /// <summary>
     ///     Builds a lookup dictionary mapping file paths to their Jellyfin library items. This pre-loads all items once to avoid per-file FindByPath calls during scanning.
     /// </summary>
-    /// <returns>A case-insensitive dictionary of file path -> BaseItem.</returns>
-    internal virtual Dictionary<string, BaseItem> BuildItemLookup()
+    /// <returns>The item map and whether the database lookup completed successfully.</returns>
+    internal virtual LibraryItemLookup BuildItemLookup()
     {
         var lookup = new Dictionary<string, BaseItem>(StringComparer.OrdinalIgnoreCase);
+        var registeredPaths = new List<string>();
 
+        var complete = true;
         try
         {
             var allItems = _libraryManager.GetItemList(
@@ -240,11 +280,13 @@ public class MediaStatisticsService : IMediaStatisticsService
                 });
             foreach (var item in allItems.Where(item => !string.IsNullOrEmpty(item.Path)))
             {
+                registeredPaths.Add(item.Path);
                 lookup.TryAdd(item.Path, item);
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
+            complete = false;
             _pluginLog.LogWarning(
                 LogCategory,
                 "Could not pre-load library items for metadata lookup; falling back to per-file lookup",
@@ -252,10 +294,10 @@ public class MediaStatisticsService : IMediaStatisticsService
                 _logger);
         }
 
-        return lookup;
+        return new LibraryItemLookup(lookup, complete) { RegisteredPaths = registeredPaths.Distinct(StringComparer.Ordinal).ToArray() };
     }
 
-    private long CalculateTrickplaySize(string directoryPath)
+    private long CalculateTrickplaySize(string directoryPath, CancellationToken cancellationToken)
     {
         // Iterative over an explicit stack with a visited set: symlink cycles terminate
         // instead of recursing until the stack overflows. Matches FileSystemHelper sizing.
@@ -265,6 +307,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         stack.Push(directoryPath);
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             if (!TryEnterDirectory(visited, current))
             {
@@ -276,6 +319,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 foreach (var file in _fileSystem.GetFiles(current, false)
                     .Where(file => !IsSkippedLink(file.FullName)))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     total += file.Length;
                 }
 
@@ -283,6 +327,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     .Select(sub => sub.FullName)
                     .Where(fullName => !IsSkippedLink(fullName)))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     stack.Push(fullName);
                 }
             }
@@ -299,7 +344,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     ///     Measures Jellyfin managed trickplay data outside the media libraries.
     /// </summary>
     /// <returns>Total bytes of internal trickplay data, or zero when the path is missing or unreadable.</returns>
-    private long MeasureInternalTrickplaySize()
+    private long MeasureInternalTrickplaySize(CancellationToken cancellationToken)
     {
         // Internal images are keyed by item id, so no per library attribution is possible. They stay out of every library total by design.
         var path = _configHelper.GetInternalTrickplayPath();
@@ -315,7 +360,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                 return 0;
             }
 
-            return CalculateTrickplaySize(path);
+            return CalculateTrickplaySize(path, cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -357,7 +402,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         try
         {
-            normalized = Path.GetFullPath(fullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullName));
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -392,7 +437,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
     /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
     /// <param name="scanContext">Trash-resolution, library-root and health-check context threaded through recursion.</param>
-    private bool AnalyzeDirectoryRecursive(
+    private DirectoryAnalysis AnalyzeDirectoryRecursive(
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
@@ -401,12 +446,23 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         // Symlink cycles and bind-mounted duplicates terminate here instead of
         // recursing until the stack overflows.
-        if (!TryEnterDirectory(scanContext.VisitedDirectories, directoryPath))
+        scanContext.Orphans.CancellationToken.ThrowIfCancellationRequested();
+        if (!TryNormalizeDirectory(directoryPath, out var normalizedPath))
         {
-            return false;
+            return DirectoryAnalysis.Unknown;
         }
 
-        var containsVideo = false;
+        if (scanContext.Orphans.AnalyzedDirectories.TryGetValue(normalizedPath, out var previous))
+        {
+            return previous;
+        }
+
+        if (!scanContext.VisitedDirectories.Add(normalizedPath))
+        {
+            return DirectoryAnalysis.Unknown;
+        }
+
+        var analysis = new DirectoryAnalysis(false, false, !scanContext.Orphans.Protection.IsUncertain(normalizedPath));
         try
         {
             var files = _fileSystem.GetFiles(directoryPath).ToList();
@@ -430,21 +486,28 @@ public class MediaStatisticsService : IMediaStatisticsService
                     videoFiles,
                     videoStreamsCache,
                     flags);
+                if (!scanContext.Orphans.SkipChecks && IsSkippedLink(file.FullName))
+                {
+                    analysis = analysis with { IsComplete = false };
+                }
             }
 
-            containsVideo = flags.ContainsVideo;
+            analysis = analysis with
+            {
+                ContainsMedia = flags.ContainsMedia || scanContext.Orphans.RegisteredMediaDirectories.Contains(normalizedPath),
+                HasNonMetadataFiles = flags.HasNonMetadataFiles
+            };
 
             // Recurse into subdirectories. The context arrives pre-built from the caller
             // (top level or parent directory), so it is passed through untouched.
             var subDirs = _fileSystem.GetDirectories(directoryPath);
 
-            var subDirHasVideo = ScanSubdirectories(
+            analysis = analysis.Combine(ScanSubdirectories(
                 subDirs,
                 stats,
                 itemLookup,
                 userContext,
-                scanContext,
-                ref containsVideo);
+                scanContext));
 
             // Health checks - per-directory analysis Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders that group related movies and typically only contain posters/images, not real media.
             if (!scanContext.SkipHealthChecks)
@@ -459,19 +522,27 @@ public class MediaStatisticsService : IMediaStatisticsService
                         flags.HasImage,
                         flags.HasNfo);
                 }
-                else if (flags.HasAnyNonTrickplayFile && (flags.HasSubs || flags.HasImage || flags.HasNfo))
+                else if (CanConfirmOrphanedMetadata(directoryPath, normalizedPath, flags, analysis, scanContext))
                 {
-                    RecordOrphanedMetadata(stats, directoryPath, subDirHasVideo);
+                    RecordOrphanedMetadata(stats, directoryPath);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            analysis = analysis with { IsComplete = false };
             _pluginLog.LogWarning(LogCategory, $"Could not access directory: {directoryPath}", ex, _logger);
         }
 
-        return containsVideo;
+        scanContext.Orphans.AnalyzedDirectories[normalizedPath] = analysis;
+        return analysis;
     }
+
+    private static bool CanConfirmOrphanedMetadata(string directoryPath, string normalizedPath, DirectoryFileFlags flags, DirectoryAnalysis analysis, SubdirectoryScanContext scanContext)
+        => !scanContext.Orphans.SkipChecks && analysis is { ContainsMedia: false, HasNonMetadataFiles: true, IsComplete: true }
+            && (flags.HasSubs || flags.HasImage || flags.HasNfo)
+            && !IsProtectedCollectionDirectory(directoryPath)
+            && !scanContext.Orphans.Protection.ProtectsDirectory(normalizedPath);
 
     /// <summary>
     ///     Classifies a single file by extension and accumulates its size/count into the statistics, updating the per-directory presence flags.
@@ -494,13 +565,8 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         var ext = Path.GetExtension(file.FullName);
         var size = file.Length;
-        // Set for any non-trickplay, non-audio file.
-        // Orphaned-metadata detection uses this flag; audio files are excluded to
-        // avoid false positives in audio-only directories.
-        if (!MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
-        {
-            flags.HasAnyNonTrickplayFile = true;
-        }
+        flags.HasNonMetadataFiles |= !MediaExtensions.ImageExtensions.Contains(ext) && !MediaExtensions.NfoExtensions.Contains(ext);
+        flags.ContainsMedia |= MediaExtensions.VideoExtensions.Contains(ext) || MediaExtensions.AudioExtensionToCodec.ContainsKey(ext);
 
         if (MediaExtensions.VideoExtensions.Contains(ext))
         {
@@ -508,7 +574,6 @@ public class MediaStatisticsService : IMediaStatisticsService
             stats.VideoFileCount++;
             stats.FileSizes[file.FullName] = size;
             flags.HasVideo = true;
-            flags.ContainsVideo = true;
             videoFiles.Add(file);
 
             // Container format tracking (from file extension - this IS the container)
@@ -575,24 +640,24 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="itemLookup">Pre-built lookup of file paths -> BaseItem for metadata extraction.</param>
     /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
     /// <param name="scanContext">The trash-resolution and recursion context.</param>
-    /// <param name="containsVideo">Set true when any recursed subdirectory contained a video.</param>
-    /// <returns><c>true</c> when at least one subdirectory contained a video.</returns>
-    private bool ScanSubdirectories(
+    /// <returns>Combined media presence, placeholder classification and scan completeness.</returns>
+    private DirectoryAnalysis ScanSubdirectories(
         IEnumerable<FileSystemMetadata> subDirs,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
         ScanUserContext userContext,
-        SubdirectoryScanContext scanContext,
-        ref bool containsVideo)
+        SubdirectoryScanContext scanContext)
     {
-        var subDirHasVideo = false;
+        var analysis = new DirectoryAnalysis(false, false, true);
 
         foreach (var subDir in subDirs)
         {
+            scanContext.Orphans.CancellationToken.ThrowIfCancellationRequested();
             // Invalid paths never reach the trash checks or the recursion below;
             // both would otherwise abort or overflow the scan.
             if (!TryNormalizeDirectory(subDir.FullName, out var normalizedSubDirFullName))
             {
+                analysis = analysis with { IsComplete = false };
                 continue;
             }
 
@@ -613,19 +678,35 @@ public class MediaStatisticsService : IMediaStatisticsService
                 // A linked trickplay folder stores nothing here; its target belongs elsewhere, so it stays out of this library.
                 if (!IsSkippedLink(subDir.FullName))
                 {
-                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
+                    var trickplaySize = CalculateTrickplaySize(subDir.FullName, scanContext.Orphans.CancellationToken);
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }
             }
-            else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, scanContext))
+            else
             {
-                subDirHasVideo = true;
-                containsVideo = true;
+                analysis = analysis.Combine(AnalyzeSubdirectory(subDir, stats, itemLookup, userContext, scanContext));
             }
         }
 
-        return subDirHasVideo;
+        return analysis;
+    }
+
+    private DirectoryAnalysis AnalyzeSubdirectory(FileSystemMetadata subDir, LibraryStatistics stats, Dictionary<string, BaseItem> itemLookup, ScanUserContext userContext, SubdirectoryScanContext scanContext)
+    {
+        // Preserve the existing read-only statistics traversal of linked libraries;
+        // link ownership remains unproven, so it cannot authorize orphan diagnostics.
+        var unresolvedLink = IsSkippedLink(subDir.FullName);
+        var childContext = scanContext with
+        {
+            Orphans = scanContext.Orphans with
+            {
+                SkipChecks = scanContext.Orphans.SkipChecks || unresolvedLink || CleanupConfigHelper.IsCollectionsPath(subDir.FullName)
+                    || IsProtectedCollectionDirectory(subDir.FullName)
+            }
+        };
+        var childAnalysis = AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, userContext, childContext);
+        return unresolvedLink ? childAnalysis with { IsComplete = false } : childAnalysis;
     }
 
     /// <summary>
@@ -687,17 +768,15 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Records an orphaned-metadata directory (metadata-only, no video) unless it is a TV show container folder.
+    ///     Records a confirmed media-free, non-placeholder directory unless it is a protected TV container.
     /// </summary>
     /// <param name="stats">The statistics accumulator.</param>
     /// <param name="directoryPath">The directory being analyzed.</param>
-    /// <param name="subDirHasVideo">Whether any subdirectory contained a video.</param>
     private static void RecordOrphanedMetadata(
         LibraryStatistics stats,
-        string directoryPath,
-        bool subDirHasVideo)
+        string directoryPath)
     {
-        // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos (e.g. "Series 1" folder containing "Season 01") OR if it is a known TV show container folder (Specials, Season XX).
+        // Preserve wanted season/specials containers even when sidecars remain without episodes.
         var isTvShow = string.Equals(stats.CollectionType, "tvshows", StringComparison.OrdinalIgnoreCase);
         var isTvContainer = false;
         if (isTvShow)
@@ -711,11 +790,50 @@ public class MediaStatisticsService : IMediaStatisticsService
             }
         }
 
-        if (!isTvShow || (!subDirHasVideo && !isTvContainer))
+        if (!isTvShow || !isTvContainer)
         {
             stats.OrphanedMetadataDirectories++;
             stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
         }
+    }
+
+    private static bool IsProtectedCollectionDirectory(string directoryPath)
+    {
+        var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(directoryPath));
+        return name.Contains("[boxset]", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("[collection]", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> BuildRegisteredMediaDirectories(LibraryItemLookup libraryItems, string libraryRoot, string? trashPath, string trashName)
+    {
+        var paths = libraryItems.RegisteredPaths.Length > 0 ? libraryItems.RegisteredPaths : libraryItems.Items.Keys.AsEnumerable();
+        return BuildRegisteredMediaDirectories(paths, libraryRoot, trashPath, trashName);
+    }
+
+    private static HashSet<string> BuildRegisteredMediaDirectories(
+        IEnumerable<string> paths, string libraryRoot, string? trashPath, string trashName)
+    {
+        var result = new HashSet<string>(PathComparison.Comparer);
+        if (!TryNormalizeDirectory(libraryRoot, out var root))
+        {
+            return result;
+        }
+
+        foreach (var path in paths)
+        {
+            if (!TryNormalizeDirectory(path, out var normalized) || !OrphanProtectionSnapshot.IsWithin(normalized, root)
+                || OrphanProtectionSnapshot.IsExcludedMediaPath(normalized, root, trashPath, trashName))
+            {
+                continue;
+            }
+
+            for (var parent = Path.GetDirectoryName(normalized); parent != null && OrphanProtectionSnapshot.IsWithin(parent, root); parent = Path.GetDirectoryName(parent))
+            {
+                result.Add(parent);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -1696,17 +1814,51 @@ public class MediaStatisticsService : IMediaStatisticsService
     }
 
     /// <summary>
-    ///     Groups the trash-resolution and recursion context threaded through ScanSubdirectories and the recursive analysis, keeping the parameter count within bounds without changing behaviour.
+    ///     Coordinates the existing statistics traversal and the separate orphan safety state.
     /// </summary>
     /// <param name="ResolvedTrashFolderName">The resolved trash folder name (empty when unset).</param>
     /// <param name="SkipHealthChecks">When true, skip health check counters.</param>
     /// <param name="ResolvedFullTrashPath">The normalized absolute trash path for this library root.</param>
     /// <param name="VisitedDirectories">Normalized visited directories of this library scan; symlink cycles terminate on re-entry.</param>
+    /// <param name="Orphans">Orphan-specific protection, completeness and cancellation.</param>
     private readonly record struct SubdirectoryScanContext(
         string ResolvedTrashFolderName,
         bool SkipHealthChecks,
         string? ResolvedFullTrashPath,
-        HashSet<string> VisitedDirectories);
+        HashSet<string> VisitedDirectories,
+        OrphanScanContext Orphans);
+
+    /// <summary>Orphan-only state, separate from video health checks and file statistics.</summary>
+    /// <param name="SkipChecks">Library exclusions or incomplete database lookup.</param>
+    /// <param name="RegisteredMediaDirectories">Ancestors of registered, non-excluded media files.</param>
+    /// <param name="AnalyzedDirectories">Completed directory results, reused without double-counting.</param>
+    /// <param name="Protection">Optional scan-local ownership protection.</param>
+    /// <param name="CancellationToken">Scan cancellation.</param>
+    private readonly record struct OrphanScanContext(
+        bool SkipChecks,
+        HashSet<string> RegisteredMediaDirectories,
+        Dictionary<string, DirectoryAnalysis> AnalyzedDirectories,
+        OrphanProtectionSnapshot Protection,
+        CancellationToken CancellationToken);
+
+    /// <summary>Database lookup result; an unavailable database never proves media absence.</summary>
+    /// <param name="Items">File-path metadata lookup.</param>
+    /// <param name="IsComplete">Whether the batch query succeeded.</param>
+    internal readonly record struct LibraryItemLookup(Dictionary<string, BaseItem> Items, bool IsComplete)
+    {
+        /// <summary>Gets the lossless registered paths, independent of the case-insensitive metadata lookup.</summary>
+        public string[] RegisteredPaths { get; init; } = [];
+    }
+
+    private readonly record struct DirectoryAnalysis(bool ContainsMedia, bool HasNonMetadataFiles, bool IsComplete)
+    {
+        public static DirectoryAnalysis Unknown => new(false, false, false);
+
+        public DirectoryAnalysis Combine(DirectoryAnalysis child) => new(
+            ContainsMedia || child.ContainsMedia,
+            HasNonMetadataFiles || child.HasNonMetadataFiles,
+            IsComplete && child.IsComplete);
+    }
 
     /// <summary>
     ///     Users plus their pre-fetched watch data, resolved once per scan and threaded through
@@ -1735,10 +1887,10 @@ public class MediaStatisticsService : IMediaStatisticsService
         /// <summary>Gets or sets a value indicating whether the directory contains an NFO file.</summary>
         public bool HasNfo { get; set; }
 
-        /// <summary>Gets or sets a value indicating whether the directory contains any non-audio (non-trickplay) file.</summary>
-        public bool HasAnyNonTrickplayFile { get; set; }
+        /// <summary>Gets or sets a value indicating whether any file is neither artwork nor NFO/XML.</summary>
+        public bool HasNonMetadataFiles { get; set; }
 
-        /// <summary>Gets or sets a value indicating whether the directory (or a recursed subdirectory) contains a video.</summary>
-        public bool ContainsVideo { get; set; }
+        /// <summary>Gets or sets a value indicating whether the directory contains audio or video.</summary>
+        public bool ContainsMedia { get; set; }
     }
 }

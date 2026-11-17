@@ -39,6 +39,12 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
 
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
+        => ScoringHelper.ComputeContextualScore(ScoreRaw(features), features, GenrePenaltyFloor);
+
+    /// <summary>Provides the unchanged component prediction; the ensemble applies penalties and context only after blending.</summary>
+    /// <param name="features">The shared 41-feature coordinates.</param>
+    /// <returns>The unpenalized heuristic score.</returns>
+    internal static double ScoreRaw(CandidateFeatures features)
     {
         ArgumentNullException.ThrowIfNull(features);
 
@@ -55,7 +61,7 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             // already produce scores in the desired range without a bias offset.
             var raw = ScoringHelper.ComputeRawScore(vector, WeightsArray, bias: 0.0);
             var score = Math.Clamp(raw, 0.0, 1.0);
-            return score * PenaltyMultiplier(features);
+            return score;
         }
         finally
         {

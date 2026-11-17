@@ -431,24 +431,30 @@ internal static class PreferenceBuilder
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in profile.WatchedItems.Where(IsEligibleForPreferenceWeighting))
         {
-            var own = lookup(row.ItemId);
-            var parent = row.SeriesId is { } seriesId ? lookup(seriesId) : null;
-            var stored = snapshot(row);
-            if (own is null && parent is null)
-            {
-                result.UnionWith(stored.Combined.Where(static value => !string.IsNullOrWhiteSpace(value)));
-                continue;
-            }
-
-            var ownValues = own ?? stored.Own ?? (row.SeriesId.HasValue ? [] : stored.Combined);
-            result.UnionWith(ownValues.Where(static value => !string.IsNullOrWhiteSpace(value)));
-            if (row.SeriesId.HasValue)
-            {
-                result.UnionWith((parent ?? stored.Parent ?? []).Where(static value => !string.IsNullOrWhiteSpace(value)));
-            }
+            result.UnionWith(ResolveMetadataPreferenceValues(row, lookup, snapshot));
         }
 
         return result;
+    }
+
+    /// <summary>Resolves exactly the known own/parent provenance used by both aggregate and coherent-title preferences.</summary>
+    /// <param name="row">One eligible history row.</param>
+    /// <param name="lookup">Known metadata; empty is authoritative and null is unavailable.</param>
+    /// <param name="snapshot">Detached combined/own/parent source values.</param>
+    /// <returns>Non-empty values without resurrecting removed parent metadata.</returns>
+    internal static IEnumerable<string> ResolveMetadataPreferenceValues(WatchedItemInfo row, Func<Guid, IReadOnlyList<string>?> lookup, Func<WatchedItemInfo, (IReadOnlyList<string> Combined, IReadOnlyList<string>? Own, IReadOnlyList<string>? Parent)> snapshot)
+    {
+        var own = lookup(row.ItemId);
+        var parent = row.SeriesId is { } seriesId ? lookup(seriesId) : null;
+        var stored = snapshot(row);
+        if (own is null && parent is null)
+        {
+            return stored.Combined.Where(static value => !string.IsNullOrWhiteSpace(value));
+        }
+
+        var ownValues = own ?? stored.Own ?? (row.SeriesId.HasValue ? [] : stored.Combined);
+        var parentValues = row.SeriesId.HasValue ? parent ?? stored.Parent ?? [] : [];
+        return ownValues.Concat(parentValues).Where(static value => !string.IsNullOrWhiteSpace(value));
     }
 
     /// <summary>

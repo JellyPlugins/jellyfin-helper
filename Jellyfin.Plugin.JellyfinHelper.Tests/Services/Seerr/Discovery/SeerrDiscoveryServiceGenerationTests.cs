@@ -660,7 +660,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.Equal(20, pool.Recommendations.Count);
         Assert.All(pool.Recommendations, recommendation => Assert.False(recommendation.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.FranchiseAffinity)));
         Assert.False(TestContext.Current.CancellationToken.IsCancellationRequested);
-        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(20), "Optional details must use one eight-second deadline, not one minute or one timeout per batch.");
+        Assert.True(timer.Elapsed >= TimeSpan.FromSeconds(14), "The optional per-user pass must have its new fifteen-second budget, not the old eight-second limit.");
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(26), "One fifteen-second optional pass plus the separate eight-second status deadline must remain bounded, not renew per batch.");
         Assert.InRange(_handler.MaxConcurrentDelayedDetails, 1, 3);
         // Keep the original total-call/time gates. Per-request and shared deadline callbacks may
         // race by a scheduling tick, so a freed slot can start another call before cancellation.
@@ -1206,6 +1207,111 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.NotNull(recorded);
         var rec = Assert.Single(recorded!, r => r.TmdbId == 2201);
         Assert.True(rec.KnownPeople is null or { Count: 0 });
+    }
+
+    [Fact]
+    public async Task PersonalTitleRoute_ReplacesAVarietySlotAndRetainsOwnershipAndKeywordProvenance()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10 };
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 400, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
+        // A different positive title corroborates the seed; its own document is excluded from seed scoring.
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 399, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        RegisterGenreMovieResults(28, []);
+        RegisterMovieRoute("/api/v1/movie/400/recommendations?page=1", [Candidate(401, 8), Candidate(402, 8)]);
+        _feedbackStore.Setup(store => store.GetDismissedItems(profile.UserId)).Returns(new HashSet<(int, string)> { (402, "movie") });
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/401", HttpStatusCode.OK,
+            """{"id":401,"keywords":[{"name":"pirate"},{"name":"treasure"},{"name":"friendship"}]}""");
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var recommendation = Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations);
+        Assert.Equal(401, recommendation.TmdbId);
+        Assert.True(recommendation.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.TagSimilarity));
+        Assert.Equal(1, recommendation.ScoringFeatures.ContentFitSupport);
+        Assert.True(recommendation.AvailabilityVerified);
+        Assert.Single(_handler.Requests, request => request.Path.Contains("/400/recommendations", StringComparison.Ordinal));
+        Assert.DoesNotContain(_handler.Requests, request => request.Path == "/api/v1/discover/movies/genre/28?page=2");
+        Assert.DoesNotContain(_handler.Requests, request => request.Path == "/api/v1/movie/402");
+        // One movie genre, one TV genre, and their two existing variety slots: no extra retrieval call.
+        Assert.Equal(4, _handler.Requests.Count(request => request.Path.Contains("/discover/", StringComparison.Ordinal)
+            || request.Path.Contains("/recommendations?", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task DetailBudget_ReachesTheLowerPrescoredPersonalLaneAndKeepsRawSnapshotCoordinates()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Action"] = 10 };
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 500, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 499, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var personalDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            var path = request.RequestUri!.PathAndQuery;
+            if (path == "/api/v1/discover/movies/genre/28?page=1")
+                return JsonResponse(BuildDiscoverJson([28], Enumerable.Range(600, 40).Select(id => Candidate(id, 9)).ToArray()));
+            if (path == "/api/v1/movie/500/recommendations?page=1")
+                return JsonResponse(BuildDiscoverJson([28], Candidate(501, 6)));
+            if (path == "/api/v1/movie/501")
+            {
+                personalDispatched.TrySetResult();
+                return JsonResponse("""{"id":501,"keywords":[{"name":"pirate"},{"name":"treasure"},{"name":"friendship"}]}""");
+            }
+
+            if (path.StartsWith("/api/v1/movie/6", StringComparison.Ordinal))
+            {
+                // Deterministic starvation test: broad details cannot finish before the personal lane starts.
+                await personalDispatched.Task.WaitAsync(token);
+                var id = int.Parse(path.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+                return JsonResponse($$"""{"id":{{id}},"keywords":[]}""");
+            }
+
+            return JsonResponse("""{"results":[]}""");
+        };
+
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var result = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        var thematic = Assert.Single(result.Recommendations, recommendation => recommendation.TmdbId == 501);
+        Assert.True(thematic.ScoringFeatures!.IsExternalFeatureKnown(FeatureIndex.TagSimilarity));
+        Assert.Equal(1, thematic.ScoringFeatures.ContentFitSupport);
+        Assert.Equal(CandidateFeatures.FeatureCount, thematic.ScoringFeatures.ToVector().Length);
+        Assert.Equal(1, thematic.ScoringFeatures.TagSimilarity);
+        var detailCalls = _handler.Requests.Where(request => request.Path.StartsWith("/api/v1/movie/", StringComparison.Ordinal)
+            && !request.Path.Contains("/recommendations", StringComparison.Ordinal)).ToList();
+        Assert.Equal(20, detailCalls.Select(request => request.Path).Distinct().Count());
+        Assert.Equal(40, detailCalls.Count);
+        Assert.Contains(detailCalls.Take(3), request => request.Path == "/api/v1/movie/501");
+    }
+
+    [Fact]
+    public void DetailDeadlines_AreSeparateAndTheOptionalIncreaseDoesNotChangeOtherLimits()
+    {
+        static int Constant(string name) => (int)typeof(SeerrDiscoveryService)
+            .GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetRawConstantValue()!;
+        Assert.Equal(15_000, Constant("OptionalMetadataBudgetMs"));
+        Assert.Equal(8_000, Constant("MetadataEnrichmentTimeoutMs"));
+        Assert.Equal(8_000, Constant("CreditsEnrichmentTimeoutMs"));
+        Assert.Equal(30_000, Constant("RequiredMetadataBudgetMs"));
+        Assert.Equal(20, Constant("CreditsEnrichmentBudget"));
+        Assert.Equal(3, Constant("MetadataEnrichmentParallelism"));
     }
 
     // Helpers

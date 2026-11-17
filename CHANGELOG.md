@@ -24,6 +24,42 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
   year. The default display period is 15 December through 15 January; hiding the
   tab preserves the stored report. Configuration backup includes the settings.
 
+## [3.1.1.1] - 2026-11-16
+
+### Breaking
+
+- **Recommendation Engine V6 requires fresh model fitting.** All three strategies now share 41 features. Older Learned/Neural parameter schemas are not loaded or converted; the recommendation task rebuilds models over subsequent Activate runs. Media, watch history, settings and spent acceptance-title identities stay intact, and loading never rewrites or deletes the old parameter files.
+
+### Added
+
+- **Coherent story matching across all recommendation strategies.** Fine content affinity, narrative support and a bounded personal audience hint are shared model inputs, separate from raw tag-Jaccard, broad genres and language/technical labels.
+- **Confirmed next-part collection confidence.** Provider-backed collections support the first unfinished playable movie in known release order, without skipping missing, unplayable, excluded or unresolved members.
+- **Read-only ranking and model diagnostics.** Saved candidate traces explain selection and the actual final score without triggering generation. The admin tooltip exposes the real V6 schema and complete feature list; personal, provisional, verified and inherited-prior labels also work in the GitHub Pages demo.
+
+### Changed
+
+- **A clean 41-feature model contract.** Learned uses 41 coefficients; Neural uses 41 → 82 → 96 → 48 → 24 → 1 with 17,269 parameters. Heuristic weights are rebalanced within a positive budget of 1.0, with bounded confidence applied once after blending.
+- **Cold and warm users have their own operating mixtures.** Healthy global predictors supply bounded starting priors; personal fitting adapts the mixture without confusing provisional participation with independent ranking approval.
+- **Personal Discovery retrieves and enriches more fairly.** Evidenced provider-title recommendation routes replace existing variety slots without increasing retrieval calls. Up to 20 optional details share a 15-second per-user budget at three-way parallelism across score, personal, type and genre lanes. Mandatory certification checks keep their separate fail-closed budget.
+- **Missing inputs stay distinct from genuine nonmatches.** Each model fits its own imputation means from training members only. Audio/subtitle evidence requires available metadata and valid personal playback provenance; historical features remain dated, self-excluded and detached from later edits.
+
+### Fixed
+
+- **Separate schema replacement from trust recovery.** Fully validated discarded V5 checkpoints with matching intact assessments permit fresh V6 provisional fitting without loading old predictors; damaged or missing trust receipts, required ledgers and withdrawal restrictions remain fail-closed. Successful replacements preserve spent identities and advance known model revisions.
+- **Keep independent admission diagnostics during provisional serving.** Retain available observed acceptance-title counts and the original evidence limitation; store the target, attempted and selected calibration-only component comparisons separately, including retained-parameter fallbacks and unchanged-input replays.
+
+- **Neural early stopping and restart restore complete training state.** Best-epoch and persisted checkpoints include matching Adam moments and timestep, so continuation does not pair old weights with a newer optimizer.
+- **Normalization changes preserve model coordinates and clamp envelopes.** Negative/nonfinite deviations are rejected; legitimate zero deviations remain valid. Learned and Neural refits retain their saved imputation priors instead of copying normalization means.
+- **Genre and language tags cannot manufacture narrative confidence.** The shared genre/language alias catalogues cover localized names, codes and provider labels, while real story settings such as "French revolution" remain usable. Disliked titles and partial playback alone do not become positive thematic references; audience hints are not blanket age or country bans.
+- **Inactive-model retirement preserves trust and fallback.** Valid retirement receipts distinguish lifecycle removal from damaged trust data. Returning users may borrow a healthy global prior without releasing spent acceptance IDs, including legacy IDs; withdrawal, reserved-input and independent-recovery restrictions remain enforced.
+- **Partial Arr remapping cannot prove an orphan.** Unresolved active or nested roots leave the affected scope uncertain without discarding confirmed ownership. Remote Windows/UNC and POSIX path comparisons follow their own semantics instead of the local operating system's case rules.
+- **Admission and feedback retain their safeguards.** Immutable prediction snapshots, exact title-reuse ledgers, permissions, certification checks, duplicate protection and diversity remain independent of thematic confidence. Unseen suggestions do not become independent rejection evidence.
+
+### Tests
+
+- Local verification: **8,109 backend tests**, **1,771 UI tests**, **112 browser/documentation fixture tests**, **64 multilingual demo checks** and the **4-test per-user filesystem E2E group** passed; backend builds produced no warnings or errors.
+- Published Codecov badges report **94% backend** and **97% UI** coverage. The full Docker E2E harness contains **411 tests in 58 files**; that inventory is separate from the targeted local E2E result above.
+
 ## [3.1.1.0] - 2026-11-12
 
 **Note: Recommendation Engine V5 retrains your models.** Existing learned and neural models are replaced and trained again for the updated scoring and training rules. Keep the recommendation task in Activate mode to rebuild them over the next scheduled runs; your media, watch history and settings stay intact.

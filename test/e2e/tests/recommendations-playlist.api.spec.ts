@@ -1,4 +1,4 @@
-/** * Recommendations -> playlist lifecycle. The named "Deactivate purges playlists" * and "sync-off purges" branches are only status-checked today, so a no-op purge * passes. */
+/** Recommendations -> playlist lifecycle: real creation/purge counts and Activate/DryRun cache persistence. */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, sleep } from '../setup/api-client.ts';
 import { hasDocker, execInContainer } from '../setup/fs-assert.ts';
