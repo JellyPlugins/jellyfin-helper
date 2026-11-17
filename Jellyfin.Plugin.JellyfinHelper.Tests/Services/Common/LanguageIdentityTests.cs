@@ -15,6 +15,8 @@ public class LanguageIdentityTests
     [InlineData("en-war")]
     [InlineData("fr-revolution")]
     [InlineData("de-unknown")]
+    [InlineData("cat_and_mouse")]
+    [InlineData("en_war")]
     public void StoryWordsAfterLanguageAliasesAreNotLanguageOnlyMetadata(string tag)
         => Assert.False(LanguageIdentity.IsLanguageOnlyTag(tag));
 
@@ -26,6 +28,12 @@ public class LanguageIdentityTests
     [InlineData("zh-Hans-CN")]
     [InlineData("es-419")]
     [InlineData("French (Forced)")]
+    [InlineData("zh_Hans_CN")]
+    [InlineData("zh_Hant")]
+    [InlineData("sr_Latn_RS")]
+    [InlineData("es_419")]
+    [InlineData("en_Latn_US")]
+    [InlineData("zh_Hans-CN")]
     public void RecognizedRegionScriptAndTrackQualifiersRemainLanguageOnly(string tag)
         => Assert.True(LanguageIdentity.IsLanguageOnlyTag(tag));
 

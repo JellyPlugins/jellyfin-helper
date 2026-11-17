@@ -118,6 +118,8 @@ public sealed class ContentFitProfileTests
     [InlineData("Fransızca", "İspanyolca")]
     [InlineData("fr-FR", "es-ES")]
     [InlineData("French (Forced)", "Spanish (SDH)")]
+    [InlineData("zh_Hans_CN", "sr_Latn_RS")]
+    [InlineData("es_419", "en_Latn_US")]
     public void LanguageOnlyTagsCannotCreateNarrativeConfidence(string first, string second)
         => AssertLanguageOnlyTagsAreNeutral([first, second]);
 

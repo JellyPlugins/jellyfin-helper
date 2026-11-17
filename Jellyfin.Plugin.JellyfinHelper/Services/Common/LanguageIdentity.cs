@@ -171,6 +171,8 @@ internal static class LanguageIdentity
     private static readonly FrozenSet<string> LanguageLabels = _codeAliases.Keys.Concat(_codeDisplays.Values)
         .Select(LanguageLabelKey).OfType<string>().ToFrozenSet(StringComparer.Ordinal);
 
+    private static readonly char[] LanguageCodeSeparators = ['-', '_'];
+
     // Recognized culture qualifiers, not arbitrary BCP-47-shaped story words such as "cat-and-mouse".
     private static readonly FrozenSet<string> RegionCodes = CultureInfo.GetCultures(CultureTypes.SpecificCultures)
         .SelectMany(culture => culture.Name.Split('-').Skip(1))
@@ -219,7 +221,7 @@ internal static class LanguageIdentity
 
     private static bool IsLanguageRegionCode(string tag)
     {
-        var parts = tag.Trim().Split('-', '_');
+        var parts = tag.Trim().Split(LanguageCodeSeparators, StringSplitOptions.None);
         return parts.Length is 2 or 3 && parts[0].Length is 2 or 3
             && LanguageLabelKey(parts[0]) is { } language && LanguageLabels.Contains(language)
             && (parts.Length == 2

@@ -369,13 +369,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         foreach (var item in allItems)
         {
-            if (!playbackSnapshots.TryGetValue(item.Id, out var userData))
-            {
-                var loaded = LookupUserData(itemUserDataLookup, item, user);
-                userData = loaded is null ? null : DetachPlaybackData(loaded);
-                playbackSnapshots.Add(item.Id, userData);
-            }
-
+            var userData = GetPlaybackSnapshot(playbackSnapshots, itemUserDataLookup, item, user);
             if (userData is null)
             {
                 continue;
@@ -425,6 +419,23 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     private static bool IsIncludedInHistory(UserItemData data)
         => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+
+    private UserItemData? GetPlaybackSnapshot(
+        Dictionary<Guid, UserItemData?> snapshots,
+        IReadOnlyDictionary<Guid, UserItemData>? lookup,
+        BaseItem item,
+        Jellyfin.Database.Implementations.Entities.User user)
+    {
+        if (snapshots.TryGetValue(item.Id, out var snapshot))
+        {
+            return snapshot;
+        }
+
+        var loaded = LookupUserData(lookup, item, user);
+        snapshot = loaded is null ? null : DetachPlaybackData(loaded);
+        snapshots.Add(item.Id, snapshot);
+        return snapshot;
+    }
 
     private static UserItemData DetachPlaybackData(UserItemData data) => new()
     {
