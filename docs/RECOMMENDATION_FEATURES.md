@@ -1,6 +1,8 @@
 # Recommendation model v6
 
-Heuristic, Learned and Neural use **one 41-feature catalogue**. Learned persists 41 coefficients; Neural uses **41 → 82 → 96 → 48 → 24 → 1**, with ReLU hidden layers and a sigmoid output (17,369 trainable parameters).
+Heuristic, Learned and Neural use **one 41-feature catalogue**. Learned persists 41 coefficients; Neural uses **41 → 82 → 96 → 48 → 24 → 1**, with ReLU hidden layers and a sigmoid output (17,269 trainable parameters).
+
+The total is **17,018 weights + 251 biases = 17,269**; optimizer moments and preprocessing statistics are not additional trainable network parameters.
 
 Model parameter files must declare version 6 and match these exact dimensions. Unsupported files are not converted or erased while loading. New fitting and independent admission are required before new parameters become serving models. Model-version changes never reset title-reuse ledgers or manufacture independent feedback.
 

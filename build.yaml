@@ -15,7 +15,7 @@ changelog: |-
   v3.1.1.1 - Recommendation Engine V6 and reliable personal Discovery
 
   - Recommendation Engine V6 requires fresh Learned/Neural fitting over Activate runs; media, watch history, settings and spent acceptance IDs remain intact, and loading does not rewrite older parameter files
-  - One shared 41-feature contract, rebalanced bounded heuristic scoring, and Neural 41 -> 82 -> 96 -> 48 -> 24 -> 1 with 17,369 parameters
+  - One shared 41-feature contract, rebalanced bounded heuristic scoring, and Neural 41 -> 82 -> 96 -> 48 -> 24 -> 1 with 17,269 parameters
   - Coherent story keywords and confirmed next-part collections support recommendations without language/genre-only confidence or skipping known collection gaps
   - Cold/warm personal mixtures and admin/demo diagnostics distinguish global priors, provisional participation and independent verification; saved ranking diagnostics never trigger generation
   - Personal provider-title Discovery routes reuse existing retrieval slots; 20 optional details share a 15-second per-user budget across fair lanes without weakening certification or request checks

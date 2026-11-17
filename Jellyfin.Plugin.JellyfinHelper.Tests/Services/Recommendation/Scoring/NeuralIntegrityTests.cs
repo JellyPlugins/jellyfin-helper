@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -201,6 +202,15 @@ public sealed class NeuralIntegrityTests
         Assert.Equal(6, diagnostics.NeuralModelVersion);
         Assert.Equal(41, diagnostics.NeuralInputFeatureCount);
         Assert.Equal(ModelInputFeatures.Names(41), diagnostics.NeuralFeatures);
+        var parameters = neural.CapturePredictionSnapshot()!.ExportParameters();
+        double[][] weights = [parameters.WeightsIH, parameters.WeightsH1H2, parameters.WeightsH2H3, parameters.WeightsH3H4, parameters.WeightsH4O];
+        double[][] hiddenBiases = [parameters.BiasH1, parameters.BiasH2, parameters.BiasH3, parameters.BiasH4];
+        var weightCount = weights.Sum(values => values.Length);
+        var biasCount = hiddenBiases.Sum(values => values.Length) + 1; // The output has one scalar bias.
+        var parameterCount = weightCount + biasCount;
+        Assert.Equal(17_018, weightCount);
+        Assert.Equal(251, biasCount);
+        Assert.Equal(17_269, parameterCount);
         var response = Jellyfin.Plugin.JellyfinHelper.Api.EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics);
         response.NeuralFeatures[0] = "changed caller value";
         Assert.Equal("GenreSimilarity", diagnostics.NeuralFeatures[0]);
@@ -208,6 +218,7 @@ public sealed class NeuralIntegrityTests
         while (directory is not null && !File.Exists(Path.Join(directory.FullName, "CONTRIBUTING.md"))) directory = directory.Parent;
         Assert.NotNull(directory);
         var documentation = File.ReadAllText(Path.Join(directory.FullName, "docs", "RECOMMENDATION_FEATURES.md"));
+        Assert.Contains($"({parameterCount.ToString("N0", CultureInfo.InvariantCulture)} trainable parameters)", documentation);
         for (var index = 0; index < CandidateFeatures.FeatureCount; index++)
             Assert.Contains($"| {index} | `{ModelInputFeatures.Name(index)}` |", documentation);
     }

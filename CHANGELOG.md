@@ -19,7 +19,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Changed
 
-- **A clean 41-feature model contract.** Learned uses 41 coefficients; Neural uses 41 → 82 → 96 → 48 → 24 → 1 with 17,369 parameters. Heuristic weights are rebalanced within a positive budget of 1.0, with bounded confidence applied once after blending.
+- **A clean 41-feature model contract.** Learned uses 41 coefficients; Neural uses 41 → 82 → 96 → 48 → 24 → 1 with 17,269 parameters. Heuristic weights are rebalanced within a positive budget of 1.0, with bounded confidence applied once after blending.
 - **Cold and warm users have their own operating mixtures.** Healthy global predictors supply bounded starting priors; personal fitting adapts the mixture without confusing provisional participation with independent ranking approval.
 - **Personal Discovery retrieves and enriches more fairly.** Evidenced provider-title recommendation routes replace existing variety slots without increasing retrieval calls. Up to 20 optional details share a 15-second per-user budget at three-way parallelism across score, personal, type and genre lanes. Mandatory certification checks keep their separate fail-closed budget.
 - **Missing inputs stay distinct from genuine nonmatches.** Each model fits its own imputation means from training members only. Audio/subtitle evidence requires available metadata and valid personal playback provenance; historical features remain dated, self-excluded and detached from later edits.
