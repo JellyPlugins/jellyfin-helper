@@ -31,9 +31,8 @@ internal static class LanguageFeatureImputation
         var sum = 0.0;
         var count = 0;
         // Canonical order keeps fitting means independent of optimizer shuffling.
-        foreach (var index in indices.Order())
+        foreach (var features in indices.Order().Select(index => examples[index].Features))
         {
-            var features = examples[index].Features;
             var known = audio ? features.HasAudioLanguageEvidence : features.HasSubtitleLanguageEvidence;
             var coordinate = audio ? FeatureIndex.LanguageAffinity : FeatureIndex.SubtitleLanguageAffinity;
             if (known != true || (features.IsExternalCandidate && !features.IsExternalFeatureKnown(coordinate)))

@@ -54,7 +54,7 @@ internal static class PlaybackLanguageEvidence
             .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
 
     private static string? SelectedLanguage(IEnumerable<MediaStream> streams, int? index)
-        => index is >= 0 ? LanguageIdentity.GetIso6391Code(streams.FirstOrDefault(stream => stream.Index == index.Value)?.Language) : null;
+        => index is int selectedIndex && selectedIndex >= 0 ? LanguageIdentity.GetIso6391Code(streams.FirstOrDefault(stream => stream.Index == selectedIndex)?.Language) : null;
 
     private static void Add(Dictionary<string, LanguageProfileEntry> profile, string? language, IReadOnlyList<string>? available, bool? metadataComplete)
     {

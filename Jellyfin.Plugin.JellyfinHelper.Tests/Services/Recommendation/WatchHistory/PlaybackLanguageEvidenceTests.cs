@@ -14,13 +14,16 @@ public sealed class PlaybackLanguageEvidenceTests
     [Theory]
     [InlineData(null, null)]
     [InlineData(-1, null)]
+    [InlineData(int.MinValue, null)]
+    [InlineData(int.MaxValue, null)]
     [InlineData(9, null)]
+    [InlineData(0, "en")]
     [InlineData(2, "de")]
     public void MultilingualAudio_RequiresAValidSavedIndex(int? index, string? expected)
     {
         var row = Row();
         PlaybackLanguageEvidence.Capture(row, new UserItemData { Key = "synthetic", AudioStreamIndex = index, LastPlayedDate = Playback },
-            [Stream(1, MediaStreamType.Audio, "eng"), Stream(2, MediaStreamType.Audio, "ger"), Stream(3, MediaStreamType.Audio, "deu")]);
+            [Stream(0, MediaStreamType.Audio, "eng"), Stream(1, MediaStreamType.Audio, "eng"), Stream(2, MediaStreamType.Audio, "ger"), Stream(3, MediaStreamType.Audio, "deu")]);
         Assert.Equal(new[] { "de", "en" }, row.AudioLanguages);
         Assert.Equal(expected, row.PlaybackAudioLanguage);
         Assert.Equal(Playback, row.LanguagePlaybackDate);
@@ -50,13 +53,16 @@ public sealed class PlaybackLanguageEvidenceTests
     [Theory]
     [InlineData(null, null)]
     [InlineData(-1, null)]
+    [InlineData(int.MinValue, null)]
+    [InlineData(int.MaxValue, null)]
     [InlineData(99, null)]
+    [InlineData(0, "en")]
     [InlineData(4, "de")]
     public void SubtitlesOffAbsentAndInvalid_AreNotAChoice(int? index, string? expected)
     {
         var row = Row();
         PlaybackLanguageEvidence.Capture(row, new UserItemData { Key = "synthetic", LastPlayedDate = Playback, SubtitleStreamIndex = index },
-            [Stream(3, MediaStreamType.Subtitle, "eng"), Stream(4, MediaStreamType.Subtitle, "deu")]);
+            [Stream(0, MediaStreamType.Subtitle, "eng"), Stream(3, MediaStreamType.Subtitle, "eng"), Stream(4, MediaStreamType.Subtitle, "deu")]);
         Assert.Equal(expected, row.PlaybackSubtitleLanguage);
         Assert.Equal(new[] { "de", "en" }, row.SubtitleLanguages);
     }

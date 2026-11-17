@@ -80,13 +80,19 @@ public sealed class ContentFitProfileTests
     public void EveryEmbeddedGenreAliasRemainsBroadEvidenceInThematicScoring()
     {
         var assembly = typeof(GenreNormalizer).Assembly;
-        foreach (var resource in assembly.GetManifestResourceNames().Where(name => name.Contains(".i18n.", StringComparison.Ordinal) && name.EndsWith(".json", StringComparison.Ordinal)))
+        foreach (var stream in assembly.GetManifestResourceNames().Where(name => name.Contains(".i18n.", StringComparison.Ordinal) && name.EndsWith(".json", StringComparison.Ordinal)).Select(assembly.GetManifestResourceStream))
         {
-            using var stream = assembly.GetManifestResourceStream(resource)!;
-            using var document = JsonDocument.Parse(stream);
-            foreach (var entry in document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal)))
-                foreach (var alias in entry.Value.GetString()!.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-                    AssertGenreOnlyTagsAreNeutral([alias, "thriller"]);
+            using (stream)
+            {
+                Assert.NotNull(stream);
+                using var document = JsonDocument.Parse(stream);
+                foreach (var aliases in document.RootElement.EnumerateObject().Where(entry => entry.Name.StartsWith("genre.", StringComparison.Ordinal)).Select(entry => entry.Value.GetString()))
+                {
+                    Assert.NotNull(aliases);
+                    foreach (var alias in aliases.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                        AssertGenreOnlyTagsAreNeutral([alias, "thriller"]);
+                }
+            }
         }
     }
 

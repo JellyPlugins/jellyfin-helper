@@ -59,13 +59,35 @@ public sealed class LanguageFeatureImputationTests
         Assert.Equal(.99, examples[2].Features.LanguageAffinity);
     }
 
+    [Fact]
+    public void FittingMeansPreserveCanonicalScalarAdditionAndRepeatedFittingIndices()
+    {
+        TrainingExample[] examples = [Example(.1, true), Example(.2, true), Example(.3, true), Example(.99, false)];
+        int[] indices = [2, 1, 3, 1, 0];
+        var sum = 0d;
+        var count = 0;
+        foreach (var index in indices.Order())
+        {
+            if (examples[index].Features.HasAudioLanguageEvidence != true) continue;
+            sum += examples[index].Features.LanguageAffinity;
+            count++;
+        }
+
+        var expected = sum / count;
+        var first = LanguageFeatureImputation.Fit(examples, indices, null)!;
+        var reversed = LanguageFeatureImputation.Fit(examples, indices.Reverse().ToArray(), null)!;
+        Assert.Equal(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(first[(int)FeatureIndex.LanguageAffinity]));
+        Assert.Equal(first, reversed);
+        Assert.Equal(.5, first[(int)FeatureIndex.SubtitleLanguageAffinity]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void BothFittedModels_PersistMissingInputMeansAndPinTheirPredictionsAcrossContinuingFits(bool neural)
     {
         IScoringStrategy strategy = neural ? new NeuralScoringStrategy() : new LearnedScoringStrategy();
-        try
+        using (strategy as IDisposable)
         {
             var fit = Enumerable.Range(0, 60).Select(index => Example(index % 3 == 0 ? .5 : 1, index % 3 != 0)).ToArray();
             var holdout = Enumerable.Range(0, 20).Select(_ => Example(.1, true)).ToArray();
@@ -94,10 +116,6 @@ public sealed class LanguageFeatureImputationTests
                 Assert.Equal(expected, snapshot.Score(unknown));
                 Assert.Equal(snapshot.Score(unknown), snapshot.ScoreWithExplanation(unknown).FinalScore);
             }
-        }
-        finally
-        {
-            (strategy as IDisposable)?.Dispose();
         }
     }
 
