@@ -14,33 +14,51 @@ internal static class PersonalDiscoveryRetrieval
     /// <returns>At most one movie and one TV seed; missing provider or thematic evidence gives no seed.</returns>
     internal static IReadOnlyDictionary<string, int> Seeds(UserWatchProfile profile)
     {
-        var content = ContentFitProfile.Create(profile);
+        var sourceCache = new ContentFitProfile.SourceCache();
         var titles = profile.WatchedItems.Where(row => row.HasMeaningfulInteraction())
-            .Select(row => (Row: row, Type: MediaType(row), Id: row.SeriesId.HasValue ? row.SeriesTmdbId : row.TmdbId))
+            .Select(row => (Row: row, Type: MediaType(row), Id: HasSeriesParent(row) ? row.SeriesTmdbId : row.TmdbId))
             .Where(item => item.Type is not null && item.Id > 0)
             .GroupBy(item => (Type: item.Type!, item.Id))
             .Where(group => group.Any(item => item.Row.Played || item.Row.IsFavorite)
                 && group.Where(item => item.Row.UserRating is > 0 && double.IsFinite(item.Row.UserRating.Value))
                     .Select(item => item.Row.UserRating!.Value).DefaultIfEmpty(10).Average() > 5)
-            .Select(group => new
-            {
-                group.Key,
-                Favorite = group.Any(item => item.Row.IsFavorite),
-                LastPlay = group.Max(item => item.Row.LastPlayedDate),
-                Thematic = group.Max(item => content.ScoreTags(item.Row.SeriesId.HasValue
-                    ? item.Row.SeriesTags ?? item.Row.Tags
-                    : item.Row.OwnTags ?? item.Row.Tags))
-            })
-            .Where(title => title.Thematic > 0)
+            .Select(group => new { group.Key, Rows = group.Select(item => item.Row).ToArray(), Favorite = group.Any(item => item.Row.IsFavorite), LastPlay = group.Max(item => item.Row.LastPlayedDate) })
             .OrderByDescending(title => title.Favorite).ThenByDescending(title => title.LastPlay).ThenBy(title => title.Key.Id);
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var title in titles.Select(title => title.Key))
+        foreach (var title in titles)
         {
-            result.TryAdd(title.Type, title.Id);
+            if (result.ContainsKey(title.Key.Type))
+            {
+                continue;
+            }
+
+            var excluded = new HashSet<Guid>();
+            foreach (var row in title.Rows)
+            {
+                excluded.Add(row.ItemId);
+                if (row.SeriesId is { } parent && parent != Guid.Empty)
+                {
+                    excluded.Add(parent);
+                }
+            }
+
+            // Share only metadata normalization; each prospective seed excludes all of its own copies/episodes.
+            var content = ContentFitProfile.Create(profile, excluded: excluded, sourceCache: sourceCache);
+            if (title.Rows.Any(row => content.ScoreTags(HasSeriesParent(row) ? row.SeriesTags ?? row.Tags : row.OwnTags ?? row.Tags) > 0))
+            {
+                result.Add(title.Key.Type, title.Key.Id);
+            }
+
+            if (result.Count == 2)
+            {
+                break; // No repeated profile construction for media types whose seed is already settled.
+            }
         }
 
         return result;
     }
+
+    private static bool HasSeriesParent(WatchedItemInfo row) => row.SeriesId is { } parent && parent != Guid.Empty;
 
     private static string? MediaType(WatchedItemInfo row)
     {

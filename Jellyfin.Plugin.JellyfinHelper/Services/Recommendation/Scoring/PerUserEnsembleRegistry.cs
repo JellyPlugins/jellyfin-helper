@@ -23,6 +23,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 {
     private const string LogSource = "Recommendations";
+    private const string AssessmentSuffix = ".assessment.json";
 
     /// <summary>
     ///     Minimum training examples before a user gets a dedicated learned model. Mirrors the learned
@@ -394,7 +395,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
     /// <param name="file">The per-user ensemble state file.</param>
     private void RemoveOrphanedEnsembleState(string file)
     {
-        if (file.EndsWith(".assessment.json", StringComparison.Ordinal))
+        if (file.EndsWith(AssessmentSuffix, StringComparison.Ordinal))
         {
             return;
         }
@@ -608,14 +609,14 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
 
     private void PreserveRetirementAssessment(string? statePath, AcceptedModelBundle? previous)
     {
-        if (statePath is null || !_fileSystem.File.Exists(statePath + ".assessment.json"))
+        if (statePath is null || !_fileSystem.File.Exists(statePath + AssessmentSuffix))
         {
             return;
         }
 
         try
         {
-            var assessment = EnsembleScoringStrategy.ReadAssessment(statePath + ".assessment.json", requireOperatingReceipts: true);
+            var assessment = EnsembleScoringStrategy.ReadAssessment(statePath + AssessmentSuffix, requireOperatingReceipts: true);
             if (assessment is null)
             {
                 return; // Damaged trust data remains damaged; retirement is not an independent recovery decision.
@@ -628,7 +629,7 @@ public sealed partial class PerUserEnsembleRegistry : IPerUserEnsembleRegistry
             assessment.RetiredAtUtc = DateTime.UtcNow;
             assessment.AcceptedModelRevision = 0;
             // Keep maturity, reserved inputs, recovery/withdrawal restrictions and the exact ledger untouched.
-            AtomicFile.WriteAllText(statePath + ".assessment.json", JsonSerializer.Serialize(assessment, AssessmentOptions));
+            AtomicFile.WriteAllText(statePath + AssessmentSuffix, JsonSerializer.Serialize(assessment, AssessmentOptions));
         }
         catch (Exception ex) when (!ex.IsFatal())
         {

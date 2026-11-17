@@ -258,6 +258,66 @@ public sealed class NeuralIntegrityTests
         Assert.False(NeuralScoringStrategy.IsValidParameters(checkpoint));
     }
 
+    [Theory]
+    [InlineData("version")]
+    [InlineData("negative-time")]
+    [InlineData("missing-first")]
+    [InlineData("missing-second")]
+    [InlineData("wrong-length")]
+    [InlineData("nonfinite-first")]
+    [InlineData("negative-second")]
+    [InlineData("nonfinite-output")]
+    [InlineData("negative-output-second")]
+    [InlineData("zero-weight-limit")]
+    [InlineData("nonfinite-bias-limit")]
+    public void OptimizerValidationRejectsMalformedShapesMomentsAndCoordinateLimits(string corruption)
+    {
+        using var model = new NeuralScoringStrategy();
+        Invoke(model, "EnsureAdamState", CandidateFeatures.FeatureCount);
+        var state = model.CaptureTrainingCheckpoint().TrainingState!;
+        Assert.True(state.Valid(CandidateFeatures.FeatureCount));
+        switch (corruption)
+        {
+            case "version": state.Version = 2; break;
+            case "negative-time": state.Timestep = -1; break;
+            case "missing-first": state.FirstMoments = null!; break;
+            case "missing-second": state.SecondMoments[0] = null!; break;
+            case "wrong-length": state.FirstMoments[0] = [0]; break;
+            case "nonfinite-first": state.FirstMoments[0][0] = double.NaN; break;
+            case "negative-second": state.SecondMoments[0][0] = -1; break;
+            case "nonfinite-output": state.OutputFirstMoment = double.PositiveInfinity; break;
+            case "negative-output-second": state.OutputSecondMoment = -1; break;
+            case "zero-weight-limit": state.InputWeightLimits[0] = 0; break;
+            case "nonfinite-bias-limit": state.InputBiasLimits[0] = double.PositiveInfinity; break;
+        }
+        Assert.False(state.Valid(CandidateFeatures.FeatureCount));
+    }
+
+    [Theory]
+    [InlineData("first")]
+    [InlineData("second")]
+    [InlineData("output-first")]
+    [InlineData("output-second")]
+    public void ZeroAdamTimestepRequiresExactlyZeroMomentsEvenForTheSmallestFiniteValue(string coordinate)
+    {
+        using var model = new NeuralScoringStrategy();
+        Invoke(model, "EnsureAdamState", CandidateFeatures.FeatureCount);
+        var state = model.CaptureTrainingCheckpoint().TrainingState!;
+        Assert.True(state.Valid(CandidateFeatures.FeatureCount));
+        switch (coordinate)
+        {
+            case "first": state.FirstMoments[0][0] = double.Epsilon; break;
+            case "second": state.SecondMoments[0][0] = double.Epsilon; break;
+            case "output-first": state.OutputFirstMoment = double.Epsilon; break;
+            case "output-second": state.OutputSecondMoment = double.Epsilon; break;
+        }
+        Assert.False(state.Valid(CandidateFeatures.FeatureCount));
+        var roundTrip = JsonSerializer.Deserialize<NeuralTrainingState>(JsonSerializer.Serialize(state))!;
+        Assert.False(roundTrip.Valid(CandidateFeatures.FeatureCount));
+        roundTrip.Timestep = 1;
+        Assert.True(roundTrip.Valid(CandidateFeatures.FeatureCount));
+    }
+
     private static List<TrainingExample> Batch(int count) => Enumerable.Range(0, count).Select(index => Example(index % 2 == 0 ? .1 : .9, index % 2 == 0 ? 0 : 1)).ToList();
     private static TrainingExample Example(double label, double theme) => new()
     {

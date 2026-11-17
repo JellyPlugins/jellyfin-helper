@@ -171,6 +171,16 @@ internal static class LanguageIdentity
     private static readonly FrozenSet<string> LanguageLabels = _codeAliases.Keys.Concat(_codeDisplays.Values)
         .Select(LanguageLabelKey).OfType<string>().ToFrozenSet(StringComparer.Ordinal);
 
+    // Recognized culture qualifiers, not arbitrary BCP-47-shaped story words such as "cat-and-mouse".
+    private static readonly FrozenSet<string> RegionCodes = CultureInfo.GetCultures(CultureTypes.SpecificCultures)
+        .SelectMany(culture => culture.Name.Split('-').Skip(1))
+        .Where(part => (part.Length == 2 && part.All(char.IsAsciiLetter)) || (part.Length == 3 && part.All(char.IsAsciiDigit)))
+        .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenSet<string> ScriptCodes = CultureInfo.GetCultures(CultureTypes.AllCultures)
+        .SelectMany(culture => culture.Name.Split('-').Skip(1))
+        .Where(part => part.Length == 4 && part.All(char.IsAsciiLetter)).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
     // Flag words per locale for flag-only detection, stored folded like the lookups.
     // Resolution always runs first, so no entry here can ever shadow a real language.
     // Exposed for tests so every word stays pinned. Frozen: safe for concurrent scans.
@@ -209,10 +219,12 @@ internal static class LanguageIdentity
 
     private static bool IsLanguageRegionCode(string tag)
     {
-        var parts = tag.Trim().Split(['-', '_']);
-        return parts.Length > 1 && parts[0].Length is 2 or 3
+        var parts = tag.Trim().Split('-', '_');
+        return parts.Length is 2 or 3 && parts[0].Length is 2 or 3
             && LanguageLabelKey(parts[0]) is { } language && LanguageLabels.Contains(language)
-            && parts.Skip(1).All(part => part.Length is >= 2 and <= 8 && part.All(char.IsAsciiLetterOrDigit));
+            && (parts.Length == 2
+                ? RegionCodes.Contains(parts[1]) || ScriptCodes.Contains(parts[1])
+                : ScriptCodes.Contains(parts[1]) && RegionCodes.Contains(parts[2]));
     }
 
     private static string? LanguageLabelKey(string label)

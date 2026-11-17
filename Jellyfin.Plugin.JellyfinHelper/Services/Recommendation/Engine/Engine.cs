@@ -1047,12 +1047,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
-        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
+        var selected = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed);
+        var selectedIds = selected.Select(item => item.Item.Id).ToHashSet();
+        ReserveSelectedRankingTrace(rankingTrace, selected, selectedIds);
+        var topItems = selected
             .Select(s => CaptureSelected(s.Item, explain: true))
             .OrderByDescending(item => item.Score)
             .ToList();
 
-        var selectedIds = topItems.Select(item => item.ItemId).ToHashSet();
         var contrastSeed = (explorationSeed ?? ComputeStableSeed(userProfile.UserId, maxResults)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         // Stable hash priorities keep the sample reproducible without an insecure random generator.
         var contrasts = new Collection<RecommendedItem>(scored.Where(item => !selectedIds.Contains(item.Item.Id))
@@ -1126,6 +1128,36 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             IsComplete = entries.Count == scored.Count,
             Entries = entries.ToArray()
         };
+    }
+
+    private static void ReserveSelectedRankingTrace(
+        Dictionary<Guid, CandidateRankingEntry> trace,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
+        HashSet<Guid> selectedIds)
+    {
+        foreach (var item in selected)
+        {
+            if (trace.ContainsKey(item.Item.Id))
+            {
+                continue;
+            }
+
+            if (trace.Count >= EngineConstants.MaximumRankingTraceCandidates)
+            {
+                trace.Remove(trace.Keys.First(id => !selectedIds.Contains(id)));
+            }
+
+            // Keep the real initial score from ranking. Overflow context was not captured;
+            // leave it unknown instead of reconstructing it from possibly refreshed metadata.
+            trace[item.Item.Id] = new CandidateRankingEntry
+            {
+                ItemId = item.Item.Id,
+                Name = item.Item.Name ?? string.Empty,
+                TmdbId = ResolveTitleTmdbId(item.Item),
+                ItemType = item.Item.GetType().Name,
+                InitialScore = double.IsFinite(item.Score) ? item.Score : null
+            };
+        }
     }
 
     private static string ResolveSelectionStage(bool selected, int rank, int count)

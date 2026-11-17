@@ -177,6 +177,104 @@ public sealed class AcceptedModelStoreTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("version")]
+    [InlineData("dimension")]
+    public void RejectedPreLedgerParametersKeepValidatedSpentIdentitiesDuringLoadAndReplacement(string rejection)
+    {
+        var statePath = Path.Join(_directory, "rejected-pre-ledger.json");
+        var legacy = Bundle();
+        if (rejection == "version") legacy.Learned.Version = 5;
+        else legacy.Learned.Weights = [1];
+        var path = AcceptedModelStore.GetBundlePath(statePath)!;
+        File.WriteAllText(path, JsonSerializer.Serialize(legacy));
+        var before = File.ReadAllBytes(path);
+        var store = new AcceptedModelStore(statePath);
+
+        Assert.Null(store.Read());
+        Assert.Equal(legacy.AcceptanceObservationIds.Order(), store.ReadSpentAcceptanceIds(null).Order());
+        using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(genrePenaltyFloor: 1.0), statePath: statePath);
+        Assert.Equal(legacy.AcceptanceObservationIds.Order(), ensemble.GetAcceptedObservationIds()!.Order());
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
+
+        var next = Bundle();
+        next.AcceptanceObservationIds = Enumerable.Range(21, 20).Select(value => new Guid(value, 0, 0, new byte[8])).ToArray();
+        Assert.True(new AcceptedModelStore(statePath).Commit(next));
+        var restarted = new AcceptedModelStore(statePath);
+        Assert.Equal(legacy.AcceptanceObservationIds.Concat(next.AcceptanceObservationIds).Order(), restarted.ReadSpentAcceptanceIds(restarted.Read()).Order());
+        Assert.Empty(restarted.ReadHistory()); // Rejected prediction parameters never become an accepted archive.
+    }
+
+    [Fact]
+    public void FailedReplacementOfRejectedPreLedgerModelSpendsLegacyIdsBeforeTheModelWrite()
+    {
+        var statePath = Path.Join(_directory, "rejected-ledger-first.json");
+        var legacy = Bundle();
+        legacy.Learned.Version = 5;
+        var path = AcceptedModelStore.GetBundlePath(statePath)!;
+        File.WriteAllText(path, JsonSerializer.Serialize(legacy));
+        var before = File.ReadAllBytes(path);
+        var next = Bundle();
+        next.AcceptanceObservationIds = Enumerable.Range(21, 20).Select(value => new Guid(value, 0, 0, new byte[8])).ToArray();
+        var store = new AcceptedModelStore(statePath, write: (target, json) =>
+        {
+            if (target == path) throw new IOException("injected replacement failure");
+            File.WriteAllText(target, json);
+        });
+
+        Assert.False(store.Commit(next));
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.Equal(40, new AcceptedModelStore(statePath).ReadSpentAcceptanceIds(null).Count);
+    }
+
+    [Theory]
+    [InlineData("empty-id")]
+    [InlineData("duplicate-id")]
+    [InlineData("missing-ids")]
+    [InlineData("missing-utility")]
+    [InlineData("invalid-improvement")]
+    [InlineData("malformed")]
+    public void RejectedPreLedgerCorruptionCannotBecomeSpentEvidenceOrBeOverwritten(string corruption)
+    {
+        var statePath = Path.Join(_directory, "corrupt-pre-ledger.json");
+        var legacy = Bundle();
+        legacy.Learned.Version = 5;
+        switch (corruption)
+        {
+            case "empty-id": legacy.AcceptanceObservationIds[0] = Guid.Empty; break;
+            case "duplicate-id": legacy.AcceptanceObservationIds[0] = legacy.AcceptanceObservationIds[1]; break;
+            case "missing-ids": legacy.AcceptanceObservationIds = null!; break;
+            case "missing-utility": legacy.Utility = null; break;
+            case "invalid-improvement": legacy.Utility = legacy.Utility! with { LowerHeuristicImprovement = 0 }; break;
+        }
+
+        var path = AcceptedModelStore.GetBundlePath(statePath)!;
+        File.WriteAllText(path, corruption == "malformed" ? "{broken" : JsonSerializer.Serialize(legacy));
+        var before = File.ReadAllBytes(path);
+        var store = new AcceptedModelStore(statePath);
+        Assert.Null(store.Read());
+        Assert.Throws<InvalidDataException>(() => store.ReadSpentAcceptanceIds(null));
+        Assert.False(store.Commit(Bundle()));
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
+    }
+
+    [Fact]
+    public void RejectedModelCannotRecreateItsMissingRequiredLedger()
+    {
+        var statePath = Path.Join(_directory, "rejected-required-ledger.json");
+        var legacy = Bundle();
+        legacy.Learned.Version = 5;
+        legacy.AcceptanceLedgerRequired = true;
+        File.WriteAllText(AcceptedModelStore.GetBundlePath(statePath)!, JsonSerializer.Serialize(legacy));
+        var store = new AcceptedModelStore(statePath);
+        Assert.Null(store.Read());
+        Assert.Throws<IOException>(() => store.ReadSpentAcceptanceIds(null));
+        Assert.False(store.Commit(Bundle()));
+        Assert.False(File.Exists(AcceptedModelStore.GetLedgerPath(statePath)));
+    }
+
     [Fact]
     public void MissingMalformedAndMemoryOnlyStoresDegradeWithoutProducingPerfectMetrics()
     {

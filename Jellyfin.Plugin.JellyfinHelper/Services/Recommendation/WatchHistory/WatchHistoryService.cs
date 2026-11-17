@@ -365,10 +365,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Pre-fetch user data for every video item in one batch call (Jellyfin 12+ API).
         var itemUserDataLookup = TryLoadUserDataBatch(user, allItems);
+        var playbackSnapshots = new Dictionary<Guid, UserItemData?>();
 
         foreach (var item in allItems)
         {
-            var userData = LookupUserData(itemUserDataLookup, item, user);
+            if (!playbackSnapshots.TryGetValue(item.Id, out var userData))
+            {
+                var loaded = LookupUserData(itemUserDataLookup, item, user);
+                userData = loaded is null ? null : DetachPlaybackData(loaded);
+                playbackSnapshots.Add(item.Id, userData);
+            }
+
             if (userData is null)
             {
                 continue;
@@ -398,7 +405,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         // Build audio + subtitle language profiles in a single pass over allItems. Previously these were two separate methods each iterating allItems and calling GetUserData per item, causing 2× the UserData lookups.
-        BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
+        BuildLanguageProfiles(profile, allItems, playbackSnapshots);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
         BuildPeopleProfile(profile, allItems, allSeries);
@@ -418,6 +425,19 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     private static bool IsIncludedInHistory(UserItemData data)
         => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+
+    private static UserItemData DetachPlaybackData(UserItemData data) => new()
+    {
+        Key = data.Key,
+        Played = data.Played,
+        PlayCount = data.PlayCount,
+        PlaybackPositionTicks = data.PlaybackPositionTicks,
+        IsFavorite = data.IsFavorite,
+        Rating = data.Rating,
+        LastPlayedDate = data.LastPlayedDate,
+        AudioStreamIndex = data.AudioStreamIndex,
+        SubtitleStreamIndex = data.SubtitleStreamIndex
+    };
 
     private Dictionary<Guid, int> LoadCollectionIds(IReadOnlyList<BaseItem> items)
     {
@@ -744,24 +764,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Builds both the audio language and subtitle language preference profiles in a single pass over allItems.
     /// </summary>
     /// <param name="profile">The user profile to populate with language data.</param>
-    /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
-    /// <param name="itemUserDataLookup">
-    ///     Pre-fetched batch dictionary from <see cref="TryLoadUserDataBatch"/>, or <c>null</c>
-    ///     if the batch call failed. When <c>null</c>, this method falls back to per-item
-    ///     <c>GetUserData</c> calls via <see cref="LookupUserData"/>.
-    /// </param>
+    /// <param name="playbackSnapshots">The same detached per-item playback data used to create each watch row.</param>
     private void BuildLanguageProfiles(
         UserWatchProfile profile,
-        Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> allItems,
-        IReadOnlyDictionary<Guid, UserItemData>? itemUserDataLookup)
+        Dictionary<Guid, UserItemData?> playbackSnapshots)
     {
         var rowsById = profile.WatchedItems.ToLookup(row => row.ItemId);
         foreach (var item in allItems)
         {
-            var userData = LookupUserData(itemUserDataLookup, item, user);
-            if (userData is null || !rowsById.Contains(item.Id))
+            if (!playbackSnapshots.TryGetValue(item.Id, out var userData) || userData is null || !rowsById.Contains(item.Id))
             {
                 continue;
             }

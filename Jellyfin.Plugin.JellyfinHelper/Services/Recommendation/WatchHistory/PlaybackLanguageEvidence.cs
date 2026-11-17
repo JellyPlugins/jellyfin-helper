@@ -45,8 +45,8 @@ internal static class PlaybackLanguageEvidence
     /// <param name="row">Captured item metadata and saved selection evidence.</param>
     internal static void Accumulate(UserWatchProfile profile, WatchedItemInfo row)
     {
-        Add(profile.LanguageProfile, row.PlaybackAudioLanguage, row.AudioLanguages);
-        Add(profile.SubtitleLanguageProfile, row.PlaybackSubtitleLanguage, row.SubtitleLanguages);
+        Add(profile.LanguageProfile, row.PlaybackAudioLanguage, row.AudioLanguages, row.HasAudioLanguageMetadata);
+        Add(profile.SubtitleLanguageProfile, row.PlaybackSubtitleLanguage, row.SubtitleLanguages, row.HasSubtitleLanguageMetadata);
     }
 
     private static string[] Languages(IEnumerable<MediaStream> streams)
@@ -56,9 +56,10 @@ internal static class PlaybackLanguageEvidence
     private static string? SelectedLanguage(IEnumerable<MediaStream> streams, int? index)
         => index is >= 0 ? LanguageIdentity.GetIso6391Code(streams.FirstOrDefault(stream => stream.Index == index.Value)?.Language) : null;
 
-    private static void Add(Dictionary<string, LanguageProfileEntry> profile, string? language, IReadOnlyList<string>? available)
+    private static void Add(Dictionary<string, LanguageProfileEntry> profile, string? language, IReadOnlyList<string>? available, bool? metadataComplete)
     {
-        if (language is null || available is null || !available.Contains(language, StringComparer.OrdinalIgnoreCase))
+        if (language is null || available is null || !available.Contains(language, StringComparer.OrdinalIgnoreCase)
+            || (available.Count == 1 && metadataComplete != true))
         {
             return;
         }

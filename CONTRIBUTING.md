@@ -518,6 +518,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
 │       │   ├── LanguageFeatureImputationTests.cs           # Learned/Neural fitting-only priors, legacy refits/restart and normalization isolation
+│       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction

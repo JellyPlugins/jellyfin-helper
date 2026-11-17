@@ -2,6 +2,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
@@ -68,5 +69,44 @@ public sealed class EngineRankingDiagnosticsTests
         };
         var built = TrainingDataBuilder.BuildExamples([result], [new UserWatchProfile { UserId = user }], TestContext.Current.CancellationToken);
         Assert.Empty(built.Examples);
+    }
+
+    [Theory]
+    [InlineData(1001, 1)]
+    [InlineData(1200, 20)]
+    [InlineData(2200, 100)]
+    public void SelectedTitlesAfterTheTraceLimitStillHaveTheirActualInitialRankAndScore(int count, int results)
+    {
+        var strategy = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var harness = EngineTestFactory.Create(strategy);
+        using var lifetime = harness.Engine;
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Drama"] }] };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        var movies = Enumerable.Range(0, count).Select(index => (BaseItem)new Movie
+        {
+            Id = Guid.NewGuid(), Name = "Candidate " + index, Path = "/media/" + index + ".mkv", Genres = ["Drama"],
+            CommunityRating = index >= EngineConstants.MaximumRankingTraceCandidates ? 10 : 1,
+            ProductionYear = 2020, DateCreated = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        }).ToArray();
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? movies : []);
+
+        var result = harness.Engine.GetRecommendations(user, results, TestContext.Current.CancellationToken)!;
+        var trace = result.RankingDiagnostics!;
+        Assert.False(trace.IsComplete);
+        Assert.Equal(EngineConstants.MaximumRankingTraceCandidates, trace.Entries.Count);
+        Assert.Equal(count, trace.ScoredCandidateCount);
+        Assert.Contains(result.Recommendations, item => item.ItemId == movies[EngineConstants.MaximumRankingTraceCandidates].Id);
+        Assert.Equal(result.Recommendations.Select(item => item.ItemId).Order(), trace.Entries.Where(entry => entry.SelectionStage == "Selected").Select(entry => entry.ItemId).Order());
+        foreach (var selected in result.Recommendations)
+        {
+            var entry = Assert.Single(trace.Entries, entry => entry.ItemId == selected.ItemId);
+            Assert.Equal(strategy.Score(selected.ScoringFeatures!), entry.InitialScore);
+            Assert.Equal(selected.Score, Math.Round(entry.InitialScore!.Value, 4));
+            Assert.InRange(entry.InitialRank, 1, count);
+        }
+        if (results == 1) Assert.Equal(1, Assert.Single(trace.Entries, entry => entry.SelectionStage == "Selected").InitialRank);
     }
 }

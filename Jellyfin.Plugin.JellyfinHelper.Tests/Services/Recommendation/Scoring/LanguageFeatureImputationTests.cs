@@ -102,6 +102,49 @@ public sealed class LanguageFeatureImputationTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SubtitleOnlyFittingClonesThePriorAndUsesOnlyKnownFittingMetadata(bool external)
+    {
+        var prior = Enumerable.Repeat(.8, CandidateFeatures.FeatureCount).ToArray();
+        var before = prior.ToArray();
+        TrainingExample[] examples =
+        [
+            new() { Features = new() { HasAudioLanguageEvidence = false, HasSubtitleLanguageEvidence = true, SubtitleLanguageAffinity = .2 } },
+            new() { Features = new() { HasAudioLanguageEvidence = false, HasSubtitleLanguageEvidence = true, SubtitleLanguageAffinity = .6 } },
+            new() { Features = new() { HasSubtitleLanguageEvidence = true, SubtitleLanguageAffinity = 1 } }
+        ];
+        examples[1].Features.IsExternalCandidate = external;
+        if (external) examples[1].Features.MarkExternalFeatureKnown(FeatureIndex.SubtitleLanguageAffinity);
+        var means = LanguageFeatureImputation.Fit(examples, [1, 0], prior)!;
+        Assert.NotSame(prior, means);
+        Assert.Equal(before, prior);
+        Assert.Equal(.5, means[(int)FeatureIndex.LanguageAffinity]);
+        Assert.Equal(.4, means[(int)FeatureIndex.SubtitleLanguageAffinity], 12);
+        Assert.Equal(.8, means[(int)FeatureIndex.ContentFitAffinity]);
+        var vectors = examples.Select(example => example.Features.ToModelVector(prior)).ToArray();
+        LanguageFeatureImputation.Apply(examples, vectors, means);
+        Assert.Equal(.2, vectors[0][(int)FeatureIndex.SubtitleLanguageAffinity]);
+        Assert.Equal(.6, vectors[1][(int)FeatureIndex.SubtitleLanguageAffinity]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(40)]
+    [InlineData(42)]
+    public void ApplyingAbsentOrWrongSchemaMeansLeavesFoldVectorsAndSnapshotsUntouched(int length)
+    {
+        var example = Example(.9, false);
+        example.Features.HasSubtitleLanguageEvidence = false;
+        var captured = JsonSerializer.Serialize(example.Features);
+        var vectors = new[] { example.Features.ToModelVector(null) };
+        var original = vectors[0].ToArray();
+        LanguageFeatureImputation.Apply([example], vectors, length == 0 ? null : new double[length]);
+        Assert.Equal(original, vectors[0]);
+        Assert.Equal(captured, JsonSerializer.Serialize(example.Features));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]

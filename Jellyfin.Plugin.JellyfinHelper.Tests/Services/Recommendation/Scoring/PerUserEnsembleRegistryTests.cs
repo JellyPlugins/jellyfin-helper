@@ -882,6 +882,53 @@ public sealed class PerUserEnsembleRegistryTests : IDisposable
         Assert.Equal("GlobalPrior", restarted.GetDiagnostics(id).ValidationLevel);
     }
 
+    [Theory]
+    [InlineData("rejected-checkpoint")]
+    [InlineData("ledger-write")]
+    [InlineData("corrupt-assessment")]
+    public void RetirementFailuresNeverDestroyTheOnlySpentReceiptsOrRepairDamagedTrust(string fault)
+    {
+        using var neural = new NeuralScoringStrategy();
+        using var global = BuildGlobal(neural);
+        var id = Guid.NewGuid();
+        var statePath = Path.Join(_dataPath, $"ensemble_state_{id:N}.json");
+        var weightsPath = Path.Join(_dataPath, $"ml_weights_{id:N}.json");
+        var parameters = new LearnedScoringStrategy().CapturePredictionSnapshot().ExportParameters();
+        if (fault == "rejected-checkpoint") parameters.Version = 5;
+        var legacy = new AcceptedModelBundle
+        {
+            Revision = 1, Learned = parameters, Mixture = new AdmissionMixture(.5, 0), AlphaCap = .75,
+            AcceptanceObservationIds = StableExamples(20, 96).Select(row => row.ObservationId).ToArray(),
+            Utility = new AdmissionUtility(.02, .9, .01, null, null),
+            State = new EnsembleScoringStrategy.EnsembleStateData { Alpha = .75 }, TrainedAtUtc = DateTime.UtcNow
+        };
+        var bundlePath = AcceptedModelStore.GetBundlePath(statePath)!;
+        var ledgerPath = AcceptedModelStore.GetLedgerPath(statePath)!;
+        File.WriteAllText(bundlePath, JsonSerializer.Serialize(legacy));
+        File.WriteAllText(weightsPath, JsonSerializer.Serialize(parameters));
+        File.WriteAllText(statePath, JsonSerializer.Serialize(legacy.State));
+        const string damagedTrust = "{ damaged trust assessment";
+        File.WriteAllText(statePath + ".assessment.json", damagedTrust);
+        var before = File.ReadAllBytes(bundlePath);
+        if (fault == "ledger-write") Directory.CreateDirectory(ledgerPath);
+
+        using var registry = BuildRegistry(global, neural);
+        if (fault == "corrupt-assessment")
+        {
+            Assert.True(registry.EvictPerUserModel(id));
+            Assert.False(File.Exists(bundlePath));
+            Assert.Equal(legacy.AcceptanceObservationIds.Order(), new AcceptedModelStore(statePath).ReadSpentAcceptanceIds(null, true).Order());
+        }
+        else
+        {
+            var cutoff = DateTime.UtcNow;
+            Assert.Equal(0, registry.EvictInactiveModels(cutoff, new Dictionary<Guid, DateTime?> { [id] = cutoff.AddDays(-1) }));
+            Assert.Equal(before, File.ReadAllBytes(bundlePath));
+            Assert.True(File.Exists(weightsPath));
+        }
+        Assert.Equal(damagedTrust, File.ReadAllText(statePath + ".assessment.json"));
+    }
+
     [Fact]
     public void EvictStaleModels_MixedAgesAndOrphanState_OnlyCountsRetiredWeights()
     {

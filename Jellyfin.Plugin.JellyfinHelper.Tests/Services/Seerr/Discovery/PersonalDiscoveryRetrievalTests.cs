@@ -29,7 +29,7 @@ public sealed class PersonalDiscoveryRetrievalTests
         Assert.Equal(80, seeds["movie"]);
         Assert.Equal(80, seeds["tv"]);
         Assert.Equal(2, seeds.Count);
-        var other = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(90, "Movie", Now)] };
+        var other = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(90, "Movie", Now), Watch(91, "Movie", Now.AddDays(-1))] };
         Assert.Equal(90, PersonalDiscoveryRetrieval.Seeds(other)["movie"]);
         Assert.Equal(80, PersonalDiscoveryRetrieval.Seeds(profile)["movie"]);
     }
@@ -48,6 +48,44 @@ public sealed class PersonalDiscoveryRetrievalTests
         noOutcome.PlayCount = 1;
         var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [missing, technical, dislike, orphan, noOutcome] };
         Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
+    }
+
+    [Theory]
+    [InlineData("Movie")]
+    [InlineData("Series")]
+    public void APositiveTitleCannotCorroborateItsOwnSpecificKeywords(string type)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(90, type, Now)] };
+        Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
+        profile.WatchedItems.Add(Watch(90, type, Now.AddDays(-1))); // Another library copy is still the same provider title.
+        Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
+        var other = Watch(91, type, Now.AddDays(-2));
+        other.Tags = ["courtroom", "trial"];
+        profile.WatchedItems.Add(other);
+        Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
+        other.Tags = ["pirate", "friendship"];
+        Assert.Equal(90, PersonalDiscoveryRetrieval.Seeds(profile)[type == "Movie" ? "movie" : "tv"]);
+    }
+
+    [Fact]
+    public void AllEpisodesAndTheStandaloneSeriesAreExcludedFromTheirOwnSeedEvidence()
+    {
+        var parent = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 40; index++)
+        {
+            var episode = Watch(70, "Episode", Now);
+            episode.SeriesId = parent;
+            episode.SeriesTmdbId = 70;
+            episode.SeriesTags = ["pirate", "friendship"];
+            profile.WatchedItems.Add(episode);
+        }
+        var series = Watch(70, "Series", Now);
+        series.ItemId = parent;
+        profile.WatchedItems.Add(series);
+        Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
+        profile.WatchedItems.Add(Watch(80, "Series", Now.AddDays(-1)));
+        Assert.Equal(70, PersonalDiscoveryRetrieval.Seeds(profile)["tv"]);
     }
 
     [Fact]
@@ -69,6 +107,21 @@ public sealed class PersonalDiscoveryRetrievalTests
         Assert.Null(thematic.KnownKeywords);
         Assert.All(frontier, candidate => Assert.False(candidate.MetadataFetchAttempted));
         Assert.Equal(frontier, PersonalDiscoveryRetrieval.DetailFrontier(ordered, 20));
+    }
+
+    [Fact]
+    public void EmptyParentIdentityUsesTheMovieProviderAndAnEmptyOwnTagSeedIsSkipped()
+    {
+        var newest = Watch(90, "Movie", Now);
+        newest.SeriesId = Guid.Empty;
+        newest.OwnTags = ["pirate", "friendship"];
+        newest.SeriesTags = ["courtroom", "trial"];
+        var supporting = Watch(91, "Movie", Now.AddDays(-1));
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [newest, supporting] };
+        Assert.Equal(90, PersonalDiscoveryRetrieval.Seeds(profile)["movie"]);
+        newest.SeriesId = null;
+        newest.OwnTags = [];
+        Assert.DoesNotContain(90, PersonalDiscoveryRetrieval.Seeds(profile).Values);
     }
 
     [Fact]

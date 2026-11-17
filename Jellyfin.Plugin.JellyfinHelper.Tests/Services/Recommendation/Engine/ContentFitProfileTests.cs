@@ -141,6 +141,19 @@ public sealed class ContentFitProfileTests
         Assert.Equal(tags.Select(tag => tag.ToLowerInvariant()).Order(), ContentFitProfile.Keywords(tags).Order());
     }
 
+    [Fact]
+    public void HyphenatedAndSpacedStoryKeywordsRemainTheSameNarrativeEvidence()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Thriller"], ["cat-and-mouse", "pursuit"])] };
+        var content = ContentFitProfile.Create(profile);
+        Assert.Equal(new[] { "cat and mouse" }, ContentFitProfile.Keywords(["cat-and-mouse"]));
+        Assert.Equal(ContentFitProfile.Keywords(["cat and mouse"]), ContentFitProfile.Keywords(["cat-and-mouse"]));
+        Assert.Equal(1, content.ScoreTags(["cat and mouse", "pursuit"]));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        content.Apply(features, ["Thriller"], ["cat-and-mouse", "pursuit"], null, new() { ["Thriller"] = 1 });
+        Assert.Equal(1, features.ContentFitSupport);
+    }
+
     private static void AssertLanguageOnlyTagsAreNeutral(string[] tags)
     {
         var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Drama"], tags)] };

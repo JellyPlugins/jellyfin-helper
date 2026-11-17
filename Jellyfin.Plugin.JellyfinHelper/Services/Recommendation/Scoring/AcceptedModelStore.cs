@@ -48,31 +48,58 @@ internal sealed class AcceptedModelStore
     /// <param name="required">A persisted assessment may require the ledger even if the bundle is missing.</param>
     /// <returns>Exact spent identities; storage/integrity failures propagate to the training guard.</returns>
     internal HashSet<Guid> ReadSpentAcceptanceIds(AcceptedModelBundle? bundle, bool required = false)
-        => new AcceptanceObservationLedger(_ledgerPath, _write).Read(bundle?.AcceptanceObservationIds ?? [], required || bundle?.AcceptanceLedgerRequired == true);
+    {
+        // Prediction compatibility is independent of the already-spent acceptance receipt.
+        // A new store is used on each lookup, so recover the receipt even when Read() rejected the parameters.
+        var receipt = bundle ?? ReadStoredBundle();
+        ValidateStoredReceipt(receipt);
+        return new AcceptanceObservationLedger(_ledgerPath, _write).Read(receipt?.AcceptanceObservationIds ?? [], required || receipt?.AcceptanceLedgerRequired == true);
+    }
 
     /// <summary>Reads only complete, finite, compatible versions. Invalid bundles never rewrite legacy checkpoints.</summary>
     /// <returns>The accepted version, or null when no usable compound checkpoint exists.</returns>
     internal AcceptedModelBundle? Read()
     {
-        if (_path is null || !File.Exists(_path))
-        {
-            return null;
-        }
-
         try
         {
-            if (new FileInfo(_path).Length > MaximumBundleBytes)
-            {
-                return null;
-            }
-
-            var bundle = JsonSerializer.Deserialize<AcceptedModelBundle>(File.ReadAllText(_path), JsonOptions);
+            var bundle = ReadStoredBundle();
             return bundle is not null && Valid(bundle) ? bundle : null;
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
             _logger?.LogWarning(exception, "Accepted model checkpoint could not be read; retaining the legacy fallback");
             return null;
+        }
+    }
+
+    private AcceptedModelBundle? ReadStoredBundle()
+    {
+        if (_path is null || !File.Exists(_path))
+        {
+            return null;
+        }
+
+        if (new FileInfo(_path).Length > MaximumBundleBytes)
+        {
+            throw new InvalidDataException("Accepted checkpoint exceeds the receipt read limit.");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<AcceptedModelBundle>(File.ReadAllText(_path), JsonOptions)
+                ?? throw new InvalidDataException("Accepted checkpoint contains no receipt.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Accepted checkpoint receipt is malformed.", exception);
+        }
+    }
+
+    private static void ValidateStoredReceipt(AcceptedModelBundle? receipt)
+    {
+        if (receipt is not null && !ValidReceipt(receipt))
+        {
+            throw new InvalidDataException("Accepted checkpoint has invalid acceptance receipts; spent evidence cannot be recovered safely.");
         }
     }
 
@@ -94,7 +121,8 @@ internal sealed class AcceptedModelStore
 
         try
         {
-            var previous = Read();
+            var previous = ReadStoredBundle();
+            ValidateStoredReceipt(previous);
             bundle.AcceptanceLedgerRequired = true;
             var json = JsonSerializer.Serialize(bundle, JsonOptions);
             if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumBundleBytes)
@@ -104,7 +132,7 @@ internal sealed class AcceptedModelStore
 
             // Ledger first: a crash/write failure may spend an uncommitted block, but cannot admit it twice.
             new AcceptanceObservationLedger(_ledgerPath, _write).Spend(bundle.AcceptanceObservationIds, previous?.AcceptanceObservationIds ?? [], previous?.AcceptanceLedgerRequired == true);
-            ArchiveBeforeReplacement(bundle);
+            ArchiveBeforeReplacement(bundle, previous);
             _write(_path, json);
             return true;
         }
@@ -163,10 +191,9 @@ internal sealed class AcceptedModelStore
 
     private string HistoryPath(int slot) => _path + ".history." + slot + ".json";
 
-    private void ArchiveBeforeReplacement(AcceptedModelBundle replacement)
+    private void ArchiveBeforeReplacement(AcceptedModelBundle replacement, AcceptedModelBundle? previous)
     {
-        var previous = Read();
-        if (previous is null || previous.Retired || previous.IsProvisional || replacement.Retired || previous.TrainedAtUtc == replacement.TrainedAtUtc)
+        if (previous is null || !Valid(previous) || previous.Retired || previous.IsProvisional || replacement.Retired || previous.TrainedAtUtc == replacement.TrainedAtUtc)
         {
             return;
         }
@@ -184,9 +211,11 @@ internal sealed class AcceptedModelStore
     }
 
     private static bool Valid(AcceptedModelBundle bundle)
+        => ValidReceipt(bundle) && LearnedScoringStrategy.IsValidParameters(bundle.Learned)
+            && (bundle.Neural is null || NeuralScoringStrategy.IsValidParameters(bundle.Neural));
+
+    private static bool ValidReceipt(AcceptedModelBundle bundle)
         => bundle.Version is 1 or 2 && bundle.Revision > 0 && bundle.Learned is not null
-            && LearnedScoringStrategy.IsValidParameters(bundle.Learned)
-            && (bundle.Neural is null || NeuralScoringStrategy.IsValidParameters(bundle.Neural))
             && ValidMixture(bundle) && ValidState(bundle) && ValidCheckpointEvidence(bundle)
             && (!bundle.Retired || (bundle.RetirementUtility is not null && FinitePositive(bundle.RetirementUtility.LowerIncumbentImprovement)))
             && bundle.TrainedAtUtc.Kind == DateTimeKind.Utc;

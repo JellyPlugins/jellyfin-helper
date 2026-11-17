@@ -115,6 +115,35 @@ public sealed class PlaybackLanguageEvidenceTests
         Assert.Empty(profile.LanguageProfile);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectedKnownLanguageWithUnknownAlternativesIsNeitherProvenForcedNorChosen(bool subtitle)
+    {
+        var row = Row();
+        var data = new UserItemData { Key = "synthetic", LastPlayedDate = Playback, AudioStreamIndex = 1, SubtitleStreamIndex = 1 };
+        var type = subtitle ? MediaStreamType.Subtitle : MediaStreamType.Audio;
+        PlaybackLanguageEvidence.Capture(row, data, [Stream(1, type, "eng"), Stream(2, type, null)]);
+        Assert.Equal("en", subtitle ? row.PlaybackSubtitleLanguage : row.PlaybackAudioLanguage);
+        Assert.False(subtitle ? row.HasSubtitleLanguageMetadata : row.HasAudioLanguageMetadata);
+        var profile = new UserWatchProfile();
+        PlaybackLanguageEvidence.Accumulate(profile, row);
+        Assert.Empty(subtitle ? profile.SubtitleLanguageProfile : profile.LanguageProfile);
+    }
+
+    [Fact]
+    public void TwoKnownAlternativesProveAChoiceEvenWithAnotherUnlabelledTrack()
+    {
+        var row = Row();
+        PlaybackLanguageEvidence.Capture(row, new UserItemData { Key = "synthetic", LastPlayedDate = Playback, AudioStreamIndex = 1 },
+            [Stream(1, MediaStreamType.Audio, "eng"), Stream(2, MediaStreamType.Audio, "ger"), Stream(3, MediaStreamType.Audio, null)]);
+        var profile = new UserWatchProfile();
+        PlaybackLanguageEvidence.Accumulate(profile, row);
+        var entry = Assert.Single(profile.LanguageProfile).Value;
+        Assert.Equal(1, entry.ChosenCount);
+        Assert.Equal(0, entry.ForcedCount);
+    }
+
     private static WatchedItemInfo Row() => new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Playback };
     private static MediaStream Stream(int index, MediaStreamType type, string? language) => new() { Index = index, Type = type, Language = language };
 }

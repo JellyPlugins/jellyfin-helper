@@ -1219,6 +1219,12 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 400, Played = true, Genres = ["Action"],
             Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc)
         });
+        // A different positive title corroborates the seed; its own document is excluded from seed scoring.
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 399, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         RegisterGenreMovieResults(28, []);
         RegisterMovieRoute("/api/v1/movie/400/recommendations?page=1", [Candidate(401, 8), Candidate(402, 8)]);
@@ -1248,7 +1254,12 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 500, Played = true, Genres = ["Action"],
-            Tags = ["pirate", "treasure", "friendship"]
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc)
+        });
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 499, Played = true, Genres = ["Action"],
+            Tags = ["pirate", "treasure", "friendship"], LastPlayedDate = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc)
         });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         var personalDispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

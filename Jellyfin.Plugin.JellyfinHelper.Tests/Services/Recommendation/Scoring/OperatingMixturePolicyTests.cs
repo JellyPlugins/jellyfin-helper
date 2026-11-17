@@ -83,4 +83,13 @@ public sealed class OperatingMixturePolicyTests
         Assert.True(result.Beta >= .12);
         Assert.InRange(1 - result.Alpha, .25, 1);
     }
+
+    [Theory]
+    [InlineData(0, 0, .75)]
+    [InlineData(.4, .1, 0)]
+    public void AZeroMlBudgetNeverForcesNeuralParticipation(double learned, double neural, double cap)
+    {
+        var result = OperatingMixturePolicy.WithNeuralMinimum(new AdmissionMixture(learned, neural), .12, cap, .3);
+        Assert.Equal(default(AdmissionMixture), result);
+    }
 }
