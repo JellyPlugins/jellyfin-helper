@@ -183,6 +183,18 @@ public class BackupData
     [JsonPropertyName("discoveryUserAccessEnabled")]
     public bool DiscoveryUserAccessEnabled { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether yearly rewinds are enabled.</summary>
+    [JsonPropertyName("yearlyRewindEnabled")]
+    public bool YearlyRewindEnabled { get; set; }
+
+    /// <summary>Gets or sets the annual snapshot start date in MM-dd format.</summary>
+    [JsonPropertyName("yearlyRewindStartDate")]
+    public string YearlyRewindStartDate { get; set; } = "12-15";
+
+    /// <summary>Gets or sets the inclusive tab end date in MM-dd format.</summary>
+    [JsonPropertyName("yearlyRewindEndDate")]
+    public string YearlyRewindEndDate { get; set; } = "01-15";
+
     /// <summary>
     ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled.
     /// </summary>

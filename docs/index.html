@@ -64,6 +64,7 @@
     <div class="demo-view-switch" role="tablist" aria-label="Demo views">
         <button id="demoViewBtnAdmin" class="demo-view-active" role="tab" aria-selected="true">Plugin Admin Page Demo</button>
         <button id="demoViewBtnDiscovery" role="tab" aria-selected="false">Per User Discovery Tab Demo</button>
+        <button id="demoViewBtnRewind" role="tab" aria-selected="false">Yearly Rewind Demo</button>
     </div>
     <div class="demo-wrapper" id="demoViewAdmin">
         <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage jfh-ui-surface" data-require="emby-input,emby-checkbox,emby-select">
@@ -102,39 +103,53 @@
         </div>
     </div>
 
+    <div class="demo-wrapper hide" id="demoViewRewind">
+        <div class="jellyfinhelper yearly-rewind"></div>
+    </div>
+
     <script src="js/mock-data.js"></script>
     <script src="js/UiPrimitives.js"></script>
     <script>window.location.hash = '#/home';</script>
     <script>
-    // Minimal shim so the shipped discovery-sidebar.js can register and render
+    // Mount the real user-page scripts into their separate static demo views.
+    var demoPanels = {discovery: '.jellyfinhelper.discovery', 'yearly-rewind': '.jellyfinhelper.yearly-rewind'};
     window.JellyfinHelperTabs = {
         register: function (id, title, onMount) {
-            var panel = document.querySelector('.jellyfinhelper.discovery');
+            var panel = document.querySelector(demoPanels[id]);
             if (panel && typeof onMount === 'function') onMount(panel);
+            this.updateTitle(id, title);
         },
-        unregister: function () {},
-        focus: function () { return true; }
+        updateTitle: function (id, title) {
+            if (id === 'yearly-rewind') {
+                var button = document.getElementById('demoViewBtnRewind');
+                button.textContent = title;
+                button.title = title;
+            }
+        },
+        unregister: function (id) {
+            var panel = document.querySelector(demoPanels[id]);
+            if (panel) panel.replaceChildren();
+        },
+        focus: function (id) { switchDemoView(id === 'yearly-rewind' ? 'rewind' : 'discovery'); return true; }
     };
     </script>
     <script src="js/discovery-sidebar.js"></script>
+    <script src="js/yearly-rewind.js"></script>
 
     <!-- Load translations, then inject plugin CSS & JS -->
     <script>
     function switchDemoView(which) {
-        var admin = document.getElementById('demoViewAdmin');
-        var discovery = document.getElementById('demoViewDiscovery');
-        var btnAdmin = document.getElementById('demoViewBtnAdmin');
-        var btnDiscovery = document.getElementById('demoViewBtnDiscovery');
-        var showDiscovery = which === 'discovery';
-        admin.classList.toggle('hide', showDiscovery);
-        discovery.classList.toggle('hide', !showDiscovery);
-        btnAdmin.classList.toggle('demo-view-active', !showDiscovery);
-        btnDiscovery.classList.toggle('demo-view-active', showDiscovery);
-        btnAdmin.setAttribute('aria-selected', String(!showDiscovery));
-        btnDiscovery.setAttribute('aria-selected', String(showDiscovery));
+        ['Admin', 'Discovery', 'Rewind'].forEach(function (view) {
+            var selected = which === view.toLowerCase();
+            document.getElementById('demoView' + view).classList.toggle('hide', !selected);
+            var button = document.getElementById('demoViewBtn' + view);
+            button.classList.toggle('demo-view-active', selected);
+            button.setAttribute('aria-selected', String(selected));
+        });
     }
     document.getElementById('demoViewBtnAdmin').addEventListener('click', function () { switchDemoView('admin'); });
     document.getElementById('demoViewBtnDiscovery').addEventListener('click', function () { switchDemoView('discovery'); });
+    document.getElementById('demoViewBtnRewind').addEventListener('click', function () { switchDemoView('rewind'); });
     var compass = document.getElementById('demoDiscoveryCompass');
     if (compass) {
         compass.addEventListener('click', function () {

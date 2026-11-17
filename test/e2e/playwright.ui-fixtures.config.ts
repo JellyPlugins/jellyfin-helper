@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /ui-primitives\.fixture\.spec\.ts/,
+  testMatch: /(?:ui-primitives|yearly-rewind|demo)\.fixture\.spec\.ts/,
   timeout: 30_000,
   workers: 1,
   reporter: 'list',

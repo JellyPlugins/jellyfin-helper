@@ -572,3 +572,101 @@ describe('autosave on change', () => {
     expect(btn.getAttribute('aria-expanded')).toBe('true');
   });
 });
+
+describe('YearlyRewind settings', () => {
+  function rewindForm(day = '15', month = '12') {
+    fullForm();
+    document.getElementById('settingsForm')!.insertAdjacentHTML('beforeend', '<input id="cfgYearlyRewindEnabled" type="checkbox" checked>' +
+      '<fieldset id="cfgRewindDates">' +
+      `<input type="number" id="cfgRewindStartDay" value="${day}"><input type="number" id="cfgRewindStartMonth" value="${month}">` +
+      '<p id="cfgRewindStartError" hidden></p>' +
+      '<input type="number" id="cfgRewindEndDay" value="15"><input type="number" id="cfgRewindEndMonth" value="1"><p id="cfgRewindEndError" hidden></p></fieldset>');
+  }
+  test('dates are padded and independent of disabled Recommendations and Seerr', () => {
+    rewindForm('1', '6');
+    (document.getElementById('cfgRecommendationsMode') as HTMLSelectElement).value = 'Deactivate';
+    const payload = ui.buildSettingsPayload();
+    expect(payload.YearlyRewindEnabled).toBe(true);
+    expect(payload.YearlyRewindStartDate).toBe('06-01');
+    expect(payload.YearlyRewindEndDate).toBe('01-15');
+  });
+  test.each([
+    ['29', '2', 'Day', 'valid date'], ['31', '4', 'Day', 'valid date'],
+    ['0', '12', 'Day', '1 to 31'], ['1', '13', 'Month', '1 to 12'],
+    ['', '12', 'Day', '1 to 31'], ['1.5', '12', 'Day', '1 to 31'],
+    ['-1', '12', 'Day', '1 to 31'], ['15', '0', 'Month', '1 to 12'],
+    ['15', '1.5', 'Month', '1 to 12'], ['15', '', 'Month', '1 to 12'],
+  ])('invalid day=%s month=%s explains the error and focuses the field', (day, month, part, message) => {
+    rewindForm(day, month);
+    const calls = ajaxRouter({});
+    const onError = vi.fn();
+    ui.doSaveSettings(ui.buildSettingsPayload(), {onError});
+    expect(onError).toHaveBeenCalledOnce();
+    expect(calls).toHaveLength(0);
+    const error = document.getElementById('cfgRewindStartError')!;
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toContain(message);
+    const field = document.getElementById('cfgRewindStart' + part) as HTMLInputElement;
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(field.validationMessage).toContain(message);
+    expect(document.activeElement).toBe(field);
+    expect(document.getElementById('cfgRewindEndError')!.hidden).toBe(true);
+  });
+  test('the real form validates during editing and clears errors before saving a correction', async () => {
+    const calls = ajaxRouter({'JellyfinHelper/Configuration': {YearlyRewindEnabled: true}});
+    document.body.innerHTML = '<form id="settingsForm"></form>';
+    ui.loadSettings(); await flush();
+    const day = document.getElementById('cfgRewindStartDay') as HTMLInputElement;
+    const month = document.getElementById('cfgRewindStartMonth') as HTMLInputElement;
+    const error = document.getElementById('cfgRewindStartError')!;
+    day.value = '31'; month.value = '4'; month.dispatchEvent(new Event('input'));
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toContain('valid date');
+    expect(day.getAttribute('aria-invalid')).toBe('true');
+    expect(month.getAttribute('aria-invalid')).toBe('true');
+    expect(day.getAttribute('aria-describedby')).toBe(error.id);
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(0);
+    // Background saves give the same feedback without stealing focus.
+    month.focus();
+    ui.doSaveSettings(ui.buildSettingsPayload(), {quiet: true});
+    expect(document.activeElement).toBe(month);
+    day.value = '30'; day.dispatchEvent(new Event('input'));
+    expect(error.hidden).toBe(true);
+    expect(day.hasAttribute('aria-invalid')).toBe(false);
+    expect(day.validationMessage).toBe('');
+    expect(month.validationMessage).toBe('');
+    ui.doSaveSettings(ui.buildSettingsPayload(), {quiet: true}); await flush();
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1);
+    expect(calls.find(call => call.method === 'PUT')!.body).toMatchObject({YearlyRewindStartDate: '04-30'});
+  });
+  test('opting out clears validation and preserves stored dates with null partial fields', async () => {
+    const calls = ajaxRouter({'JellyfinHelper/Configuration': {YearlyRewindEnabled: true}});
+    document.body.innerHTML = '<form id="settingsForm"></form>';
+    ui.loadSettings(); await flush();
+    const day = document.getElementById('cfgRewindStartDay') as HTMLInputElement;
+    day.value = ''; day.dispatchEvent(new Event('input'));
+    expect(day.getAttribute('aria-invalid')).toBe('true');
+    const enabled = document.getElementById('cfgYearlyRewindEnabled') as HTMLInputElement;
+    enabled.checked = false; enabled.dispatchEvent(new Event('change'));
+    await vi.advanceTimersByTimeAsync(300); await flush();
+    expect(document.getElementById('cfgRewindStartError')!.hidden).toBe(true);
+    expect(day.validationMessage).toBe('');
+    expect(day.matches(':disabled')).toBe(true);
+    expect(calls.find(call => call.method === 'PUT')!.body).toMatchObject({YearlyRewindEnabled: false, YearlyRewindStartDate: null, YearlyRewindEndDate: null});
+  });
+  test('absent controls preserve backend values through null partial fields', () => {
+    fullForm();
+    const payload = ui.buildSettingsPayload();
+    expect(payload.YearlyRewindEnabled).toBeNull();
+    expect(payload.YearlyRewindStartDate).toBeNull();
+    expect(payload.YearlyRewindEndDate).toBeNull();
+  });
+});
+
+test('shared activity recording has no settings control or save field', async () => {
+  ajaxRouter({'JellyfinHelper/Configuration': {YearlyRewindEnabled: false}});
+  document.body.innerHTML = '<form id="settingsForm"></form>';
+  ui.loadSettings(); await flush();
+  expect(document.getElementById('cfgActivityHistoryEnabled')).toBeNull();
+  expect(ui.buildSettingsPayload()).not.toHaveProperty('ActivityHistoryEnabled');
+});

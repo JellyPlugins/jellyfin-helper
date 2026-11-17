@@ -133,6 +133,16 @@ public static class BackupValidator
             result.Errors.Add($"Unsupported backup version: {backup.BackupVersion}. Expected 1–{MaxBackupVersion}.");
         }
 
+        if (!YearlyRewindSettings.IsValidDate(backup.YearlyRewindStartDate))
+        {
+            result.Errors.Add("YearlyRewindStartDate must be a valid MM-dd date excluding February 29.");
+        }
+
+        if (!YearlyRewindSettings.IsValidDate(backup.YearlyRewindEndDate))
+        {
+            result.Errors.Add("YearlyRewindEndDate must be a valid MM-dd date excluding February 29.");
+        }
+
         ValidateTimestamp(result, backup);
         ValidateStringFields(result, backup);
         ValidateEnums(result, backup);

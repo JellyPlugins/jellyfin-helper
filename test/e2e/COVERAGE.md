@@ -2,8 +2,8 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it:
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. API and UI tests span 58 spec files. CI updates the README
-test-count badge from Playwright discovery
+every UI interaction. API, live UI and offline fixture coverage is mapped below.
+CI updates the README test-count badge from Playwright discovery
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -30,15 +30,19 @@ Beyond "does it route / does the UI render", the suite now proves features
   (not bundled into an artifact). PR → Checks → E2E → Artifacts.
 - **List without running:** `cd test/e2e && npx playwright test --list`.
 
-## Offline UI fixtures → `ui-primitives.fixture.spec.ts`
+## Offline UI fixtures
 
 Run `npm run test:fixtures` from `test/e2e/`. The separate
 `playwright.ui-fixtures.config.ts` runs the documentation guard and then Chromium
 and WebKit without Docker or a Jellyfin server. These fixtures load the shipped
 UI sources with a stubbed API; live server integration remains in the main suite.
 
+### Shared UI → `ui-primitives.fixture.spec.ts`
+
 - Dialog focus containment, Escape cancellation, and focus restoration.
 - Narrow and desktop layouts in light and dark themes.
+- YearlyRewind settings keep day/month side by side at 320px and 1440px; start/end dates share a row when space permits, and the opt-in enables their inputs.
+- Invalid YearlyRewind dates show inline messages and accessible field errors before saving; manual saves focus the first error and send no PUT. Corrections clear validation and allow the corrected dates to save.
 - Compact cold-start Discovery labels stay inside their cards and do not block recommendation toggles in all eight languages on mobile or desktop.
 - Stable Discovery cards with poster-based details, keyboard activation, Escape focus restoration and touch toggling; no separate Details button.
 - Description scrolling with Codec-tree scrollbar styling and a continuous card frame.
@@ -310,6 +314,15 @@ Trakt app). Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PL
   every Trakt call failed 403 because the HTTP client sent no User-Agent.
 - **Status endpoint:** `GET Trakt/OfficialPluginStatus` (admin-only) reports `Present:true`.
 
+## 8a. Personal YearlyRewind → `yearly-rewind.api.spec.ts`
+
+- Shared playback history is recorded with the annual page disabled; metadata references resolve to the played item, and enabling the page again preserves the frozen report.
+- Normal users receive only their own frozen report, even if another user ID is supplied.
+- The report remains stored and accessible outside the UI window.
+- Disabling denies report access without deleting the file; anonymous requests return 401.
+- Real Jellyfin start/progress/stop events produce persisted qualified playback intervals without changing the frozen report.
+- The initial access check runs with Discovery and Recommendations disabled.
+
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
@@ -366,6 +379,12 @@ the Discovery tab against Jellyfin's tab strip. `global-setup` only enables the 
 - The Trakt layout case (unlinked user) still requires the official Trakt plugin and skips loudly when
   it is not staged (`JFH_E2E_EXTERNAL_PLUGINS!=1`).
 
+
+## 10c. UI: YearlyRewind native tab → `yearly-rewind-native-tab.ui.spec.ts`
+
+- Modern and legacy desktop layouts render the seeded personal report in the Home tab.
+- The modern case enables Discovery alongside YearlyRewind; the legacy case disables Discovery and Recommendations.
+- Disabling YearlyRewind removes its navigation; the modern case keeps Discovery available.
 
 ## 11. API contract pinning → `contracts.api.spec.ts`
 Endpoints that smoke only *routed* or hardening only *tolerated a status class*

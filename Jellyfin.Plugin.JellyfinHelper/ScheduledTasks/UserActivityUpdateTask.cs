@@ -20,6 +20,7 @@ public class UserActivityUpdateTask
     private readonly IUserActivityCacheService _userActivityCacheService;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
+    private readonly IUserActivityHistoryRecorder? _history;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserActivityUpdateTask" /> class.
@@ -28,16 +29,19 @@ public class UserActivityUpdateTask
     /// <param name="userActivityCacheService">The user activity cache service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="history">Optional common history recorder; independent of annual report visibility.</param>
     public UserActivityUpdateTask(
         IUserActivityInsightsService userActivityInsightsService,
         IUserActivityCacheService userActivityCacheService,
         IPluginLogService pluginLog,
-        ILogger logger)
+        ILogger logger,
+        IUserActivityHistoryRecorder? history = null)
     {
         _userActivityInsightsService = userActivityInsightsService;
         _userActivityCacheService = userActivityCacheService;
         _pluginLog = pluginLog;
         _logger = logger;
+        _history = history;
     }
 
     /// <summary>
@@ -74,6 +78,7 @@ public class UserActivityUpdateTask
         if (taskMode == TaskMode.Activate)
         {
             _userActivityCacheService.SaveResult(result);
+            _history?.Record(result);
             _pluginLog.LogInfo(
                 LogSource,
                 $"User activity update completed (Active): {result.TotalItemsWithActivity} items, " +

@@ -880,3 +880,86 @@ test('closing a language editor preserves a tree and file detail opened during i
   }));
   expect(preserved).toEqual({ leaf: true, detail: true });
 });
+
+for (const width of [320, 1440]) {
+  test(`YearlyRewind settings at ${width}px keep day and month together`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await dashboard(page);
+    await page.locator('.tab-btn[data-tab="settings"]').click();
+    const dates = page.locator('#cfgRewindDates');
+    await expect(dates.locator('legend')).toHaveText(['Start date', 'End date']);
+    await expect(page.locator('.settings-subgroup-title').filter({ hasText: 'Yearly Rewind' })).toHaveCount(1);
+    for (const prefix of ['Start', 'End']) {
+      const day = page.locator('#cfgRewind' + prefix + 'Day');
+      const month = page.locator('#cfgRewind' + prefix + 'Month');
+      await expect(day).toBeDisabled();
+      const dayBox = (await day.boundingBox())!, monthBox = (await month.boundingBox())!;
+      expect(dayBox.y).toBe(monthBox.y);
+      expect(monthBox.x).toBeGreaterThanOrEqual(dayBox.x + dayBox.width);
+    }
+    const start = (await dates.locator('.settings-rewind-date').nth(0).boundingBox())!;
+    const end = (await dates.locator('.settings-rewind-date').nth(1).boundingBox())!;
+    if (width === 1440) {
+      expect(start.y).toBe(end.y);
+      expect(end.x).toBeGreaterThanOrEqual(start.x + start.width);
+    } else {
+      expect(end.y).toBeGreaterThanOrEqual(start.y + start.height);
+    }
+    expect(await dates.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.locator('#cfgYearlyRewindEnabled').check();
+    await expect(page.locator('#cfgRewindStartDay')).toBeEnabled();
+    await expect(page.locator('#cfgRewindEndMonth')).toBeEnabled();
+  });
+}
+
+for (const width of [320, 1440]) {
+  test(`YearlyRewind settings at ${width}px explain invalid dates and recover after correction`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await dashboard(page);
+    await page.evaluate(() => {
+      const client = (window as any).ApiClient;
+      const original = client.ajax.bind(client);
+      (window as any).fixtureSettingsWrites = [];
+      client.ajax = (options: any) => {
+        if (options.type === 'PUT' && options.url.endsWith('/Configuration')) {
+          (window as any).fixtureSettingsWrites.push(JSON.parse(options.data));
+        }
+        return original(options);
+      };
+    });
+    await page.locator('.tab-btn[data-tab="settings"]').click();
+    await expect(page.locator('.help-text').filter({hasText: 'Uses recorded activity and available Jellyfin data.'})).toHaveText(
+      'Uses recorded activity and available Jellyfin data. One rewind per user is created at 00:00 server time on the start date. The page is hidden after the end date; the rewind is kept.');
+    await page.locator('#cfgYearlyRewindEnabled').check();
+    await expect.poll(() => page.evaluate(() => (window as any).fixtureSettingsWrites.length)).toBe(1);
+    await page.evaluate(() => { (window as any).fixtureSettingsWrites = []; });
+    const day = page.locator('#cfgRewindStartDay');
+    const month = page.locator('#cfgRewindStartMonth');
+    const error = page.locator('#cfgRewindStartError');
+    await day.fill('0');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText('1 to 31');
+    await expect(day).toHaveAttribute('aria-invalid', 'true');
+    await expect(day).toHaveAttribute('aria-describedby', 'cfgRewindStartError');
+    await page.locator('#btnSaveSettings').click();
+    await expect(day).toBeFocused();
+    expect(await page.evaluate(() => (window as any).fixtureSettingsWrites)).toEqual([]);
+    await day.fill('31');
+    await month.fill('4');
+    await expect(error).toContainText('valid date for the selected month');
+    await expect(month).toHaveAttribute('aria-invalid', 'true');
+    await page.locator('#cfgRewindEndMonth').fill('13');
+    await expect(page.locator('#cfgRewindEndError')).toBeVisible();
+    await expect(page.locator('#cfgRewindEndError')).toContainText('1 to 12');
+    await day.fill('30');
+    await page.locator('#cfgRewindEndMonth').fill('1');
+    await expect(error).toBeHidden();
+    await expect(page.locator('#cfgRewindEndError')).toBeHidden();
+    await expect(day).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(month).not.toHaveAttribute('aria-invalid', 'true');
+    expect(await day.evaluate((element: HTMLInputElement) => element.validity.valid)).toBe(true);
+    await page.locator('#btnSaveSettings').click();
+    await expect.poll(() => page.evaluate(() => (window as any).fixtureSettingsWrites.length)).toBe(1);
+    expect(await page.evaluate(() => (window as any).fixtureSettingsWrites[0])).toMatchObject({YearlyRewindStartDate: '04-30', YearlyRewindEndDate: '01-15'});
+  });
+}

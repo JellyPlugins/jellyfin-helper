@@ -285,7 +285,7 @@ const NATIVE_TABS_EXPECTED = [
   'repairRemovedTabSelection',
   'handleRouteNavigation',
   'noteTabStripInput', 'deepLinkHash', 'syncDeepLink', 'applyPendingFocus',
-  'ensureInjected', 'scheduleInject', 'register', 'unregister', 'focus', 'init',
+  'ensureInjected', 'scheduleInject', 'register', 'unregister', 'updateTitle', 'focus', 'init',
 ];
 
 // Behavioral surface of the native Home tab registry: inner helpers unwrapped
@@ -322,4 +322,8 @@ export function saveCoverage(): void {
   const dir = join(REPO_ROOT, 'test', 'ui', 'coverage', 'tmp');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `coverage-${process.pid}-${randomUUID()}.json`), JSON.stringify(cov));
+}
+
+export function loadYearlyRewindBundle(): void {
+  evaluate([prepared(join(DISCOVERY_DIR, 'yearly-rewind.js'))], []);
 }

@@ -294,7 +294,6 @@ function refreshSaveBand() {
     }, 2500);
 }
 
-
 // Debounced dirty-check listener on the settings form.
 var _dirtyDebounceTimer = null;
 var _dirtyTrackingController = null;
@@ -417,7 +416,6 @@ function rebuildUI() {
     var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
     if (settingsBtn) settingsBtn.click();
 }
-
 
 function loadSettings(onDone) {
     var form = document.getElementById('settingsForm');
@@ -554,6 +552,19 @@ function loadSettings(onDone) {
         h += renderTaskModeSelect('cfgSeerrMode', escHtml(T('seerrCleanup', 'Seerr Cleanup')), cfg.SeerrCleanupTaskMode || 'Deactivate', !seerrConfigured);
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + escHtml(T('seerrNotConfigured', 'Configure Seerr below to enable this task.')) + '</div>';
         h += '</div>';
+
+        h += '<div class="section-title settings-subgroup-title">' + mi('history') + escHtml(T('rewind.settingsTitle', 'Yearly Rewind')) + '</div>';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgYearlyRewindEnabled"' + (cfg.YearlyRewindEnabled ? ' checked' : '') + '><label for="cfgYearlyRewindEnabled">' + escHtml(T('rewind.enable', 'Enable personal yearly rewinds')) + '</label></div>';
+        h += '<div class="help-text">' + escHtml(T('rewind.settingsHelp', 'Uses recorded activity and available Jellyfin data. One rewind per user is created at 00:00 server time on the start date. The page is hidden after the end date; the rewind is kept.')) + '</div>';
+        h += '<fieldset id="cfgRewindDates" class="settings-rewind-dates"' + (cfg.YearlyRewindEnabled ? '' : ' disabled') + '>';
+        [['Start', cfg.YearlyRewindStartDate || '12-15'], ['End', cfg.YearlyRewindEndDate || '01-15']].forEach(function (entry) {
+            var parts = entry[1].split('-');
+            var label = entry[0] === 'Start' ? T('rewind.startDate', 'Start date') : T('rewind.endDate', 'End date');
+            h += '<fieldset class="settings-rewind-date"><legend>' + escHtml(label) + '</legend><div class="settings-rewind-parts">';
+            h += '<div><label for="cfgRewind' + entry[0] + 'Day">' + escHtml(T('rewind.day', 'Day')) + '</label> <input type="number" min="1" max="31" required id="cfgRewind' + entry[0] + 'Day" aria-describedby="cfgRewind' + entry[0] + 'Error" value="' + escAttr(parts[1]) + '"></div>';
+            h += '<div><label for="cfgRewind' + entry[0] + 'Month">' + escHtml(T('rewind.month', 'Month')) + '</label> <input type="number" min="1" max="12" required id="cfgRewind' + entry[0] + 'Month" aria-describedby="cfgRewind' + entry[0] + 'Error" value="' + escAttr(parts[0]) + '"></div></div><p id="cfgRewind' + entry[0] + 'Error" class="help-text settings-rewind-error" role="alert" hidden></p></fieldset>';
+        });
+        h += '</fieldset>';
 
         // Trash / Recycle Bin lives inside the Task card because it is exclusively used by the cleanup tasks configured above.
         h += '<div class="section-title settings-subgroup-title">' + mi('delete') + escHtml(T('settingsTrashTitle', 'Trash settings')) + '</div>';
@@ -761,6 +772,9 @@ function buildSettingsPayload() {
             var seerrKey = document.getElementById('cfgSeerrApiKey')?.value || '';
             return recsMode !== 'Deactivate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
+        YearlyRewindEnabled: document.getElementById('cfgYearlyRewindEnabled')?.checked ?? null,
+        YearlyRewindStartDate: rewindFormDate('Start'),
+        YearlyRewindEndDate: rewindFormDate('End'),
         Language: document.getElementById('cfgLang')?.value ?? 'en',
         PluginLogLevel: _currentLogLevel,
         RadarrInstances: radarrInstances,
@@ -777,6 +791,13 @@ function doSaveSettings(payload, options) {
     var quiet = options?.quiet;
     var indicatorEl = options?.element;
     var btn = document.getElementById('btnSaveSettings');
+
+    var rewindError = validateRewindDates(payload, !quiet);
+    if (rewindError) {
+        if (btn) btn.disabled = false;
+        if (typeof options?.onError === 'function') options.onError();
+        return;
+    }
 
     // Pre-save validation: reject invalid trash paths before sending to server
     var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
@@ -1429,6 +1450,23 @@ function attachAutoSaveHandlers() {
         });
     }
 
+    var rewindEnabled = document.getElementById('cfgYearlyRewindEnabled');
+    if (rewindEnabled) rewindEnabled.addEventListener('change', function () {
+        var dates = document.getElementById('cfgRewindDates');
+        if (dates) dates.disabled = !rewindEnabled.checked;
+        validateRewindDates({ YearlyRewindStartDate: rewindFormDate('Start'), YearlyRewindEndDate: rewindFormDate('End') });
+        scheduleQuietSave(rewindEnabled);
+    });
+
+    document.querySelectorAll('#cfgRewindDates input').forEach(function (input) {
+        function validateDates() {
+            validateRewindDates({ YearlyRewindStartDate: rewindFormDate('Start'), YearlyRewindEndDate: rewindFormDate('End') });
+        }
+        input.addEventListener('input', validateDates);
+        input.addEventListener('change', validateDates);
+        input.addEventListener('invalid', validateDates);
+    });
+
     // Playlist sync toggle - auto-save on change
     // Uses inline indicator appended to the label (not the overlay function which positions badly for checkboxes)
     var syncEl = document.getElementById('cfgSyncPlaylist');
@@ -1549,7 +1587,6 @@ function showLibraryMultiSelectIndicator(wrapperId, success) {
         setTimeout(function () { indicator.remove(); }, 600);
     }, 2000);
 }
-
 
 /**
  * Initializes the library multi-select dropdown by fetching available libraries
@@ -1956,7 +1993,6 @@ function validateTrashPath(path, useTrash) {
             return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
         }
 
-
         // Segment is only whitespace
         if (/^\s+$/.test(seg)) {
             return T('trashPathInvalid', 'The trash folder path is invalid.');
@@ -2187,4 +2223,57 @@ function saveSettings() {
 
     // Trash path change detection is handled inside doSaveSettings() for all save paths.
     doSaveSettings(payload);
+}
+
+function rewindFormDate(prefix) {
+    // Disabled controls must not block opting out or overwrite the stored dates.
+    if (document.getElementById('cfgYearlyRewindEnabled')?.checked === false) return null;
+    var day = document.getElementById('cfgRewind' + prefix + 'Day');
+    var month = document.getElementById('cfgRewind' + prefix + 'Month');
+    if (!day || !month) return null;
+    return month.value.padStart(2, '0') + '-' + day.value.padStart(2, '0');
+}
+
+function rewindDateIssue(value) {
+    var parts = /^([^-]*)-(.*)$/.exec(value);
+    if (parts) {
+        var month = Number(parts[1]), day = Number(parts[2]);
+        if (!/^\d{2}$/.test(parts[1]) || month < 1 || month > 12) {
+            return { message: T('rewind.invalidMonth', 'Enter a whole-number month from 1 to 12.'), fields: ['Month'] };
+        }
+        if (!/^\d{2}$/.test(parts[2]) || day < 1 || day > 31) {
+            return { message: T('rewind.invalidDay', 'Enter a whole-number day from 1 to 31.'), fields: ['Day'] };
+        }
+        var date = new Date(Date.UTC(2001, month - 1, day));
+        if (date.getUTCMonth() + 1 === month && date.getUTCDate() === day) return null;
+    }
+    return { message: T('rewind.invalidDate', 'Enter a valid date for the selected month. February 29 is not supported.'), fields: ['Day', 'Month'] };
+}
+
+function validateRewindDates(payload, focusInvalid) {
+    var firstMessage = null;
+    var firstInvalid = null;
+    ['Start', 'End'].forEach(function (prefix) {
+        var value = payload['YearlyRewind' + prefix + 'Date'];
+        var issue = value == null ? null : rewindDateIssue(value);
+        var error = document.getElementById('cfgRewind' + prefix + 'Error');
+        if (error) {
+            var message = issue?.message || '';
+            if (error.textContent !== message) error.textContent = message;
+            error.hidden = !issue;
+        }
+        ['Day', 'Month'].forEach(function (part) {
+            var field = document.getElementById('cfgRewind' + prefix + part);
+            if (!field) return;
+            var invalid = !!issue && issue.fields.includes(part);
+            if (invalid) {
+                field.setAttribute('aria-invalid', 'true');
+                if (!firstInvalid && !field.disabled) firstInvalid = field;
+            } else field.removeAttribute('aria-invalid');
+            field.setCustomValidity(invalid ? issue.message : '');
+        });
+        if (issue && !firstMessage) firstMessage = issue.message;
+    });
+    if (focusInvalid && firstInvalid) firstInvalid.focus();
+    return firstMessage;
 }

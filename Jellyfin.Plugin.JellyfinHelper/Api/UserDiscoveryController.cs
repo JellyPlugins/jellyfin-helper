@@ -471,6 +471,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// </remarks>
     /// <returns>The shared UI primitives, client lifecycle, native tab registry, and Discovery script content.</returns>
     [HttpGet("script")]
+    [HttpGet("/JellyfinHelper/Client/script")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -478,7 +479,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         var assembly = Assembly.GetExecutingAssembly();
         var buffer = new MemoryStream();
-        foreach (var name in new[] { "ui-primitives.js", "client-lifecycle.js", "native-tabs.js", "discovery-sidebar.js" })
+        foreach (var name in new[] { "ui-primitives.js", "client-lifecycle.js", "native-tabs.js", "discovery-sidebar.js", "yearly-rewind.js" })
         {
             var stream = assembly.GetManifestResourceStream($"Jellyfin.Plugin.JellyfinHelper.js.{name}");
             if (stream is null)

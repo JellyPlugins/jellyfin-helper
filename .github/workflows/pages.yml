@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Jellyfin.Plugin.JellyfinHelper/PluginPages/**'
+      - 'Jellyfin.Plugin.JellyfinHelper/js/**'
       - 'Jellyfin.Plugin.JellyfinHelper/i18n/**'
       - 'docs/**'
       - '.github/workflows/pages.yml'

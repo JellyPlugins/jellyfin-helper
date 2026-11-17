@@ -21,6 +21,8 @@ server**.
 | Trends integrity | Assert timeline/insights contain no garbage (negative sizes, false zeroes) |
 | Arr / Seerr | Against **mock servers**: connection test, Compare, reachability indicator, masked-key Test Connection resolves the stored key after reload |
 | Discovery exclusion | A title Seerr reports as already available (`mediaInfo.status`) is dropped from generated recommendations even when no Arr instance or library entry tracks it |
+| GitHub Pages demo | Static admin, Discovery and YearlyRewind views, responsive navigation and annual sample charts (`demo.fixture.spec.ts`) |
+| YearlyRewind | Personal report isolation, access outside the display window, disable-without-delete, shared playback collection while the annual page is disabled, and the native Home tab with and without Discovery |
 | UI: all 8 tabs | Overview, Codecs, Health, Trends, Settings, Arr, Recommendations, Logs |
 | UI interactions | Codec collapsible trees expand/collapse, Logs arrive + download, unsaved-changes dialog appears when leaving dirty settings |
 | Hardening | Empty library, broken backup XML/JSON, invalid Arr URLs, out-of-range numbers, Unicode paths, concurrent task runs: must degrade cleanly, never crash |
@@ -29,7 +31,7 @@ server**.
 
 ```text
 test/e2e/
- ├── compose.yml            # Jellyfin 12.4 + mock-arr + mock-seerr
+├── compose.yml            # Jellyfin 12.4 + mock-arr + mock-seerr
 ├── playwright.config.ts   # two projects: "api" (HTTP) and "ui" (browser)
 ├── package.json
 ├── scripts/
@@ -44,7 +46,8 @@ test/e2e/
 ├── setup/
 │   ├── global-setup.ts    # completes first-run wizard, gets admin token, builds library, scans, seeds the growth timeline
 │   ├── api-client.ts      # shared Jellyfin/plugin API helpers + task runner
-│   └── seed-timeline.ts   # writes a backdated multi-year daily growth timeline into DataPath so the chart has a span to zoom/pan
+│   ├── seed-timeline.ts   # writes a backdated multi-year daily growth timeline into DataPath so the chart has a span to zoom/pan
+│   └── yearly-rewind.ts   # seeds per-user report files for API and Home-tab tests
 ├── tests/
 │   ├── *.api.spec.ts      # HTTP-level assertions
 │   └── *.ui.spec.ts       # browser assertions

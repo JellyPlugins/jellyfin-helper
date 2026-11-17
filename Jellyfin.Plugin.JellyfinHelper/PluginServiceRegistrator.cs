@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
@@ -23,11 +23,14 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
+using Jellyfin.Plugin.JellyfinHelper.Services.YearlyRewind;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper;
@@ -240,6 +243,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
         serviceCollection.AddSingleton<VirtualItemDetector>();
+        serviceCollection.TryAddSingleton(TimeProvider.System);
+        serviceCollection.AddSingleton<YearlyRewindService>();
+        serviceCollection.AddSingleton<IUserActivityHistoryConsumer>(sp => sp.GetRequiredService<YearlyRewindService>());
+        serviceCollection.AddSingleton<UserActivityHistoryService>();
+        serviceCollection.AddSingleton<IUserActivityHistoryRecorder>(sp => sp.GetRequiredService<UserActivityHistoryService>());
+        serviceCollection.AddSingleton<IHostedService>(sp => sp.GetRequiredService<UserActivityHistoryService>());
         serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
 
         // Action filter for surfacing model-binding failures into the plugin log before [ApiController]'s auto-400 short-circuits the request.

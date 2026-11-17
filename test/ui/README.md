@@ -1,9 +1,9 @@
 # Jellyfin Helper - UI JavaScript Tests (Vitest)
 
 Fast unit tests for the dashboard scripts (`PluginPages/js/`) and the
-Discovery sidebar (`js/discovery-sidebar.js`). They load the real shipped
-sources in order and drive the actual functions, so visibility rules and
-validators are pinned without a browser.
+personal Home tabs (`js/discovery-sidebar.js`, `js/yearly-rewind.js`). They load
+the real shipped sources in order and drive the actual functions, so visibility
+rules and validators are pinned without a browser.
 
 ## What it covers
 
@@ -32,7 +32,8 @@ validators are pinned without a browser.
 | Discovery sidebar helpers (escaping, cache, toasts, renderers) | `tests/discovery-helpers.test.ts` |
 | Discovery impressions (opaque deliveries, refreshed/protected cards, stale acknowledgements, retries and session isolation) | `tests/discovery-impressions.test.ts` |
 | Shipped client lifecycle (logout, account replacement, stale dialog events, data source isolation after token or client replacement, both drawer layouts) | `tests/discovery-lifecycle.test.ts` |
-| Native Home tab registry (indices, deep links, header fallback, focus) | `tests/native-tabs.test.ts` |
+| YearlyRewind (localized heading and tab year, frozen snapshots, annual replacement, monthly chart, pie charts, genre period selection, frozen habits/streaks, previous-period comparisons, legacy reports, estimated activity and measured-only patterns, visibility and logout races) | `tests/yearly-rewind.test.ts` |
+| Native Home tab registry (indices, deep links, header fallback, title updates, focus) | `tests/native-tabs.test.ts` |
 | Shared host lifecycle (authentication ordering, history changes, hook ownership) | `tests/client-lifecycle.test.ts` |
 | Compose-order sync guard (.csproj vs loader) and MSBuild UI runner error handling | `tests/csproj-order.test.ts` |
 | README drift guard (every test file documented) | `tests/docs.test.ts` |

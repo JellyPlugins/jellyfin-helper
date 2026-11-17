@@ -45,6 +45,49 @@
     color-scheme: light dark;
 }
 
+/* Each date stays together; the two dates share a row when the card has room. */
+.settings-rewind-dates {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16em), 1fr));
+    gap: var(--spacing-lg);
+    border: 0;
+    padding: 0;
+    margin: var(--spacing-lg) 0 0;
+    min-inline-size: 0;
+}
+
+.settings-rewind-date {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-inline-size: 0;
+}
+
+.settings-rewind-date legend {
+    padding: 0;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.settings-rewind-parts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-md);
+}
+
+.settings-form .settings-rewind-parts label {
+    margin-top: var(--spacing-sm);
+}
+
+.settings-rewind-error {
+    color: var(--color-danger);
+    margin: var(--spacing-sm) 0 0;
+}
+
+.settings-rewind-dates input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+}
+
 /* Avoid iOS focus zoom without making dropdowns smaller than editable fields. */
 @media (pointer: coarse) {
     .jfh-ui-surface .settings-form input[type="text"],

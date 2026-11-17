@@ -186,6 +186,9 @@ public sealed class BackupService : IBackupService
 
             // Discovery user access
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
+            YearlyRewindEnabled = config.YearlyRewindEnabled,
+            YearlyRewindStartDate = config.YearlyRewindStartDate,
+            YearlyRewindEndDate = config.YearlyRewindEndDate,
 
             // Trakt sourcing flag, exported 1:1. TraktTimeoutSeconds is not backed up and a live value is never overwritten.
             TraktSourcingEnabled = config.TraktSourcingEnabled,
@@ -449,6 +452,9 @@ public sealed class BackupService : IBackupService
 
             // Discovery user access - defaults to false for older backups without this field
             config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
+            config.YearlyRewindEnabled = backup.YearlyRewindEnabled;
+            config.YearlyRewindStartDate = backup.YearlyRewindStartDate;
+            config.YearlyRewindEndDate = backup.YearlyRewindEndDate;
 
             // Restored verbatim with no Discovery gate. Enforcement happens at the use sites,
             // so a stored true survives a Discovery off/on cycle.

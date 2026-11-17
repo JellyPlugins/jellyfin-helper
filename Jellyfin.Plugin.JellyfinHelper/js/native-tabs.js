@@ -642,6 +642,8 @@
                 btn.id = OWN_ID_PREFIX + 'btn-' + entry.id;
                 btn.className = 'emby-tab-button';
                 btn.dataset.index = String(entry.index);
+                btn.title = entry.title;
+                btn.setAttribute('aria-label', entry.title);
 
                 var label = document.createElement('div');
                 label.className = 'emby-button-foreground';
@@ -715,6 +717,21 @@
         }
         entries.push({ id: id, title: title, onMount: onMount, onActivate: onActivate, icon: icon, index: null });
         scheduleInject();
+    }
+
+    function updateTitle(id, title) {
+        var entry = findEntry(id);
+        if (!entry || entry.title === title) return;
+        entry.title = title;
+        var button = document.getElementById(OWN_ID_PREFIX + 'btn-' + id);
+        var link = document.getElementById(LINK_ID_PREFIX + id);
+        [button, link].forEach(function (element) {
+            if (!element) return;
+            element.title = title;
+            element.setAttribute('aria-label', title);
+        });
+        var label = button?.querySelector('.emby-button-foreground');
+        if (label) label.textContent = title;
     }
 
     function unregister(id) {
@@ -802,6 +819,7 @@
     window.JellyfinHelperTabs = {
         register: register,
         unregister: unregister,
+        updateTitle: updateTitle,
         focus: focus,
         refresh: scheduleInject
     };

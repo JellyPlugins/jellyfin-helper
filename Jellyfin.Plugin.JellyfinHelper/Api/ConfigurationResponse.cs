@@ -84,6 +84,15 @@ public sealed class ConfigurationResponse
     /// <summary>Gets a value indicating whether non-admin users can access the discovery page.</summary>
     public bool DiscoveryUserAccessEnabled { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether yearly rewinds are enabled.</summary>
+    public bool YearlyRewindEnabled { get; init; }
+
+    /// <summary>Gets the annual snapshot start date in MM-dd format.</summary>
+    public string YearlyRewindStartDate { get; init; } = "12-15";
+
+    /// <summary>Gets the inclusive tab end date in MM-dd format.</summary>
+    public string YearlyRewindEndDate { get; init; } = "01-15";
+
     /// <summary>Gets the configuration version for migration tracking.</summary>
     public int ConfigVersion { get; init; }
 
@@ -147,6 +156,9 @@ public sealed class ConfigurationResponse
             MaxRecommendationsPerUser = config.MaxRecommendationsPerUser,
             SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
+            YearlyRewindEnabled = config.YearlyRewindEnabled,
+            YearlyRewindStartDate = config.YearlyRewindStartDate,
+            YearlyRewindEndDate = config.YearlyRewindEndDate,
             ConfigVersion = config.ConfigVersion,
             EnsembleAlphaMin = config.EnsembleAlphaMin,
             EnsembleAlphaMax = config.EnsembleAlphaMax,

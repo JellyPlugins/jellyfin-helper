@@ -93,6 +93,38 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
+    public void YearlyRewind_BackupAndRestorePreserveScheduleAndOptIn()
+    {
+        var (service, config, _) = CreateServiceWithInitializedConfig();
+        config.YearlyRewindEnabled = true;
+        config.YearlyRewindStartDate = "11-01";
+        config.YearlyRewindEndDate = "11-30";
+        var backup = service.CreateBackup();
+        Assert.True(backup.YearlyRewindEnabled);
+        Assert.Equal("11-01", backup.YearlyRewindStartDate);
+        Assert.Equal("11-30", backup.YearlyRewindEndDate);
+        config.YearlyRewindEnabled = false;
+        config.YearlyRewindStartDate = "12-15";
+        config.YearlyRewindEndDate = "01-15";
+        service.RestoreBackup(backup);
+        Assert.True(config.YearlyRewindEnabled);
+        Assert.Equal("11-01", config.YearlyRewindStartDate);
+        Assert.Equal("11-30", config.YearlyRewindEndDate);
+    }
+
+    [Fact]
+    public void YearlyRewind_LegacyBackupRestoresDisabledDefaults()
+    {
+        var (service, config, _) = CreateServiceWithInitializedConfig();
+        config.YearlyRewindEnabled = true;
+        config.YearlyRewindStartDate = "11-01";
+        service.RestoreBackup(MakeMinimalValidBackup());
+        Assert.False(config.YearlyRewindEnabled);
+        Assert.Equal("12-15", config.YearlyRewindStartDate);
+        Assert.Equal("01-15", config.YearlyRewindEndDate);
+    }
+
+    [Fact]
     public void RestoreBackup_InitializedConfig_RestoresAllScalarFields()
     {
         var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
@@ -1264,6 +1296,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             nameof(PluginConfiguration.SeerrApiKey),
             nameof(PluginConfiguration.SeerrSkipCertificateValidation),
             nameof(PluginConfiguration.DiscoveryUserAccessEnabled),
+            nameof(PluginConfiguration.YearlyRewindEnabled),
+            nameof(PluginConfiguration.YearlyRewindStartDate),
+            nameof(PluginConfiguration.YearlyRewindEndDate),
             nameof(PluginConfiguration.TraktSourcingEnabled),
             nameof(PluginConfiguration.UseTrash),
             nameof(PluginConfiguration.TrashFolderPath),

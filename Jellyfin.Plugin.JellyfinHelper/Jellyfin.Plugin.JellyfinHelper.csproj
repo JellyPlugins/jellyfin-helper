@@ -92,6 +92,10 @@
         <ItemGroup>
             <DocsCssSource Include="$(MSBuildProjectDirectory)\PluginPages\css\*.css"/>
             <DocsJsSource Include="$(MSBuildProjectDirectory)\PluginPages\js\*.js"/>
+            <DocsJsSource Include="$(MSBuildProjectDirectory)\js\native-tabs.js"/>
+            <DocsJsSource Include="$(MSBuildProjectDirectory)\js\discovery-sidebar.js"/>
+            <DocsJsSource Include="$(MSBuildProjectDirectory)\js\yearly-rewind.js"/>
+            <DocsJsSource Include="$(MSBuildProjectDirectory)\..\docs\mock\mock-data.js"/>
             <DocsI18nSource Include="$(MSBuildProjectDirectory)\i18n\*.json"/>
         </ItemGroup>
 
@@ -154,6 +158,9 @@
         </EmbeddedResource>
         <EmbeddedResource Include="PluginPages\js\UiPrimitives.js">
             <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.ui-primitives.js</LogicalName>
+        </EmbeddedResource>
+        <EmbeddedResource Include="js\yearly-rewind.js">
+            <LogicalName>Jellyfin.Plugin.JellyfinHelper.js.yearly-rewind.js</LogicalName>
         </EmbeddedResource>
         <!-- Source module files are NOT embedded but kept for development -->
         <None Include="PluginPages\configPage.template.html"/>

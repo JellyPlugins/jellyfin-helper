@@ -19,6 +19,15 @@ public static class BackupSanitizer
     {
         ArgumentNullException.ThrowIfNull(backup);
 
+        // Invalid imported dates must not silently activate a different schedule.
+        if (!YearlyRewindSettings.IsValidDate(backup.YearlyRewindStartDate)
+            || !YearlyRewindSettings.IsValidDate(backup.YearlyRewindEndDate))
+        {
+            backup.YearlyRewindEnabled = false;
+            backup.YearlyRewindStartDate = YearlyRewindSettings.DefaultStartDate;
+            backup.YearlyRewindEndDate = YearlyRewindSettings.DefaultEndDate;
+        }
+
         // Language
         if (string.IsNullOrEmpty(backup.Language) || !BackupValidator.ValidLanguages.Contains(backup.Language))
         {

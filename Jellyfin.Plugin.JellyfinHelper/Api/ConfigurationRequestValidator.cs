@@ -48,6 +48,16 @@ public static class ConfigurationRequestValidator
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (request.YearlyRewindStartDate is not null && !YearlyRewindSettings.IsValidDate(request.YearlyRewindStartDate))
+        {
+            return "YearlyRewindStartDate must be a valid MM-dd date; February 29 is not supported.";
+        }
+
+        if (request.YearlyRewindEndDate is not null && !YearlyRewindSettings.IsValidDate(request.YearlyRewindEndDate))
+        {
+            return "YearlyRewindEndDate must be a valid MM-dd date; February 29 is not supported.";
+        }
+
         // Numeric range checks
         if (request.OrphanMinAgeDays is < 0 or > MaxDays)
         {

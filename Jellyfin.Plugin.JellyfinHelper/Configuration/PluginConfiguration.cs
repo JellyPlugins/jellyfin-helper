@@ -27,6 +27,8 @@ public class PluginConfiguration : BasePluginConfiguration
     private List<ArrInstanceConfig> _radarrInstances = [];
     private List<ArrInstanceConfig> _sonarrInstances = [];
     private List<string> _codecCardOrder = [];
+    private string _yearlyRewindStartDate = YearlyRewindSettings.DefaultStartDate;
+    private string _yearlyRewindEndDate = YearlyRewindSettings.DefaultEndDate;
 
     /// <summary>
     ///     Gets or sets the library names to exclude (exclude list). Comma-separated list of library names.
@@ -102,6 +104,23 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets a value indicating whether non-admin users can access the Seerr Discovery page and submit media requests.
     /// </summary>
     public bool DiscoveryUserAccessEnabled { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether personal yearly rewinds are enabled. Defaults to false.</summary>
+    public bool YearlyRewindEnabled { get; set; }
+
+    /// <summary>Gets or sets the annual snapshot and tab start date in MM-dd format.</summary>
+    public string YearlyRewindStartDate
+    {
+        get => _yearlyRewindStartDate;
+        set => _yearlyRewindStartDate = YearlyRewindSettings.IsValidDate(value) ? value : YearlyRewindSettings.DefaultStartDate;
+    }
+
+    /// <summary>Gets or sets the inclusive annual tab end date in MM-dd format.</summary>
+    public string YearlyRewindEndDate
+    {
+        get => _yearlyRewindEndDate;
+        set => _yearlyRewindEndDate = YearlyRewindSettings.IsValidDate(value) ? value : YearlyRewindSettings.DefaultEndDate;
+    }
 
     /// <summary>
     ///     Gets or sets a value indicating whether Trakt discovery sourcing is enabled. User-facing toggle shown

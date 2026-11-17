@@ -308,7 +308,8 @@ SonarrInstances:[{Name:"Sonarr",Url:"http://192.168.1.100:8989",ApiKey:"demo-key
 SeerrUrl:"http://192.168.1.100:5055",SeerrApiKey:"demo-seerr-key",
 SeerrCleanupTaskMode:"DryRun",SeerrCleanupAgeDays:365,
 TraktSourcingEnabled:true,
-RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion:3
+RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion:3,
+YearlyRewindEnabled:true,YearlyRewindStartDate:"12-15",YearlyRewindEndDate:"01-15"
 };
 
 var MOCK_CLEANUP_STATS={TotalBytesFreed:8589934592,TotalItemsDeleted:247,LastCleanupTimestamp:new Date(Date.now()-86400000).toISOString()};
@@ -539,6 +540,41 @@ MOCK_USER_ACTIVITY[_uid2]=[
 {ItemName:"Big Buck Bunny",ItemType:"Movie",TotalPlayCount:1,MostRecentWatch:new Date(Date.now()-14*86400000).toISOString(),AverageCompletionPercent:100}
 ];
 
+// Frozen annual sample, derived from titles already present in this demo library.
+// The static preview intentionally makes the report available throughout the year.
+var MOCK_YEARLY_REWIND=(function(){
+    var items=[];
+    for(var i=0;i<18;i++){
+        var seconds=(1.5+(i%5)*0.15)*3600;
+        items.push({ItemId:'rewind-movie-'+i,Name:_movieTitles[i],ItemType:'Movie',Genres:[['Drama','Science Fiction','Adventure'][i%3]],
+            ActiveSeconds:seconds,EstimatedSeconds:i===0?seconds:0,HasReconstructedActivity:i===0,PlayCount:1});
+    }
+    for(var episode=0;episode<60;episode++){
+        var show=episode%4;
+        items.push({ItemId:'rewind-episode-'+episode,Name:'Episode '+(Math.floor(episode/4)+1),ItemType:'Episode',
+            SeriesId:'rewind-series-'+show,SeriesName:_shows[show][0],Genres:[show%2?'Comedy':'Drama'],ActiveSeconds:2700,PlayCount:1});
+    }
+    var total=items.reduce(function(sum,item){return sum+item.ActiveSeconds;},0);
+    var estimate=items[0].EstimatedSeconds,measured=total-estimate;
+    var weights=[5,9,8,6,4,3,2,4,6,8,10,7];
+    var weightSum=weights.reduce(function(sum,weight){return sum+weight;},0);
+    var genres={};
+    items.forEach(function(item){genres[item.Genres[0]]=(genres[item.Genres[0]]||0)+item.ActiveSeconds;});
+    var months=weights.map(function(weight,index){
+        var amount=measured*weight/weightSum+(index===0?estimate:0);
+        return {StartUtc:new Date(Date.UTC(2025,11+index,15)).toISOString(),EndUtc:new Date(Date.UTC(2025,12+index,15)).toISOString(),
+            ActiveSeconds:amount,EstimatedSeconds:index===0?estimate:0,
+            Genres:Object.keys(genres).map(function(name){return {Name:name,ActiveSeconds:amount*genres[name]/total};})};
+    });
+    function distribute(weights){var sum=weights.reduce(function(a,b){return a+b;},0);return weights.map(function(weight){return measured*weight/sum;});}
+    return {SchemaVersion:1,SnapshotId:'demo-rewind-2026',UserId:_uid1,PeriodStartUtc:'2025-12-15T00:00:00Z',SnapshotAtUtc:'2026-12-15T00:00:00Z',
+        GeneratedAtUtc:'2026-12-15T00:00:00Z',TimeZoneId:'UTC',DataState:'Partial',Items:items,Months:months,ActiveDays:68,ReconstructedItemCount:1,
+        Insights:{HourlySeconds:distribute([0,0,0,0,0,0,0,1,2,2,1,1,2,1,1,1,2,4,8,12,16,14,8,3]),
+            WeekdaySeconds:distribute([8,9,10,10,17,26,20]),LongestStreakDays:7,LongestStreakStart:'2026-11-02',LongestStreakEnd:'2026-11-08'},
+        Comparison:{PeriodStartUtc:'2024-12-15T00:00:00Z',SnapshotAtUtc:'2025-12-15T00:00:00Z',TimeZoneId:'UTC',DataState:'Ready',
+            ActiveSeconds:65*3600,EstimatedSeconds:0,ReconstructedItemCount:0,MovieCount:14,EpisodeCount:48,SeriesCount:3,ActiveDays:72,Genres:['Drama','Comedy','Adventure'],TopGenre:'Drama'}};
+})();
+
 var ApiClient={
 accessToken:function(){return"mock-demo-token";},
 getCurrentUserId:function(){return _uid1;},
@@ -546,6 +582,9 @@ getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
 if(url.includes("Translations")){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){MOCK_TRANSLATIONS={};resolve(MOCK_TRANSLATIONS);});}
+else if(url.includes("YearlyRewind/My/Status"))resolve({Enabled:MOCK_CONFIG.YearlyRewindEnabled,TabVisible:MOCK_CONFIG.YearlyRewindEnabled,Available:true,
+    SnapshotId:MOCK_YEARLY_REWIND.SnapshotId,SnapshotAtUtc:MOCK_YEARLY_REWIND.SnapshotAtUtc,TimeZoneId:'UTC'});
+else if(url.includes("YearlyRewind/My"))resolve(structuredClone(MOCK_YEARLY_REWIND));
 else if(url.includes("Statistics/Latest"))resolve(structuredClone(MOCK_STATISTICS));
 else if(url.includes("GrowthTimeline"))resolve(structuredClone(MOCK_GROWTH_TIMELINE));
 else if(url.includes("Statistics/History"))resolve(MOCK_HISTORY);

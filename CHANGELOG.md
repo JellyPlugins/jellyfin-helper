@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [Unreleased]
+
+### Added
+
+- **YearlyRewind personal annual reports.** An opt-in Home tab displays watch time,
+  film/episode/series counts, genres, and a monthly bar chart in the user's web language.
+  Responsive report cards follow the plugin settings design; localized headings
+  and tab tooltips include the report year.
+  Film/series and genre pie charts, monthly genre filtering, viewing habits,
+  consecutive active days and a bounded previous-report comparison extend the rewind.
+  Shared activity history always records playback independently of the annual
+  page. Existing Jellyfin state and the
+  activity cache supply a deduplicated baseline; reconstructed watch time is
+  clearly marked as estimated, while viewing habits use measured playback.
+  Each user has one report, frozen at
+  midnight server time on the configured annual start date and replaced the next
+  year. The default display period is 15 December through 15 January; hiding the
+  tab preserves the stored report. Configuration backup includes the settings.
+
 ## [3.1.1.0] - 2026-11-12
 
 **Note: Recommendation Engine V5 retrains your models.** Existing learned and neural models are replaced and trained again for the updated scoring and training rules. Keep the recommendation task in Activate mode to rebuild them over the next scheduled runs; your media, watch history and settings stay intact.

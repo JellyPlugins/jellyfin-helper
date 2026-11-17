@@ -226,11 +226,13 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     private static UserActivitySummary BuildItemSummary(BaseItem item, ItemActivityAggregate aggregate)
     {
         string? seriesName = null;
+        Guid? seriesId = null;
         string? episodeLabel = null;
 
         if (item is Episode episode)
         {
             seriesName = episode.SeriesName;
+            seriesId = episode.SeriesId == Guid.Empty ? null : episode.SeriesId;
             var season = episode.ParentIndexNumber;
             var epNum = episode.IndexNumber;
             if (season.HasValue && epNum.HasValue)
@@ -243,15 +245,22 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             }
         }
 
+        var genres = item.Genres ?? [];
+        if (genres.Length == 0 && item is Episode sourceEpisode && sourceEpisode.Series is { } parent)
+        {
+            genres = parent.Genres ?? [];
+        }
+
         return new UserActivitySummary
         {
             ItemId = item.Id,
             ItemName = item.Name ?? string.Empty,
             ItemType = item.GetType().Name,
             SeriesName = seriesName,
+            SeriesId = seriesId,
             EpisodeLabel = episodeLabel,
             Year = item.ProductionYear,
-            Genres = item.Genres ?? [],
+            Genres = genres,
             CommunityRating = item.CommunityRating,
             RuntimeTicks = item.RunTimeTicks ?? 0,
             TotalPlayCount = aggregate.TotalPlays,

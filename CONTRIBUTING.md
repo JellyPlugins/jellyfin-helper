@@ -152,11 +152,11 @@ It runs automatically on every PR via `.github/workflows/e2e.yml`. See
 [`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
 
 The fast browser fixture suite uses `test/e2e/playwright.ui-fixtures.config.ts`
-and `test/e2e/tests/ui-primitives.fixture.spec.ts`. Run `npm run test:fixtures`
+and the `*.fixture.spec.ts` files. Run `npm run test:fixtures`
 from `test/e2e/` with Chromium and WebKit installed. It checks the shipped UI
 sources with a stubbed API, including modal focus, card identity, narrow layouts,
-themes and reduced motion, without starting Docker. Live Jellyfin integration
-remains covered by the main E2E suite.
+themes, reduced motion and localized YearlyRewind charts, without starting Docker.
+Live Jellyfin integration remains covered by the main E2E suite.
 The dedicated configuration runs the documentation guard before Chromium and
 WebKit. Fixture specs stay separate from the Jellyfin-backed UI project and do
 not wait for its API or server setup.
@@ -219,8 +219,9 @@ directly without staging.
 ### UI JavaScript Tests
 
 A third suite (`test/ui/`) runs the **shipped** dashboard scripts
-(`PluginPages/js/`, `js/client-lifecycle.js`, `js/discovery-sidebar.js`, `js/native-tabs.js`) in jsdom via Vitest, with a
-stubbed `ApiClient`. It pins behavior that only exists in JavaScript e.g.
+(`PluginPages/js/`, `js/client-lifecycle.js`, `js/discovery-sidebar.js`,
+`js/native-tabs.js`, `js/yearly-rewind.js`) in jsdom via Vitest, with a stubbed
+`ApiClient`. It pins behavior that only exists in JavaScript e.g.
 visibility rules, validators, tab switching, dialog flows. Runs without a container.
 
 ```bash
@@ -563,7 +564,8 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── MediaExtensions.cs           # Extension methods for media analysis
 ├── js/
 │   ├── discovery-sidebar.js     # Discovery sidebar + tab registration (embedded resource, injected into index.html)
-│   └── native-tabs.js           # Self-contained Home tab registry (JellyfinHelperTabs)
+│   ├── native-tabs.js           # Shared Home tab registry (JellyfinHelperTabs)
+│   ├── yearly-rewind.js         # Localized personal annual report tab
 │   └── client-lifecycle.js      # Shared authentication and navigation signals
 ├── Api/
 │   ├── ArrIntegrationController.cs      # Radarr/Sonarr integration API
@@ -617,7 +619,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── TrashRelocateRequest.cs          # DTO for relocating trash between paths
 │   ├── TrashRelocateResponse.cs         # POST /Trash/Relocate response: moved + failed counts
 │   ├── TrashSizeResponse.cs             # GET /Trash/Summary response: totalSize + totalItems
-│   └── UserActivityController.cs        # User activity insights API
+│   ├── UserActivityController.cs        # User activity insights API
+│   └── UserYearlyRewindController.cs     # Authenticated caller's frozen report and seasonal status
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
 │   ├── ClampReportEntry.cs      # Record for reporting clamped config values at startup
@@ -803,6 +806,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── OfficialTraktPluginReader.cs  # Reads <PluginConfigurationsPath>/Trakt.xml with a hardened XmlReader (no DTD/XXE, size-capped, namespace-agnostic, whitespace-packing-safe); TryGetToken matches on LinkedMbUserId, GetLinkedUserIds enumerates all usable users (for pre-warming); honors the foreign LOCAL-time expiry; strictly read-only (never refreshes/writes back); fails closed
 │   │       ├── OfficialTraktToken.cs          # Helper-owned read-only token snapshot (access token + expiry; no refresh token held); never references the foreign assembly
 │   │       └── OfficialTraktPluginGuids.cs    # The foreign plugin id (4fe3201e-…) + config file name (Trakt.xml); central foreign-schema constants
+│   └── YearlyRewind/            # Annual aggregation and frozen per-user reports
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs
@@ -889,6 +893,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 - `PluginConfigurationSerializationTests.cs`
 - `TaskModeTests.cs`
+- `YearlyRewindConfigurationTests.cs` - Default settings, date validation and backup round-trip
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/PluginPages/`
 
@@ -931,6 +936,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Activity/`
 
+- `UserActivityHistoryTests.cs` - Shared recording, baseline import, metadata revisions, migration, provenance and frozen reports
 - `UserActivityCacheServiceTests.cs` - Tests JSON cache save/load round-trip, corruption recovery, and directory auto-creation
 - `UserActivityDtoTests.cs` - Tests activity DTO defaults, UTC normalization, and reference-equality semantics
 - `UserActivityInsightsServiceTests.cs` - Tests activity report building, completion math, and batch user-data fallback contract
@@ -1121,6 +1127,14 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `LibraryInsightsServiceTests.cs` - Unit tests for LibraryInsightsService change-type classification and insights logic
 - `TimelineAggregatorTests.cs`
 
+`Jellyfin.Plugin.JellyfinHelper.Tests/Services/YearlyRewind/`
+
+- `YearlyRewindInsightTests.cs` - Local-time distributions, DST, streaks, monthly genres, bounded comparisons and persistence
+- `YearlyRewindPlaybackTests.cs` - Playback qualification, gaps, seeks, pauses and aggregation
+- `YearlyRewindServiceTests.cs` - Annual scheduling, authenticated access, restart recovery and retained reports
+- `YearlyRewindStoreTests.cs` - Snapshot validation and atomic annual replacement
+- `YearlyRewindWindowTests.cs` - Seasonal boundaries, leap years and server time zones
+
 `Jellyfin.Plugin.JellyfinHelper.Tests/TestFixtures/`
 
 - `CleanupTaskTestBase.cs` - Base class for cleanup task tests providing mocked config/tracking/trash and log helpers
@@ -1186,6 +1200,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `TrashSizeResponse.cs`
 - `UserActivityController.cs`
 - `UserDiscoveryController.cs`
+- `UserYearlyRewindController.cs` - Personal report and visibility status; no request-driven generation
 
 `Jellyfin.Plugin.JellyfinHelper/BuildTasks/`
 
@@ -1197,6 +1212,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ClampReportEntry.cs`
 - `PluginConfiguration.cs`
 - `TaskMode.cs`
+- `YearlyRewindSettings.cs` - Annual display-date parsing and defaults
 
 `Jellyfin.Plugin.JellyfinHelper/PluginPages/`
 
@@ -1284,6 +1300,17 @@ while the editor closes, including after Escape.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Activity/`
 
+- `IUserActivityHistoryConsumer.cs`
+- `IUserActivityHistoryRecorder.cs`
+- `UserActivityCoverage.cs`
+- `UserActivityHistory.cs`
+- `UserActivityHistoryService.cs`
+- `UserActivityHistoryStore.cs`
+- `UserPlaybackInterval.cs`
+- `UserPlaybackItem.cs`
+- `UserPlaybackObservation.cs`
+- `UserPlaybackSession.cs`
+- `UserPlaybackTracker.cs`
 - `IUserActivityCacheService.cs`
 - `IUserActivityInsightsService.cs`
 - `UserActivityCacheService.cs`
@@ -1522,10 +1549,25 @@ the heuristic rules and ensemble blend limits are unchanged.
 - `LibraryInsightsService.cs`
 - `TimelineAggregator.cs`
 
+`Jellyfin.Plugin.JellyfinHelper/Services/YearlyRewind/`
+
+- `YearlyRewindAggregator.cs`
+- `YearlyRewindComparison.cs`
+- `YearlyRewindGenre.cs`
+- `YearlyRewindInsights.cs`
+- `YearlyRewindItem.cs`
+- `YearlyRewindPendingStore.cs`
+- `YearlyRewindMonth.cs`
+- `YearlyRewindService.cs`
+- `YearlyRewindSnapshot.cs`
+- `YearlyRewindStore.cs`
+- `YearlyRewindWindow.cs`
+
 `Jellyfin.Plugin.JellyfinHelper/js/`
 
 - `discovery-sidebar.js`
 - `native-tabs.js`
+- `yearly-rewind.js` - Personal report cards, monthly chart and seasonal tab lifecycle
 
 
 ### Service Registration
@@ -1618,10 +1660,10 @@ UserWatchProfiles → Genre/People/Language preferences
 
 **Out-of-band request reconciliation:** `SeerrDiscoveryService.ReconcileRequestedItemsAsync(jellyfinUserId, ct)` folds requests a user made outside the discovery UI (e.g. directly in Jellyseerr) back into discovery. It resolves the Jellyfin user to their Seerr user id, paginates `GET /api/v1/request?requestedBy={seerrUserId}`, intersects the returned `(tmdbId, mediaType)` keys with the user's cached recommendations, and for each match records a positive `Requested` feedback signal (`IDiscoveryFeedbackStore.RecordRequested`) and marks it in the cache (`DiscoveryCacheService.MarkAsRequestedAsync`), so the item leaves the visible pool and the next backfill item takes its slot, exactly like an in-discovery request. It is **fail-safe**: an unresolvable user, any Seerr HTTP/JSON error, or an incomplete pagination returns 0 and touches neither the feedback store nor the cache. It runs from two callers: lazily on the view-load path (`UserDiscoveryController.GetMyDiscoveryResults`, throttled per-user via `BuildReconcileKey` for `ReconcileTtl`) for instant UX, and authoritatively at the top of `GenerateForUserAsync` during the scheduled run so training benefits even for users who never open the sidebar.
 
-### Discovery Tab & Script Injection
+### Home Tabs & Script Injection
 
-Discovery results are also displayed on the Jellyfin home screen. The plugin injects
-its own script into `index.html` and registers the tab against Jellyfin's own tab
+Discovery and YearlyRewind use independent tabs on the Jellyfin home screen.
+The plugin injects its own script into `index.html` and registers the tab against Jellyfin's own tab
 strip, so no third-party tab or injection plugin is required:
 
 ```text
@@ -1634,11 +1676,11 @@ ScriptInjectionStartupFilter (IStartupFilter middleware)
         ↓
     index.html serves <script plugin="Jellyfin Helper" src=".../Discovery/My/script" defer>
         ↓
-    discovery-sidebar.js + native-tabs.js run in the browser:
+    client-lifecycle.js + native-tabs.js + feature scripts run in the browser:
       1. Wait for ApiClient, load i18n strings from /JellyfinHelper/Translations
-      2. Probe /Discovery/My on the Home page
-      3. native-tabs.js appends the tab button + panel to Jellyfin's tab strip
-      4. discovery-sidebar.js renders cards into that panel and injects the sidebar link
+      2. Probe Discovery and YearlyRewind availability independently
+      3. native-tabs.js appends each eligible tab button + panel to Jellyfin's tab strip
+      4. The feature script renders its own panel; disabled features register no tab
 ```
 
 **Why a middleware and not a disk write:** the response is patched on the way out,
@@ -1648,9 +1690,9 @@ preserves the original response if transformation fails. Plugin startup and
 uninstall do not modify the web directory.
 
 **Native tab registry:** `js/native-tabs.js` exposes `window.JellyfinHelperTabs`
-(`register`, `unregister`, `focus`). It reconciles indices with other tabs, keeps a
-stable `jfhTab=<id>` deep link next to Jellyfin's positional `tab=N`, and falls back
-to a header-tray button when the Jellyfin 12 experimental layout hides the tab strip.
+(`register`, `unregister`, `updateTitle`, `focus`, `refresh`). It reconciles indices
+with other tabs, keeps a stable `jfhTab=<id>` deep link next to Jellyfin's
+positional `tab=N`, and falls back to a header-tray button when the Jellyfin 12 experimental layout hides the tab strip.
 
 **Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting. There is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
 
@@ -1663,12 +1705,74 @@ to a header-tray button when the Jellyfin 12 experimental layout hides the tab s
 | `GET` | `/JellyfinHelper/Discovery/Services/{type}` | Admin | Radarr/Sonarr service info (profiles, root folders) |
 | `POST` | `/JellyfinHelper/Discovery/Request` | Admin | Submit request with server/profile/rootFolder overrides |
 | `GET` | `/JellyfinHelper/Discovery/My` | User | Current user's own discovery results |
-| `GET` | `/JellyfinHelper/Discovery/My/script` | Anonymous | Serves `discovery-sidebar.js` embedded resource |
+| `GET` | `/JellyfinHelper/Discovery/My/script` | Anonymous | Shared client bundle; also available at `/JellyfinHelper/Client/script` |
 | `GET` | `/JellyfinHelper/Discovery/My/RequestPermissions/{serviceType}` | User | Whether the user may request from this Radarr/Sonarr, plus available profiles |
 | `GET` | `/JellyfinHelper/Discovery/My/Services/{serviceType}` | User | User-visible service info for the given type |
 | `GET` | `/JellyfinHelper/Discovery/My/ExternalLinks` | User | Configured external links surfaced in the sidebar |
 | `POST` | `/JellyfinHelper/Discovery/My/Request` | User | Submit request as linked Seerr user (no overrides) |
 | `POST` | `/JellyfinHelper/Discovery/My/Dismiss` | User | Dismiss a discovery item (training feedback signal) |
+
+### YearlyRewind Architecture
+
+YearlyRewind defaults to off and runs independently of Recommendations, Discovery,
+Seerr and Trakt. The shared `UserActivityHistoryService` owns the only playback
+collector and runs as a hosted singleton. Activity recording always runs
+independently of the annual page and Recommendations; it has no configuration
+switch. Previously stored disable flags are ignored.
+`YearlyRewindService` consumes this history and only publishes frozen reports.
+
+The existing activity task also forwards its successful Activate results to the
+shared recorder. Startup and hourly refreshes import the latest
+activity cache and current Jellyfin state. Observations retain the source and
+observation timestamps, last-play date, progress, counters and versioned metadata.
+Repeated unchanged states are skipped. Counter resets and stale snapshots never
+produce invented play deltas. Metadata revisions are shared by reference within
+each user’s file. History has no age or record-count pruning.
+
+For missing measured coverage, a report can reconstruct at most one conservative
+play per title from a known last-play date in the period. Lifetime play counts
+are never attributed wholesale to that year. Runtime or known progress provides
+an explicitly estimated duration; missing duration stays unknown. Estimated time
+has its own monthly segment and provenance notice. Hours, weekdays, active days
+and streaks use measured intervals only. Enabling the annual page additionally
+refreshes the Jellyfin baseline before its initial snapshot.
+The tracker excludes pauses, large seeks and unknown gaps. The aggregator unions
+overlapping intervals and produces twelve viewing periods.
+The same union time feeds the frozen hourly and Monday-to-Sunday distributions;
+consecutive local calendar days determine the longest streak. Each viewing period
+also stores genre shares, split equally across a title’s distinct genres. The web
+tab uses these facts for pie charts, a monthly genre selector and viewing habits.
+
+Before replacing a directly adjacent report, the service copies only its totals,
+counts and genre summary into the new report. Comparisons never retain older
+comparisons or full previous reports. Missing and partially collected periods
+are identified in the UI. Optional fields keep older frozen reports readable;
+the client does not reconstruct missing insights from today’s history.
+
+The configured start date freezes the preceding year at **00:00 server time**.
+For example, 15 December 2026 freezes [15 December 2025, 15 December 2026).
+Missed cutoffs are caught up after startup; pending publication survives a restart.
+Each user has one report, replaced atomically the following year. The end date
+only hides the tab. Disabling YearlyRewind denies access while retaining the
+stored report while activity collection continues. Later imports
+never update a report already frozen for that year. GET requests never generate
+or recalculate reports.
+
+Data lives beside statistics and the latest activity cache in
+`IApplicationPaths.DataPath` (`/config/data/` in the standard Docker layout).
+`activity-history/{userId}.json` contains the shared journal; `yearly-rewind/pending/`
+and `yearly-rewind/reports/` contain frozen publications. Legacy
+`yearly-rewind/history/` files migrate once to the shared schema, keeping the old
+file as a read-only rollback source. Annual reports do not need migration.
+Configuration backups include annual report settings, but exclude journals and
+reports. Legacy activity-recording flags have no effect.
+Stored facts are language-independent; `yearly-rewind.js` localizes labels, numbers
+and dates using the Jellyfin web language, with English fallback.
+
+| Method | Route | Auth | Purpose |
+|--------|-------|------|---------|
+| `GET` | `/JellyfinHelper/YearlyRewind/My` | User | Caller’s frozen report, including outside the display window |
+| `GET` | `/JellyfinHelper/YearlyRewind/My/Status` | User | Availability, seasonal visibility and next visibility boundary |
 
 ## Configuration Page Build System
 
@@ -1729,9 +1833,14 @@ Recommendations.js, Logs.js, FolderBrowser.js, Main.js
   subfolders are **generated, not committed** (they are `.gitignore`d). Only
   `docs/index.html`, `docs/.nojekyll`, and `docs/mock/` are tracked. The assets are produced two ways:
   - locally with `dotnet build -p:SyncDocs=true` (the `SyncDocsAssets` MSBuild
-    target mirrors `css/`, `js/`, and `i18n/` into `docs/`), and
+    target mirrors `css/`, `js/`, and `i18n/` into `docs/`, including user-page
+    scripts and demo mock data), and
   - in CI by `.github/scripts/prepare-demo-site.ps1` (run from
     `.github/workflows/pages.yml`) before the Pages deploy.
+  The demo mounts the shipped Discovery and YearlyRewind scripts in separate
+  views. Its frozen annual sample uses existing library titles and stays visible
+  throughout the year. `test/e2e/tests/demo.fixture.spec.ts` verifies the generated
+  site in Chromium and WebKit; run a docs sync before this fixture.
 
 ### JavaScript Guidelines
 
@@ -1768,8 +1877,3 @@ Recommendations.js, Logs.js, FolderBrowser.js, Main.js
 3. Add request/response DTOs and validation
 4. Register required services in `PluginServiceRegistrator.cs`
 5. Add integration/unit tests for success and failure paths
-IndexHtmlTransformer.cs
-ScriptInjectionStartupFilter.cs
-IndexHtmlTransformerTests.cs
-ScriptInjectionStartupFilterTests.cs
-native-tabs.js

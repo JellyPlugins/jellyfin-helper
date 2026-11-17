@@ -58,6 +58,15 @@ public class ConfigurationUpdateRequest
     /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
     public bool? DiscoveryUserAccessEnabled { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether yearly rewinds are enabled.</summary>
+    public bool? YearlyRewindEnabled { get; init; }
+
+    /// <summary>Gets the annual snapshot start date in MM-dd format.</summary>
+    public string? YearlyRewindStartDate { get; init; }
+
+    /// <summary>Gets the inclusive tab end date in MM-dd format.</summary>
+    public string? YearlyRewindEndDate { get; init; }
+
     /// <summary>
     ///     Gets the execution mode for the Seerr Cleanup task.
     /// </summary>

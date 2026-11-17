@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -54,6 +54,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
+    private readonly IUserActivityHistoryRecorder? _activityHistory;
     private readonly ISeerrDiscoveryService _seerrDiscoveryService;
     private readonly ITraktDiscoveryService _traktDiscoveryService;
     private readonly IUserActivityInsightsService _userActivityInsightsService;
@@ -81,6 +82,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="playlistService">The recommendation playlist service.</param>
     /// <param name="seerrDiscoveryService">The Seerr discovery service.</param>
     /// <param name="traktDiscoveryService">The Trakt discovery service, refreshed alongside Seerr discovery.</param>
+    /// <param name="activityHistory">The common activity history, also refreshed independently of this task.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -101,7 +103,8 @@ public class HelperCleanupTask : IScheduledTask
         IRecommendationCacheService recsCacheService,
         IRecommendationPlaylistService playlistService,
         ISeerrDiscoveryService seerrDiscoveryService,
-        ITraktDiscoveryService traktDiscoveryService)
+        ITraktDiscoveryService traktDiscoveryService,
+        IUserActivityHistoryRecorder? activityHistory = null)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -119,6 +122,7 @@ public class HelperCleanupTask : IScheduledTask
         _secretProtector = secretProtector;
         _userActivityInsightsService = userActivityInsightsService;
         _userActivityCacheService = userActivityCacheService;
+        _activityHistory = activityHistory;
         _recsEngine = recsEngine;
         _recsCacheService = recsCacheService;
         _playlistService = playlistService;
@@ -439,7 +443,8 @@ public class HelperCleanupTask : IScheduledTask
             _userActivityInsightsService,
             _userActivityCacheService,
             _pluginLog,
-            _loggerFactory.CreateLogger<UserActivityUpdateTask>());
+            _loggerFactory.CreateLogger<UserActivityUpdateTask>(),
+            _activityHistory);
         return task.ExecuteAsync(progress, cancellationToken, config.RecommendationsTaskMode);
     }
 

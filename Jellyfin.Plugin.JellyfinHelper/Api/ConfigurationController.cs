@@ -549,6 +549,21 @@ public class ConfigurationController : ControllerBase
             config.DiscoveryUserAccessEnabled = request.DiscoveryUserAccessEnabled.Value;
         }
 
+        if (request.YearlyRewindEnabled.HasValue)
+        {
+            config.YearlyRewindEnabled = request.YearlyRewindEnabled.Value;
+        }
+
+        if (request.YearlyRewindStartDate is not null)
+        {
+            config.YearlyRewindStartDate = request.YearlyRewindStartDate;
+        }
+
+        if (request.YearlyRewindEndDate is not null)
+        {
+            config.YearlyRewindEndDate = request.YearlyRewindEndDate;
+        }
+
         config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
 
         if (request.UseTrash.HasValue)

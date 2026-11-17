@@ -69,6 +69,40 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateConfiguration_YearlyRewindPartialUpdatesPreserveOmittedValues()
+    {
+        _config.YearlyRewindEnabled = true;
+        _config.YearlyRewindStartDate = "11-01";
+        _config.YearlyRewindEndDate = "11-30";
+        var request = new ConfigurationUpdateRequest { YearlyRewindEndDate = "12-01" };
+        Assert.IsType<OkObjectResult>(await _controller.UpdateConfigurationAsync(request, CancellationToken.None));
+        Assert.True(_config.YearlyRewindEnabled);
+        Assert.Equal("11-01", _config.YearlyRewindStartDate);
+        Assert.Equal("12-01", _config.YearlyRewindEndDate);
+        var response = ConfigurationResponse.FromConfig(_config);
+        Assert.True(response.YearlyRewindEnabled);
+        Assert.Equal("11-01", response.YearlyRewindStartDate);
+        Assert.Equal("12-01", response.YearlyRewindEndDate);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_InvalidYearlyRewindDateDoesNotMutateAnySettings()
+    {
+        _config.ExcludedLibraries = "Original";
+        var request = new ConfigurationUpdateRequest
+        {
+            ExcludedLibraries = "Changed",
+            YearlyRewindEnabled = true,
+            YearlyRewindStartDate = "02-29"
+        };
+        Assert.IsType<BadRequestObjectResult>(await _controller.UpdateConfigurationAsync(request, CancellationToken.None));
+        Assert.False(_config.YearlyRewindEnabled);
+        Assert.Equal("12-15", _config.YearlyRewindStartDate);
+        Assert.Equal("Original", _config.ExcludedLibraries);
+        _configServiceMock.Verify(c => c.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
+    }
+
+    [Fact]
     public void GetConfiguration_ReturnsCurrentConfig()
     {
         var result = _controller.GetConfiguration();

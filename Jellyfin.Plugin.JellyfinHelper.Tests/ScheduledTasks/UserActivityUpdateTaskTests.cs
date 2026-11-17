@@ -15,11 +15,12 @@ public class UserActivityUpdateTaskTests
 {
     private readonly Mock<IUserActivityInsightsService> _insightsMock = new();
     private readonly Mock<IUserActivityCacheService> _cacheMock = new();
+    private readonly Mock<IUserActivityHistoryRecorder> _history = new();
     private readonly Mock<IPluginLogService> _pluginLogMock = new();
     private readonly Mock<ILogger> _loggerMock = new();
 
     private UserActivityUpdateTask CreateSut() =>
-        new(_insightsMock.Object, _cacheMock.Object, _pluginLogMock.Object, _loggerMock.Object);
+        new(_insightsMock.Object, _cacheMock.Object, _pluginLogMock.Object, _loggerMock.Object, _history.Object);
 
     [Fact]
     public async Task Execute_BuildsReportAndSaves()
@@ -42,6 +43,7 @@ public class UserActivityUpdateTaskTests
         // Assert
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Once);
         _cacheMock.Verify(x => x.SaveResult(result), Times.Once);
+        _history.Verify(x => x.Record(result), Times.Once);
     }
 
     [Fact]
@@ -81,6 +83,7 @@ public class UserActivityUpdateTaskTests
 
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Never);
         _cacheMock.Verify(x => x.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _history.Verify(x => x.Record(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     [Fact]
@@ -97,6 +100,7 @@ public class UserActivityUpdateTaskTests
         // Assert - dry-run still builds the report but does NOT persist to cache
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Once);
         _cacheMock.Verify(x => x.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _history.Verify(x => x.Record(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     [Fact]
@@ -111,5 +115,6 @@ public class UserActivityUpdateTaskTests
         // Assert - Deactivate is a true no-op: no report building, no cache save
         _insightsMock.Verify(x => x.BuildActivityReport(), Times.Never);
         _cacheMock.Verify(x => x.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _history.Verify(x => x.Record(It.IsAny<UserActivityResult>()), Times.Never);
     }
 }

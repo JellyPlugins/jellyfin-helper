@@ -32,6 +32,9 @@ public sealed class UserActivitySummary
     /// </summary>
     public string? SeriesName { get; set; }
 
+    /// <summary>Gets or sets the parent series ID for shared activity reconstruction.</summary>
+    public Guid? SeriesId { get; set; }
+
     /// <summary>
     ///     Gets or sets a short season/episode label like "S01E03" (only for episodes).
     /// </summary>

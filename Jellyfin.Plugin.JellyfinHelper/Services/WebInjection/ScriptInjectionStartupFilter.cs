@@ -176,7 +176,8 @@ public sealed class ScriptInjectionStartupFilter : IStartupFilter
 
         try
         {
-            return _configurationService.GetConfiguration().DiscoveryUserAccessEnabled;
+            var config = _configurationService.GetConfiguration();
+            return config.DiscoveryUserAccessEnabled || config.YearlyRewindEnabled;
         }
         catch (InvalidOperationException ex)
         {
