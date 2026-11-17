@@ -108,6 +108,7 @@ GitHub Pages uses the shipped admin UI with synthetic `docs/mock/mock-data.js` r
 - Franchise IDs need no BoxSets; progression requires real, self-excluded membership.
 - Collection continuation requires every known member to remain resolvable in the scoped population; missing/excluded members keep only that sequence neutral. Genre/alias tags are not narrative evidence.
 - Inactive-model retirement keeps trust assessments and spent acceptance IDs; it never releases withdrawal/recovery restrictions. Ambiguous active Arr mappings withhold orphan verdicts; remote path semantics do not inherit the host's case rules.
+- Schema-only refits require intact discarded-checkpoint and assessment receipts; damaged trust data stays fail-closed. Preserve admission evidence and keep provisional calibration diagnostics separate from acceptance utility.
 
 ### Running Tests
 
@@ -515,6 +516,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
 │       │   ├── NeuralIntegrityTests.cs                  # Complete model schema, Adam checkpoints, fitting-only themes and coordinate-preserving clamps
+│       │   ├── SchemaUpgradeAdmissionTests.cs           # Intact schema-only refits, fail-closed recovery and preserved admission/calibration diagnostics
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
 │       │   ├── LanguageFeatureImputationTests.cs           # Learned/Neural fitting-only priors, legacy refits/restart and normalization isolation
@@ -748,10 +750,12 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── AdmissionScores.cs            # Coherent precomputed component predictions
 │   │   │   ├── AdmissionModels.cs            # Frozen model candidates and actual incumbent reference
 │   │   │   ├── AdmissionDecision.cs          # Assessment without model mutation or persistence
+│   │   │   ├── ProvisionalServingAssessment.cs # Separate target/attempt/retained calibration losses, never acceptance utility
 │   │   │   ├── AdmissionEvidence.cs          # Unique effective calibration/acceptance support
 │   │   │   ├── AdmissionUtility.cs           # Nullable ranking/calibration and paired improvement evidence
 │   │   │   ├── AcceptedModelBundle.cs        # One complete accepted v6 parameter/mix/evidence version
 │   │   │   ├── AcceptedModelStore.cs         # Atomic checkpoint; working models remain intact on rejection or failure
+│   │   │   ├── SupersededModelSchema.cs       # Validation-only discarded-schema receipts; no old predictor loading or conversion
 │   │   │   ├── AcceptanceObservationLedger.cs # Single checksummed exact spent-title set, separate from bounded model archives
 │   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
 │   │   │   ├── ModelTrainingAssessment.cs    # Attempt/retirement receipts and unique maturity; never grants model trust or stamps trained weights

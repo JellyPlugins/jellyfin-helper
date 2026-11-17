@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -58,12 +59,30 @@ internal sealed class AcceptedModelStore
 
     /// <summary>Reads only complete, finite, compatible versions. Invalid bundles never rewrite legacy checkpoints.</summary>
     /// <returns>The accepted version, or null when no usable compound checkpoint exists.</returns>
-    internal AcceptedModelBundle? Read()
+    internal AcceptedModelBundle? Read() => Read(out _);
+
+    /// <summary>Distinguishes an intact schema replacement from damaged/missing checkpoints without loading old parameters.</summary>
+    /// <param name="superseded">Only a validated schema and reuse receipt, never an old predictor.</param>
+    /// <returns>The current compatible bundle, or null when fresh parameters are required.</returns>
+    internal AcceptedModelBundle? Read(out SupersededCheckpoint? superseded)
     {
+        superseded = null;
         try
         {
-            var bundle = ReadStoredBundle();
-            return bundle is not null && Valid(bundle) ? bundle : null;
+            var bundle = ReadStoredBundle(out var intactPreviousSchema);
+            if (bundle is null || Valid(bundle))
+            {
+                return bundle;
+            }
+
+            if (intactPreviousSchema && ValidReceipt(bundle))
+            {
+                // Lost/corrupt required ledgers remain recovery failures, even for perfectly intact V5 weights.
+                ReadSpentAcceptanceIds(bundle);
+                superseded = new SupersededCheckpoint(bundle.Revision, bundle.State.ObservedTrainingIds!.ToFrozenSet());
+            }
+
+            return null;
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
@@ -72,8 +91,11 @@ internal sealed class AcceptedModelStore
         }
     }
 
-    private AcceptedModelBundle? ReadStoredBundle()
+    private AcceptedModelBundle? ReadStoredBundle() => ReadStoredBundle(out _);
+
+    private AcceptedModelBundle? ReadStoredBundle(out bool intactPreviousSchema)
     {
+        intactPreviousSchema = false;
         if (_path is null || !File.Exists(_path))
         {
             return null;
@@ -86,8 +108,16 @@ internal sealed class AcceptedModelStore
 
         try
         {
-            return JsonSerializer.Deserialize<AcceptedModelBundle>(File.ReadAllText(_path), JsonOptions)
+            using var document = JsonDocument.Parse(File.ReadAllText(_path));
+            if (!SupersededModelSchema.HasUniqueFields(document.RootElement))
+            {
+                throw new InvalidDataException("Accepted checkpoint has ambiguous duplicate receipt fields.");
+            }
+
+            var bundle = document.RootElement.Deserialize<AcceptedModelBundle>(JsonOptions)
                 ?? throw new InvalidDataException("Accepted checkpoint contains no receipt.");
+            intactPreviousSchema = bundle.Learned?.Version == 5 && ValidReceipt(bundle) && SupersededModelSchema.IsIntact(bundle, document.RootElement);
+            return bundle;
         }
         catch (JsonException exception)
         {
@@ -215,7 +245,7 @@ internal sealed class AcceptedModelStore
             && (bundle.Neural is null || NeuralScoringStrategy.IsValidParameters(bundle.Neural));
 
     private static bool ValidReceipt(AcceptedModelBundle bundle)
-        => bundle.Version is 1 or 2 && bundle.Revision > 0 && bundle.Learned is not null
+        => bundle.Version is 1 or 2 && bundle.Revision is > 0 and < long.MaxValue && bundle.Learned is not null
             && ValidMixture(bundle) && ValidState(bundle) && ValidCheckpointEvidence(bundle)
             && (!bundle.Retired || (bundle.RetirementUtility is not null && FinitePositive(bundle.RetirementUtility.LowerIncumbentImprovement)))
             && bundle.TrainedAtUtc.Kind == DateTimeKind.Utc;
@@ -267,4 +297,7 @@ internal sealed class AcceptedModelStore
     private static bool FiniteNonnegative(double? value) => value.HasValue && double.IsFinite(value.Value) && value.Value >= 0;
 
     private static bool FinitePositive(double? value) => value.HasValue && double.IsFinite(value.Value) && value.Value > 0;
+
+    /// <summary>Validated discarded-checkpoint identity; no prediction or optimizer parameters may escape through it.</summary>
+    internal sealed record SupersededCheckpoint(long Revision, FrozenSet<Guid> ObservedTrainingIds);
 }

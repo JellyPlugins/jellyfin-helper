@@ -4,7 +4,11 @@ Heuristic, Learned and Neural use **one 41-feature catalogue**. Learned persists
 
 The total is **17,018 weights + 251 biases = 17,269**; optimizer moments and preprocessing statistics are not additional trainable network parameters.
 
-Model parameter files must declare version 6 and match these exact dimensions. Unsupported files are not converted or erased while loading. New fitting and independent admission are required before new parameters become serving models. Model-version changes never reset title-reuse ledgers or manufacture independent feedback.
+Model parameter files must declare version 6 and match these exact dimensions. Unsupported files are not converted or erased while loading. Fresh fitting and the normal admission lifecycle are required before new parameters become serving models; provisional participation never claims independent ranking approval. Model-version changes never reset title-reuse ledgers or manufacture independent feedback.
+
+A fully validated discarded-schema checkpoint and matching intact assessment permit fresh V6 fitting under the normal provisional policy; they never permit V5 inference. Missing/corrupt checkpoints, required ledgers, recovery receipts or withdrawal evidence remain fail-closed. Successful admission atomically replaces the checkpoint without archiving unusable parameters, while retaining spent identities and monotonically advancing known model revisions.
+
+Provisional diagnostics retain the independent limitation and available observed title counts. Their separate target, attempted and selected component losses are calibration-only measurements, never independent acceptance utility or proof of a Neural ranking improvement.
 
 ## Feature list
 

@@ -36,6 +36,24 @@ public sealed record EnsembleDiagnostics
     /// <summary>Gets the latest independent admission/retention reason, when this lifecycle has evaluated a challenger.</summary>
     public string? AdmissionReason { get; init; }
 
+    /// <summary>Gets the independent evidence limitation even when calibration-only serving was retained.</summary>
+    public string? IndependentAdmissionReason { get; init; }
+
+    /// <summary>Gets calibration-only serving loss, never an acceptance measurement.</summary>
+    public double? ProvisionalCalibrationLoss { get; init; }
+
+    /// <summary>Gets the Learned component's calibration-only loss.</summary>
+    public double? ProvisionalLearnedCalibrationLoss { get; init; }
+
+    /// <summary>Gets the Neural component's calibration-only loss, null when absent.</summary>
+    public double? ProvisionalNeuralCalibrationLoss { get; init; }
+
+    /// <summary>Gets the heuristic's calibration-only comparison loss.</summary>
+    public double? ProvisionalHeuristicCalibrationLoss { get; init; }
+
+    /// <summary>Gets the incumbent's calibration-only comparison loss, null when absent.</summary>
+    public double? ProvisionalIncumbentCalibrationLoss { get; init; }
+
     /// <summary>Gets unique titles retained for coefficient calibration.</summary>
     public int CalibrationTitleCount { get; init; }
 

@@ -420,6 +420,12 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 ValidationLevel = GetOperatingValidationLevel(),
                 HasOwnOperatingModel = HasOwnOperatingModel,
                 AdmissionReason = _lastAdmission?.Reason,
+                IndependentAdmissionReason = _lastAdmission?.ProvisionalServing?.IndependentReason ?? _lastAdmission?.Reason,
+                ProvisionalCalibrationLoss = _lastAdmission?.ProvisionalServing?.SelectedCalibration.MixtureLoss,
+                ProvisionalLearnedCalibrationLoss = _lastAdmission?.ProvisionalServing?.SelectedCalibration.LearnedLoss,
+                ProvisionalNeuralCalibrationLoss = _lastAdmission?.ProvisionalServing?.SelectedCalibration.NeuralLoss,
+                ProvisionalHeuristicCalibrationLoss = _lastAdmission?.ProvisionalServing?.SelectedCalibration.HeuristicLoss,
+                ProvisionalIncumbentCalibrationLoss = _lastAdmission?.ProvisionalServing?.SelectedCalibration.IncumbentLoss,
                 CalibrationTitleCount = _lastAdmission?.Evidence.CalibrationTitles ?? 0,
                 AcceptanceTitleCount = _lastAdmission?.Evidence.AcceptanceTitles ?? 0,
                 CandidateValidationLoss = _lastAdmission?.Utility.CandidateLoss

@@ -49,6 +49,24 @@ public sealed class EnsembleDiagnosticsResponse
     /// <summary>Gets or sets the latest independent admission/retention reason.</summary>
     public string? AdmissionReason { get; set; }
 
+    /// <summary>Gets or sets the independent evidence limitation, separate from provisional serving.</summary>
+    public string? IndependentAdmissionReason { get; set; }
+
+    /// <summary>Gets or sets calibration-only provisional mixture loss, never acceptance loss.</summary>
+    public double? ProvisionalCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only Learned component loss.</summary>
+    public double? ProvisionalLearnedCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only Neural component loss, null when absent.</summary>
+    public double? ProvisionalNeuralCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only heuristic comparison loss.</summary>
+    public double? ProvisionalHeuristicCalibrationLoss { get; set; }
+
+    /// <summary>Gets or sets calibration-only incumbent comparison loss, null when absent.</summary>
+    public double? ProvisionalIncumbentCalibrationLoss { get; set; }
+
     /// <summary>Gets or sets unique calibration title support.</summary>
     public int CalibrationTitleCount { get; set; }
 
@@ -149,6 +167,12 @@ public sealed class EnsembleDiagnosticsResponse
             ModelRevision = diagnostics.ModelRevision,
             ValidationLevel = diagnostics.ValidationLevel,
             AdmissionReason = diagnostics.AdmissionReason,
+            IndependentAdmissionReason = diagnostics.IndependentAdmissionReason,
+            ProvisionalCalibrationLoss = diagnostics.ProvisionalCalibrationLoss,
+            ProvisionalLearnedCalibrationLoss = diagnostics.ProvisionalLearnedCalibrationLoss,
+            ProvisionalNeuralCalibrationLoss = diagnostics.ProvisionalNeuralCalibrationLoss,
+            ProvisionalHeuristicCalibrationLoss = diagnostics.ProvisionalHeuristicCalibrationLoss,
+            ProvisionalIncumbentCalibrationLoss = diagnostics.ProvisionalIncumbentCalibrationLoss,
             CalibrationTitleCount = diagnostics.CalibrationTitleCount,
             AcceptanceTitleCount = diagnostics.AcceptanceTitleCount,
             CandidateValidationLoss = diagnostics.CandidateValidationLoss,

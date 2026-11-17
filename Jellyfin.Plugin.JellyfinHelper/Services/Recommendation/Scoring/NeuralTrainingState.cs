@@ -35,14 +35,21 @@ internal sealed class NeuralTrainingState
     };
 
     internal bool Valid(int inputSize)
+        => Valid(inputSize, NeuralScoringStrategy.Hidden1Size);
+
+    /// <summary>Checks a discarded optimizer's integrity without loading it into the current network.</summary>
+    /// <param name="inputSize">The checkpoint's declared input dimension.</param>
+    /// <param name="hidden1Size">The checkpoint's first hidden dimension.</param>
+    /// <returns>Whether every optimizer coordinate is finite and shape-consistent.</returns>
+    internal bool Valid(int inputSize, int hidden1Size)
     {
         int[] lengths =
         [
-            NeuralScoringStrategy.Hidden1Size * inputSize,
-            NeuralScoringStrategy.Hidden1Size * NeuralScoringStrategy.Hidden2Size,
+            hidden1Size * inputSize,
+            hidden1Size * NeuralScoringStrategy.Hidden2Size,
             NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden3Size,
             NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden4Size,
-            NeuralScoringStrategy.Hidden4Size, NeuralScoringStrategy.Hidden1Size,
+            NeuralScoringStrategy.Hidden4Size, hidden1Size,
             NeuralScoringStrategy.Hidden2Size, NeuralScoringStrategy.Hidden3Size, NeuralScoringStrategy.Hidden4Size
         ];
         return Version == 1 && Timestep >= 0 && FirstMoments is { Length: 9 } && SecondMoments is { Length: 9 }
@@ -51,7 +58,7 @@ internal sealed class NeuralTrainingState
                 && second.All(value => double.IsFinite(value) && value >= 0)).All(valid => valid)
             && double.IsFinite(OutputFirstMoment) && double.IsFinite(OutputSecondMoment) && OutputSecondMoment >= 0
             && InputWeightLimits is { } && InputWeightLimits.Length == inputSize && InputWeightLimits.All(ValidLimit)
-            && InputBiasLimits is { Length: NeuralScoringStrategy.Hidden1Size } && InputBiasLimits.All(ValidLimit)
+            && InputBiasLimits is { } && InputBiasLimits.Length == hidden1Size && InputBiasLimits.All(ValidLimit)
             && (Timestep > 0 || (OutputFirstMoment == 0 && OutputSecondMoment == 0
                 && FirstMoments.Concat(SecondMoments).All(values => values.All(value => value == 0))));
     }

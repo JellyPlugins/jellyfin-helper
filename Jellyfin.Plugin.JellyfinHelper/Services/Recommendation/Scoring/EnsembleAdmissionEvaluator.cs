@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -53,12 +54,13 @@ internal static class EnsembleAdmissionEvaluator
             return limitation;
         }
 
+        var availableAcceptanceTitles = test.Length;
         var testUsers = MixedUsers(test).ToHashSet();
         test = test.Where(row => plan.Users.Contains(row.UserId) && testUsers.Contains(row.UserId)).ToArray();
         if (!HasSupport(test))
         {
             var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
-            return AdmissionDecision.Unknown(reason, plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
+            return AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
         }
 
         test = ScoreEvidence(test, models, neuralCap > 0);
@@ -622,16 +624,19 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="MixtureLoss">Measured bounded operational loss.</param>
     /// <param name="LearnedLoss">Learned calibration loss.</param>
     /// <param name="NeuralLoss">Neural calibration loss, absent without a trained predictor.</param>
-    internal sealed record ServingCalibration(int Titles, double MixtureLoss, double LearnedLoss, double? NeuralLoss)
+    internal sealed record ServingCalibration([property: JsonRequired] int Titles, [property: JsonRequired] double MixtureLoss, [property: JsonRequired] double LearnedLoss, [property: JsonRequired] double? NeuralLoss)
     {
         /// <summary>Gets the actual heuristic calibration loss.</summary>
-        internal double HeuristicLoss { get; init; }
+        [JsonRequired]
+        public double HeuristicLoss { get; init; }
 
         /// <summary>Gets the currently operating predictor's loss on these same calibration titles.</summary>
-        internal double? IncumbentLoss { get; init; }
+        [JsonRequired]
+        public double? IncumbentLoss { get; init; }
 
         /// <summary>Gets a value indicating whether evaluable per-user rankings avoid observed regressions.</summary>
-        internal bool RankingSafe { get; init; }
+        [JsonRequired]
+        public bool RankingSafe { get; init; }
     }
 
     private sealed record CalibrationPlan(EvidenceRow[] Rows, HashSet<Guid> Users, AdmissionMixture Selected, AdmissionMixture NoNeural, AdmissionDecision? Limitation);

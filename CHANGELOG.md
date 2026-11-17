@@ -26,6 +26,9 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Fixed
 
+- **Separate schema replacement from trust recovery.** Fully validated discarded V5 checkpoints with matching intact assessments permit fresh V6 provisional fitting without loading old predictors; damaged or missing trust receipts, required ledgers and withdrawal restrictions remain fail-closed. Successful replacements preserve spent identities and advance known model revisions.
+- **Keep independent admission diagnostics during provisional serving.** Retain available observed acceptance-title counts and the original evidence limitation; store the target, attempted and selected calibration-only component comparisons separately, including retained-parameter fallbacks and unchanged-input replays.
+
 - **Neural early stopping and restart restore complete training state.** Best-epoch and persisted checkpoints include matching Adam moments and timestep, so continuation does not pair old weights with a newer optimizer.
 - **Normalization changes preserve model coordinates and clamp envelopes.** Negative/nonfinite deviations are rejected; legitimate zero deviations remain valid. Learned and Neural refits retain their saved imputation priors instead of copying normalization means.
 - **Genre and language tags cannot manufacture narrative confidence.** The shared genre/language alias catalogues cover localized names, codes and provider labels, while real story settings such as "French revolution" remain usable. Disliked titles and partial playback alone do not become positive thematic references; audience hints are not blanket age or country bans.
