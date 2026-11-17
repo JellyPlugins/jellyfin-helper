@@ -777,7 +777,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="profile">The user profile to populate with language data.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
     /// <param name="playbackSnapshots">The same detached per-item playback data used to create each watch row.</param>
-    private void BuildLanguageProfiles(
+    private static void BuildLanguageProfiles(
         UserWatchProfile profile,
         IReadOnlyList<BaseItem> allItems,
         Dictionary<Guid, UserItemData?> playbackSnapshots)

@@ -59,9 +59,13 @@ internal sealed class NeuralTrainingState
             && double.IsFinite(OutputFirstMoment) && double.IsFinite(OutputSecondMoment) && OutputSecondMoment >= 0
             && InputWeightLimits is { } && InputWeightLimits.Length == inputSize && InputWeightLimits.All(ValidLimit)
             && InputBiasLimits is { } && InputBiasLimits.Length == hidden1Size && InputBiasLimits.All(ValidLimit)
-            && (Timestep > 0 || (OutputFirstMoment == 0 && OutputSecondMoment == 0
-                && FirstMoments.Concat(SecondMoments).All(values => values.All(value => value == 0))));
+            && (Timestep > 0 || (IsExactZero(OutputFirstMoment) && IsExactZero(OutputSecondMoment)
+                && FirstMoments.Concat(SecondMoments).All(values => values.All(IsExactZero))));
     }
+
+    // An unstarted optimizer must contain literal IEEE-754 zeros, not merely small numerical residues.
+    // Mask only the sign bit so both +0 and -0 remain valid; every nonzero finite value is rejected.
+    private static bool IsExactZero(double value) => (BitConverter.DoubleToInt64Bits(value) & long.MaxValue) == 0;
 
     private static bool ValidLimit(double value) => double.IsFinite(value) && value > 0;
 }

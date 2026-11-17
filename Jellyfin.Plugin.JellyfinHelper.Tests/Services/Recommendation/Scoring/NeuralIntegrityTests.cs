@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -11,6 +12,53 @@ public sealed class NeuralIntegrityTests
 {
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly DateTime Future = new(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(0L, true)]
+    [InlineData(long.MinValue, true)]
+    [InlineData(1L, false)]
+    [InlineData(long.MinValue + 1, false)]
+    [InlineData(0x0010000000000000L, false)]
+    [InlineData(0x3FF0000000000000L, false)]
+    [InlineData(-0x4010000000000000L, false)]
+    [InlineData(0x7FF0000000000000L, false)]
+    [InlineData(-0x0010000000000000L, false)]
+    [InlineData(0x7FF8000000000000L, false)]
+    public void ZeroStepOptimizerRequiresExactSignedZeroInEveryMomentAndJsonReceipt(long bits, bool expected)
+    {
+        using var model = new NeuralScoringStrategy();
+        Invoke(model, "EnsureAdamState", CandidateFeatures.FeatureCount);
+        var pristine = model.CaptureTrainingCheckpoint().TrainingState!;
+        Assert.Equal(0, pristine.Timestep);
+        Assert.True(pristine.Valid(CandidateFeatures.FeatureCount));
+        var value = BitConverter.Int64BitsToDouble(bits);
+        var options = new JsonSerializerOptions { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        for (var slot = 0; slot < 20; slot++)
+        {
+            var state = pristine.Copy();
+            if (slot < 9) state.FirstMoments[slot][0] = value;
+            else if (slot < 18) state.SecondMoments[slot - 9][0] = value;
+            else if (slot == 18) state.OutputFirstMoment = value;
+            else state.OutputSecondMoment = value;
+            Assert.Equal(expected, state.Valid(CandidateFeatures.FeatureCount));
+            var restored = JsonSerializer.Deserialize<NeuralTrainingState>(JsonSerializer.Serialize(state, options), options)!;
+            Assert.Equal(expected, restored.Valid(CandidateFeatures.FeatureCount));
+        }
+    }
+
+    [Fact]
+    public void CompletedOptimizerStepMayRetainSmallNonzeroMomentsWithoutTreatingThemAsAnUnstartedState()
+    {
+        using var model = new NeuralScoringStrategy();
+        Invoke(model, "EnsureAdamState", CandidateFeatures.FeatureCount);
+        var state = model.CaptureTrainingCheckpoint().TrainingState!;
+        state.Timestep = 1;
+        foreach (var moments in state.FirstMoments) Array.Fill(moments, -double.Epsilon);
+        foreach (var moments in state.SecondMoments) Array.Fill(moments, double.Epsilon);
+        state.OutputFirstMoment = -double.Epsilon;
+        state.OutputSecondMoment = double.Epsilon;
+        Assert.True(state.Valid(CandidateFeatures.FeatureCount));
+    }
 
     [Fact]
     public void BestEpochCheckpoint_RestoresEveryMomentClockAndClampBeforeAnIdenticalNextUpdate()

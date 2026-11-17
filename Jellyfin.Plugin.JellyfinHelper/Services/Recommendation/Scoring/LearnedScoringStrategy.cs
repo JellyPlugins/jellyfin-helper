@@ -1231,7 +1231,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             return;
         }
 
-        if (data is not { Weights: { Length: CandidateFeatures.FeatureCount }, Version: CurrentWeightsVersion })
+        var weights = data.Weights;
+        if (weights is not { Length: CandidateFeatures.FeatureCount } || data.Version != CurrentWeightsVersion)
         {
             // Unsupported schemas are rejected without rewriting their files.
             _logger?.LogWarning(
@@ -1239,11 +1240,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 + "expected={ExpectedVersion}, featureCount={FeatureCount}). Resetting to defaults",
                 data.Version,
                 CurrentWeightsVersion,
-                data.Weights?.Length ?? -1);
+                weights?.Length ?? -1);
             return;
         }
 
-        if (!AllFinite(data.Weights) || !double.IsFinite(data.Bias))
+        if (!AllFinite(weights) || !double.IsFinite(data.Bias))
         {
             _logger?.LogWarning(
                 "LearnedScoringStrategy: Discarding persisted weights containing NaN/Infinity values. Resetting to defaults");
@@ -1270,13 +1271,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             }
 
             var validLimits = ValidWeightLimits(data);
-            _weights = data.Weights;
+            _weights = weights;
             _bias = data.Bias;
             _trainingGeneration = data.TrainingGeneration;
             _featureMeans = data.FeatureMeans;
             _featureStdDevs = data.FeatureStdDevs;
             _imputationMeans = data.ImputationMeans;
-            _weightLimits = validLimits ? (double[])data.WeightLimits!.Clone() : data.Weights.Select(weight => Math.Max(2.0, Math.Abs(weight))).ToArray();
+            _weightLimits = validLimits ? (double[])data.WeightLimits!.Clone() : weights.Select(weight => Math.Max(2.0, Math.Abs(weight))).ToArray();
             _biasLimit = validLimits ? data.BiasLimit!.Value : Math.Max(1.0, Math.Abs(data.Bias));
             _hasTrainedWeights = true;
             _hasPersistedWeights = true;
