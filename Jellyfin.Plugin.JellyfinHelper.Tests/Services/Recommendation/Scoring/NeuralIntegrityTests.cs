@@ -205,9 +205,9 @@ public sealed class NeuralIntegrityTests
         response.NeuralFeatures[0] = "changed caller value";
         Assert.Equal("GenreSimilarity", diagnostics.NeuralFeatures[0]);
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "CONTRIBUTING.md"))) directory = directory.Parent;
+        while (directory is not null && !File.Exists(Path.Join(directory.FullName, "CONTRIBUTING.md"))) directory = directory.Parent;
         Assert.NotNull(directory);
-        var documentation = File.ReadAllText(Path.Combine(directory.FullName, "docs", "RECOMMENDATION_FEATURES.md"));
+        var documentation = File.ReadAllText(Path.Join(directory.FullName, "docs", "RECOMMENDATION_FEATURES.md"));
         for (var index = 0; index < CandidateFeatures.FeatureCount; index++)
             Assert.Contains($"| {index} | `{ModelInputFeatures.Name(index)}` |", documentation);
     }
