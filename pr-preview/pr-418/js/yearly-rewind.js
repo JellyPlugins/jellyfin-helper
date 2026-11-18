@@ -8,7 +8,8 @@
     var registered = false;
     var panel = null;
     var report = null;
-    var reportId = null;
+    var expectedSnapshotId = null;
+    var reportRevision = 0;
     var strings = {};
     var locale = 'en';
     var inFlight = null;
@@ -27,9 +28,9 @@
     function readSession() {
         try {
             var client = typeof ApiClient === 'undefined' ? null : ApiClient;
-            return client && client.getCurrentUserId?.() && client.accessToken?.()
+            return client?.getCurrentUserId?.() && client.accessToken?.()
                 ? { client: client, user: client.getCurrentUserId(), token: client.accessToken(), server: client.serverAddress?.() || '' } : null;
-        } catch (_) { return null; }
+        } catch (_) { /* The host can replace its API client during login/navigation. Treat it as signed out. */ return null; }
     }
     function same(a, b) { return !!a && !!b && a.client === b.client && a.user === b.user && a.token === b.token && a.server === b.server; }
     function valid(epoch) { return !disposed && epoch === generation && same(session, readSession()); }
@@ -40,7 +41,8 @@
         refreshing = null;
         inFlight = null;
         report = null;
-        reportId = null;
+        expectedSnapshotId = null;
+        reportRevision++;
         if (panel) panel.replaceChildren();
         panel = null;
         if (registered) window.JellyfinHelperTabs?.unregister(TAB);
@@ -138,7 +140,7 @@
         var count = node('p', null, 'jfh-rewind-secondary'); genreSection.append(count);
         var body = node('div', null, 'jfh-rewind-pie-body');
         function showGenres(weights) {
-            count.textContent = text('genreCount').replace('{count}', number(Array.from(weights.keys()).filter(function (name) { return name; }).length));
+            count.textContent = text('genreCount').replace('{count}', number(Array.from(weights.keys()).filter(Boolean).length));
             pie(body, text('topGenres'), genreEntries(weights));
         }
         if (months.length && months.every(function (month) { return Array.isArray(value(month, 'Genres')); })) {
@@ -234,11 +236,24 @@
             row.append(label, node('td', number(metric[1], metric[3])), node('td', number(metric[2], metric[3])), node('td', difference)); rows.append(row);
         });
         table.append(rows); root.append(table);
-        var known = Array.from(genres.entries()).filter(function (entry) { return entry[0]; }).sort(function (a, b) { return b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0); });
+        var known = Array.from(genres.entries()).filter(function (entry) { return entry[0]; }).sort(function (a, b) { var difference = b[1] - a[1]; if (difference) return difference; if (a[0] < b[0]) return -1; return a[0] > b[0] ? 1 : 0; });
         root.append(node('p', text('previousTopGenre') + ': ' + (value(previous, 'TopGenre') || text('unknownGenre')) + ' → ' + text('currentTopGenre') + ': ' + (known[0]?.[0] || text('unknownGenre'))));
         var oldGenres = new Set(value(previous, 'Genres') || []);
         var discovered = known.map(function (entry) { return entry[0]; }).filter(function (name) { return !oldGenres.has(name); });
         root.append(node('p', text('newGenres') + ': ' + (discovered.length ? discovered.join(', ') : text('none')), 'jfh-rewind-secondary'));
+    }
+    function renderStats(items, series, totalSeconds) {
+        var stats = node('div', null, 'jfh-rewind-stats');
+        var movies = items.filter(function (item) { return value(item, 'ItemType') === 'Movie'; });
+        var episodes = items.filter(function (item) { return value(item, 'ItemType') === 'Episode'; });
+        var watchHours = '—';
+        if (totalSeconds || !reconstructedCount()) watchHours = (reconstructedCount() ? '≈ ' : '') + number(totalSeconds / 3600, 1);
+        addStat(stats, watchHours, text('hours'), 'schedule');
+        addStat(stats, number(movies.length), text('movies'), 'movie');
+        addStat(stats, number(episodes.length), text('episodes'), 'episodes');
+        addStat(stats, number(series.size), text('series'), 'tv');
+        addStat(stats, reconstructedCount() && !hasMeasuredPlayback() ? '—' : number(value(report, 'ActiveDays') || 0), text(reconstructedCount() ? 'measuredActiveDays' : 'activeDays'), 'activeDays');
+        panel.append(stats);
     }
     function render() {
         if (!panel) return;
@@ -255,28 +270,10 @@
         if ((state === 'Partial' && !reconstructedCount()) || state === 'NotCollected') panel.append(node('p', text(state === 'Partial' ? 'partial' : 'notCollected'), 'jfh-rewind-notice'));
         if (state === 'NotCollected') return;
         var items = value(report, 'Items') || [];
-        var stats = node('div', null, 'jfh-rewind-stats');
-        var movies = items.filter(function (item) { return value(item, 'ItemType') === 'Movie'; });
-        var episodes = items.filter(function (item) { return value(item, 'ItemType') === 'Episode'; });
-        var series = new Map();
+        var series = new Set(items.map(function (item) { return value(item, 'SeriesId'); }).filter(Boolean));
         var genres = genreWeights(items);
-        items.forEach(function (item) {
-            var seconds = value(item, 'ActiveSeconds') || 0;
-            var id = value(item, 'SeriesId');
-            if (id) {
-                var entry = series.get(id) || { ItemId: id, Name: value(item, 'SeriesName'), ActiveSeconds: 0 };
-                entry.ActiveSeconds += seconds;
-                entry.HasReconstructedActivity = entry.HasReconstructedActivity || value(item, 'HasReconstructedActivity');
-                series.set(id, entry);
-            }
-        });
         var totalSeconds = items.reduce(function (sum, item) { return sum + (value(item, 'ActiveSeconds') || 0); }, 0);
-        addStat(stats, reconstructedCount() && !totalSeconds ? '—' : (reconstructedCount() ? '≈ ' : '') + number(totalSeconds / 3600, 1), text('hours'), 'schedule');
-        addStat(stats, number(movies.length), text('movies'), 'movie');
-        addStat(stats, number(episodes.length), text('episodes'), 'episodes');
-        addStat(stats, number(series.size), text('series'), 'tv');
-        addStat(stats, reconstructedCount() && !hasMeasuredPlayback() ? '—' : number(value(report, 'ActiveDays') || 0), text(reconstructedCount() ? 'measuredActiveDays' : 'activeDays'), 'activeDays');
-        panel.append(stats);
+        renderStats(items, series, totalSeconds);
         if (!items.length) panel.append(node('p', text('empty')));
         var months = value(report, 'Months') || [];
         renderPies(items, genres, months);
@@ -330,17 +327,20 @@
     }
     function load() {
         var epoch = generation;
+        var revision = reportRevision;
+        var expected = expectedSnapshotId;
         if (report) { render(); return; }
         if (panel) panel.replaceChildren(node('p', text('loading')));
         if (!inFlight) {
-            inFlight = Promise.resolve(request('/JellyfinHelper/YearlyRewind/My')).then(function (data) {
-                if (!valid(epoch)) return;
-                report = data; reportId = value(data, 'SnapshotId'); render();
+            var pending = Promise.resolve(request('/JellyfinHelper/YearlyRewind/My')).then(function (data) {
+                if (!valid(epoch) || revision !== reportRevision || (expected && value(data, 'SnapshotId') !== expected)) return;
+                report = data; render();
             }, function (error) {
-                if (!valid(epoch)) return;
+                if (!valid(epoch) || revision !== reportRevision) return;
                 if (error?.status === 401 || error?.status === 403) { clear(); return; }
                 showError();
-            }).finally(function () { if (valid(epoch)) inFlight = null; });
+            }).finally(function () { if (inFlight === pending) inFlight = null; });
+            inFlight = pending;
         }
     }
     function probe() {
@@ -358,8 +358,9 @@
             if (!value(status, 'Enabled') || !value(status, 'TabVisible')) {
                 clear(); return;
             }
-            if (reportId && reportId !== value(status, 'SnapshotId')) { report = null; reportId = null; }
-            if (!value(status, 'Available')) { report = null; reportId = null; if (panel) panel.replaceChildren(node('p', text('unavailable'))); }
+            var nextSnapshotId = value(status, 'SnapshotId') || null;
+            if (expectedSnapshotId !== nextSnapshotId) { expectedSnapshotId = nextSnapshotId; report = null; inFlight = null; reportRevision++; }
+            if (!value(status, 'Available')) { report = null; inFlight = null; reportRevision++; if (panel) panel.replaceChildren(node('p', text('unavailable'))); return; }
             if (!registered && window.JellyfinHelperTabs) {
                 registered = true;
                 window.JellyfinHelperTabs.register(TAB, text('tabTitle') + ' ' + year(value(status, 'SnapshotAtUtc') || value(status, 'ServerTimeUtc') || Date.now(), value(status, 'TimeZoneId')), function (root) { panel = root; load(); }, 'history', function (root) { panel = root; load(); });

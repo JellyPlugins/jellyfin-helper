@@ -724,7 +724,7 @@
         if (!entry || entry.title === title) return;
         entry.title = title;
         var button = document.getElementById(OWN_ID_PREFIX + 'btn-' + id);
-        var link = document.getElementById(LINK_ID_PREFIX + id);
+        var link = entry.headerLink || document.getElementById(LINK_ID_PREFIX + id);
         [button, link].forEach(function (element) {
             if (!element) return;
             element.title = title;
