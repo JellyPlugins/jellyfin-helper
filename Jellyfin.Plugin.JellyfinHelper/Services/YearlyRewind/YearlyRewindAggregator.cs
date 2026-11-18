@@ -23,18 +23,55 @@ internal static class YearlyRewindAggregator
         var itemGenres = itemGroups.ToDictionary(group => group.Key, group => GenreNames(group.First().Item));
         var metadata = itemGroups.ToDictionary(group => group.Key, group => group.First().Item);
         var estimated = new Dictionary<Guid, double>();
-        var hourly = new double[24];
-        var weekdays = new double[7];
-        var monthlyGenres = Enumerable.Range(0, 12).Select(_ => new Dictionary<string, double>(StringComparer.Ordinal)).ToArray();
-        var intervals = sessions.SelectMany(session => session.Intervals
-            .Where(interval => interval.StartUtc < cutoff && interval.EndUtc > start)
-            .Select(interval => new Span(
-                session,
-                interval.StartUtc < start ? start : interval.StartUtc,
-                interval.EndUtc > cutoff ? cutoff : interval.EndUtc))).ToArray();
-        var points = intervals.SelectMany(interval => new[] { interval.Start, interval.End }).Distinct().Order().ToArray();
-        var seconds = new Dictionary<Guid, double>();
-        var days = new HashSet<DateOnly>();
+        var months = CreateMonths(start, cutoff, zone);
+        var totals = Measure(sessions, start, cutoff, zone, itemGenres, months);
+        var reconstructed = Reconstruct(history, start, cutoff, generated);
+        AddReconstructed(reconstructed, metadata, itemGenres, estimated, totals, months);
+        CompleteMonthlyGenres(months, totals);
+        var seconds = totals.Seconds;
+        var plays = itemGroups.ToDictionary(group => group.Key, group => group.Count(session => session.Intervals.Any(interval => interval.EndUtc > start && interval.StartUtc < cutoff)));
+        var items = metadata.Where(pair => seconds.ContainsKey(pair.Key)).Select(pair => new YearlyRewindItem
+        {
+            ItemId = pair.Key,
+            Name = pair.Value.Name,
+            ItemType = pair.Value.ItemType,
+            SeriesId = pair.Value.SeriesId == Guid.Empty ? null : pair.Value.SeriesId,
+            SeriesName = pair.Value.SeriesName,
+            Genres = pair.Value.Genres,
+            ActiveSeconds = seconds[pair.Key],
+            EstimatedSeconds = estimated.GetValueOrDefault(pair.Key),
+            HasReconstructedActivity = estimated.ContainsKey(pair.Key),
+            PlayCount = plays.GetValueOrDefault(pair.Key) + (estimated.ContainsKey(pair.Key) ? 1 : 0)
+        }).OrderByDescending(item => item.ActiveSeconds).ThenBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.ItemId).ToList();
+        var coverage = history.Coverage.OrderBy(period => period.StartUtc).ToArray();
+        var state = DescribeCollection(coverage, start, cutoff, reconstructed.Length, items.Count > 0);
+        YearlyRewindComparison? comparison = null;
+        if (previous is not null && previous.UserId == userId && previous.SnapshotAtUtc == start
+            && previous.DataState is "Ready" or "Empty" or "Partial")
+        {
+            comparison = Summarize(previous);
+        }
+
+        return new YearlyRewindSnapshot
+        {
+            UserId = userId,
+            PeriodStartUtc = start,
+            SnapshotAtUtc = cutoff,
+            GeneratedAtUtc = generated,
+            TimeZoneId = YearlyRewindWindow.ClientTimeZoneId(zone),
+            DataState = state,
+            Items = new Collection<YearlyRewindItem>(items),
+            Months = new Collection<YearlyRewindMonth>(months),
+            ActiveDays = totals.Days.Count,
+            Insights = BuildInsights(totals.Days, totals.Hourly, totals.Weekdays),
+            Comparison = comparison,
+            FirstItemId = totals.Intervals.OrderBy(span => span.Start).Select(span => (Guid?)span.Session.Item.ItemId).FirstOrDefault(),
+            CollectionStartedAtUtc = coverage.Select(period => (DateTimeOffset?)period.StartUtc).FirstOrDefault()
+        };
+    }
+
+    private static YearlyRewindMonth[] CreateMonths(DateTimeOffset start, DateTimeOffset cutoff, TimeZoneInfo zone)
+    {
         var months = Enumerable.Range(0, 12).Select(index => new YearlyRewindMonth
         {
             StartUtc = start,
@@ -51,6 +88,19 @@ internal static class YearlyRewindAggregator
             };
         }
 
+        return months;
+    }
+
+    private static MeasuredPlayback Measure(UserPlaybackSession[] sessions, DateTimeOffset start, DateTimeOffset cutoff, TimeZoneInfo zone, Dictionary<Guid, string[]> itemGenres, YearlyRewindMonth[] months)
+    {
+        var intervals = sessions.SelectMany(session => session.Intervals
+            .Where(interval => interval.StartUtc < cutoff && interval.EndUtc > start)
+            .Select(interval => new Span(
+                session,
+                interval.StartUtc < start ? start : interval.StartUtc,
+                interval.EndUtc > cutoff ? cutoff : interval.EndUtc))).ToArray();
+        var totals = new MeasuredPlayback { Intervals = intervals };
+        var points = intervals.SelectMany(interval => new[] { interval.Start, interval.End }).Distinct().Order().ToArray();
         // Sweep start/end boundaries. Divide concurrent sessions so totals equal the union of active time.
         var events = intervals.SelectMany(span => new[] { (At: span.Start, Session: span.Session, Delta: 1), (At: span.End, Session: span.Session, Delta: -1) })
             .GroupBy(entry => entry.At).ToDictionary(group => group.Key, group => group.ToArray());
@@ -74,42 +124,55 @@ internal static class YearlyRewindAggregator
                 continue;
             }
 
-            AddLocalTime(points[index], points[index + 1], zone, hourly, weekdays);
-            var duration = (points[index + 1] - points[index]).TotalSeconds;
-            foreach (var session in active.Values)
-            {
-                seconds[session.Item.ItemId] = seconds.GetValueOrDefault(session.Item.ItemId) + (duration / active.Count);
-            }
+            AddLocalTime(points[index], points[index + 1], zone, totals.Hourly, totals.Weekdays);
+            AllocateSegment(points[index], points[index + 1], active, totals, itemGenres, months, zone);
+        }
 
-            var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(points[index], zone).DateTime);
-            var lastDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(points[index + 1].AddTicks(-1), zone).DateTime);
-            for (; date <= lastDate; date = date.AddDays(1))
-            {
-                days.Add(date);
-            }
+        return totals;
+    }
 
-            for (var monthIndex = 0; monthIndex < months.Length; monthIndex++)
+    private static void AllocateSegment(DateTimeOffset from, DateTimeOffset to, Dictionary<Guid, UserPlaybackSession> active, MeasuredPlayback totals, Dictionary<Guid, string[]> itemGenres, YearlyRewindMonth[] months, TimeZoneInfo zone)
+    {
+        var duration = (to - from).TotalSeconds;
+        foreach (var item in active.Values.Select(session => session.Item))
+        {
+            totals.Seconds[item.ItemId] = totals.Seconds.GetValueOrDefault(item.ItemId) + (duration / active.Count);
+        }
+
+        var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(from, zone).DateTime);
+        var lastDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1), zone).DateTime);
+        for (; date <= lastDate; date = date.AddDays(1))
+        {
+            totals.Days.Add(date);
+        }
+
+        AllocateMonths(from, to, active, totals, itemGenres, months);
+    }
+
+    private static void AllocateMonths(DateTimeOffset from, DateTimeOffset to, Dictionary<Guid, UserPlaybackSession> active, MeasuredPlayback totals, Dictionary<Guid, string[]> itemGenres, YearlyRewindMonth[] months)
+    {
+        for (var monthIndex = 0; monthIndex < months.Length; monthIndex++)
+        {
+            var month = months[monthIndex];
+            var overlapStart = month.StartUtc > from ? month.StartUtc : from;
+            var overlapEnd = month.EndUtc < to ? month.EndUtc : to;
+            if (overlapEnd > overlapStart)
             {
-                var month = months[monthIndex];
-                var from = month.StartUtc > points[index] ? month.StartUtc : points[index];
-                var to = month.EndUtc < points[index + 1] ? month.EndUtc : points[index + 1];
-                if (to > from)
+                var allocated = (overlapEnd - overlapStart).TotalSeconds;
+                month.ActiveSeconds += allocated;
+                foreach (var genres in active.Values.Select(session => itemGenres[session.Item.ItemId]))
                 {
-                    var allocated = (to - from).TotalSeconds;
-                    month.ActiveSeconds += allocated;
-                    foreach (var session in active.Values)
+                    foreach (var genre in genres)
                     {
-                        var genres = itemGenres[session.Item.ItemId];
-                        foreach (var genre in genres)
-                        {
-                            monthlyGenres[monthIndex][genre] = monthlyGenres[monthIndex].GetValueOrDefault(genre) + (allocated / active.Count / genres.Length);
-                        }
+                        totals.MonthlyGenres[monthIndex][genre] = totals.MonthlyGenres[monthIndex].GetValueOrDefault(genre) + (allocated / active.Count / genres.Length);
                     }
                 }
             }
         }
+    }
 
-        var reconstructed = Reconstruct(history, start, cutoff, generated);
+    private static void AddReconstructed(UserPlaybackObservation[] reconstructed, Dictionary<Guid, UserPlaybackItem> metadata, Dictionary<Guid, string[]> itemGenres, Dictionary<Guid, double> estimated, MeasuredPlayback totals, YearlyRewindMonth[] months)
+    {
         foreach (var row in reconstructed)
         {
             var id = row.Item.ItemId;
@@ -119,11 +182,8 @@ internal static class YearlyRewindAggregator
                 itemGenres[id] = GenreNames(row.Item);
             }
 
-            var ticks = row.Played && row.Item.RuntimeTicks > 0
-                ? row.Item.RuntimeTicks
-                : Math.Min(row.PlaybackPositionTicks, row.Item.RuntimeTicks > 0 ? row.Item.RuntimeTicks : row.PlaybackPositionTicks);
-            var duration = TimeSpan.FromTicks(ticks).TotalSeconds;
-            seconds[id] = seconds.GetValueOrDefault(id) + duration;
+            var duration = EstimatedDuration(row);
+            totals.Seconds[id] = totals.Seconds.GetValueOrDefault(id) + duration;
             estimated[id] = duration;
             for (var monthIndex = 0; monthIndex < months.Length; monthIndex++)
             {
@@ -134,35 +194,37 @@ internal static class YearlyRewindAggregator
                     month.EstimatedSeconds += duration;
                     foreach (var genre in itemGenres[id])
                     {
-                        monthlyGenres[monthIndex][genre] = monthlyGenres[monthIndex].GetValueOrDefault(genre) + (duration / itemGenres[id].Length);
+                        totals.MonthlyGenres[monthIndex][genre] = totals.MonthlyGenres[monthIndex].GetValueOrDefault(genre) + (duration / itemGenres[id].Length);
                     }
                 }
             }
         }
+    }
 
+    private static double EstimatedDuration(UserPlaybackObservation row)
+    {
+        if (row.Played && row.Item.RuntimeTicks > 0)
+        {
+            return TimeSpan.FromTicks(row.Item.RuntimeTicks).TotalSeconds;
+        }
+
+        var maximum = row.Item.RuntimeTicks > 0 ? row.Item.RuntimeTicks : row.PlaybackPositionTicks;
+        return TimeSpan.FromTicks(Math.Min(row.PlaybackPositionTicks, maximum)).TotalSeconds;
+    }
+
+    private static void CompleteMonthlyGenres(YearlyRewindMonth[] months, MeasuredPlayback totals)
+    {
         for (var monthIndex = 0; monthIndex < months.Length; monthIndex++)
         {
-            foreach (var genre in monthlyGenres[monthIndex].OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal))
+            foreach (var genre in totals.MonthlyGenres[monthIndex].OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal))
             {
                 months[monthIndex].Genres!.Add(new YearlyRewindGenre { Name = genre.Key.Length == 0 ? null : genre.Key, ActiveSeconds = genre.Value });
             }
         }
+    }
 
-        var plays = itemGroups.ToDictionary(group => group.Key, group => group.Count(session => session.Intervals.Any(interval => interval.EndUtc > start && interval.StartUtc < cutoff)));
-        var items = metadata.Where(pair => seconds.ContainsKey(pair.Key)).Select(pair => new YearlyRewindItem
-        {
-            ItemId = pair.Key,
-            Name = pair.Value.Name,
-            ItemType = pair.Value.ItemType,
-            SeriesId = pair.Value.SeriesId,
-            SeriesName = pair.Value.SeriesName,
-            Genres = pair.Value.Genres,
-            ActiveSeconds = seconds[pair.Key],
-            EstimatedSeconds = estimated.GetValueOrDefault(pair.Key),
-            HasReconstructedActivity = estimated.ContainsKey(pair.Key),
-            PlayCount = plays.GetValueOrDefault(pair.Key) + (estimated.ContainsKey(pair.Key) ? 1 : 0)
-        }).OrderByDescending(item => item.ActiveSeconds).ThenBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.ItemId).ToList();
-        var coverage = history.Coverage.OrderBy(period => period.StartUtc).ToArray();
+    private static string DescribeCollection(UserActivityCoverage[] coverage, DateTimeOffset start, DateTimeOffset cutoff, int reconstructedCount, bool hasItems)
+    {
         var coveredUntil = start;
         foreach (var period in coverage)
         {
@@ -180,42 +242,20 @@ internal static class YearlyRewindAggregator
         }
 
         var state = "Ready";
-        if (coverage.All(period => period.StartUtc >= cutoff) && reconstructed.Length == 0)
+        if (coverage.All(period => period.StartUtc >= cutoff) && reconstructedCount == 0)
         {
             state = "NotCollected";
         }
-        else if (coveredUntil < cutoff || reconstructed.Length > 0)
+        else if (coveredUntil < cutoff || reconstructedCount > 0)
         {
             state = "Partial";
         }
-        else if (items.Count == 0)
+        else if (!hasItems)
         {
             state = "Empty";
         }
 
-        YearlyRewindComparison? comparison = null;
-        if (previous is not null && previous.UserId == userId && previous.SnapshotAtUtc == start
-            && previous.DataState is "Ready" or "Empty" or "Partial")
-        {
-            comparison = Summarize(previous);
-        }
-
-        return new YearlyRewindSnapshot
-        {
-            UserId = userId,
-            PeriodStartUtc = start,
-            SnapshotAtUtc = cutoff,
-            GeneratedAtUtc = generated,
-            TimeZoneId = YearlyRewindWindow.ClientTimeZoneId(zone),
-            DataState = state,
-            Items = new Collection<YearlyRewindItem>(items),
-            Months = new Collection<YearlyRewindMonth>(months),
-            ActiveDays = days.Count,
-            Insights = BuildInsights(days, hourly, weekdays),
-            Comparison = comparison,
-            FirstItemId = intervals.OrderBy(span => span.Start).Select(span => (Guid?)span.Session.Item.ItemId).FirstOrDefault(),
-            CollectionStartedAtUtc = coverage.Select(period => (DateTimeOffset?)period.StartUtc).FirstOrDefault()
-        };
+        return state;
     }
 
     private static UserPlaybackObservation[] Reconstruct(UserActivityHistory history, DateTimeOffset start, DateTimeOffset cutoff, DateTimeOffset generated)
@@ -333,6 +373,21 @@ internal static class YearlyRewindAggregator
         }
 
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, zone));
+    }
+
+    private sealed class MeasuredPlayback
+    {
+        public Span[] Intervals { get; init; } = [];
+
+        public Dictionary<Guid, double> Seconds { get; } = [];
+
+        public HashSet<DateOnly> Days { get; } = [];
+
+        public double[] Hourly { get; } = new double[24];
+
+        public double[] Weekdays { get; } = new double[7];
+
+        public Dictionary<string, double>[] MonthlyGenres { get; } = Enumerable.Range(0, 12).Select(_ => new Dictionary<string, double>(StringComparer.Ordinal)).ToArray();
     }
 
     private sealed record Span(UserPlaybackSession Session, DateTimeOffset Start, DateTimeOffset End);

@@ -27,6 +27,7 @@ internal sealed class UserActivityHistory
     {
         item = item with
         {
+            SeriesId = item.SeriesId == Guid.Empty ? null : item.SeriesId,
             Genres = new Collection<string>(item.Genres.Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(name => name.Trim()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray())
         };

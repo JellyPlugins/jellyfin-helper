@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
-import { seedRewind, todayMonthDay } from '../setup/yearly-rewind.ts';
+import { seedRewind, visibleRewindWindow } from '../setup/yearly-rewind.ts';
 import { openDashboard } from './_ui-helpers.ts';
 
 for (const layout of ['modern', 'desktop-legacy']) {
@@ -10,8 +10,7 @@ test(`YearlyRewind mounts independently and disappears when disabled in ${layout
  const original = await (await admin.get(p('Configuration'))).json();
  seedRewind(auth.userId);
  try {
-   expect((await admin.put(p('Configuration'), {data: {...original, YearlyRewindEnabled: true, YearlyRewindStartDate: todayMonthDay(),
-     YearlyRewindEndDate: todayMonthDay(), DiscoveryUserAccessEnabled: layout === 'modern', RecommendationsTaskMode: layout === 'modern' ? 'DryRun' : 'Deactivate'}})).ok()).toBeTruthy();
+   expect((await admin.put(p('Configuration'), {data: {...original, YearlyRewindEnabled: true, ...visibleRewindWindow(), DiscoveryUserAccessEnabled: layout === 'modern', RecommendationsTaskMode: layout === 'modern' ? 'DryRun' : 'Deactivate'}})).ok()).toBeTruthy();
    await expect.poll(async () => (await admin.get(p('YearlyRewind/My'))).status()).toBe(200);
    await openDashboard(page);
    await page.goto(auth.baseUrl + '/web/index.html#/home');
@@ -19,7 +18,7 @@ test(`YearlyRewind mounts independently and disappears when disabled in ${layout
    await expect(entry).toHaveCount(1, {timeout: 20000});
    await entry.click();
    const panel = page.locator('#jfh-tab-panel-yearly-rewind');
-   await expect(panel).toContainText('Rewind fixture film');
+   await expect(panel.locator('.jfh-rewind-stat strong')).toHaveText(['2', '1', '0', '0', '3']);
    await expect(panel.locator('.jfh-rewind-stat')).toHaveCount(5);
    await admin.put(p('Configuration'), {data: {...original, YearlyRewindEnabled: false}});
    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

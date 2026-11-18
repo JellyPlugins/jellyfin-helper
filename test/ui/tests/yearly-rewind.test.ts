@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { loadYearlyRewindBundle, freshConfigPage, saveCoverage } from '../src/loader.js';
+import { loadYearlyRewindBundle, saveCoverage } from '../src/loader.js';
+import { todayMonthDay, visibleRewindWindow } from '../../e2e/setup/yearly-rewind.js';
 
 afterAll(saveCoverage);
 let mount: (panel: HTMLElement) => void;
@@ -11,11 +12,13 @@ let user = 'a';
 let available = true;
 let api: any;
 let extra: Record<string, any> = {};
-const report = () => ({ SnapshotId: id, PeriodStartUtc: '2025-12-15T00:00:00Z', SnapshotAtUtc: '2026-12-15T00:00:00Z', TimeZoneId: 'UTC',
+const snapshotAt = () => id === 'snapshot-b' ? '2027-12-15T00:00:00Z' : '2026-12-15T00:00:00Z';
+const periodStart = () => id === 'snapshot-b' ? '2026-12-15T00:00:00Z' : '2025-12-15T00:00:00Z';
+const report = () => ({ SnapshotId: id, PeriodStartUtc: periodStart(), SnapshotAtUtc: snapshotAt(), TimeZoneId: 'UTC',
  DataState: 'Ready', ActiveDays: 2, FirstItemId: '12345678123412341234123456781234',
  Items: [{ ItemId: '12345678123412341234123456781234', Name: '<script>bad</script>', ItemType: 'Movie', ActiveSeconds: 3600, Genres: ['Drama'] },
  {ItemId: 'episode', Name: 'Episode', ItemType: 'Episode', SeriesId: 'series', SeriesName: 'Series', ActiveSeconds: 600, Genres: [] }],
- Months: [{ StartUtc: '2025-12-15T00:00:00Z', EndUtc: '2026-01-15T00:00:00Z', ActiveSeconds: 4200 }], ...extra });
+ Months: [{ StartUtc: periodStart(), EndUtc: id === 'snapshot-b' ? '2027-01-15T00:00:00Z' : '2026-01-15T00:00:00Z', ActiveSeconds: 4200 }], ...extra });
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 beforeEach(() => {
@@ -26,7 +29,7 @@ beforeEach(() => {
  delete (window as any).JellyfinHelperRewind;
  (window as any).JellyfinHelperTabs = { register: vi.fn((_id, _title, callback) => { mount = callback; callback(root); }), unregister: vi.fn(), updateTitle: vi.fn() };
  api = { getCurrentUserId: () => user, accessToken: () => user ? 'token-' + user : '', serverAddress: () => 'https://test.example', getUrl: (path: string) => { if (!path) throw new Error('Url name cannot be empty'); return path; },
- ajax: vi.fn(({ url }) => Promise.resolve(url.startsWith('/Items/') ? {Id: '12345678123412341234123456781234'} : url.includes('Translations') ? {} : url.includes('Status') ? { Enabled: enabled, TabVisible: visible, Available: available, SnapshotId: id, SnapshotAtUtc: id === 'snapshot-b' ? '2027-12-15T00:00:00Z' : '2026-12-15T00:00:00Z', TimeZoneId: 'UTC' } : report())) };
+ ajax: vi.fn(({ url }) => Promise.resolve(url.startsWith('/Items/') ? {Id: '12345678123412341234123456781234'} : url.includes('Translations') ? {} : url.includes('Status') ? { Enabled: enabled, TabVisible: visible, Available: available, SnapshotId: id, SnapshotAtUtc: snapshotAt(), TimeZoneId: 'UTC' } : report())) };
  (globalThis as any).ApiClient = api;
 });
 afterEach(() => { (window as any).JellyfinHelperRewind?.dispose(); delete (window as any).JellyfinHelperRewind; vi.useRealTimers(); });
@@ -70,6 +73,8 @@ test('new annual snapshot is loaded but a disabled feature is never mounted', as
  id = 'snapshot-b'; await vi.advanceTimersByTimeAsync(60000); await flush();
  expect(api.ajax.mock.calls.filter(([args]) => args.url.endsWith('/My'))).toHaveLength(2);
  expect((window as any).JellyfinHelperTabs.updateTitle).toHaveBeenCalledWith('yearly-rewind', 'Year in review 2027');
+ expect(root.querySelector('h2')?.textContent).toContain('Your year in review 2027');
+ expect(root.querySelector('.jfh-rewind-period')?.textContent).toBe('(12/15/2026 – 12/14/2027)');
 });
 
 test('logout clears immediately and rejects a late response from the previous user', async () => {
@@ -223,4 +228,45 @@ test('unknown reconstructed duration stays unavailable instead of showing zero h
  expect(root.querySelector('.jfh-rewind-estimated-bar')).toBeNull();
  const hours = root.querySelector('.jfh-rewind-comparison-table tbody tr');
  expect(Array.from(hours!.querySelectorAll('td'), cell => cell.textContent)).toEqual(['—', '—', '—']);
+});
+
+
+test.each(['old-first', 'new-first'])('superseded pending snapshots never replace the current report (%s)', async order => {
+ const pending: Array<{data: any; resolve: (data: any) => void}> = [];
+ const fallback = api.ajax.getMockImplementation();
+ api.ajax.mockImplementation(args => args.url.endsWith('/My') ? new Promise(resolve => pending.push({data: report(), resolve})) : fallback(args));
+ loadYearlyRewindBundle(); await flush();
+ expect(pending).toHaveLength(1);
+ id = 'snapshot-b'; await vi.advanceTimersByTimeAsync(60000); await flush();
+ expect(pending).toHaveLength(2);
+ if (order === 'old-first') {
+  pending[0].resolve(pending[0].data); await flush();
+  expect(root.textContent).not.toContain('Your year in review 2026');
+ }
+ pending[1].resolve(pending[1].data); await flush();
+ if (order === 'new-first') { pending[0].resolve(pending[0].data); await flush(); }
+ expect(root.querySelector('h2')?.textContent).toContain('Your year in review 2027');
+ expect(api.ajax.mock.calls.filter(([args]) => args.url.endsWith('/My'))).toHaveLength(2);
+});
+
+test('unchanged status accepts the outstanding matching snapshot without duplicate loads', async () => {
+ let resolve!: (value: any) => void;
+ const fallback = api.ajax.getMockImplementation();
+ api.ajax.mockImplementation(args => args.url.endsWith('/My') ? new Promise(done => {resolve = done;}) : fallback(args));
+ loadYearlyRewindBundle(); await flush();
+ await vi.advanceTimersByTimeAsync(60000); await flush();
+ resolve(report()); await flush();
+ expect(root.querySelector('h2')?.textContent).toContain('Your year in review 2026');
+ expect(api.ajax.mock.calls.filter(([args]) => args.url.endsWith('/My'))).toHaveLength(1);
+});
+
+test.each(['2028-02-28', '2028-02-29', '2028-03-01', '2028-12-31'])('E2E annual windows remain valid around %s', day => {
+ const now = new Date(day + 'T12:00:00Z');
+ const window = visibleRewindWindow(now);
+ const today = now.toISOString().slice(5, 10);
+ expect(window.YearlyRewindStartDate <= today && today <= window.YearlyRewindEndDate).toBe(true);
+ expect(window.YearlyRewindStartDate).not.toBe('02-29');
+ expect(window.YearlyRewindEndDate).not.toBe('02-29');
+ expect(todayMonthDay(1, now)).not.toBe('02-29');
+ expect(todayMonthDay(1, now)).not.toBe(today);
 });

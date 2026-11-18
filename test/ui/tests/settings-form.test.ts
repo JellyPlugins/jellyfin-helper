@@ -670,3 +670,19 @@ test('shared activity recording has no settings control or save field', async ()
   expect(document.getElementById('cfgActivityHistoryEnabled')).toBeNull();
   expect(ui.buildSettingsPayload()).not.toHaveProperty('ActivityHistoryEnabled');
 });
+
+
+test.each([true, false])('successful saves keep post-dispatch edits dirty (quiet=%s)', async quiet => {
+ ajaxRouter({});
+ fullForm();
+ ui.takeSettingsSnapshot();
+ let finish!: (value: any) => void;
+ (globalThis as any).ApiClient.ajax = vi.fn(() => new Promise(resolve => {finish = resolve;}));
+ const payload = ui.buildSettingsPayload();
+ ui.doSaveSettings(payload, {quiet});
+ (document.getElementById('cfgOrphanAge') as HTMLInputElement).value = '31';
+ finish({}); await flush();
+ expect(ui.hasUnsavedSettings()).toBe(true);
+ (document.getElementById('cfgOrphanAge') as HTMLInputElement).value = String(payload.OrphanMinAgeDays);
+ expect(ui.hasUnsavedSettings()).toBe(false);
+});

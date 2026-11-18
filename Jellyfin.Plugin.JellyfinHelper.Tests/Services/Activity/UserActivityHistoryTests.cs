@@ -235,6 +235,67 @@ public sealed class UserActivityHistoryTests : IDisposable
         Assert.Equal(2, store.Load(_userId).Observations.Count);
     }
 
+    [Theory]
+    [InlineData("json")]
+    [InlineData("schema")]
+    [InlineData("legacy")]
+    public void UnreadableUserHistoryIsPreservedWhileHealthyUsersContinueAndRecoveryRetries(string corruption)
+    {
+        var configuration = new Mock<IPluginConfigurationService>();
+        var config = new PluginConfiguration { YearlyRewindEnabled = true };
+        configuration.SetupGet(value => value.IsInitialized).Returns(true);
+        configuration.Setup(value => value.GetConfiguration()).Returns(config);
+        var paths = new Mock<IApplicationPaths>();
+        paths.SetupGet(value => value.DataPath).Returns(_directory);
+        var healthy = new User("healthy", "default", "default") { Id = _userId };
+        var broken = new User("broken", "default", "default") { Id = Guid.NewGuid() };
+        var users = new Mock<IUserManager>();
+        users.Setup(value => value.GetUsers()).Returns([broken, healthy]);
+        users.Setup(value => value.GetUserById(healthy.Id)).Returns(healthy);
+        users.Setup(value => value.GetUserById(broken.Id)).Returns(broken);
+        var brokenPath = corruption == "legacy"
+            ? Path.Join(_directory, "yearly-rewind", "history", broken.Id.ToString("N") + ".json")
+            : Path.Join(_directory, "activity-history", broken.Id.ToString("N") + ".json");
+        Directory.CreateDirectory(Path.GetDirectoryName(brokenPath)!);
+        var invalid = corruption == "schema" ? "{\"schemaVersion\":999}" : "not JSON";
+        File.WriteAllText(brokenPath, invalid);
+        var brokenState = State(_cutoff.AddDays(-10));
+        brokenState.UserId = broken.Id;
+        var snapshot = new UserActivityResult
+        {
+            GeneratedAt = _cutoff.UtcDateTime,
+            Items = [new UserActivitySummary
+            {
+                ItemId = _movie.ItemId, ItemName = "Movie", ItemType = "Movie", RuntimeTicks = _movie.RuntimeTicks,
+                UserActivities = [brokenState, State(_cutoff.AddDays(-10))]
+            }]
+        };
+        var source = new Mock<IUserActivityInsightsService>();
+        source.Setup(value => value.BuildActivityReport()).Returns(snapshot);
+        var consumer = new YearlyRewindService(configuration.Object, paths.Object, NullLogger<YearlyRewindService>.Instance);
+        using var service = new UserActivityHistoryService(configuration.Object, Mock.Of<ISessionManager>(), users.Object, Mock.Of<ILibraryManager>(),
+            new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance), source.Object, Mock.Of<IUserActivityCacheService>(),
+            paths.Object, new FixedClock(_cutoff), [consumer], NullLogger<UserActivityHistoryService>.Instance);
+        service.Tick(_cutoff);
+        var store = new UserActivityHistoryStore(_directory);
+        Assert.Single(store.Load(healthy.Id).Observations);
+        var published = consumer.Load(healthy.Id)!;
+        Assert.NotNull(published);
+        Assert.Null(consumer.Load(broken.Id));
+        Assert.Equal(invalid, File.ReadAllText(brokenPath));
+        snapshot.Items[0].UserActivities[1].PlayCount++;
+        service.Record(snapshot);
+        Assert.Equal(2, store.Load(healthy.Id).Observations.Count);
+        Assert.Equal(invalid, File.ReadAllText(brokenPath));
+        store.Save(broken.Id, new UserActivityHistory()); // Simulate repairing only the failed user's file.
+        service.Tick(_cutoff.AddSeconds(30));
+        Assert.Null(consumer.Load(broken.Id));
+        service.Tick(_cutoff.AddMinutes(1));
+        Assert.NotNull(consumer.Load(broken.Id));
+        Assert.Single(store.Load(broken.Id).Observations);
+        Assert.Equal(published.SnapshotId, consumer.Load(healthy.Id)!.SnapshotId);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;

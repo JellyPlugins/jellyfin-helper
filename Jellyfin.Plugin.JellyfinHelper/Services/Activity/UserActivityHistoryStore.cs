@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
@@ -104,6 +105,12 @@ internal sealed class UserActivityHistoryStore
             throw new InvalidDataException("Invalid shared activity history.");
         }
 
+        ResolveSessions(history);
+        ResolveObservations(history);
+    }
+
+    private static void ResolveSessions(UserActivityHistory history)
+    {
         foreach (var session in history.Sessions)
         {
             if (session is null || session.Id == Guid.Empty || session.MetadataKey is null || !history.Metadata.TryGetValue(session.MetadataKey, out var item)
@@ -116,7 +123,10 @@ internal sealed class UserActivityHistoryStore
 
             session.Item = item;
         }
+    }
 
+    private static void ResolveObservations(UserActivityHistory history)
+    {
         foreach (var observation in history.Observations)
         {
             if (observation is null || observation.Id == Guid.Empty || observation.MetadataKey is null || !history.Metadata.TryGetValue(observation.MetadataKey, out var item)
@@ -145,6 +155,7 @@ internal sealed class UserActivityHistoryStore
 
     private sealed class LegacyHistory
     {
+        [JsonInclude]
         public int SchemaVersion
         {
             get; init;
@@ -157,6 +168,7 @@ internal sealed class UserActivityHistoryStore
 
     private sealed class LegacySession
     {
+        [JsonInclude]
         public Guid Id
         {
             get; init;
@@ -166,6 +178,7 @@ internal sealed class UserActivityHistoryStore
 
         public double ThresholdSeconds { get; init; } = 60;
 
+        [JsonInclude]
         public DateTimeOffset? QualifiedAtUtc
         {
             get; init;

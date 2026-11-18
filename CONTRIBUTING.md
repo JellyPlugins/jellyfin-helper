@@ -1836,6 +1836,9 @@ the client does not reconstruct missing insights from today’s history.
 
 The configured start date freezes the preceding year at **00:00 server time**.
 For example, 15 December 2026 freezes [15 December 2025, 15 December 2026).
+A new cutoff is published only after a fresh Jellyfin baseline succeeds. Failed
+queries are retried while the previous report stays available; a cached baseline
+alone does not freeze the new year. Published reports are never reopened.
 Missed cutoffs are caught up after startup; pending publication survives a restart.
 Each user has one report, replaced atomically the following year. The end date
 only hides the tab. Disabling YearlyRewind denies access while retaining the
@@ -1849,6 +1852,9 @@ Data lives beside statistics and the latest activity cache in
 and `yearly-rewind/reports/` contain frozen publications. Legacy
 `yearly-rewind/history/` files migrate once to the shared schema, keeping the old
 file as a read-only rollback source. Annual reports do not need migration.
+Unreadable journals are isolated per user and retried without blocking other
+users. Oversized pending reports are rejected before writing; existing oversized
+pending files are quarantined without removing the published report.
 Configuration backups include annual report settings, but exclude journals and
 reports. Legacy activity-recording flags have no effect.
 Stored facts are language-independent; `yearly-rewind.js` localizes labels, numbers

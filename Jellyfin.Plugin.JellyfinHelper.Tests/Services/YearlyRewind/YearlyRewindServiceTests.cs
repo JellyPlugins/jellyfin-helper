@@ -1,5 +1,8 @@
 using System.Security.Claims;
+using System.Text.Json;
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
@@ -25,6 +28,8 @@ public sealed class YearlyRewindServiceTests : IDisposable
     private readonly Mock<IUserManager> _users = new();
     private readonly Mock<ISessionManager> _sessions = new();
     private readonly Mock<ILibraryManager> _library = new();
+    private readonly Mock<IUserActivityInsightsService> _source = new();
+    private readonly Mock<IUserActivityCacheService> _cache = new();
     private readonly User _user = new("rewind", "default", "default") { Id = Guid.NewGuid() };
     private readonly TestClock _clock = new();
     private readonly YearlyRewindService _service;
@@ -39,10 +44,9 @@ public sealed class YearlyRewindServiceTests : IDisposable
         _users.Setup(users => users.GetUsers()).Returns([_user]);
         _users.Setup(users => users.GetUserById(_user.Id)).Returns(_user);
         _service = new YearlyRewindService(_configuration.Object, paths.Object, NullLogger<YearlyRewindService>.Instance);
-        var source = new Mock<IUserActivityInsightsService>();
-        source.Setup(service => service.BuildActivityReport()).Returns(() => new UserActivityResult());
+        _source.Setup(service => service.BuildActivityReport()).Returns(() => new UserActivityResult());
         _history = new UserActivityHistoryService(_configuration.Object, _sessions.Object, _users.Object, _library.Object,
-            new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance), source.Object, Mock.Of<IUserActivityCacheService>(),
+            new VirtualItemDetector(paths.Object, NullLogger<VirtualItemDetector>.Instance), _source.Object, _cache.Object,
             paths.Object, _clock, [_service], NullLogger<UserActivityHistoryService>.Instance);
     }
 
@@ -52,7 +56,7 @@ public sealed class YearlyRewindServiceTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
     }
 
-    private DateTimeOffset Local(int year, int month, int day) => new(TimeZoneInfo.ConvertTimeToUtc(new DateTime(year, month, day), TimeZoneInfo.Local));
+    private static DateTimeOffset Local(int year, int month, int day) => new(TimeZoneInfo.ConvertTimeToUtc(new DateTime(year, month, day), TimeZoneInfo.Local));
 
     private UserYearlyRewindController Controller(bool authenticated = true)
     {
@@ -197,6 +201,147 @@ public sealed class YearlyRewindServiceTests : IDisposable
         _users.Setup(users => users.GetUsers()).Returns([]);
         _history.Tick(Local(2026, 12, 17));
         Assert.Null(_service.Load(_user.Id));
+    }
+
+    [Fact]
+    public void AnnualCutoffWaitsForFreshBaselineAndKeepsPreviousReportDuringFailures()
+    {
+        var previous = new YearlyRewindSnapshot
+        {
+            UserId = _user.Id, PeriodStartUtc = Local(2024, 12, 15), SnapshotAtUtc = Local(2025, 12, 15),
+            GeneratedAtUtc = Local(2025, 12, 15), TimeZoneId = TimeZoneInfo.Local.Id, DataState = "NotCollected"
+        };
+        new YearlyRewindStore(_directory).Publish(previous);
+        _history.Tick(Local(2026, 12, 14));
+        _source.Setup(service => service.BuildActivityReport()).Throws(new IOException("Jellyfin temporarily unavailable"));
+        _cache.Setup(service => service.LoadResult()).Returns(new UserActivityResult());
+        var cutoff = Local(2026, 12, 15);
+        _history.Tick(cutoff, false); // Playback must not freeze a cutoff before its fresh baseline.
+        Assert.Equal(previous.SnapshotId, _service.Load(_user.Id)!.SnapshotId);
+        _history.Tick(cutoff); // A cached baseline is insufficient when the fresh query fails.
+        Assert.Equal(previous.SnapshotId, _service.Load(_user.Id)!.SnapshotId);
+        var snapshot = new UserActivityResult
+        {
+            Items = [new UserActivitySummary
+            {
+                ItemId = Guid.NewGuid(), ItemName = "Recovered movie", ItemType = "Movie", RuntimeTicks = TimeSpan.TicksPerHour,
+                UserActivities = [new UserItemActivity { UserId = _user.Id, Played = true, PlayCount = 1, LastPlayedDate = cutoff.AddDays(-10).UtcDateTime }]
+            }]
+        };
+        _source.Setup(service => service.BuildActivityReport()).Returns(snapshot);
+        _history.Tick(cutoff.AddMinutes(1));
+        var recovered = _service.Load(_user.Id)!;
+        Assert.Equal(cutoff, recovered.SnapshotAtUtc);
+        Assert.Equal("Recovered movie", Assert.Single(recovered.Items).Name);
+        Assert.Equal(1, recovered.ReconstructedItemCount);
+        _source.Setup(service => service.BuildActivityReport()).Returns(new UserActivityResult());
+        _history.Tick(cutoff.AddHours(2));
+        Assert.Equal(recovered.SnapshotId, _service.Load(_user.Id)!.SnapshotId);
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("empty")]
+    [InlineData("missing")]
+    [InlineData("disabled")]
+    public void ApiRejectsInvalidMissingAndDisabledUserIdentities(string identity)
+    {
+        var controller = Controller();
+        if (identity == "invalid" || identity == "empty")
+        {
+            controller.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("Jellyfin-UserId", identity == "invalid" ? "not-a-guid" : Guid.Empty.ToString())], "test"));
+        }
+        else if (identity == "missing")
+        {
+            _users.Setup(users => users.GetUserById(_user.Id)).Returns((User?)null);
+        }
+        else
+        {
+            _user.SetPermission(PermissionKind.IsDisabled, true);
+        }
+
+        Assert.IsType<UnauthorizedResult>(controller.GetStatus());
+        Assert.IsType<UnauthorizedResult>(controller.GetMyRewind());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void StatusDistinguishesDisabledMissingAndAvailableReports(bool enabled, bool stored)
+    {
+        YearlyRewindSnapshot? snapshot = stored ? StoredMovieReport() : null;
+        _config.YearlyRewindEnabled = enabled;
+        var controller = Controller();
+        var status = JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(controller.GetStatus()).Value);
+        Assert.Equal(enabled, status.GetProperty("Enabled").GetBoolean());
+        Assert.Equal(enabled, status.GetProperty("TabVisible").GetBoolean());
+        Assert.Equal(enabled && stored, status.GetProperty("Available").GetBoolean());
+        Assert.Equal("private, no-store", controller.Response.Headers.CacheControl);
+        if (enabled && stored)
+        {
+            Assert.Equal(snapshot!.SnapshotId, status.GetProperty("SnapshotId").GetGuid());
+            Assert.Equal(snapshot.SnapshotAtUtc, status.GetProperty("SnapshotAtUtc").GetDateTimeOffset());
+            Assert.Equal("Ready", status.GetProperty("DataState").GetString());
+            Assert.Equal(snapshot.SnapshotId, Assert.IsType<YearlyRewindSnapshot>(Assert.IsType<OkObjectResult>(controller.GetMyRewind()).Value).SnapshotId);
+        }
+        else
+        {
+            Assert.Equal(JsonValueKind.Null, status.GetProperty("SnapshotId").ValueKind);
+            Assert.Equal("Unavailable", status.GetProperty("DataState").GetString());
+        }
+    }
+
+    [Fact]
+    public void UninitializedConfigurationDoesNotExposeAReport()
+    {
+        var original = StoredMovieReport();
+        _configuration.SetupGet(config => config.IsInitialized).Returns(false);
+        var controller = Controller();
+        Assert.IsType<ForbidResult>(controller.GetMyRewind());
+        var status = JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(controller.GetStatus()).Value);
+        Assert.False(status.GetProperty("Enabled").GetBoolean());
+        Assert.Equal(_clock.Now.AddMinutes(1), status.GetProperty("NextCheckAtUtc").GetDateTimeOffset());
+        Assert.Equal(original.SnapshotId, _service.Load(_user.Id)!.SnapshotId);
+    }
+
+    [Fact]
+    public void FailedPermissionLookupReturnsUnavailableWithoutChangingTheReport()
+    {
+        var original = StoredMovieReport();
+        _library.Setup(library => library.GetItemById(It.IsAny<Guid>())).Throws(new IOException("Library temporarily unavailable"));
+        var controller = Controller();
+        Assert.Equal(503, Assert.IsType<StatusCodeResult>(controller.GetStatus()).StatusCode);
+        Assert.Equal(503, Assert.IsType<StatusCodeResult>(controller.GetMyRewind()).StatusCode);
+        Assert.Equal(original.SnapshotId, _service.Load(_user.Id)!.SnapshotId);
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("foreign")]
+    public void UnreadableOrForeignReportsAreNotRebuiltOrExposed(string corruption)
+    {
+        var original = StoredMovieReport();
+        var path = Path.Join(_directory, "yearly-rewind", "reports", _user.Id.ToString("N") + ".json");
+        var content = corruption == "foreign" ? JsonSerializer.Serialize(original with { UserId = Guid.NewGuid() }, JsonDefaults.Options) : "not JSON";
+        File.WriteAllText(path, content);
+        var controller = Controller();
+        Assert.Equal(503, Assert.IsType<StatusCodeResult>(controller.GetStatus()).StatusCode);
+        Assert.Equal(503, Assert.IsType<StatusCodeResult>(controller.GetMyRewind()).StatusCode);
+        Assert.Equal(content, File.ReadAllText(path));
+    }
+
+    private YearlyRewindSnapshot StoredMovieReport()
+    {
+        var cutoff = Local(2026, 12, 15);
+        var snapshot = new YearlyRewindSnapshot
+        {
+            UserId = _user.Id, PeriodStartUtc = cutoff.AddYears(-1), SnapshotAtUtc = cutoff,
+            GeneratedAtUtc = cutoff, TimeZoneId = TimeZoneInfo.Local.Id, DataState = "Ready",
+            Items = [new YearlyRewindItem { ItemId = Guid.NewGuid(), ItemType = "Movie", Name = "Deleted movie", ActiveSeconds = 3600, PlayCount = 1 }]
+        };
+        new YearlyRewindStore(_directory).Publish(snapshot);
+        return snapshot;
     }
 
     private sealed class TestClock : TimeProvider

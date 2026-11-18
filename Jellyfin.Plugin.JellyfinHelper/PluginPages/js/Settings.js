@@ -830,6 +830,7 @@ function doSaveSettings(payload, options) {
 
 /** * Internal: performs the actual POST once the caller has validated the payload. Extracted from * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call. */
 function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
+    var submittedSnapshot = JSON.stringify(payload);
     apiPut('JellyfinHelper/Configuration', payload, function () {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
@@ -837,7 +838,8 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
         _currentLang = payload.Language;
 
         // Update snapshot after successful save
-        takeSettingsSnapshot();
+        _settingsSnapshot = submittedSnapshot;
+        refreshSaveBand();
 
         if (trashChanged) {
             rebuildUI();
@@ -1459,12 +1461,9 @@ function attachAutoSaveHandlers() {
     });
 
     document.querySelectorAll('#cfgRewindDates input').forEach(function (input) {
-        function validateDates() {
-            validateRewindDates({ YearlyRewindStartDate: rewindFormDate('Start'), YearlyRewindEndDate: rewindFormDate('End') });
-        }
-        input.addEventListener('input', validateDates);
-        input.addEventListener('change', validateDates);
-        input.addEventListener('invalid', validateDates);
+        input.addEventListener('input', validateRewindFormDates);
+        input.addEventListener('change', validateRewindFormDates);
+        input.addEventListener('invalid', validateRewindFormDates);
     });
 
     // Playlist sync toggle - auto-save on change
@@ -2223,6 +2222,10 @@ function saveSettings() {
 
     // Trash path change detection is handled inside doSaveSettings() for all save paths.
     doSaveSettings(payload);
+}
+
+function validateRewindFormDates() {
+    validateRewindDates({ YearlyRewindStartDate: rewindFormDate('Start'), YearlyRewindEndDate: rewindFormDate('End') });
 }
 
 function rewindFormDate(prefix) {

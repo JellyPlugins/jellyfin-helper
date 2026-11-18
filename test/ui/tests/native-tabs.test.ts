@@ -179,6 +179,23 @@ describe('native tabs: mounting', () => {
     expect(onMount).toHaveBeenCalledTimes(1);
   });
 
+  test('a detached cached header control receives the annual title update before reuse', () => {
+    setupHome();
+    addEntry(ui, 'a');
+    ui.ensureInjected();
+    const link = document.getElementById('jfh-tab-link-a')!;
+    const button = document.getElementById('jfh-tab-btn-a')!;
+    layout(button);
+    ui.ensureInjected();
+    expect(link.isConnected).toBe(false);
+    ui.updateTitle('a', 'Jahresrückblick 2027');
+    Object.defineProperty(button, 'offsetParent', {value: null, configurable: true});
+    ui.ensureInjected();
+    expect(document.getElementById('jfh-tab-link-a')).toBe(link);
+    expect(link.title).toBe('Jahresrückblick 2027');
+    expect(link.getAttribute('aria-label')).toBe('Jahresrückblick 2027');
+  });
+
   test('a panel moved out of the root is re-appended and deactivated', () => {
     const setup = setupHome();
     addEntry(ui, 'a');

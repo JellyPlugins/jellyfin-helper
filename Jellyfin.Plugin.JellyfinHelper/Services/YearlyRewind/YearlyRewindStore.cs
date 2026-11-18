@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.YearlyRewind;
 /// <summary>Keeps one current report per user with atomic annual replacement and no report archive.</summary>
 internal sealed class YearlyRewindStore
 {
-    private const long MaxSnapshotBytes = 16 * 1024 * 1024;
+    internal const long MaxSnapshotBytes = 16 * 1024 * 1024;
     private readonly string _reportsPath;
     private readonly Lock _gate = new();
 
@@ -151,6 +151,12 @@ internal sealed class YearlyRewindStore
             }
         }
 
+        ValidateMonths(snapshot);
+        ValidateComparison(snapshot);
+    }
+
+    private static void ValidateMonths(YearlyRewindSnapshot snapshot)
+    {
         foreach (var month in snapshot.Months ?? [])
         {
             if (month?.Genres is not { } genres)
@@ -166,7 +172,10 @@ internal sealed class YearlyRewindStore
                 throw new InvalidDataException("The rewind snapshot contains invalid monthly genres.");
             }
         }
+    }
 
+    private static void ValidateComparison(YearlyRewindSnapshot snapshot)
+    {
         if (snapshot.Comparison is { } comparison
             && (comparison.PeriodStartUtc >= comparison.SnapshotAtUtc || comparison.SnapshotAtUtc != snapshot.PeriodStartUtc
                 || comparison.PeriodStartUtc.Offset != TimeSpan.Zero || comparison.SnapshotAtUtc.Offset != TimeSpan.Zero

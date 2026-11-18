@@ -79,9 +79,8 @@ public sealed class YearlyRewindInsightTests : IDisposable
     [Fact]
     public void LongestStreakCrossesNewYearAndUsesTheEarliestTie()
     {
-        foreach (var date in new[] { "2025-12-30", "2025-12-31", "2026-01-01", "2026-03-01", "2026-03-02", "2026-03-03" })
+        foreach (var from in new[] { "2025-12-30", "2025-12-31", "2026-01-01", "2026-03-01", "2026-03-02", "2026-03-03" }.Select(date => Parse(date + "T12:00:00Z")))
         {
-            var from = Parse(date + "T12:00:00Z");
             Watch(from, from.AddMinutes(10));
         }
 
@@ -173,4 +172,22 @@ public sealed class YearlyRewindInsightTests : IDisposable
         Assert.Throws<InvalidDataException>(() => store.Publish(newer with { Insights = report.Insights! with { LongestStreakDays = 2 } }));
         Assert.Equal(report.SnapshotId, store.Load(_user)!.SnapshotId);
     }
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("null")]
+    [InlineData("valid")]
+    public void MissingSeriesIdentityDoesNotCreateAnExtraSeriesInTheComparison(string identity)
+    {
+        Guid? id = identity == "valid" ? Guid.NewGuid() : identity == "empty" ? Guid.Empty : null;
+        var item = _movie with { ItemType = "Episode", SeriesId = id };
+        var key = _history.Remember(item);
+        Assert.Equal(id == Guid.Empty ? null : id, _history.Metadata[key].SeriesId);
+        Watch(Parse("2026-03-01T12:00:00Z"), Parse("2026-03-01T12:10:00Z"), item);
+        var report = Build();
+        Assert.Equal(id == Guid.Empty ? null : id, Assert.Single(report.Items).SeriesId);
+        var following = YearlyRewindAggregator.Build(_user, new UserActivityHistory(), report.SnapshotAtUtc, report.SnapshotAtUtc.AddYears(1),
+            report.SnapshotAtUtc.AddYears(1), TimeZoneInfo.Utc, report);
+        Assert.Equal(identity == "valid" ? 1 : 0, following.Comparison!.SeriesCount);
+    }
+
 }

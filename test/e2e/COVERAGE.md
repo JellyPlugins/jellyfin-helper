@@ -334,7 +334,8 @@ Trakt app). Only runs when the external plugins are staged (`JFH_E2E_EXTERNAL_PL
 - Normal users receive only their own frozen report, even if another user ID is supplied.
 - The report remains stored and accessible outside the UI window.
 - Disabling denies report access without deleting the file; anonymous requests return 401.
-- Real Jellyfin start/progress/stop events produce persisted qualified playback intervals without changing the frozen report.
+- Real Jellyfin start/progress/stop events produce new qualified playback intervals from the current attempt, independently of older journal sessions, without changing the frozen report.
+- Visible-window fixtures cover leap day with valid February 28–March 1 boundaries; hidden-window fixtures never submit February 29.
 - The initial access check runs with Discovery and Recommendations disabled.
 
 ## 9. UI: all 8 tabs → `tabs.ui.spec.ts`

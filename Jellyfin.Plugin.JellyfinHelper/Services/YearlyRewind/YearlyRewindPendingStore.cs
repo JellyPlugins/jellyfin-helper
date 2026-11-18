@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
@@ -21,18 +22,31 @@ internal sealed class YearlyRewindPendingStore
             return null;
         }
 
-        using var stream = File.OpenRead(path);
-        if (stream.Length > 16 * 1024 * 1024)
+        using (var stream = File.OpenRead(path))
+        {
+            if (stream.Length <= YearlyRewindStore.MaxSnapshotBytes)
+            {
+                var snapshot = JsonSerializer.Deserialize<YearlyRewindSnapshot>(stream, JsonDefaults.Options)
+                    ?? throw new InvalidDataException("Invalid pending rewind.");
+                return snapshot.UserId == userId ? snapshot : throw new InvalidDataException("Pending rewind belongs to another user.");
+            }
+        }
+
+        // Retain the rejected input for diagnosis without blocking this or later annual cutoffs.
+        File.Move(path, path + ".oversized-" + Guid.NewGuid().ToString("N"));
+        return null;
+    }
+
+    internal void Seal(YearlyRewindSnapshot snapshot)
+    {
+        var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Options);
+        if (Encoding.UTF8.GetByteCount(json) > YearlyRewindStore.MaxSnapshotBytes)
         {
             throw new InvalidDataException("Pending rewind exceeds its storage limit.");
         }
 
-        var snapshot = JsonSerializer.Deserialize<YearlyRewindSnapshot>(stream, JsonDefaults.Options)
-            ?? throw new InvalidDataException("Invalid pending rewind.");
-        return snapshot.UserId == userId ? snapshot : throw new InvalidDataException("Pending rewind belongs to another user.");
+        AtomicFile.WriteAllText(PendingPath(snapshot.UserId), json);
     }
-
-    internal void Seal(YearlyRewindSnapshot snapshot) => AtomicFile.WriteAllText(PendingPath(snapshot.UserId), JsonSerializer.Serialize(snapshot, JsonDefaults.Options));
 
     internal void Complete(Guid userId)
     {

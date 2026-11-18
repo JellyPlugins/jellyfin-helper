@@ -13,19 +13,9 @@ internal sealed class UserPlaybackTracker
 
     internal void Clear() => _active.Clear();
 
-    internal void Observe(
-        Guid userId,
-        string sessionKey,
-        UserPlaybackItem item,
-        long? runtimeTicks,
-        long? positionTicks,
-        bool paused,
-        bool automated,
-        bool start,
-        bool stop,
-        DateTimeOffset now,
-        UserActivityHistory history)
+    internal void Observe(Guid userId, string sessionKey, UserPlaybackItem item, long? runtimeTicks, Progress progress, UserActivityHistory history)
     {
+        var (positionTicks, paused, automated, start, stop, now) = progress;
         if (automated || positionTicks is null || positionTicks < 0 || userId == Guid.Empty)
         {
             return;
@@ -39,21 +29,7 @@ internal sealed class UserPlaybackTracker
         var identity = (userId, sessionKey);
         if (!_active.TryGetValue(identity, out var previous) || previous.Session.Item.ItemId != item.ItemId || start)
         {
-            if (stop)
-            {
-                return;
-            }
-
-            if (_active.Count >= MaxActiveSessions)
-            {
-                throw new InvalidDataException("Shared playback session capacity exceeded.");
-            }
-
-            var threshold = runtimeTicks is > 0 and < 600000000 ? TimeSpan.FromTicks(runtimeTicks.Value).TotalSeconds / 2 : 60;
-            var metadataKey = history.Remember(item);
-            var session = new UserPlaybackSession { Item = history.Metadata[metadataKey], MetadataKey = metadataKey, ThresholdSeconds = threshold };
-            history.Sessions.Add(session);
-            _active[identity] = new Observation(session, now, positionTicks.Value, paused);
+            StartSession(identity, item, runtimeTicks, progress, history);
             return;
         }
 
@@ -62,8 +38,40 @@ internal sealed class UserPlaybackTracker
             return;
         }
 
+        AddForwardInterval(previous, positionTicks.Value, paused, now);
+        if (stop)
+        {
+            _active.Remove(identity);
+        }
+        else
+        {
+            _active[identity] = new Observation(previous.Session, now, positionTicks.Value, paused);
+        }
+    }
+
+    private void StartSession((Guid User, string Session) identity, UserPlaybackItem item, long? runtimeTicks, Progress progress, UserActivityHistory history)
+    {
+        if (progress.Stop)
+        {
+            return;
+        }
+
+        if (_active.Count >= MaxActiveSessions)
+        {
+            throw new InvalidDataException("Shared playback session capacity exceeded.");
+        }
+
+        var threshold = runtimeTicks is > 0 and < 600000000 ? TimeSpan.FromTicks(runtimeTicks.Value).TotalSeconds / 2 : 60;
+        var metadataKey = history.Remember(item);
+        var session = new UserPlaybackSession { Item = history.Metadata[metadataKey], MetadataKey = metadataKey, ThresholdSeconds = threshold };
+        history.Sessions.Add(session);
+        _active[identity] = new Observation(session, progress.At, progress.PositionTicks!.Value, progress.Paused);
+    }
+
+    private static void AddForwardInterval(Observation previous, long positionTicks, bool paused, DateTimeOffset now)
+    {
         var elapsed = (now - previous.At).TotalSeconds;
-        var advance = TimeSpan.FromTicks(positionTicks.Value - previous.Position).TotalSeconds;
+        var advance = TimeSpan.FromTicks(positionTicks - previous.Position).TotalSeconds;
         if (!previous.Paused && !paused && elapsed <= 90 && advance > 0 && advance <= (elapsed * 4) + 2)
         {
             var intervals = previous.Session.Intervals;
@@ -82,16 +90,9 @@ internal sealed class UserPlaybackTracker
                 previous.Session.QualifiedAtUtc = now;
             }
         }
-
-        if (stop)
-        {
-            _active.Remove(identity);
-        }
-        else
-        {
-            _active[identity] = new Observation(previous.Session, now, positionTicks.Value, paused);
-        }
     }
+
+    internal readonly record struct Progress(long? PositionTicks, bool Paused, bool Automated, bool Start, bool Stop, DateTimeOffset At);
 
     private sealed record Observation(UserPlaybackSession Session, DateTimeOffset At, long Position, bool Paused);
 }

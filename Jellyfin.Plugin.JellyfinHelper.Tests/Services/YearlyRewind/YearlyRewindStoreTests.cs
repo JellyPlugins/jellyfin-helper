@@ -113,4 +113,42 @@ public sealed class YearlyRewindStoreTests : IDisposable
         Assert.Single(results, published => published);
         Assert.Single(Directory.GetFiles(_directory, "*", SearchOption.AllDirectories));
     }
+    [Fact]
+    public void PendingRejectsOversizedUtf8BeforeWritingAndRetainsExistingPendingAndPublishedReports()
+    {
+        var store = new YearlyRewindStore(_directory);
+        var pending = new YearlyRewindPendingStore(_directory);
+        var current = Snapshot(2026);
+        var next = Snapshot(2027);
+        store.Publish(current);
+        pending.Seal(next);
+        var oversized = Snapshot(2028);
+        oversized.Items[0] = oversized.Items[0] with { Name = new string('界', (int)(YearlyRewindStore.MaxSnapshotBytes / 3) + 1) };
+        Assert.Throws<InvalidDataException>(() => pending.Seal(oversized));
+        Assert.Equal(next.SnapshotId, pending.LoadPending(_userId)!.SnapshotId);
+        Assert.Equal(current.SnapshotId, store.Load(_userId)!.SnapshotId);
+    }
+
+    [Fact]
+    public void ExistingOversizedPendingIsQuarantinedWithoutBlockingAReplacement()
+    {
+        var store = new YearlyRewindStore(_directory);
+        var pending = new YearlyRewindPendingStore(_directory);
+        var current = Snapshot(2026);
+        store.Publish(current);
+        var directory = Path.Join(_directory, "yearly-rewind", "pending");
+        Directory.CreateDirectory(directory);
+        var path = Path.Join(directory, _userId.ToString("N") + ".json");
+        using (var stream = File.Create(path)) stream.SetLength(YearlyRewindStore.MaxSnapshotBytes + 1);
+        Assert.Null(pending.LoadPending(_userId));
+        Assert.False(File.Exists(path));
+        Assert.Single(Directory.GetFiles(directory, "*.oversized-*"));
+        Assert.Equal(current.SnapshotId, store.Load(_userId)!.SnapshotId);
+        var next = Snapshot(2027);
+        pending.Seal(next);
+        Assert.True(store.Publish(pending.LoadPending(_userId)!));
+        pending.Complete(_userId);
+        Assert.Equal(next.SnapshotId, store.Load(_userId)!.SnapshotId);
+    }
+
 }
