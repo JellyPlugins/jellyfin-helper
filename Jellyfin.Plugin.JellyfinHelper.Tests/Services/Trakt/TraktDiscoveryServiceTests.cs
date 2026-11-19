@@ -125,6 +125,25 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         Assert.Empty(_responses);
     }
 
+    [Fact]
+    public async Task NullPersonalRowsDoNotLoseValidMetadataOrTriggerFailureBackoff()
+    {
+        var user = Guid.NewGuid();
+        var metadata = new TitleMetadataCache();
+        var sut = CreateServiceWithFactory(_factory.Object, () => DateTimeOffset.UtcNow, metadata);
+        _responses.Enqueue((HttpStatusCode.OK, """[null,{"title":"Movie","language":"ja","overview":"kept","ids":{"tmdb":11}}]"""));
+        _responses.Enqueue((HttpStatusCode.OK, """[null,{"title":"Show","ids":{"tmdb":22}}]"""));
+        _discovery.Setup(value => value.ScoreExternalCandidatesAsync(user, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Scored(user, (11, "movie", "Movie"), (22, "tv", "Show")));
+        var result = await sut.GetPersonalAsync(user, TestContext.Current.CancellationToken);
+        Assert.Equal(2, result!.Recommendations.Count);
+        Assert.Equal("kept", metadata.Get(Plugin.Instance!.Configuration, 11, "movie")!.Overview);
+        Assert.NotNull(metadata.Get(Plugin.Instance.Configuration, 22, "tv"));
+        Assert.Empty(_responses);
+        _discovery.Verify(value => value.ScoreExternalCandidatesAsync(user,
+            It.Is<IReadOnlyList<ExternalDiscoveryCandidate>>(items => items.Count == 2), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static DiscoveryResult Scored(Guid userId, params (int TmdbId, string MediaType, string Title)[] items)
         => new()
         {

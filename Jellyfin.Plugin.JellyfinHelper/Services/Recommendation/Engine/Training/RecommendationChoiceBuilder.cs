@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training
 /// <summary>Captures chronological revealed preferences without turning publication or newly added media into rejection.</summary>
 internal static class RecommendationChoiceBuilder
 {
+    internal const double ContrastWeightBudget = 0.25;
+    private const int MaximumFittingAlternatives = 8;
+
     internal static Plan Build(Context context, Func<WatchedItemInfo, RecommendedItem?, TrainingExample> capture)
     {
         var result = context.Result;
@@ -25,6 +28,11 @@ internal static class RecommendationChoiceBuilder
             .GroupBy(item => keys.Get(item.ItemId, string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase))).ToDictionary(group => group.Key, group => group.First());
         var engaged = context.Profile.WatchedItems.Where(item => item.HasMeaningfulInteraction())
             .GroupBy(keys.Get).ToDictionary(group => group.Key, group => group.Min(item => ConservativeEngagementAt(item, context.ReferenceTime)));
+        foreach (var series in context.Profile.FavoriteSeriesIds.Where(series => series != Guid.Empty))
+        {
+            engaged.TryAdd(keys.Get(series, true), DateTime.UnixEpoch);
+        }
+
         var prepared = new Prepared(context, recorded, engaged);
         var choices = new Dictionary<Guid, RecommendationChoiceEvidence>();
         var fitting = new HashSet<Guid>();
@@ -45,7 +53,17 @@ internal static class RecommendationChoiceBuilder
             }
         }
 
-        return new Plan(choices, fitting);
+        return new Plan(choices, fitting.Where(id => !engaged.ContainsKey(id)).Order()
+            .Take(FittingAlternativeLimit(recommendedAt, context.ReferenceTime)).ToHashSet());
+    }
+
+    internal static int FittingAlternativeLimit(DateTime predictedAt, DateTime referenceTime)
+    {
+        // Thin comparisons, never inflate their shared budget, renew their timestamps,
+        // or lower the optimizer floor. Older evidence supports fewer eligible comparisons.
+        var ageDays = Math.Max(0, (referenceTime - predictedAt).TotalDays);
+        var effectiveBudget = ContrastWeightBudget * Math.Exp(-TrainingExample.TemporalDecayConstant * ageDays);
+        return Math.Min(MaximumFittingAlternatives, (int)Math.Floor(effectiveBudget / LearnedScoringStrategy.MinSampleWeight));
     }
 
     private static CapturedChoice? CaptureObservedChoice(Prepared prepared, IGrouping<Guid, WatchedItemInfo> group, Func<WatchedItemInfo, RecommendedItem?, TrainingExample> capture, DateTime recommendedAt)

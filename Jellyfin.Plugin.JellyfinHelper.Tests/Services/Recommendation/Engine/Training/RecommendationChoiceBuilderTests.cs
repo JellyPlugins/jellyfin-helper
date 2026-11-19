@@ -34,6 +34,41 @@ public sealed class RecommendationChoiceBuilderTests
     }
 
     [Theory]
+    [InlineData(20, 3, 8)]
+    [InlineData(100, 3, 8)]
+    [InlineData(100, 60, 8)]
+    [InlineData(100, 180, 6)]
+    [InlineData(100, 400, 1)]
+    [InlineData(100, 450, 0)]
+    public void LargeOrAgedFittingSetsKeepABoundedEligibleContrastSignalWithOriginalTimes(int count, int age, int expectedCount)
+    {
+        var user = Guid.NewGuid();
+        var predictedAt = DateTime.UtcNow.AddDays(-age);
+        var selected = Enumerable.Range(0, 7).Select(_ => Title(user, false)).ToArray();
+        var alternatives = Enumerable.Range(0, count).Select(_ => Item(Title(user, false), .95)).ToArray();
+        var result = Result(user, selected.Select(id => Item(id, .2)).Concat(alternatives).ToArray());
+        result.GeneratedAt = predictedAt;
+        var profile = Profile(user, selected.Select((id, index) => Watch(id, predictedAt.AddDays(-10), predictedAt.AddDays(1).AddHours(index))).ToArray());
+        var reference = DateTime.UtcNow;
+        var examples = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples;
+        var contrasts = examples.Where(example => example.IsContrastSample).ToArray();
+        Assert.Equal(expectedCount, contrasts.Length);
+        Assert.All(contrasts, example =>
+        {
+            Assert.False(example.IsObserved);
+            Assert.Equal(predictedAt, example.GeneratedAtUtc);
+            Assert.True(example.ComputeEffectiveWeight(reference) >= LearnedScoringStrategy.MinSampleWeight);
+        });
+        Assert.Equal(expectedCount > 0 ? .25 : 0, contrasts.Sum(example => example.SampleWeight), 12);
+        Assert.Equal(contrasts.Length, TrainingMath.FilterEffectiveExamples(contrasts, reference, LearnedScoringStrategy.MinSampleWeight).Count);
+        Assert.All(examples.Where(example => example.IsObserved), example => Assert.NotNull(example.Choice));
+        Assert.Equal(26, examples.Where(example => example.IsObserved).SelectMany(example => example.Choice!.Alternatives)
+            .Select(alternative => alternative.ObservationId).Distinct().Count());
+        Assert.All(examples.Where(example => !example.IsObserved && !example.IsContrastSample), example =>
+            Assert.Empty(TrainingMath.FilterEffectiveExamples([example], reference, LearnedScoringStrategy.MinSampleWeight)));
+    }
+
+    [Theory]
     [InlineData(-10, true)]
     [InlineData(0.5, false)]
     public void AnOrganicWatchComparesWithThePlaylistOnlyWhenItsMaterialAlreadyExisted(double addedDay, bool comparison)
@@ -106,6 +141,25 @@ public sealed class RecommendationChoiceBuilderTests
         Assert.True(positive.IsPermanentHoldout);
         Assert.NotNull(positive.Choice);
         Assert.False(Assert.Single(examples, example => !example.IsObserved).IsContrastSample);
+    }
+
+    [Fact]
+    public void AnUndatedSeriesFavoriteIsNotAnUnobservedChoiceAlternativeOrPartOfTheContrastBudget()
+    {
+        var user = Guid.NewGuid();
+        var chosen = Title(user, false);
+        var favorite = Title(user, false);
+        var other = Title(user, false);
+        var favoriteItem = Item(favorite, .9);
+        favoriteItem.ItemType = "Series";
+        var profile = Profile(user, Watch(chosen, Prediction.AddDays(-10), Prediction.AddDays(1)));
+        profile.FavoriteSeriesIds.Add(favorite);
+        var result = Result(user, favoriteItem, Item(other, .8), Item(chosen, .2));
+        var examples = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples;
+        var observation = Assert.Single(examples, example => example.Choice is not null);
+        Assert.Equal(TrainingExample.CreateTitleObservationId(user, other, 0, false), Assert.Single(observation.Choice!.Alternatives).ObservationId);
+        Assert.Equal(.25, Assert.Single(examples, example => example.IsContrastSample).SampleWeight);
+        Assert.Equal(2, examples.Count(example => example.IsObserved));
     }
 
     [Theory]

@@ -53,6 +53,18 @@ public sealed class ContentDescriptorTests
         => Assert.Null(ContentDescriptor.Create(["Action"], ["anime", "live action"]).Family);
 
     [Theory]
+    [InlineData("western animation")]
+    [InlineData("american animation")]
+    public void ExplicitLiveActionAndWesternStyleRemainUnknownEvenWithoutAnAnimationGenre(string style)
+    {
+        var descriptor = ContentDescriptor.Create(["Action"], ["live action", style], new TitleMetadataSnapshot { AnimeHint = true });
+        Assert.Null(descriptor.Representation);
+        Assert.Null(descriptor.ProbableRepresentation);
+        Assert.Null(descriptor.Family);
+        Assert.Equal("live action", ContentDescriptor.Create([], ["live action"]).Representation);
+    }
+
+    [Theory]
     [InlineData("anime", "western animation")]
     [InlineData("japanese animation", "american animation")]
     [InlineData("western animation", "anime")]

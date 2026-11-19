@@ -96,6 +96,37 @@ public sealed class ContentFitProfileTests
     }
 
     [Theory]
+    [InlineData("anime", "western animation", true, null)]
+    [InlineData("anime", "western animation", false, null)]
+    [InlineData("anime", "western animation", true, 2.0)]
+    [InlineData("western animation", "anime", true, null)]
+    public void PositivePreschoolInterestIsNotRestrictedToTheMajorityOrItsPreviouslyKnownStyle(string childStyle, string candidateStyle, bool played, double? rating)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var children = Watch(["Animation", "Kids"], [childStyle, "preschool", "dog", "rescue mission"]);
+        children.Played = played;
+        children.UserRating = rating;
+        profile.WatchedItems.Add(children);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], [candidateStyle, "preschool", "dog", "rescue mission"], "FSK-0", BattleGenres);
+        Assert.Equal(played && rating is not <= 5, ScoringHelper.IsContentEligible(features));
+    }
+
+    [Fact]
+    public void AdultFamilyAnimationFansRetainDisneyLikeCandidatesWithoutAChildrensGenreOrAgeBasedPreference()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), MaxParentalRating = 18 };
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Animation", "Family"], ["western animation", "magic", "princess"]));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], "FSK-0", BattleGenres);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Null(features.AudienceMismatch);
+    }
+
+    [Theory]
     [InlineData("western animation")]
     [InlineData(null)]
     public void AHighlyClassifiedAnimeMajorityCannotInventTheStyleOfAPositiveChildrenInterest(string? style)

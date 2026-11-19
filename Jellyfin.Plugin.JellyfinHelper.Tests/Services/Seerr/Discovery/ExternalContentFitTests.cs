@@ -30,6 +30,21 @@ public sealed class ExternalContentFitTests
     }
 
     [Fact]
+    public void DiscoveryPreservesPositivePreschoolInterestAcrossAnOlderAnimationMajorityAndDifferentStyle()
+    {
+        var profile = Profile();
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"], Tags = Tags });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation", "Kids"], Tags = ["anime", "preschool", "dog", "rescue mission"] });
+        var candidate = Candidate();
+        candidate.GenreIds = [16, 10762];
+        candidate.KnownKeywords = ["western animation", "preschool", "dog", "rescue mission"];
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Null(features.ContentFamilyMismatch);
+        Assert.Null(features.AudienceMismatch);
+    }
+
+    [Fact]
     public void OptionalTraktGenresRemainGenreEvidenceRatherThanPretendProviderKeywords()
     {
         var profile = Profile();

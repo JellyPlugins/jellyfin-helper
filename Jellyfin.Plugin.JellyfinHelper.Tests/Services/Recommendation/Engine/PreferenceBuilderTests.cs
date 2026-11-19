@@ -110,6 +110,26 @@ public class PreferenceBuilderTests
         Assert.Equal(1, vector["Drama"], 10);
     }
 
+    [Theory]
+    [InlineData(false, false, .3)]
+    [InlineData(true, false, .42)]
+    [InlineData(false, true, 1.0)]
+    public void KnownZeroProgressUsesTheFloorAndTheFirstCompletionIncreasesGenreAndPeopleWeight(bool played, bool favorite, double multiplier)
+    {
+        var series = Guid.NewGuid();
+        var episode = new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 1, Played = played, IsFavorite = favorite, Genres = ["Action"] };
+        var anchor = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Anchor"] };
+        var profile = new UserWatchProfile { WatchedItems = [episode, anchor] };
+        var totals = new Dictionary<Guid, int> { [series] = 10 };
+        var lookup = new Dictionary<Guid, HashSet<string>> { [episode.ItemId] = ["Actor"], [anchor.ItemId] = ["Anchor"] };
+        var neutral = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var weighted = PreferenceBuilder.BuildGenrePreferenceVector(profile, totals);
+        var neutralPeople = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
+        var weightedPeople = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, totals);
+        Assert.Equal(multiplier, weightedPeople["Actor"] / neutralPeople["Actor"], 10);
+        Assert.Equal(favorite ? 1 : multiplier, weighted["Action"] / weighted["Anchor"] / (neutral["Action"] / neutral["Anchor"]), 10);
+    }
+
     [Fact]
     public void StartCountsDoNotAmplifyFranchiseCountryOrWriterTasteEither()
     {

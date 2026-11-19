@@ -610,7 +610,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return;
         }
 
-        foreach (var item in items)
+        foreach (var item in items.OfType<TraktMediaItem>())
         {
             MetadataCache.StoreSupplemental(config, TraktMapper.Metadata(item, mediaType), new("trakt", "https://api.trakt.tv", "public-metadata"), language: null);
         }

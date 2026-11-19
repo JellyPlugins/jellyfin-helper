@@ -323,7 +323,8 @@ internal static class TrainingFeatureComputer
         features.GenreAffinityGap = affGap;
 
         var contentFit = preparedContentFit ?? ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
-        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences, mostRecent?.TitleMetadata);
+        var metadataAtPrediction = mostRecent?.TitleMetadata is { } metadata && metadata.FetchedAtUtc <= predictionTime ? metadata : null;
+        contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences, metadataAtPrediction);
 
         // Label from aggregated completion.
         var (label, isObserved) = ComputeAggregatedSeriesOutcome(episodes, parentSeriesRating, playedEps, completionRatio);

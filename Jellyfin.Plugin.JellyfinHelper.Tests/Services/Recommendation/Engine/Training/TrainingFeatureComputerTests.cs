@@ -931,11 +931,15 @@ public class TrainingFeatureComputerTests
         Assert.True(Emit(null).Features.GenreSimilarity > reused.Features.GenreSimilarity);
     }
 
-    [Fact]
-    public void AggregatedSeriesUsesCapturedProviderMetadataWithoutLearningFromItsOwnTitle()
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void AggregatedSeriesUsesOnlyProviderMetadataAvailableAtItsPredictionTime(int acquisitionDays, bool available)
     {
         var (series, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
-        var metadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow };
+        var prediction = episodes.Max(row => row.LastPlayedDate!.Value);
+        var metadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = prediction.AddDays(acquisitionDays) };
         foreach (var row in episodes)
         {
             row.Genres = ["Adventure"];
@@ -952,8 +956,9 @@ public class TrainingFeatureComputerTests
             preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
         var example = Assert.Single(output);
-        Assert.Equal(1, example.Features.ContentFitSupport);
-        Assert.NotNull(example.Features.ContentTasteKey);
+        Assert.Equal(available ? 1 : null, example.Features.ContentFitSupport);
+        Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
+        Assert.Equal(prediction, example.GeneratedAtUtc);
         Assert.Equal(41, example.Features.ToVector().Length);
     }
 

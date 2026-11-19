@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 public sealed class TitleMetadataCache
 {
     private const int MaximumEntries = 4096;
+    private const int MaximumFileBytes = 16 * 1024 * 1024;
     private const string MovieMediaType = "movie";
     private readonly Lock _gate = new();
     private readonly Lock _persistenceGate = new();
@@ -104,26 +105,46 @@ public sealed class TitleMetadataCache
 
     private TitleMetadataSnapshot? ReadEntry(string key, DateTime now)
     {
-        var primary = key;
-        if (!_entries.ContainsKey(key) && _aliases.TryGetValue(key, out var matches))
+        if (ReadUsableEntry(key, now) is { } exact && key.Split(':').Length == 3)
         {
-            // An ambiguous alias cannot select whichever title happened to publish last.
-            if (matches.Count != 1)
-            {
-                return null;
-            }
-
-            primary = matches.Single();
+            return exact;
         }
 
-        if (!_entries.TryGetValue(primary, out var snapshot) || !IsUsable(snapshot.FetchedAtUtc, now))
+        if (!_aliases.TryGetValue(key, out var matches))
         {
             return null;
         }
 
-        return snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
+        // Expired observations and expired identity fields are not competing claims.
+        // Never select whichever of two current, conflicting links published last.
+        var current = matches.Select(primary => ReadUsableEntry(primary, now)).OfType<TitleMetadataSnapshot>()
+            .Where(snapshot => IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal))
+            .ToArray();
+        if (CompetingClaims(current.Where(snapshot => snapshot.TmdbId > 0).Select(snapshot => snapshot.TmdbId))
+            || CompetingClaims(current.Where(snapshot => snapshot.TvdbId > 0).Select(snapshot => snapshot.TvdbId))
+            || CompetingClaims(current.Select(snapshot => TitleProviderIdentity.NormalizeImdb(snapshot.ImdbId)).OfType<string>()))
+        {
+            return null;
+        }
+
+        return TitleMetadataMerger.Combine(current);
+    }
+
+    private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
+
+    private TitleMetadataSnapshot? ReadUsableEntry(string key, DateTime now)
+    {
+        if (!_entries.TryGetValue(key, out var snapshot) || !IsUsable(snapshot.FetchedAtUtc, now))
+        {
+            return null;
+        }
+
+        var usable = snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
             ? snapshot
             : MergeFields(snapshot, null, now);
+        return IdentityKeys(key.Split(':')[0], usable.MediaType, usable.TmdbId, usable.TvdbId, usable.ImdbId).Contains(key, StringComparer.Ordinal)
+            ? usable
+            : null;
     }
 
     /// <summary>Reserves a refresh slot, preventing duplicate title requests and rapid retries after failures.</summary>
@@ -397,8 +418,16 @@ public sealed class TitleMetadataCache
                     snapshot = new Dictionary<string, TitleMetadataSnapshot>(_entries, StringComparer.Ordinal);
                 }
 
+                var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Options);
+                if (Encoding.UTF8.GetByteCount(json) > MaximumFileBytes)
+                {
+                    // Keep the previous readable file instead of replacing it with a
+                    // successful-looking save that startup will discard in its entirety.
+                    return false;
+                }
+
                 _fileSystem.Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
-                _fileSystem.File.WriteAllText(_cachePath + ".tmp", JsonSerializer.Serialize(snapshot, JsonDefaults.Options));
+                _fileSystem.File.WriteAllText(_cachePath + ".tmp", json);
                 _fileSystem.File.Move(_cachePath + ".tmp", _cachePath, overwrite: true);
                 return true;
             }
@@ -427,7 +456,7 @@ public sealed class TitleMetadataCache
 
         try
         {
-            if (!_fileSystem.File.Exists(_cachePath) || _fileSystem.FileInfo.New(_cachePath).Length > 16 * 1024 * 1024)
+            if (!_fileSystem.File.Exists(_cachePath) || _fileSystem.FileInfo.New(_cachePath).Length > MaximumFileBytes)
             {
                 return;
             }

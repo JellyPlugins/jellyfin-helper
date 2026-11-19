@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
@@ -132,6 +133,31 @@ public sealed class RecommendationChoiceHistoryTests
         history.Merge([choice], new HashSet<Guid> { user }, now);
         history.Merge([choice], new HashSet<Guid> { user }, now.AddDays(10));
         Assert.Single(history.Merge([Observation(user, id, now, choice: false)], new HashSet<Guid> { user }, now.AddYears(3)));
+    }
+
+    [Theory]
+    [InlineData(60, 8)]
+    [InlineData(180, 6)]
+    [InlineData(400, 1)]
+    [InlineData(450, 0)]
+    public void ReplayedChoiceComparisonsRemainEligibleWithoutInflatingTheirBudgetOrRenewingTheirAge(int age, int expectedCount)
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var id = Identity(false);
+        var choice = Observation(user, id, now, true);
+        choice.Choice = choice.Choice! with
+        {
+            Alternatives = Enumerable.Range(0, 20).Select(_ => new RecommendationChoiceAlternative(Identity(false), new CandidateFeatures { GenreSimilarity = .9 })).ToImmutableArray()
+        };
+        var history = new RecommendationChoiceHistory();
+        history.Merge([choice], new HashSet<Guid> { user }, now);
+        var reference = now.AddDays(age);
+        var contrasts = history.Merge([Observation(user, id, now, false)], new HashSet<Guid> { user }, reference).Where(row => row.IsContrastSample).ToArray();
+        Assert.Equal(expectedCount, contrasts.Length);
+        Assert.Equal(expectedCount > 0 ? .25 : 0, contrasts.Sum(row => row.SampleWeight), 12);
+        Assert.All(contrasts, row => Assert.Equal(choice.GeneratedAtUtc, row.GeneratedAtUtc));
+        Assert.Equal(contrasts.Length, TrainingMath.FilterEffectiveExamples(contrasts, reference, LearnedScoringStrategy.MinSampleWeight).Count);
     }
 
     [Fact]

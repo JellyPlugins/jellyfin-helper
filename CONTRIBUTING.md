@@ -480,12 +480,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
 │       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
-│       │   ├── ContentFitProfileTests.cs              # Story-vs-genre/alias evidence, audience hints, provenance and detached contexts
+│       │   ├── ContentFitProfileTests.cs              # Story-vs-genre evidence, minority children's/adult family interests, provenance and detached contexts
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
-│       │   ├── TitleMetadataCacheTests.cs             # Scope isolation, refresh throttling, bounded stale fallback and atomic persistence
-│       │   ├── SupplementalMetadataTests.cs           # Complementary sources, typed aliases and conflict-safe evidence
+│       │   ├── TitleMetadataCacheTests.cs             # Scope isolation, current alias claims, bounded stale fallback and restart-readable atomic persistence
+│       │   ├── SupplementalMetadataTests.cs           # Complementary sources, nonblank acquired fields, typed aliases and conflict-safe evidence
 │       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
@@ -508,14 +508,14 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── HistoricalLanguageFeaturesTests.cs # Dated/self-excluded language evidence and organic train/serve units
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
-│       │       ├── RecommendationChoiceBuilderTests.cs # Chronological available-title choices without publication/new-media rejection
-│       │       ├── RecommendationChoiceHistoryTests.cs # Choice replay across publication/restart, unchanged prediction times and held-out-safe comparisons
+│       │       ├── RecommendationChoiceBuilderTests.cs # Chronological choices, bounded age-eligible fitting contrasts and no publication/new-media rejection
+│       │       ├── RecommendationChoiceHistoryTests.cs # Choice replay across publication/restart, original times, bounded contrast budgets and permanent folds
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
 │       │       ├── TrainingDataBuilderMetadataParityTests.cs # Watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
-│       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
+│       │       └── TrainingFeatureComputerTests.cs    # Train/serve parity and prediction-time cutoffs for aggregated series metadata
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
 │       │   ├── RecommendationPlaylistServiceDeletionFallbackTests.cs # Fallback delete path + OperationCanceled rethrow
@@ -531,7 +531,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
-│       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Separate revealed-choice utility, independent reservation and minority/incumbent safety
+│       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Macro-user effective choice support, independent reservation and minority/incumbent safety
 │       │   ├── ChoiceRankingTrainingTests.cs              # Real learner and accepted-mixture reversal of an incorrect heuristic ranking
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
 │       │   ├── AcceptedModelStoreTests.cs                # Complete v6 bundle round trips, invalid coordinates/evidence and non-destructive storage failure

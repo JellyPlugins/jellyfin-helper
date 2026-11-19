@@ -130,6 +130,17 @@ public sealed class GenreNormalizerTests
         Assert.False(GenreNormalizer.RegisterProviderGenre(12, "\ud800"));
     }
 
+    [Theory]
+    [InlineData("talk-show", "Talk")]
+    [InlineData("soap-opera", "Soap")]
+    [InlineData("tv-movie", "TV Movie")]
+    [InlineData("  Ｔａｌｋ-Ｓｈｏｗ  ", "Talk")]
+    public void ProviderCatalogCannotOverrideAHyphenFoldedBuiltInMeaning(string label, string expected)
+    {
+        Assert.False(GenreNormalizer.RegisterProviderGenre(28, label));
+        Assert.Equal(expected, GenreNormalizer.Name(label));
+    }
+
     [Fact]
     public void BestMatch_UsesOnlyRealPositiveCandidateMatchesAndKeepsDisplayLabels()
     {

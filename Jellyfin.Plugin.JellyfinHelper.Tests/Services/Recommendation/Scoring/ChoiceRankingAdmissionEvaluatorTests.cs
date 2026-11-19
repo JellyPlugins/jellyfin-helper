@@ -107,6 +107,26 @@ public sealed class ChoiceRankingAdmissionEvaluatorTests
         Assert.Equal(0, calls);
     }
 
+    [Theory]
+    [InlineData(19, 1, false)]
+    [InlineData(10, 10, true)]
+    public void EffectiveChoiceSupportUsesTheSameMacroUserWeightsAsItsUtility(int firstCount, int secondCount, bool supported)
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        TrainingExample[] Slice() => Rows(first, firstCount).Concat(Rows(second, secondCount)).ToArray();
+        var calibration = Slice();
+        var acceptance = Slice();
+        Assert.Equal(supported, ChoiceRankingAdmissionEvaluator.HasSupport(calibration, Now));
+        var reservations = 0;
+        var decision = ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance,
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1)), Now, (.75, 0),
+            _ => { reservations++; return null; });
+        Assert.Equal(supported, decision?.Accepted == true);
+        Assert.Equal(supported ? 1 : 0, reservations);
+        if (supported) Assert.Equal(20, decision!.Evidence.AcceptanceEffectiveTitles, 10);
+    }
+
     [Fact]
     public void NewMaterialCannotBecomeRelativeAcceptanceEvidence()
     {

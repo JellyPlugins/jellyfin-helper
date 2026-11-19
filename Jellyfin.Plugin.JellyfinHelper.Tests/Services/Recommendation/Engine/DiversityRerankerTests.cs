@@ -71,6 +71,22 @@ public class DiversityRerankerTests
         Assert.All(selected, candidate => Assert.Equal(candidates.Single(original => original.Item.Id == candidate.Item.Id).Score, candidate.Score));
     }
 
+    [Theory]
+    [InlineData(2, 3, true)]
+    [InlineData(200, 20, true)]
+    [InlineData(200, 20, false)]
+    public void DuplicateSupportedIdsCannotConsumeAnotherMmrOrSmallListSlot(int pool, int count, bool supported)
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(pool);
+        var original = candidates[0];
+        candidates[1].Item.Id = original.Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, count, seed: 42,
+            contentSupported: supported ? new HashSet<Guid> { original.Item.Id } : null);
+        Assert.Equal(Math.Min(pool - 1, count), selected.Count);
+        Assert.Equal(selected.Count, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.Equal(original.Score, Assert.Single(selected, candidate => candidate.Item.Id == original.Item.Id).Score);
+    }
+
     [Fact]
     public void ExplorationDoesNotRepeatASelectedLibraryIdFromEitherLeftoverPool()
     {

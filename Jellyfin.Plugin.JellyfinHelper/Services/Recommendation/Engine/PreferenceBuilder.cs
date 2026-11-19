@@ -1106,10 +1106,9 @@ internal static class PreferenceBuilder
             return 1.0;
         }
 
-        if (!watchedEpisodesPerSeries.TryGetValue(sid, out var playedEps) || playedEps <= 0)
-        {
-            return 1.0;
-        }
+        // Available aggregation and a known positive total make an absent count zero,
+        // not unknown. Completing the first episode must increase, never reduce, its weight.
+        var playedEps = watchedEpisodesPerSeries.GetValueOrDefault(sid);
 
         // Ratio guarded against pathological metadata where playedEps > totalEps.
         var rawRatio = Math.Min(1.0, (double)playedEps / totalEps);

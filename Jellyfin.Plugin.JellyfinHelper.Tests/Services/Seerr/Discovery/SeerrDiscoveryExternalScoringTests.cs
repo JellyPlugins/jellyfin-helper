@@ -85,7 +85,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null)
+    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null, TitleMetadataCache? titleMetadataCache = null)
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         // Valid minimal details are the default. Failure scenarios explicitly select their HTTP status
@@ -184,7 +184,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             factory.Object, _history.Object, arr.Object, _libraryManager.Object,
             perUserRegistry, cache, feedbackStore.Object, pluginLog.Object,
             TestMockFactory.CreateSecretProtector(),
-            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object, serverConfiguration);
+            TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object, serverConfiguration, titleMetadataCache: titleMetadataCache);
     }
 
     private void SetupProfile(Guid userId, int? maxParentalRating = null)
@@ -423,6 +423,33 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         {
             Assert.Same(supplemental, candidate.TitleMetadata);
         }
+    }
+
+    [Fact]
+    public void PublishingAnIsolatedSeerrObservationPreservesCandidateLocalMetadataWithoutCrossScopeLeakage()
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var acquired = DateTime.UtcNow.AddDays(-2);
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 101, TitleMetadata = new TitleMetadataSnapshot { TmdbId = 101, OriginalLanguage = "ja", Overview = "external synopsis", Source = "trakt", FetchedAtUtc = acquired }
+        };
+        var detail = new SeerrMediaDetailResponse { Id = 101, Keywords = [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "pirate" }] };
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", flags)!.Invoke(service, [candidate, detail])!);
+        typeof(SeerrDiscoveryService).GetMethod("CacheSharedTitleMetadata", flags)!.Invoke(service, [new Uri("https://seerr.example.com/"), "seerr-key", null, candidate]);
+        Assert.Equal("ja", candidate.TitleMetadata!.OriginalLanguage);
+        Assert.Equal("external synopsis", candidate.TitleMetadata.Overview);
+        Assert.Equal(acquired, candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
+        Assert.Equal("pirate", Assert.Single(candidate.TitleMetadata.Keywords!.Value));
+        Assert.Null(candidate.SeerrTitleMetadata!.Overview);
+        Assert.Null(candidate.SeerrTitleMetadata.OriginalLanguage);
+        var stored = cache.Get(Plugin.Instance!.Configuration, 101, "movie")!;
+        Assert.Null(stored.Overview);
+        Assert.Null(stored.OriginalLanguage);
+        Assert.Equal("seerr", stored.Source);
+        Assert.Equal("pirate", Assert.Single(stored.Keywords!.Value));
     }
 
     [Theory]

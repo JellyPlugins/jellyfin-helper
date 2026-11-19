@@ -91,7 +91,7 @@ internal static class GenreNormalizer
             return false;
         }
 
-        if (Aliases.ContainsKey(name))
+        if (Aliases.ContainsKey(name) || Aliases.ContainsKey(name.Replace('-', ' ')))
         {
             return false;
         }

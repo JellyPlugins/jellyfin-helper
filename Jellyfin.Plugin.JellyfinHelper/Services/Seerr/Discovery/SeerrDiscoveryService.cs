@@ -3834,7 +3834,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var stored = _titleMetadataCache.Store(config, snapshot, requestedLanguage) ?? snapshot;
             var complementary = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, stored.TvdbId, stored.ImdbId, requestedLanguage);
-            candidate.TitleMetadata = TitleMetadataMerger.Combine(complementary is null ? [stored] : [stored, complementary]) ?? stored;
+            candidate.TitleMetadata = TitleMetadataMerger.Combine(new[] { stored, complementary, candidate.TitleMetadata }.OfType<TitleMetadataSnapshot>().ToArray()) ?? stored;
         }
     }
 

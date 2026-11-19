@@ -58,7 +58,7 @@ internal sealed class RecommendationChoiceHistory
                 _entries[Key(row)] = row;
                 if (!current.Any(item => Key(item) == Key(row) && item.Choice?.IsValid(item.ObservationId, referenceTime) == true))
                 {
-                    AddReplay(result, row);
+                    AddReplay(result, row, referenceTime);
                 }
             }
         }
@@ -66,7 +66,7 @@ internal sealed class RecommendationChoiceHistory
         return result;
     }
 
-    private static void AddReplay(List<TrainingExample> result, TrainingExample row)
+    private static void AddReplay(List<TrainingExample> result, TrainingExample row, DateTime referenceTime)
     {
         // Two feature views remain one observed title, not two watches. Preserve the
         // caller's prediction and labels while sharing its original sample-weight budget.
@@ -94,7 +94,9 @@ internal sealed class RecommendationChoiceHistory
             return;
         }
 
-        foreach (var alternative in row.Choice!.Alternatives)
+        var alternatives = row.Choice!.Alternatives.OrderBy(alternative => alternative.ObservationId)
+            .Take(RecommendationChoiceBuilder.FittingAlternativeLimit(row.Choice.RecommendedAtUtc, referenceTime)).ToArray();
+        foreach (var alternative in alternatives)
         {
             result.Add(new TrainingExample
             {
@@ -104,7 +106,7 @@ internal sealed class RecommendationChoiceHistory
                 IsObserved = false,
                 IsContrastSample = true,
                 Label = EngineConstants.ExposureLabel,
-                SampleWeight = .25 / row.Choice.Alternatives.Length,
+                SampleWeight = RecommendationChoiceBuilder.ContrastWeightBudget / alternatives.Length,
                 GeneratedAtUtc = row.Choice.RecommendedAtUtc,
                 Features = alternative.Features.Copy()
             });

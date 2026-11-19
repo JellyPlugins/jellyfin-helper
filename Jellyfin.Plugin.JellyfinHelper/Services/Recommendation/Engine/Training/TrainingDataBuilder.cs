@@ -542,14 +542,13 @@ internal static class TrainingDataBuilder
 
     private static void AttachRecommendationChoices(TrainingContext ctx)
     {
-        foreach (var example in ctx.Examples.Where(example => example.IsObserved && example.Label > 0.5))
+        foreach (var pair in ctx.Examples.Where(example => example.IsObserved && example.Label > 0.5)
+            .Select(example => (Example: example, Choice: ctx.Choices.GetValueOrDefault((example.UserId, example.ObservationId))))
+            .Where(pair => pair.Choice is not null))
         {
-            if (ctx.Choices.TryGetValue((example.UserId, example.ObservationId), out var choice))
-            {
-                example.Choice = choice.Copy();
-                example.Features = choice.ChosenFeatures.Copy();
-                example.GeneratedAtUtc = choice.RecommendedAtUtc;
-            }
+            pair.Example.Choice = pair.Choice!.Copy();
+            pair.Example.Features = pair.Choice.ChosenFeatures.Copy();
+            pair.Example.GeneratedAtUtc = pair.Choice.RecommendedAtUtc;
         }
     }
 
@@ -714,7 +713,7 @@ internal static class TrainingDataBuilder
         var outcome = ResolveRecommendationOutcome(rec.ItemId, isSeries, prevResult, userCtx);
         var observationId = TrainingExample.CreateTitleObservationId(prevResult.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries);
         var isChoiceContrast = outcome.IsContrast && userCtx.FittingChoiceAlternatives?.Contains(observationId) == true;
-        var sampleWeight = isChoiceContrast ? 0.25 / userCtx.FittingChoiceAlternatives!.Count : 1.0;
+        var sampleWeight = isChoiceContrast ? RecommendationChoiceBuilder.ContrastWeightBudget / userCtx.FittingChoiceAlternatives!.Count : 1.0;
 
         if (rec.ScoringFeatures is not null)
         {

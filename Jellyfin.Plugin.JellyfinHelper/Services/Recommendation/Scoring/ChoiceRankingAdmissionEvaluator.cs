@@ -106,8 +106,9 @@ internal static class ChoiceRankingAdmissionEvaluator
 
     private static double EffectiveTitles(ChoiceRow[] rows)
     {
-        var sum = rows.Sum(row => row.Weight);
-        var squares = rows.Sum(row => row.Weight * row.Weight);
+        var weights = MacroUserWeights(rows);
+        var sum = weights.Sum(row => row.Weight);
+        var squares = weights.Sum(row => row.Weight * row.Weight);
         return squares > 0 ? sum * sum / squares : 0;
     }
 
@@ -197,17 +198,37 @@ internal static class ChoiceRankingAdmissionEvaluator
             .Concat(rows.Where(row => row.TasteKey.HasValue).GroupBy(row => (row.UserId, row.TasteKey)).Select(group => group.ToArray()));
 
     private static double Mean(ChoiceRow[] rows, Func<ChoiceRow, double> metric)
-        => rows.GroupBy(row => row.UserId).Average(group => group.Sum(row => row.Weight * metric(row)) / group.Sum(row => row.Weight));
+        => rows.GroupBy((ChoiceRow row) => row.UserId).Average((IGrouping<Guid, ChoiceRow> group) =>
+        {
+            var weighted = 0.0;
+            var total = 0.0;
+            foreach (var row in group)
+            {
+                weighted += row.Weight * metric(row);
+                total += row.Weight;
+            }
+
+            return weighted / total;
+        });
 
     private static double LowerImprovement(ChoiceRow[] rows, Func<AdmissionScores, double> baseline, Func<AdmissionScores, double> candidate)
     {
-        var users = rows.GroupBy(row => row.UserId).ToArray();
-        var gains = users.SelectMany(group => group.Select(row =>
-            (Gain: ChoiceLoss(row, baseline) - ChoiceLoss(row, candidate), Weight: row.Weight / (group.Sum(value => value.Weight) * users.Length)))).ToArray();
+        var gains = MacroUserWeights(rows).Select(row =>
+            (Gain: ChoiceLoss(row.Row, baseline) - ChoiceLoss(row.Row, candidate), row.Weight)).ToArray();
         var mean = gains.Sum(value => value.Gain * value.Weight);
         var variance = gains.Sum(value => value.Weight * (value.Gain - mean) * (value.Gain - mean));
         var effective = 1.0 / gains.Sum(value => value.Weight * value.Weight);
         return mean - (ConfidenceMultiplier * Math.Sqrt(variance / effective));
+    }
+
+    private static (ChoiceRow Row, double Weight)[] MacroUserWeights(ChoiceRow[] rows)
+    {
+        var users = rows.GroupBy(row => row.UserId).ToArray();
+        return users.SelectMany((IGrouping<Guid, ChoiceRow> group) =>
+        {
+            var total = group.Sum((ChoiceRow row) => row.Weight) * users.Length;
+            return group.Select((ChoiceRow row) => (Row: row, Weight: row.Weight / total));
+        }).ToArray();
     }
 
     private sealed record ChoiceRow(Guid UserId, Guid ObservationId, Guid? TasteKey, double Weight, double Label, AdmissionScores Scores, AdmissionScores[] Alternatives)

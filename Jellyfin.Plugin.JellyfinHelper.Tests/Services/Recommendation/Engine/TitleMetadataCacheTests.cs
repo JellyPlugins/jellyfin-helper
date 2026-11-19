@@ -212,6 +212,83 @@ public sealed class TitleMetadataCacheTests
         Assert.Equal("new evidence", Assert.Single(cache.Get(_config, 123, "movie")!.Keywords!.Value));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExpiredTvdbPrimaryFallsThroughToTheCurrentTmdbObservation(bool onlyIdentityExpired)
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot
+        {
+            TvdbId = 456, MediaType = "tv", Overview = "expired", FetchedAtUtc = onlyIdentityExpired ? _clock.Now : _clock.Now.AddDays(-31),
+            FieldFetchedAtUtc = onlyIdentityExpired ? ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.TvdbId), _clock.Now.AddDays(-31)) : null
+        }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", Overview = "current", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Equal("current", cache.Get(_config, 0, "tv", 456)!.Overview);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, MediaType = "tv", Overview = "competing", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Equal("current", cache.Get(_config, 123, "tv")!.Overview);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExpiredObservationsOrIdentityFieldsDoNotKeepACurrentAliasAmbiguous(bool onlyIdentityExpires)
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", Overview = "older", FetchedAtUtc = _clock.Now.AddDays(-20) }, source, null);
+        if (onlyIdentityExpires)
+        {
+            cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, MediaType = "tv", Overview = "fresh metadata, old link", FetchedAtUtc = _clock.Now }, source, null);
+        }
+
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, MediaType = "tv", Overview = "current", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        _clock.Now = _clock.Now.AddDays(11);
+        Assert.Equal("current", cache.Get(_config, 0, "tv", 456)!.Overview);
+        if (onlyIdentityExpires) Assert.Equal(0, cache.Get(_config, 123, "tv")!.TvdbId);
+    }
+
+    [Fact]
+    public void ACurrentAliasPrimaryCannotHideCompetingClaimsButCompatibleObservationsCanComplementIt()
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", SourceGenres = ["Drama"], FetchedAtUtc = _clock.Now.AddDays(-1) }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", Overview = "current", FetchedAtUtc = _clock.Now }, source, null);
+        var linked = cache.Get(_config, 0, "tv", 456)!;
+        Assert.Equal(123, linked.TmdbId);
+        Assert.Equal("current", linked.Overview);
+        Assert.Equal("Drama", Assert.Single(linked.SourceGenres!.Value));
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, MediaType = "tv", Overview = "competing", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Equal("current", cache.Get(_config, 123, "tv")!.Overview);
+        Assert.Equal("competing", cache.Get(_config, 999, "tv")!.Overview);
+    }
+
+    [Fact]
+    public void OversizedSaveRetainsThePreviousRestartReadableFileAndTheInMemoryCache()
+    {
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("oversized-titles.json");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        cache.Store(_config, Snapshot());
+        Assert.True(cache.Save());
+        var previous = fs.File.ReadAllText(path);
+        var overview = new string('x', 4096);
+        for (var id = 1; id <= 4096; id++) cache.Store(_config, Snapshot() with { TmdbId = id, Overview = overview });
+        Assert.False(cache.Save());
+        Assert.Equal(previous, fs.File.ReadAllText(path));
+        Assert.False(fs.File.Exists(path + ".tmp"));
+        Assert.Equal(overview, cache.Get(_config, 4096, "movie")!.Overview);
+        Assert.NotNull(new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock).Get(_config, 123, "movie"));
+    }
+
     [Fact]
     public void FreshAndExplicitEmptyFieldsRenewOnlyTheirOwnAcquisitionTimes()
     {

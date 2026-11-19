@@ -10,6 +10,8 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 {
     private const string TrueCrime = "true crime";
     private const string Anime = "anime";
+    private const string WesternAnimation = "western animation";
+    private const string AmericanAnimation = "american animation";
 
     /// <summary>Gets verified documentary topics; absent topic evidence is an empty set.</summary>
     internal IReadOnlySet<string> Topics { get; init; } = new HashSet<string>(StringComparer.Ordinal);
@@ -57,7 +59,7 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
         {
             // Sonarr's anime parsing mode is useful provider evidence, not verified style
             // or age permission. It cannot override explicit contradictory representation tags.
-            return keywords.Overlaps(["western animation", "american animation"]) ? null : Anime;
+            return keywords.Overlaps([WesternAnimation, AmericanAnimation]) ? null : Anime;
         }
 
         var countries = (metadata.OriginCountries ?? []).Concat(metadata.ProductionCountries ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -108,7 +110,7 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
         var liveAction = keywords.Contains("live action");
         var anime = canonical.Contains(Anime) || keywords.Contains(Anime) || keywords.Contains("japanese animation");
         if (keywords.Contains("live action and animation") || HasConflictingAnimationLabels(canonical, keywords)
-            || (liveAction && (anime || canonical.Contains("Animation"))))
+            || (liveAction && (anime || canonical.Contains("Animation") || keywords.Overlaps([WesternAnimation, AmericanAnimation]))))
         {
             return null;
         }
@@ -125,13 +127,13 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 
         // Animation without an Anime keyword does not prove non-Anime; language, country and
         // manga adaptation are supporting metadata, never sufficient classification evidence.
-        return canonical.Contains("Animation") && keywords.Overlaps(["western animation", "american animation"])
+        return canonical.Contains("Animation") && keywords.Overlaps([WesternAnimation, AmericanAnimation])
             ? "animation"
             : null;
     }
 
     private static bool HasConflictingAnimationLabels(HashSet<string> genres, HashSet<string> keywords)
-        => (genres.Contains(Anime) || keywords.Overlaps([Anime, "japanese animation"])) && keywords.Overlaps(["western animation", "american animation"]);
+        => (genres.Contains(Anime) || keywords.Overlaps([Anime, "japanese animation"])) && keywords.Overlaps([WesternAnimation, AmericanAnimation]);
 
     private static string? NarrativeFamily(HashSet<string> genres, string? seriesType)
     {

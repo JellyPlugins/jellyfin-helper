@@ -111,7 +111,7 @@ internal static class DiversityReranker
 
         if (candidates.Count <= count)
         {
-            return candidates.OrderByDescending(c => c.Score).ToList();
+            return candidates.OrderByDescending(c => c.Score).DistinctBy(candidate => candidate.Item.Id).ToList();
         }
 
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
@@ -160,16 +160,10 @@ internal static class DiversityReranker
 
             if (bestIdx >= 0)
             {
-                represented.Add(tasteLanes?.GetValueOrDefault(remaining[bestIdx].Item.Id, remaining[bestIdx].Item.Id) ?? remaining[bestIdx].Item.Id);
-                selected.Add(remaining[bestIdx]);
-
-                var lastIdx = remaining.Count - 1;
-                if (bestIdx < lastIdx)
-                {
-                    remaining[bestIdx] = remaining[lastIdx];
-                }
-
-                remaining.RemoveAt(lastIdx);
+                var chosen = remaining[bestIdx];
+                represented.Add(tasteLanes?.GetValueOrDefault(chosen.Item.Id, chosen.Item.Id) ?? chosen.Item.Id);
+                selected.Add(chosen);
+                remaining.RemoveAll(candidate => candidate.Item.Id == chosen.Item.Id);
             }
             else
             {

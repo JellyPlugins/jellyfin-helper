@@ -184,6 +184,32 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Fact]
+    public async Task RepeatedlyFailingHistoryCannotStarveTheLocalLibraryTail()
+    {
+        var profile = NewProfile();
+        for (var id = 1; id <= 64; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var titles = Enumerable.Range(1000, 300).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(titles);
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            return Task.FromResult(id < 1000 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
+        };
+        for (var pass = 0; pass < 3; pass++)
+        {
+            _metadataClock.Days = pass * 8;
+            var before = _handler.Requests.Count;
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.InRange(_handler.Requests.Count - before, 1, 128);
+        }
+
+        Assert.All(Enumerable.Range(1000, 300), id => Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, id, "movie")));
+        Assert.Equal(364, _handler.Requests.Select(request => request.Path).Distinct().Count());
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 1, "movie"));
+    }
+
+    [Fact]
     public async Task OptionalWarmupEnumerationFailurePreservesCachedMetadata()
     {
         _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow });

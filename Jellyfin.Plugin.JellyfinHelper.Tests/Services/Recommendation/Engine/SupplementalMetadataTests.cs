@@ -98,6 +98,29 @@ public sealed class SupplementalMetadataTests
         Assert.Equal(current, metadata.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.SourceGenres)]);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void BlankPreferredProviderValuesCannotHideConsistentFieldsOrRenewTheirAge(string blank)
+    {
+        var now = DateTime.UtcNow;
+        var acquired = now.AddDays(-5);
+        var metadata = TitleMetadataMerger.Combine([
+            new TitleMetadataSnapshot { TmdbId = 123, OriginalLanguage = blank, SeriesType = blank, Overview = blank, FetchedAtUtc = now, Source = "seerr" },
+            new TitleMetadataSnapshot { TmdbId = 123, OriginalLanguage = "ja", SeriesType = "Scripted", Overview = "known", FetchedAtUtc = acquired, Source = "trakt" }
+        ])!;
+        Assert.Equal("ja", metadata.OriginalLanguage);
+        Assert.Equal("scripted", metadata.SeriesType);
+        Assert.Equal("known", metadata.Overview);
+        Assert.Equal(acquired, metadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.OriginalLanguage)]);
+        Assert.Equal(acquired, metadata.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.SeriesType)]);
+        Assert.Equal(acquired, metadata.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.Overview)]);
+        Assert.Null(metadata.ConflictingValues);
+        var conflict = TitleMetadataMerger.Combine([metadata, new TitleMetadataSnapshot { TmdbId = 123, OriginalLanguage = "en", FetchedAtUtc = now }])!;
+        Assert.Null(conflict.OriginalLanguage);
+        Assert.Equal(2, conflict.ConflictingValues![nameof(TitleMetadataSnapshot.OriginalLanguage)].Length);
+    }
+
     [Fact]
     public void SonarrAnimeHintComplementsTmdbNarrativeWithoutReplacingItAndAChangedModeClearsTheHint()
     {

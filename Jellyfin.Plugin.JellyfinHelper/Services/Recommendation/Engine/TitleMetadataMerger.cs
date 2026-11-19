@@ -26,7 +26,7 @@ internal static class TitleMetadataMerger
         T? Select<T>(Func<TitleMetadataSnapshot, T?> selector, string name)
             where T : class
         {
-            var source = ordered.FirstOrDefault(snapshot => selector(snapshot) is not null);
+            var source = ordered.FirstOrDefault(snapshot => selector(snapshot) is { } value && (value is not string text || !string.IsNullOrWhiteSpace(text)));
             if (source is null)
             {
                 return null;
@@ -99,8 +99,11 @@ internal static class TitleMetadataMerger
             FetchedAtUtc = ordered.Max(snapshot => snapshot.FetchedAtUtc),
             Source = string.Join('+', ordered.Select(snapshot => snapshot.Source).Distinct(StringComparer.Ordinal))
         };
-        return merged with { FieldFetchedAtUtc = times.ToImmutable(), ConflictingValues = conflicts.Count == 0 ? null : conflicts.ToImmutable() };
+        return merged with { FieldFetchedAtUtc = times.ToImmutable(), ConflictingValues = NonEmptyConflicts(conflicts.ToImmutable()) };
     }
+
+    private static ImmutableDictionary<string, ImmutableArray<string>>? NonEmptyConflicts(ImmutableDictionary<string, ImmutableArray<string>> conflicts)
+        => conflicts.IsEmpty ? null : conflicts;
 
     private static DateTime AcquiredAt(TitleMetadataSnapshot snapshot, string field)
         => snapshot.FieldFetchedAtUtc?.GetValueOrDefault(field, snapshot.FetchedAtUtc) ?? snapshot.FetchedAtUtc;

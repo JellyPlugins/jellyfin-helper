@@ -65,7 +65,6 @@ internal sealed class ContentFitProfile
     private readonly Dictionary<string, double> _termWeights;
     private readonly bool _prefersOlderAnimation;
     private readonly bool _hasPositiveChildrenInterest;
-    private readonly bool _hasUnclassifiedChildrenRepresentation;
     private readonly DimensionProfile[] _dimensions;
     private readonly int _positiveTitleCount;
     private readonly ContentFitProfile? _identityProfile;
@@ -77,7 +76,6 @@ internal sealed class ContentFitProfile
         _termWeights = weights;
         _prefersOlderAnimation = audience.PrefersOlder;
         _hasPositiveChildrenInterest = audience.HasPositiveChildrenInterest;
-        _hasUnclassifiedChildrenRepresentation = audience.HasUnclassifiedChildrenRepresentation;
         _dimensions = dimensions ?? [new([], 0), new([], 0), new([], 0)];
         _positiveTitleCount = positiveTitleCount;
         _identityProfile = identityProfile;
@@ -113,9 +111,7 @@ internal sealed class ContentFitProfile
         var narratives = DimensionPreferences(descriptors.Select(descriptor => descriptor.Narrative is { } value ? new[] { value } : []));
         var topics = DimensionPreferences(descriptors.Select(descriptor => descriptor.Topics.ToArray()));
         var likely = DimensionPreferences(descriptors.Select(descriptor => (descriptor.Representation ?? descriptor.ProbableRepresentation) is { } value ? new[] { value } : []));
-        var unclassifiedChildren = positiveTitles.Any(title => IsChildrenTitle(title.Genres, title.Terms)
-            && ContentDescriptor.Create(title.Genres, title.Terms, title.Metadata).Representation is null);
-        return new ContentFitProfile(prepared, weights, new(older > children, children > 0, unclassifiedChildren), [representations, narratives, topics], positiveTitles.Length, BuildIdentityProfile(positiveTitles), likely);
+        return new ContentFitProfile(prepared, weights, new(older > children, children > 0), [representations, narratives, topics], positiveTitles.Length, BuildIdentityProfile(positiveTitles), likely);
     }
 
     private static DimensionProfile DimensionPreferences(IEnumerable<string[]> values)
@@ -435,7 +431,9 @@ internal sealed class ContentFitProfile
 
     private double? CombinedFamilyMismatch(IReadOnlyList<string> genres, IEnumerable<string>? tags, Dictionary<string, double> preferences, TitleMetadataSnapshot? metadata)
     {
-        var preserveChildrenRepresentation = _hasUnclassifiedChildrenRepresentation && IsChildrenTitle(GenreNormalizer.Set(genres), Keywords(tags));
+        // Positive children's interest is not restricted to the majority's animation style.
+        // Preserve narrative/topic checks: preschool evidence does not imply an interest in reality TV.
+        var preserveChildrenRepresentation = _hasPositiveChildrenInterest && IsChildrenTitle(GenreNormalizer.Set(genres), Keywords(tags));
         var family = ResolveFamilyMismatch(ContentDescriptor.Create(genres, tags, metadata), preserveChildrenRepresentation);
         var children = ResolveConfirmedChildrenMismatch(tags, preferences);
         return family.HasValue || children.HasValue ? Math.Max(family ?? 0, children ?? 0) : null;
@@ -589,7 +587,7 @@ internal sealed class ContentFitProfile
 
     private readonly record struct MatchEvidence(double Affinity, double Support, Guid? TasteKey = null);
 
-    private readonly record struct AnimationAudience(bool PrefersOlder, bool HasPositiveChildrenInterest, bool HasUnclassifiedChildrenRepresentation);
+    private readonly record struct AnimationAudience(bool PrefersOlder, bool HasPositiveChildrenInterest);
 
     private readonly record struct KeywordOverlap(double Weight, int SpecificMatches, int NarrativeMatches);
 
