@@ -63,6 +63,33 @@ public sealed class TraktMapperTests
     }
 
     [Fact]
+    public void SupplementalMetadataKeepsTypedIdsRawLanguageAndCountryAndDetachedGenres()
+    {
+        var genres = new List<string> { "science-fiction", "Science-Fiction", "talk-show" };
+        var item = new TraktMediaItem
+        {
+            Ids = new TraktIds { Tvdb = 456, Imdb = " TT123456 " },
+            Genres = genres, OriginalLanguage = "jpn", Country = "jp", Overview = "provider overview"
+        };
+        var metadata = TraktMapper.Metadata(item, "TV");
+        Assert.Equal(0, metadata.TmdbId);
+        Assert.Equal(456, metadata.TvdbId);
+        Assert.Equal("tt123456", metadata.ImdbId);
+        Assert.Equal("tv", metadata.MediaType);
+        Assert.Equal("jpn", metadata.OriginalLanguage);
+        Assert.Equal("jp", Assert.Single(metadata.ProductionCountries!.Value));
+        Assert.Equal("provider overview", metadata.Overview);
+        Assert.Equal("trakt", metadata.Source);
+        genres.Clear();
+        Assert.Equal(2, metadata.SourceGenres!.Value.Length);
+        var absent = TraktMapper.Metadata(new TraktMediaItem(), "movie");
+        Assert.Null(absent.SourceGenres);
+        Assert.Null(absent.ImdbId);
+        Assert.Null(absent.OriginalLanguage);
+        Assert.Null(absent.ProductionCountries);
+    }
+
+    [Fact]
     public void MapMediaItems_NullsBlankSlug()
     {
         var item = Media(100);

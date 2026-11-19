@@ -13,6 +13,48 @@ public sealed class ContentFitProfileTests
     private static readonly string[] BattleKeywords = ["anime", "shounen", "pirate", "friendship", "super power"];
     private static readonly Dictionary<string, double> BattleGenres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
 
+    [Fact]
+    public void KnownGermanAnimeAndStoryTagsReuseTheExistingNormalizerWithoutTextUnderstanding()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation"], BattleKeywords)] };
+        var content = ContentFitProfile.Create(profile);
+        string[] translated = ["japanische Animation", "Shōnen", "Piraten", "Freundschaft", "Superkräfte"];
+        var english = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        var german = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        content.Apply(english, ["Animation"], BattleKeywords, null, BattleGenres);
+        content.Apply(german, ["Animation"], translated, null, BattleGenres);
+        Assert.Equal(english.ToVector(), german.ToVector());
+        Assert.Equal(1, german.ContentFitSupport);
+        Assert.Null(german.ContentFamilyMismatch);
+        Assert.Equal(ContentFitProfile.Keywords(BattleKeywords), ContentFitProfile.Keywords(translated));
+    }
+
+    [Fact]
+    public void MultipleStyleLabelsCannotFabricateSpecificStoryAffinityOrCoherentSupport()
+    {
+        string[] styles = ["western animation", "american animation", "Animation"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation"], styles)] };
+        var content = ContentFitProfile.Create(profile);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        content.Apply(features, ["Animation"], styles, null, BattleGenres);
+        Assert.Equal(0, content.ScoreTags(styles));
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+        Assert.Null(features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void ChildrenAudienceLabelsAloneAreNotTwoIndependentStoryTopics()
+    {
+        string[] audience = ["preschool", "children's television", "children's film"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation", "Kids"], audience)] };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], audience, null, BattleGenres);
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+        Assert.Null(features.AudienceMismatch);
+    }
+
     [Theory]
     [InlineData(true, null)]
     [InlineData(true, 9.0)]

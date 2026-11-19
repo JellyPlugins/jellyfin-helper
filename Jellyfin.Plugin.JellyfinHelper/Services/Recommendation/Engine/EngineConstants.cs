@@ -122,7 +122,8 @@ internal static class EngineConstants
     internal const double AbandonedLabel = 0.0;
 
     /// <summary>
-    ///     Label for previously recommended but unwatched items (exposure bias mitigation - user saw the recommendation but didn't engage).
+    ///     Low fitting target for qualified relative-choice alternatives or confirmed passive Discovery exposure.
+    ///     Playlist publication alone does not establish non-engagement evidence.
     /// </summary>
     internal const double ExposureLabel = 0.05;
 

@@ -392,6 +392,40 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Theory]
+    [InlineData(101, true)]
+    [InlineData(999, false)]
+    public void CachedDetailPreservesSupplementalFieldsAndTheirOriginalAcquisitionTimes(int detailId, bool accepted)
+    {
+        var service = CreateService();
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        var supplemental = new TitleMetadataSnapshot
+        {
+            TmdbId = 101, OriginalLanguage = "ja", Overview = "supplemental synopsis", Source = "trakt", FetchedAtUtc = acquired.AddHours(-1)
+        };
+        var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = supplemental };
+        var detail = new SeerrMediaDetailResponse { Id = detailId, Keywords = [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "pirate" }] };
+        var flags = BindingFlags.Static | BindingFlags.NonPublic;
+        var ttl = (TimeSpan)typeof(SeerrDiscoveryService).GetField("SeerrUserCacheTtl", flags)!.GetValue(null)!;
+        var cacheType = typeof(SeerrDiscoveryService).GetNestedType("CachedMediaDetail", BindingFlags.NonPublic)!;
+        var cached = Activator.CreateInstance(cacheType, detail, acquired.Add(ttl))!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.Equal(accepted, (bool)method.Invoke(service, [candidate, cached])!);
+        if (accepted)
+        {
+            Assert.Equal(acquired, candidate.SeerrTitleMetadata!.FetchedAtUtc);
+            Assert.Equal("supplemental synopsis", candidate.TitleMetadata!.Overview);
+            Assert.Equal("ja", candidate.TitleMetadata.OriginalLanguage);
+            Assert.Equal(acquired.AddHours(-1), candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
+            Assert.Equal(acquired, candidate.TitleMetadata.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.Keywords)]);
+            Assert.Equal("pirate", Assert.Single(candidate.TitleMetadata.Keywords!.Value));
+        }
+        else
+        {
+            Assert.Same(supplemental, candidate.TitleMetadata);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RequestVerification_RejectsAChangedCountryDuringMappingOrFinalPolicyRead(bool changeDuringMapping)

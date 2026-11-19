@@ -15,6 +15,7 @@ internal static class GenreNormalizer
 {
     private static readonly Dictionary<string, string> Aliases = BuildAliases();
     private static readonly ConcurrentDictionary<string, string> ProviderAliases = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, byte> ConflictingProviderAliases = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> GenreKeywords = Aliases.Keys.Concat(Set(Aliases.Values))
         .Select(NormalizeGenreKeyword).OfType<string>().ToHashSet(StringComparer.Ordinal);
@@ -52,7 +53,15 @@ internal static class GenreNormalizer
             // Malformed custom metadata must not abort a whole user's recommendations.
         }
 
-        return Aliases.TryGetValue(text, out var known) ? known : ProviderAliases.GetValueOrDefault(text, text);
+        if (Aliases.TryGetValue(text, out var known) || ProviderAliases.TryGetValue(text, out known))
+        {
+            return known;
+        }
+
+        // Trakt uses hyphenated genre slugs. Only fold punctuation when the result
+        // is an existing catalog identity; never rewrite arbitrary custom labels.
+        var slug = text.Replace('-', ' ');
+        return Aliases.GetValueOrDefault(slug, text);
     }
 
     /// <summary>Learns a localized provider label from its stable genre ID without overwriting known meanings.</summary>
@@ -72,7 +81,16 @@ internal static class GenreNormalizer
             return false;
         }
 
-        var name = Name(label);
+        string name;
+        try
+        {
+            name = label.Trim().Normalize(NormalizationForm.FormKC);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
         if (Aliases.ContainsKey(name))
         {
             return false;
@@ -80,10 +98,29 @@ internal static class GenreNormalizer
 
         lock (CatalogLock)
         {
-            if (ProviderAliases.Count >= 4096 || !ProviderAliases.TryAdd(name, canonical))
+            if (ConflictingProviderAliases.ContainsKey(name))
             {
                 return false;
             }
+
+            if (ProviderAliases.TryGetValue(name, out var previous))
+            {
+                if (previous != canonical)
+                {
+                    ProviderAliases.TryRemove(name, out _);
+                    ConflictingProviderAliases.TryAdd(name, 0);
+                    Interlocked.Increment(ref _catalogVersion);
+                }
+
+                return false;
+            }
+
+            if (ProviderAliases.Count + ConflictingProviderAliases.Count >= 4096)
+            {
+                return false;
+            }
+
+            ProviderAliases[name] = canonical;
 
             if (NormalizeGenreKeyword(name) is { } keyword)
             {

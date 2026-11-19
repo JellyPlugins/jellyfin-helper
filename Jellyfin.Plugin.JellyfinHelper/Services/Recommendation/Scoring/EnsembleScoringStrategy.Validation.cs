@@ -471,6 +471,11 @@ public sealed partial class EnsembleScoringStrategy
             return "Legacy";
         }
 
+        if (_acceptedBundle.Utility?.IsChoiceRanking == true)
+        {
+            return "ChoiceRanking";
+        }
+
         return _acceptedBundle.IsProvisional ? "Provisional" : "Verified";
     }
 

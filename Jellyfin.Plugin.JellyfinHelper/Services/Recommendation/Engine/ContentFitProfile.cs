@@ -11,6 +11,33 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// <summary>Detached, title-balanced thematic evidence; genres, transport tags and audience permission are not interchangeable.</summary>
 internal sealed class ContentFitProfile
 {
+    private const string AnimeKeyword = "anime";
+    private const string ShounenKeyword = "shounen";
+    private const string ChildrenTelevisionKeyword = "children's television";
+    private const string AdultAnimationKeyword = "adult animation";
+    private const string SuperPowerKeyword = "super power";
+
+    // Explicit label aliases, not free-text translation or synopsis understanding.
+    private static readonly Dictionary<string, string> KeywordAliases = new(StringComparer.Ordinal)
+    {
+        ["shonen"] = ShounenKeyword, ["shōnen"] = ShounenKeyword,
+        ["japanese animation"] = AnimeKeyword, ["japanische animation"] = AnimeKeyword, ["アニメ"] = AnimeKeyword,
+        ["westliche animation"] = "western animation", ["amerikanische animation"] = "american animation",
+        ["realverfilmung"] = "live action",
+        ["kids tv"] = ChildrenTelevisionKeyword, ["children's tv"] = ChildrenTelevisionKeyword, ["kinderfernsehen"] = ChildrenTelevisionKeyword,
+        ["kinderfilm"] = "children's film", ["kinderserie"] = ChildrenTelevisionKeyword,
+        ["pre school"] = "preschool", ["vorschule"] = "preschool",
+        ["adult cartoon"] = AdultAnimationKeyword, ["erwachsenenanimation"] = AdultAnimationKeyword,
+        ["fighting"] = "fight", ["kampf"] = "fight",
+        ["superpower"] = SuperPowerKeyword, ["superpowers"] = SuperPowerKeyword, ["super powers"] = SuperPowerKeyword, ["superkräfte"] = SuperPowerKeyword,
+        ["piraten"] = "pirate", ["freundschaft"] = "friendship", ["magie"] = "magic"
+    };
+
+    private static readonly HashSet<string> RepresentationLabels = new(StringComparer.Ordinal)
+    {
+        AnimeKeyword, "japanese animation", "western animation", "american animation", "live action", "live action and animation"
+    };
+
     private static readonly HashSet<string> TechnicalLabels = new(StringComparer.Ordinal)
     {
         "german dl", "dubbed", "subbed", "dual audio", "multi",
@@ -20,18 +47,18 @@ internal sealed class ContentFitProfile
 
     private static readonly HashSet<string> OlderAnimationLabels = new(StringComparer.Ordinal)
     {
-        "shounen", "seinen", "adult animation", "dark fantasy", "gore"
+        ShounenKeyword, "seinen", AdultAnimationKeyword, "dark fantasy", "gore"
     };
 
     private static readonly HashSet<string> ChildrenLabels = new(StringComparer.Ordinal)
     {
-        "preschool", "children's television", "children's film", "children's adventure", "kinderfilm", "kinderserie"
+        "preschool", ChildrenTelevisionKeyword, "children's film", "children's adventure"
     };
 
     private static readonly HashSet<string> FormatLabels = new(StringComparer.Ordinal)
     {
         "based on manga", "based on comic", "based on comic book", "based on novel or book", "based on video game",
-        "live action and animation", "shounen", "seinen", "adult animation", "anthology"
+        "live action and animation", ShounenKeyword, "seinen", AdultAnimationKeyword, "anthology"
     };
 
     private readonly KeywordDocument[] _documents;
@@ -126,7 +153,8 @@ internal sealed class ContentFitProfile
 
     private static bool IsNarrativeKeyword(ProviderKeyword keyword)
         => keyword.Id > 0 && keyword.Name is not null && CanonicalKeyword(keyword.Name) is { } name
-            && name != "anime" && !GenreNormalizer.IsKnownGenreKeyword(name) && !FormatLabels.Contains(name);
+            && !RepresentationLabels.Contains(name) && !GenreNormalizer.IsKnownGenreKeyword(name) && !FormatLabels.Contains(name)
+            && !ChildrenLabels.Contains(name);
 
     private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache)
     {
@@ -284,9 +312,9 @@ internal sealed class ContentFitProfile
             }
 
             weight += TermWeight(keyword);
-            var broad = keyword == "anime" || GenreNormalizer.IsKnownGenreKeyword(keyword);
+            var broad = RepresentationLabels.Contains(keyword) || GenreNormalizer.IsKnownGenreKeyword(keyword);
             specific += broad ? 0 : 1;
-            narrative += broad || FormatLabels.Contains(keyword) ? 0 : 1;
+            narrative += broad || FormatLabels.Contains(keyword) || ChildrenLabels.Contains(keyword) ? 0 : 1;
         }
 
         return new KeywordOverlap(weight, specific, narrative);
@@ -518,16 +546,7 @@ internal sealed class ContentFitProfile
             return null;
         }
 
-        return normalized switch
-        {
-            "shonen" or "shōnen" => "shounen",
-            "kids tv" or "children's tv" or "kinderfernsehen" => "children's television",
-            "pre school" or "vorschule" => "preschool",
-            "adult cartoon" or "erwachsenenanimation" => "adult animation",
-            "fighting" => "fight",
-            "superpower" or "superpowers" or "super powers" => "super power",
-            _ => normalized
-        };
+        return KeywordAliases.GetValueOrDefault(normalized, normalized);
     }
 
     private static string? NormalizeKeyword(string tag)

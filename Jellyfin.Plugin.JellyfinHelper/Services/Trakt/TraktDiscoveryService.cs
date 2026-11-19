@@ -99,6 +99,9 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
     /// </summary>
     internal Func<DateTimeOffset> UtcNow { get; set; } = () => DateTimeOffset.UtcNow;
 
+    /// <summary>Gets optional shared provider metadata persistence configured by the registration factory.</summary>
+    internal Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache? MetadataCache { get; init; }
+
     /// <inheritdoc />
     public async Task<DiscoveryResult?> GetPersonalAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -564,6 +567,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
+        PublishMetadata(items ?? [], mediaType);
         LogDropped(dropped, mediaType, "personal");
         return (mapped, false, retryAfter);
     }
@@ -579,6 +583,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         using (var movieReq = BuildRequest("/movies/trending", clientId, TraktLimit, accessToken: null))
         {
             var (movies, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            PublishMetadata((movies ?? []).Select(item => item.Movie).OfType<TraktMediaItem>(), MediaTypeMovie);
             all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
@@ -586,6 +591,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         using (var showReq = BuildRequest("/shows/trending", clientId, TraktLimit, accessToken: null))
         {
             var (shows, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            PublishMetadata((shows ?? []).Select(item => item.Show).OfType<TraktMediaItem>(), MediaTypeTv);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
@@ -594,6 +600,20 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         }
 
         return all;
+    }
+
+    private void PublishMetadata(IEnumerable<TraktMediaItem> items, string mediaType)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (MetadataCache is null || config is null || !config.TraktSourcingEnabled || !_personalSources.IsAvailable(config))
+        {
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            MetadataCache.StoreSupplemental(config, TraktMapper.Metadata(item, mediaType), new("trakt", "https://api.trakt.tv", "public-metadata"), language: null);
+        }
     }
 
     private async Task<(T? Data, HttpStatusCode Status, TimeSpan? RetryAfter)> SendAndReadAsync<T>(

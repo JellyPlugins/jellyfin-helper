@@ -50,6 +50,72 @@ public sealed class PersonalDiscoveryRetrievalTests
         Assert.Empty(PersonalDiscoveryRetrieval.Seeds(profile));
     }
 
+    [Fact]
+    public void AStrongAnimeLaneSurvivesANewerNonAnimeThemeSeedWithoutEpisodeVoteInflation()
+    {
+        var newest = Watch(10, "Series", Now);
+        newest.Tags = ["courtroom", "trial", "justice"];
+        var supporting = Watch(11, "Series", Now.AddDays(-1));
+        supporting.Tags = newest.Tags;
+        var firstAnime = Watch(20, "Series", Now.AddDays(-2));
+        firstAnime.Tags = ["anime", "pirate", "friendship"];
+        var secondAnime = Watch(21, "Series", Now.AddDays(-3));
+        secondAnime.Tags = ["anime", "magic", "wizard"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [newest, supporting, firstAnime, secondAnime] };
+        var seeds = PersonalDiscoveryRetrieval.Seeds(profile);
+        Assert.Equal(10, seeds["tv"]);
+        Assert.Equal(20, seeds["tv:anime"]);
+        Assert.InRange(seeds.Count, 2, 4);
+        for (var index = 0; index < 100; index++)
+        {
+            var episode = Watch(21, "Episode", Now.AddDays(-3));
+            episode.SeriesId = secondAnime.ItemId;
+            episode.SeriesTmdbId = 21;
+            episode.SeriesTags = secondAnime.Tags;
+            profile.WatchedItems.Add(episode);
+        }
+
+        Assert.Equal(20, PersonalDiscoveryRetrieval.Seeds(profile)["tv:anime"]);
+    }
+
+    [Fact]
+    public void ARepeatedSingleAnimeTitleCannotInventIndependentFamilySupport()
+    {
+        var parent = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 100; index++)
+        {
+            var row = Watch(20, "Episode", Now);
+            row.SeriesId = parent;
+            row.SeriesTmdbId = 20;
+            row.SeriesTags = ["anime"];
+            profile.WatchedItems.Add(row);
+        }
+
+        Assert.DoesNotContain("tv:anime", PersonalDiscoveryRetrieval.Seeds(profile).Keys);
+    }
+
+    [Fact]
+    public void FamilySeedsKeepMovieAndTvIdSpacesSeparate()
+    {
+        var movie = Watch(20, "Movie", Now);
+        var otherMovie = Watch(21, "Movie", Now.AddDays(-1));
+        var newestTv = Watch(99, "Series", Now);
+        newestTv.Tags = ["courtroom", "trial"];
+        var otherTv = Watch(100, "Series", Now.AddDays(-1));
+        otherTv.Tags = newestTv.Tags;
+        var anime = Watch(20, "Series", Now.AddDays(-2));
+        anime.Tags = ["anime", "magic", "wizard"];
+        var otherAnime = Watch(22, "Series", Now.AddDays(-3));
+        otherAnime.Tags = anime.Tags;
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [movie, otherMovie, newestTv, otherTv, anime, otherAnime] };
+        var seeds = PersonalDiscoveryRetrieval.Seeds(profile);
+        Assert.Equal(20, seeds["movie"]);
+        Assert.Equal(99, seeds["tv"]);
+        Assert.Equal(20, seeds["tv:anime"]);
+        Assert.InRange(seeds.Count, 3, 4);
+    }
+
     [Theory]
     [InlineData("Movie")]
     [InlineData("Series")]

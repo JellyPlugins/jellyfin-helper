@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 
 /// <summary>
@@ -30,4 +32,13 @@ public class ArrSeries
 
     /// <summary>Gets or sets the total episode count.</summary>
     public int TotalEpisodeCount { get; set; }
+
+    /// <summary>Gets or sets optional TVDB/Sonarr genre labels.</summary>
+    public IReadOnlyList<string>? Genres { get; set; }
+
+    /// <summary>Gets or sets the provider overview.</summary>
+    public string? Overview { get; set; }
+
+    /// <summary>Gets or sets Sonarr's parsing/series mode (anime, standard or daily), not a TMDb narrative format.</summary>
+    public string? SeriesType { get; set; }
 }

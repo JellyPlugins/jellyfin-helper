@@ -51,7 +51,7 @@ internal static class EnsembleAdmissionEvaluator
         var plan = PrepareCalibration(cal, test.Length, models, alphaCap, neuralCap);
         if (plan.Limitation is { } limitation)
         {
-            return limitation;
+            return ResolveChoiceLimitation(limitation, calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence);
         }
 
         var availableAcceptanceTitles = test.Length;
@@ -60,7 +60,8 @@ internal static class EnsembleAdmissionEvaluator
         if (!HasSupport(test))
         {
             var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
-            return AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
+            return ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence)
+                ?? AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
         }
 
         test = ScoreEvidence(test, models, neuralCap > 0);
@@ -76,6 +77,16 @@ internal static class EnsembleAdmissionEvaluator
         }
 
         return AssessSelectedMixture(plan, test, models.Incumbent is not null);
+    }
+
+    private static AdmissionDecision ResolveChoiceLimitation(AdmissionDecision limitation, IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime referenceTime, (double Alpha, double Neural) caps, Func<IReadOnlyCollection<Guid>, string?>? reserve)
+    {
+        if (limitation.Reason is not ("HomogeneousObservedOutcomes" or "InsufficientIndependentRankingEvidence"))
+        {
+            return limitation;
+        }
+
+        return ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, referenceTime, caps, reserve) ?? limitation;
     }
 
     private static void ValidateAdmissionInputs(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, double alphaCap, double neuralCap)
@@ -262,7 +273,7 @@ internal static class EnsembleAdmissionEvaluator
     {
         var rows = CaptureEvidence(examples, referenceTime);
         var mixed = MixedUsers(rows).ToHashSet();
-        return HasSupport(rows.Where(row => mixed.Contains(row.UserId)).ToArray());
+        return HasSupport(rows.Where(row => mixed.Contains(row.UserId)).ToArray()) || ChoiceRankingAdmissionEvaluator.HasSupport(examples, referenceTime);
     }
 
     /// <summary>Tests new observed counterevidence against a pinned incumbent, independently of challenger success.</summary>

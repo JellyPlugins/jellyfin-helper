@@ -288,12 +288,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <inheritdoc />
     int ISeerrDiscoveryService.MaxVisiblePerUser => MaxVisiblePerUser;
 
+    /// <summary>Gets the optional configured-provider background metadata collector.</summary>
+    internal SupplementaryTitleMetadataService? SupplementalMetadata { get; init; }
+
     /// <inheritdoc />
     public async Task WarmTitleMetadataAsync(CancellationToken cancellationToken)
     {
         var current = Plugin.Instance?.Configuration;
-        if (_titleMetadataCache is null || current is null || current.RecommendationsTaskMode == TaskMode.Deactivate
-            || string.IsNullOrWhiteSpace(current.SeerrUrl) || string.IsNullOrWhiteSpace(current.SeerrApiKey))
+        if (_titleMetadataCache is null || current is null || current.RecommendationsTaskMode == TaskMode.Deactivate)
+        {
+            return;
+        }
+
+        var hasSeerr = !string.IsNullOrWhiteSpace(current.SeerrUrl) && !string.IsNullOrWhiteSpace(current.SeerrApiKey);
+        var hasArr = SupplementalMetadata is not null && (current.GetEffectiveRadarrInstances().Count > 0 || current.GetEffectiveSonarrInstances().Count > 0);
+        if (!hasSeerr && !hasArr)
         {
             return;
         }
@@ -303,31 +312,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             SeerrUrl = current.SeerrUrl,
             SeerrApiKey = current.SeerrApiKey,
             SeerrSkipCertificateValidation = current.SeerrSkipCertificateValidation,
-            RecommendationsTaskMode = current.RecommendationsTaskMode
+            RecommendationsTaskMode = current.RecommendationsTaskMode,
+            RadarrInstances = CaptureInstances(current.GetEffectiveRadarrInstances()),
+            SonarrInstances = CaptureInstances(current.GetEffectiveSonarrInstances()),
+            TraktSourcingEnabled = current.TraktSourcingEnabled
         };
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromSeconds(45));
         try
         {
-            var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
-            var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
-            var history = MetadataHistoryKeys(_watchHistoryService.GetAllUserWatchProfiles());
-            var library = (_libraryManager.GetItemList(new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true
-            }) ?? []).Where(item => item is Movie or Series)
-                .Select(item => (TmdbId: TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0, MediaType: item is Series ? "tv" : "movie"))
-                .Where(key => key.TmdbId > 0).Distinct();
-            var pending = _titleMetadataCache.ReserveRefreshes(config, history.Concat(library), 128);
-            var options = new ParallelOptions
-            {
-                MaxDegreeOfParallelism = MetadataEnrichmentParallelism, CancellationToken = budget.Token
-            };
-            await Parallel.ForEachAsync(pending, options, async (key, token) =>
-            {
-                var candidate = new TmdbDiscoverItem { Id = key.TmdbId, MediaType = key.MediaType };
-                await EnrichCandidateWithMetadataAsync(client, baseUri, apiKey, candidate, token).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            var supplemental = SupplementalMetadata?.WarmAsync(config, budget.Token) ?? Task.CompletedTask;
+            var seerr = hasSeerr ? WarmSeerrTitleMetadataAsync(config, budget.Token) : Task.CompletedTask;
+            await Task.WhenAll(supplemental, seerr).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -342,6 +338,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             _pluginLog.LogDebug(LogCategory, "Title metadata stays in memory; optional persistence was unavailable.", _logger);
         }
+    }
+
+    private static List<ArrInstanceConfig> CaptureInstances(IReadOnlyList<ArrInstanceConfig> instances)
+        => instances.Select(instance => new ArrInstanceConfig { Url = instance.Url, ApiKey = instance.ApiKey, SkipCertificateValidation = instance.SkipCertificateValidation }).ToList();
+
+    private async Task WarmSeerrTitleMetadataAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
+        var history = MetadataHistoryKeys(_watchHistoryService.GetAllUserWatchProfiles());
+        var library = (_libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true
+        }) ?? []).Where(item => item is Movie or Series)
+            .Select(item => (TmdbId: TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0, MediaType: item is Series ? "tv" : "movie"))
+            .Where(key => key.TmdbId > 0).Distinct();
+        var pending = _titleMetadataCache!.ReserveRefreshes(config, history.Concat(library), 128);
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = MetadataEnrichmentParallelism, CancellationToken = cancellationToken
+        };
+        await Parallel.ForEachAsync(pending, options, async (key, token) =>
+        {
+            var candidate = new TmdbDiscoverItem { Id = key.TmdbId, MediaType = key.MediaType };
+            await EnrichCandidateWithMetadataAsync(client, baseUri, apiKey, candidate, token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     private static (int TmdbId, string MediaType) HistoryTitleKey(WatchedItemInfo row)
@@ -2317,6 +2339,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Name = isTv ? c.Title : null,
             GenreIds = [.. c.GenreIds],
             SourceGenres = c.SourceGenres?.ToArray(),
+            TitleMetadata = c.TitleMetadata,
             VoteAverage = c.VoteAverage,
             Popularity = c.Popularity,
             PosterPath = c.PosterPath,
@@ -2513,16 +2536,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (_titleMetadataCache is not null && config is not null)
             {
-                candidate.TitleMetadata ??= _titleMetadataCache.Get(config, candidate.Id, candidate.MediaType);
-                if (candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
-                {
-                    candidate.GenreIds = genreIds.ToList();
-                }
-
-                if (candidate.TitleMetadata?.Keywords is { } keywords)
-                {
-                    candidate.KnownKeywords ??= keywords.ToList();
-                }
+                var cached = _titleMetadataCache.Get(config, candidate.Id, candidate.MediaType);
+                ApplyCachedSnapshot(candidate, cached);
             }
 
             var detail = CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate)));
@@ -2531,6 +2546,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 candidate.MetadataFetchAttempted = true;
                 candidate.MetadataFetchSucceeded = ApplyCachedDetail(candidate, detail);
             }
+        }
+    }
+
+    private static void ApplyCachedSnapshot(TmdbDiscoverItem candidate, TitleMetadataSnapshot? cached)
+    {
+        if (cached is not null)
+        {
+            candidate.TitleMetadata = TitleMetadataMerger.Combine(candidate.TitleMetadata is null ? [cached] : [cached, candidate.TitleMetadata]);
+        }
+
+        if (candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
+        {
+            candidate.GenreIds = genreIds.ToList();
+        }
+
+        if (candidate.TitleMetadata?.SourceGenres is { } sourceGenres)
+        {
+            candidate.SourceGenres = GenreNormalizer.Set((candidate.SourceGenres ?? []).Concat(sourceGenres)).ToArray();
+        }
+
+        if (candidate.TitleMetadata?.Keywords is { } keywords)
+        {
+            candidate.KnownKeywords ??= keywords.ToList();
         }
     }
 
@@ -2899,7 +2937,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Runs genre/language retrieval; personal provider-title routes replace, rather than add to, the two page-2 variety slots.
+    ///     Runs bounded genre/language retrieval plus at most two supported family lanes beyond the ordinary theme seeds.
     /// </summary>
     private async Task GatherNormalCandidatesAsync(
         HttpClient client,
@@ -2947,6 +2985,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             await GatherVarietyCandidatesAsync(client, baseUri, apiKey, ("tv", tvGenreIds[0]), personal.Seeds, allCandidates, cancellationToken).ConfigureAwait(false);
         }
 
+        foreach (var lane in personal.Seeds.Where(pair => pair.Key.Contains(':', StringComparison.Ordinal)).Take(2))
+        {
+            var type = lane.Key.Split(':')[0];
+            await GatherSeedCandidatesAsync(client, baseUri, apiKey, type, lane.Value, allCandidates, cancellationToken).ConfigureAwait(false);
+        }
+
         // Query C: Language-based discovery if user has clear preference.
         // primaryLanguage is already validated as ISO 639-1 by GetPrimaryLanguageForDiscovery.
         if (!string.IsNullOrEmpty(primaryLanguage))
@@ -2983,6 +3027,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var item in items)
         {
             item.PersonalSeedKey = seed > 0 ? $"{mediaType}:{seed}" : null;
+        }
+
+        candidates.AddRange(items);
+    }
+
+    private async Task GatherSeedCandidatesAsync(HttpClient client, Uri baseUri, string apiKey, string mediaType, int seed, List<TmdbDiscoverItem> candidates, CancellationToken cancellationToken)
+    {
+        var items = await ExecuteDiscoverQueryAsync(client, baseUri, apiKey, $"api/v1/{mediaType}/{seed}/recommendations?page=1", cancellationToken).ConfigureAwait(false);
+        StampMediaType(items, mediaType);
+        foreach (var item in items)
+        {
+            item.PersonalSeedKey = $"{mediaType}:{seed}";
         }
 
         candidates.AddRange(items);
@@ -3769,14 +3825,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private void CacheSharedTitleMetadata(Uri baseUri, string apiKey, string? requestedLanguage, TmdbDiscoverItem candidate)
     {
-        if (_titleMetadataCache is null || candidate.TitleMetadata is not { } snapshot)
+        if (_titleMetadataCache is null || candidate.SeerrTitleMetadata is not { } snapshot)
         {
             return;
         }
 
         if (CurrentMetadataConfiguration(baseUri, apiKey) is { } config)
         {
-            candidate.TitleMetadata = _titleMetadataCache.Store(config, snapshot, requestedLanguage) ?? snapshot;
+            var stored = _titleMetadataCache.Store(config, snapshot, requestedLanguage) ?? snapshot;
+            var complementary = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, stored.TvdbId, stored.ImdbId, requestedLanguage);
+            candidate.TitleMetadata = TitleMetadataMerger.Combine(complementary is null ? [stored] : [stored, complementary]) ?? stored;
         }
     }
 
@@ -3787,7 +3845,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        var captured = new PluginConfiguration { SeerrUrl = current.SeerrUrl, SeerrApiKey = current.SeerrApiKey };
+        var captured = new PluginConfiguration
+        {
+            SeerrUrl = current.SeerrUrl,
+            SeerrApiKey = current.SeerrApiKey,
+            RadarrInstances = CaptureInstances(current.GetEffectiveRadarrInstances()),
+            SonarrInstances = CaptureInstances(current.GetEffectiveSonarrInstances()),
+            TraktSourcingEnabled = current.TraktSourcingEnabled
+        };
         try
         {
             var (configuredUri, configuredKey) = ValidateSeerrConfig(captured.SeerrUrl, _secretProtector.Unprotect(captured.SeerrApiKey));
@@ -3836,6 +3901,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     private bool ApplyFetchedDetail(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+        => ApplyDetail(candidate, detail, DateTime.UtcNow);
+
+    private bool ApplyDetail(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, DateTime acquiredAtUtc)
     {
         if (detail.Id <= 0 || detail.Id != candidate.Id)
         {
@@ -3843,7 +3911,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         ApplyEnrichedMetadata(candidate, detail);
-        candidate.TitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, DateTime.UtcNow);
+        var previous = candidate.TitleMetadata;
+        candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc);
+        candidate.TitleMetadata = TitleMetadataMerger.Combine(previous is null ? [candidate.SeerrTitleMetadata] : [candidate.SeerrTitleMetadata, previous]);
         if (detail.Genres is not null)
         {
             foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())
@@ -3881,15 +3951,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached)
-    {
-        if (!ApplyFetchedDetail(candidate, cached.Detail))
-        {
-            return false;
-        }
-
-        candidate.TitleMetadata = candidate.TitleMetadata! with { FetchedAtUtc = cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl) };
-        return true;
-    }
+        => ApplyDetail(candidate, cached.Detail, cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl));
 
     // Fills a candidate's missing fields from a fetched detail payload. Every rule is latch-only or
     // fill-if-empty: enrichment must never clear what is already known.

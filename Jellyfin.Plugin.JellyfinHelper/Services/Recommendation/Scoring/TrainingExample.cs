@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -27,7 +28,8 @@ public sealed class TrainingExample
     public required CandidateFeatures Features { get; set; }
 
     /// <summary>
-    ///     Gets or sets the label: 1.0 = user watched/liked this item, 0.0 = user skipped/ignored.
+    ///     Gets or sets target relevance: higher for observed watch/intent, lower for explicit rejection or a qualified fitting contrast.
+    ///     Mere publication or absence of playback is not an observed rejection.
     ///     Values are clamped to [0, 1].
     /// </summary>
     public double Label
@@ -68,6 +70,10 @@ public sealed class TrainingExample
 
     /// <summary>Gets or initializes a value indicating whether an unobserved title is intentionally sampled as an implicit contrast.</summary>
     public bool IsContrastSample { get; init; }
+
+    /// <summary>Gets or sets a detached relative choice, separate from absolute outcome labels and ML coordinates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RecommendationChoiceEvidence? Choice { get; set; }
 
     /// <summary>Gets a value indicating whether this stable observation belongs to the permanent held-out partition.</summary>
     internal bool IsPermanentHoldout
@@ -121,6 +127,23 @@ public sealed class TrainingExample
     {
         return SampleWeight * ComputeTemporalWeight(referenceTimeUtc);
     }
+
+    /// <summary>Creates detached replay data without changing original labels, prediction inputs or acquisition time.</summary>
+    /// <returns>An independently mutable copy of the original observation and choice snapshots.</returns>
+    internal TrainingExample Copy()
+        => new()
+        {
+            UserId = UserId,
+            ObservationId = ObservationId,
+            HasStableObservationId = HasStableObservationId,
+            IsObserved = IsObserved,
+            IsContrastSample = IsContrastSample,
+            Label = Label,
+            SampleWeight = SampleWeight,
+            GeneratedAtUtc = GeneratedAtUtc,
+            Features = Features.Copy(),
+            Choice = Choice?.Copy()
+        };
 
     /// <summary>Creates a stable, name-free observation key for one user's interaction with a title.</summary>
     /// <param name="userId">The owning user.</param>

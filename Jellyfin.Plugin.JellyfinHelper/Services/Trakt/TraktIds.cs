@@ -18,4 +18,12 @@ public sealed class TraktIds
     /// <summary>Gets or sets the TMDb id. Items without one are dropped during mapping.</summary>
     [JsonPropertyName("tmdb")]
     public int? Tmdb { get; set; }
+
+    /// <summary>Gets or sets the TVDB identity of a show when supplied by Trakt.</summary>
+    [JsonPropertyName("tvdb")]
+    public int? Tvdb { get; set; }
+
+    /// <summary>Gets or sets the IMDb cross-provider identity.</summary>
+    [JsonPropertyName("imdb")]
+    public string? Imdb { get; set; }
 }

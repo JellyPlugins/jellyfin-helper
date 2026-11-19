@@ -33,6 +33,14 @@ public sealed class TraktMediaItem
     [JsonPropertyName("genres")]
     public IReadOnlyList<string>? Genres { get; set; }
 
+    /// <summary>Gets or sets the original language from Trakt's full title metadata.</summary>
+    [JsonPropertyName("language")]
+    public string? OriginalLanguage { get; set; }
+
+    /// <summary>Gets or sets the production country code, not a parental-policy country.</summary>
+    [JsonPropertyName("country")]
+    public string? Country { get; set; }
+
     /// <summary>Gets or sets the cross-service id bag (tmdb/slug/trakt).</summary>
     [JsonPropertyName("ids")]
     public TraktIds? Ids { get; set; }

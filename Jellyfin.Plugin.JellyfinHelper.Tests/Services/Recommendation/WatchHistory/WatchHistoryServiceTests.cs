@@ -96,6 +96,24 @@ public sealed class WatchHistoryServiceTests
         Assert.Empty(movie.Tags);
     }
 
+    [Fact]
+    public void ArrSourceGenresFillAnOtherwiseEmptyHistoryWithoutSeerrOrInventedLocalTags()
+    {
+        var config = new PluginConfiguration { RadarrInstances = [new ArrInstanceConfig { Url = "https://radarr.example.test", ApiKey = "test" }] };
+        _mockConfigService.Setup(value => value.GetConfiguration()).Returns(config);
+        var cache = new TitleMetadataCache();
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 123, SourceGenres = ["Animation", "Children"], FetchedAtUtc = DateTime.UtcNow }, new("radarr", "https://radarr.example.test", "test"), null);
+        var user = CreateTestUser("source genres");
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _mockUserDataManager.Setup(value => value.GetUserData(user, movie)).Returns(new UserItemData { Key = "movie", Played = true, PlayCount = 1 });
+        var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object, _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
+        var row = Assert.Single(service.BuildProfile(user, [movie], [], collectionIds: []).WatchedItems);
+        Assert.Contains("Animation", row.Genres);
+        Assert.Contains("Kids", row.Genres);
+        Assert.Empty(movie.Genres);
+        Assert.Empty(movie.Tags);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

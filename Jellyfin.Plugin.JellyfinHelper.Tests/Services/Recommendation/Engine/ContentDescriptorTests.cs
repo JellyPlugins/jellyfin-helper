@@ -9,8 +9,12 @@ public sealed class ContentDescriptorTests
     [Theory]
     [InlineData("Animation", "anime", "anime")]
     [InlineData("Animation", "japanese animation", "anime")]
+    [InlineData("Animation", "japanische Animation", "anime")]
+    [InlineData("Animation", "アニメ", "anime")]
+    [InlineData("Anime", "", "anime")]
     [InlineData("Action", "live action", "live action")]
     [InlineData("Animation", "western animation", "animation")]
+    [InlineData("Animation", "westliche Animation", "animation")]
     [InlineData("Animation", "american animation", "animation")]
     [InlineData("Reality", "competition", "reality")]
     [InlineData("Documentary", "true crime", "true crime")]
@@ -59,6 +63,44 @@ public sealed class ContentDescriptorTests
         Assert.Null(descriptor.ProbableRepresentation);
         Assert.Null(descriptor.Family);
     }
+
+    [Fact]
+    public void AnExplicitAnimeGenreDoesNotEraseConflictingWesternStyleOrBecomeAChildrenLabel()
+    {
+        var conflicting = ContentDescriptor.Create(["Animation", "Anime"], ["western animation"], new TitleMetadataSnapshot { OriginalLanguage = "ja", OriginCountries = ["JP"] });
+        Assert.Null(conflicting.Representation);
+        Assert.Null(conflicting.ProbableRepresentation);
+        Assert.Equal("anime", ContentDescriptor.Create([], [], new TitleMetadataSnapshot { SourceGenres = ["Anime"] }).Representation);
+        Assert.Equal("anime", ContentDescriptor.Create(["Anime", "Kids"], []).Representation);
+        Assert.Null(ContentDescriptor.Create(["Animation", "Kids"], []).Representation);
+    }
+
+    [Fact]
+    public void DescriptionTextCannotPretendToSupplyAnimeStyleOrAudienceFeatures()
+    {
+        var descriptor = ContentDescriptor.Create(["Animation"], [], new TitleMetadataSnapshot { Overview = "An adult anime about pirates, friendship and super powers." });
+        Assert.Null(descriptor.Representation);
+        Assert.Null(descriptor.ProbableRepresentation);
+        Assert.Null(descriptor.Family);
+    }
+
+    [Theory]
+    [InlineData(true, "anime")]
+    [InlineData(false, null)]
+    [InlineData(null, null)]
+    public void ExplicitSonarrModeIsAnAnimeHintNotConfirmedRepresentationOrNarrative(bool? hint, string? expected)
+    {
+        var descriptor = ContentDescriptor.Create([], [], new TitleMetadataSnapshot { AnimeHint = hint });
+        Assert.Equal(expected, descriptor.ProbableRepresentation);
+        Assert.Null(descriptor.Representation);
+        Assert.Null(descriptor.Narrative);
+    }
+
+    [Theory]
+    [InlineData("live action")]
+    [InlineData("western animation")]
+    public void SonarrAnimeModeCannotOverrideContradictoryStyleTags(string tag)
+        => Assert.Null(ContentDescriptor.Create([], [tag], new TitleMetadataSnapshot { AnimeHint = true }).ProbableRepresentation);
 
     [Fact]
     public void AnimeDocumentaryRetainsBothIndependentContentDimensions()

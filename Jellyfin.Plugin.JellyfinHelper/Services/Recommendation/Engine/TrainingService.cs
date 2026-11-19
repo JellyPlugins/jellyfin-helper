@@ -52,6 +52,8 @@ internal sealed class TrainingService : IDisposable
         _logger = logger;
     }
 
+    internal RecommendationChoiceHistory? ChoiceHistory { get; set; }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -387,6 +389,15 @@ internal sealed class TrainingService : IDisposable
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
+
+        if (ChoiceHistory is not null)
+        {
+            examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow);
+            if (!ChoiceHistory.Save())
+            {
+                _pluginLog.LogDebug(LogSource, "Observed choices remain in memory; optional replay persistence was unavailable.", _logger);
+            }
+        }
 
         examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight).ToList();
 

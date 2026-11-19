@@ -485,6 +485,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
 │       │   ├── TitleMetadataCacheTests.cs             # Scope isolation, refresh throttling, bounded stale fallback and atomic persistence
+│       │   ├── SupplementalMetadataTests.cs           # Complementary sources, typed aliases and conflict-safe evidence
+│       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -506,6 +508,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── HistoricalLanguageFeaturesTests.cs # Dated/self-excluded language evidence and organic train/serve units
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
+│       │       ├── RecommendationChoiceBuilderTests.cs # Chronological available-title choices without publication/new-media rejection
+│       │       ├── RecommendationChoiceHistoryTests.cs # Choice replay across publication/restart, unchanged prediction times and held-out-safe comparisons
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
@@ -527,6 +531,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
+│       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Separate revealed-choice utility, independent reservation and minority/incumbent safety
+│       │   ├── ChoiceRankingTrainingTests.cs              # Real learner and accepted-mixture reversal of an incorrect heuristic ranking
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
 │       │   ├── AcceptedModelStoreTests.cs                # Complete v6 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
 │       │   ├── AcceptanceObservationLedgerTests.cs       # Exact replay prevention beyond 1,000 IDs, migration, checksum failures and distinct-only growth
@@ -714,6 +720,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
+│   │   │   │   ├── RecommendationChoiceBuilder.cs # Available-before-recommendation choice capture and held-out-safe contrasts
+│   │   │   │   ├── RecommendationChoiceHistory.cs # Bounded observed-choice replay across playlist generations with original timestamps and permanent folds
 │   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
 │   │   │   │   ├── TrainingHistory.cs          # Conservative dated playback; later/undated favorites and ratings never become historical preferences
 │   │   │   │   ├── TrainingHistoryCache.cs     # Build-owned playback copies and bounded cutoff reuse; target exclusions never modify shared snapshots
@@ -736,6 +744,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ContentFitProfile.cs # Title-balanced semantic keywords; weak audience hints, not rating bans
 │   │   │   ├── ContentDescriptor.cs # Evidence-based content families, independent of language and parental permission
 │   │   │   ├── TitleMetadataSnapshot.cs # Immutable title-level metadata; typed IDs, source and acquisition time
+│   │   │   ├── MetadataSourceScope.cs # Captured provider scope; credentials are hashed for cache persistence
+│   │   │   ├── SupplementaryTitleMetadataService.cs # Optional scheduled ARR catalog metadata acquisition
+│   │   │   ├── TitleMetadataMerger.cs # Complementary metadata, conflicts and original field acquisition times
+│   │   │   ├── TitleProviderIdentity.cs # Typed TVDB/IMDb aliases from the same Jellyfin item
 │   │   │   ├── ProviderKeyword.cs # Immutable keyword ID/label pairs for language-independent story matching
 │   │   │   ├── TitleMetadataCache.cs # Shared bounded provider-scoped metadata; scheduled refresh and persistence only
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
@@ -761,6 +773,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ProvisionalServingAssessment.cs # Separate target/attempt/retained calibration losses, never acceptance utility
 │   │   │   ├── AdmissionEvidence.cs          # Unique effective calibration/acceptance support
 │   │   │   ├── AdmissionUtility.cs           # Nullable ranking/calibration and paired improvement evidence
+│   │   │   ├── RecommendationChoiceEvidence.cs # Detached chronological choice query, not binary rejection evidence
+│   │   │   ├── RecommendationChoiceAlternative.cs # Stable identity and copied original inputs of an available alternative
 │   │   │   ├── AcceptedModelBundle.cs        # One complete accepted v6 parameter/mix/evidence version
 │   │   │   ├── AcceptedModelStore.cs         # Atomic checkpoint; working models remain intact on rejection or failure
 │   │   │   ├── SupersededModelSchema.cs       # Validation-only discarded-schema receipts; no old predictor loading or conversion
@@ -768,6 +782,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── AcceptedPrediction.cs         # Pinned component/mix version; configuration caps never create a minimum-alpha cliff
 │   │   │   ├── ModelTrainingAssessment.cs    # Attempt/retirement receipts and unique maturity; never grants model trust or stamps trained weights
 │   │   │   ├── EnsembleAdmissionEvaluator.cs # Separate calibration/acceptance, paired utility screens, macro-user ranking and incumbent comparisons
+│   │   │   ├── ChoiceRankingAdmissionEvaluator.cs # Independent available-title choice ranking, separate from binary outcome validation
 │   │   │   ├── OperatingMixturePolicy.cs      # Shared maturity/ramp and bounded calibration-only operational correction
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP

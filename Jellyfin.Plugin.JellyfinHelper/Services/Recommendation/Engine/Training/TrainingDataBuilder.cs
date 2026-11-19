@@ -169,12 +169,15 @@ internal static class TrainingDataBuilder
             Examples = examples,
             CancellationToken = cancellationToken,
             HistoryCache = new TrainingHistoryCache(allProfiles, cancellationToken),
-            SeriesEpisodeCounts = seriesEpisodeCounts
+            SeriesEpisodeCounts = seriesEpisodeCounts,
+            Choices = []
         };
 
         EmitRecommendationFeedbackExamples(ctx);
 
         var organicCount = EmitOrganicExamples(ctx);
+
+        AttachRecommendationChoices(ctx);
 
         var randomNegativeCount = EmitRandomNegativeExamples(ctx);
 
@@ -477,6 +480,13 @@ internal static class TrainingDataBuilder
             }
 
             var userCtx = BuildRecommendationFeedbackContext(ctx, userProfile, watchedIds);
+            var plan = BuildRecommendationChoicePlan(ctx, prevResult, userCtx);
+            foreach (var choice in plan.Choices)
+            {
+                ctx.Choices[(prevResult.UserId, choice.Key)] = choice.Value;
+            }
+
+            userCtx = userCtx with { FittingChoiceAlternatives = plan.FittingAlternatives };
 
             foreach (var rec in prevResult.Recommendations)
             {
@@ -484,6 +494,61 @@ internal static class TrainingDataBuilder
 
                 ctx.Examples.Add(
                     BuildRecommendationFeedbackExample(rec, prevResult, featureContext, ctx.Lookups));
+            }
+        }
+    }
+
+    private static RecommendationChoiceBuilder.Plan BuildRecommendationChoicePlan(TrainingContext ctx, RecommendationResult result, Phase1UserContext userCtx)
+    {
+        TrainingExample Capture(WatchedItemInfo watched, RecommendedItem? recorded)
+        {
+            var item = recorded ?? ProjectHistoricalChoice(watched, result.GeneratedAt);
+            var historical = GetRecommendationFeatureContext(item, result, userCtx, ctx);
+            return BuildRecommendationFeedbackExample(item, result, historical, ctx.Lookups);
+        }
+
+        return RecommendationChoiceBuilder.Build(new(result, userCtx.UserProfile, ctx.Lookups.TmdbIds, DateTime.UtcNow), Capture);
+    }
+
+    private static RecommendedItem ProjectHistoricalChoice(WatchedItemInfo row, DateTime predictionAt)
+    {
+        var seriesId = row.SeriesId.GetValueOrDefault();
+        return new RecommendedItem
+        {
+            ItemId = seriesId != Guid.Empty ? seriesId : row.ItemId,
+            ItemType = seriesId != Guid.Empty ? SeriesItemType : row.ItemType,
+            TmdbId = seriesId != Guid.Empty ? row.SeriesTmdbId : row.TmdbId,
+            Genres = row.Genres,
+            Tags = row.SeriesTags ?? row.Tags,
+            Studios = row.SeriesStudios ?? row.Studios,
+            PeopleNames = row.PeopleNames,
+            PeopleWeights = row.PeopleWeights,
+            CommunityRating = row.CommunityRating,
+            OfficialRating = row.OfficialRating,
+            Year = row.Year,
+            DateCreated = row.DateCreated ?? DateTime.UnixEpoch,
+            AudioLanguages = row.AudioLanguages ?? [],
+            SubtitleLanguages = row.SubtitleLanguages ?? [],
+            TmdbCollectionId = row.TmdbCollectionId,
+            TmdbCollectionName = row.TmdbCollectionName,
+            ProductionCountries = row.ProductionCountries,
+            InheritedTags = row.InheritedTags,
+            SeriesStatus = row.SeriesStatus,
+            EndDate = row.EndDate,
+            WriterNames = row.WriterNames,
+            TitleMetadata = row.TitleMetadata?.FetchedAtUtc <= predictionAt ? row.TitleMetadata : null
+        };
+    }
+
+    private static void AttachRecommendationChoices(TrainingContext ctx)
+    {
+        foreach (var example in ctx.Examples.Where(example => example.IsObserved && example.Label > 0.5))
+        {
+            if (ctx.Choices.TryGetValue((example.UserId, example.ObservationId), out var choice))
+            {
+                example.Choice = choice.Copy();
+                example.Features = choice.ChosenFeatures.Copy();
+                example.GeneratedAtUtc = choice.RecommendedAtUtc;
             }
         }
     }
@@ -647,6 +712,9 @@ internal static class TrainingDataBuilder
         var predictionTime = DateTimeNormalization.ToUtc(prevResult.GeneratedAt);
         var isSeries = string.Equals(rec.ItemType, SeriesItemType, StringComparison.OrdinalIgnoreCase);
         var outcome = ResolveRecommendationOutcome(rec.ItemId, isSeries, prevResult, userCtx);
+        var observationId = TrainingExample.CreateTitleObservationId(prevResult.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries);
+        var isChoiceContrast = outcome.IsContrast && userCtx.FittingChoiceAlternatives?.Contains(observationId) == true;
+        var sampleWeight = isChoiceContrast ? 0.25 / userCtx.FittingChoiceAlternatives!.Count : 1.0;
 
         if (rec.ScoringFeatures is not null)
         {
@@ -656,10 +724,11 @@ internal static class TrainingDataBuilder
                 Label = outcome.Label,
                 GeneratedAtUtc = prevResult.GeneratedAt,
                 UserId = prevResult.UserId,
-                ObservationId = TrainingExample.CreateTitleObservationId(prevResult.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries),
+                ObservationId = observationId,
                 HasStableObservationId = true,
                 IsObserved = outcome.IsObserved,
-                IsContrastSample = outcome.IsContrast
+                IsContrastSample = isChoiceContrast,
+                SampleWeight = sampleWeight
             };
         }
 
@@ -784,7 +853,8 @@ internal static class TrainingDataBuilder
             ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, rec.ItemId, lookups.TmdbIds.GetValueOrDefault(rec.ItemId), isSeries),
             HasStableObservationId = true,
             IsObserved = outcome.IsObserved,
-            IsContrastSample = outcome.IsContrast
+            IsContrastSample = isChoiceContrast,
+            SampleWeight = sampleWeight
         };
     }
 
@@ -1594,6 +1664,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the per-series total episode count map (library-wide). Used in training to compute SeriesAffinity on the same basis as inference.</summary>
         public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
+
+        /// <summary>Gets captured revealed choices keyed by the same stable user/title identities as outcomes.</summary>
+        public Dictionary<(Guid User, Guid Observation), RecommendationChoiceEvidence> Choices { get; init; }
     }
 
     /// <summary>
@@ -1624,6 +1697,9 @@ internal static class TrainingDataBuilder
 
         /// <summary>Gets the pre-built series-affinity context for this user, or null when episode counts are unavailable. Built once per user so SeriesAffinity is computed on the same basis as inference without rebuilding the watched-series lookup per example.</summary>
         public ContentScoring.SeriesAffinityContext? SeriesAffinity { get; init; }
+
+        /// <summary>Gets alternatives tied only to genuine fitting-partition choices, never held-out choices or publication alone.</summary>
+        public HashSet<Guid>? FittingChoiceAlternatives { get; init; }
     }
 
     /// <summary>

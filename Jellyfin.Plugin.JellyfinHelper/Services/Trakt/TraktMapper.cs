@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
@@ -88,12 +90,28 @@ internal static class TraktMapper
             Popularity = 0,
             GenreIds = [],
             SourceGenres = item.Genres?.ToArray(),
+            TitleMetadata = Metadata(item, mediaType),
             PosterPath = null,
             Adult = false,
             TraktSlug = SanitizeSlug(item.Ids?.Slug),
             SourceRank = rank,
         };
     }
+
+    internal static TitleMetadataSnapshot Metadata(TraktMediaItem item, string mediaType)
+        => new()
+        {
+            TmdbId = item.Ids?.Tmdb ?? 0,
+            TvdbId = item.Ids?.Tvdb ?? 0,
+            ImdbId = TitleProviderIdentity.NormalizeImdb(item.Ids?.Imdb),
+            MediaType = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie",
+            SourceGenres = item.Genres?.Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray(),
+            OriginalLanguage = item.OriginalLanguage,
+            ProductionCountries = item.Country is null ? null : [item.Country],
+            Overview = item.Overview,
+            Source = "trakt",
+            FetchedAtUtc = DateTime.UtcNow
+        };
 
     // Trakt slugs are lowercase alphanumerics joined by hyphens. Whitelist that shape so a crafted slug
     // (the field is attacker-controllable in test/mocked environments) can never carry path-traversal or

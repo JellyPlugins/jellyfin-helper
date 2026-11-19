@@ -12,6 +12,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -109,6 +110,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Seed the batch counter from disk so the first post-reload batch does not reuse
         // the exploration seed the very first batch ever produced.
         _batchGeneration = LoadPersistedBatchGeneration();
+    }
+
+    /// <summary>Gets or initializes scheduled-only observed choice replay, never recommendation-time metadata.</summary>
+    internal RecommendationChoiceHistory? ChoiceHistory
+    {
+        get => _trainingService.ChoiceHistory;
+        init => _trainingService.ChoiceHistory = value;
     }
 
     /// <inheritdoc />
@@ -1927,7 +1935,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             return existing.ToArray();
         }
 
-        return metadata?.GenreIds is { } ids ? TmdbGenreMap.ToJellyfinGenres(ids) : [];
+        var supplied = metadata?.GenreIds is { } ids ? TmdbGenreMap.ToJellyfinGenres(ids) : [];
+        return supplied.Count > 0 ? supplied : metadata?.SourceGenres?.ToArray() ?? [];
     }
 
     /// <summary>
@@ -1978,7 +1987,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)
-        => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : "movie");
+        => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : "movie", TitleProviderIdentity.Tvdb(candidate), TitleProviderIdentity.Imdb(candidate));
 
     private Dictionary<Guid, int> LoadCollectionIds(IEnumerable<BaseItem> candidates)
     {

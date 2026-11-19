@@ -18,14 +18,17 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -78,6 +81,35 @@ public class PluginServiceRegistratorTests : IDisposable
     {
         var sc = Register();
         Assert.Contains(sc, d => d.ServiceType == typeof(System.Net.Http.IHttpClientFactory));
+    }
+
+    [Fact]
+    public void RegisteredMetadataFactoriesResolveWithoutProvidersAndUseLiveLanguageAndTraktAvailability()
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        var sc = Register();
+        var serverConfiguration = new ServerConfiguration { PreferredMetadataLanguage = "de" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(value => value.Configuration).Returns(serverConfiguration);
+        var available = true;
+        var sources = new Mock<ITraktPersonalSourceService>();
+        sources.Setup(value => value.IsAvailable(It.IsAny<Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>())).Returns(() => available);
+        sc.AddSingleton(server.Object);
+        sc.AddSingleton(sources.Object);
+        sc.AddSingleton<IArrIntegrationService>(new Mock<IArrIntegrationService>().Object);
+        sc.AddSingleton<ISecretProtector>(TestMockFactory.CreateSecretProtector());
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        using var provider = sc.BuildServiceProvider();
+        var cache = provider.GetRequiredService<TitleMetadataCache>();
+        var collector = provider.GetRequiredService<SupplementaryTitleMetadataService>();
+        var config = new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { TraktSourcingEnabled = true };
+        Assert.Equal("de", cache.MetadataLanguage);
+        Assert.Equal("de", collector.MetadataLanguage());
+        Assert.True(cache.TraktMetadataAvailable(config));
+        available = false;
+        serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.False(cache.TraktMetadataAvailable(config));
+        Assert.Equal("en", collector.MetadataLanguage());
     }
 
     // Every interface the controllers depend on must be registered as Singleton.

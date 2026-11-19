@@ -17,6 +17,7 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
     internal static ContentDescriptor Create(IEnumerable<string>? genres, IEnumerable<string>? tags, TitleMetadataSnapshot? metadata = null)
     {
         var canonical = GenreNormalizer.Set(genres);
+        canonical.UnionWith(GenreNormalizer.Set(metadata?.SourceGenres));
         var keywords = ContentFitProfile.Keywords(tags);
         if (metadata?.Keywords is { } providerKeywords)
         {
@@ -28,7 +29,9 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
             canonical.UnionWith(GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)));
         }
 
-        var narrative = NarrativeFamily(canonical, metadata?.SeriesType);
+        var narrative = metadata?.ConflictingValues?.ContainsKey(nameof(TitleMetadataSnapshot.SeriesType)) == true
+            ? null
+            : NarrativeFamily(canonical, metadata?.SeriesType);
         var representation = RepresentationFamily(canonical, keywords);
         var probable = representation is null ? ProbableAnimationFamily(canonical, keywords, metadata) : null;
         var topics = DocumentaryTopics(narrative, keywords);
@@ -43,21 +46,30 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 
     private static string? ProbableAnimationFamily(HashSet<string> genres, HashSet<string> keywords, TitleMetadataSnapshot? metadata)
     {
-        if (!genres.Contains("Animation") || keywords.Overlaps(["live action", "live action and animation"])
-            || HasConflictingAnimationLabels(keywords) || metadata is null)
+        if ((!genres.Contains("Animation") && metadata?.AnimeHint != true) || keywords.Overlaps(["live action", "live action and animation"])
+            || HasConflictingAnimationLabels(genres, keywords) || metadata is null
+            || metadata.ConflictingValues?.ContainsKey(nameof(TitleMetadataSnapshot.OriginalLanguage)) == true)
         {
             return null;
+        }
+
+        if (metadata.AnimeHint == true)
+        {
+            // Sonarr's anime parsing mode is useful provider evidence, not verified style
+            // or age permission. It cannot override explicit contradictory representation tags.
+            return keywords.Overlaps(["western animation", "american animation"]) ? null : Anime;
         }
 
         var countries = (metadata.OriginCountries ?? []).Concat(metadata.ProductionCountries ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
         // Combined origin/language/animation hints are probabilistic only. They never become
         // confirmed style evidence or a country-based selection ban.
-        if (string.Equals(metadata.OriginalLanguage?.Trim(), "ja", StringComparison.OrdinalIgnoreCase) && countries.Contains("JP"))
+        var language = NormalizeOriginalLanguage(metadata.OriginalLanguage);
+        if (language == "ja" && countries.Contains("JP"))
         {
             return Anime;
         }
 
-        return string.Equals(metadata.OriginalLanguage?.Trim(), "en", StringComparison.OrdinalIgnoreCase) && countries.Contains("US") ? "animation" : null;
+        return language == "en" && countries.Contains("US") ? "animation" : null;
     }
 
     private static HashSet<string> DocumentaryTopics(string? narrative, HashSet<string> keywords)
@@ -94,8 +106,8 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
     private static string? RepresentationFamily(HashSet<string> canonical, HashSet<string> keywords)
     {
         var liveAction = keywords.Contains("live action");
-        var anime = keywords.Contains(Anime) || keywords.Contains("japanese animation");
-        if (keywords.Contains("live action and animation") || HasConflictingAnimationLabels(keywords)
+        var anime = canonical.Contains(Anime) || keywords.Contains(Anime) || keywords.Contains("japanese animation");
+        if (keywords.Contains("live action and animation") || HasConflictingAnimationLabels(canonical, keywords)
             || (liveAction && (anime || canonical.Contains("Animation"))))
         {
             return null;
@@ -118,20 +130,12 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
             : null;
     }
 
-    private static bool HasConflictingAnimationLabels(HashSet<string> keywords)
-        => keywords.Overlaps([Anime, "japanese animation"]) && keywords.Overlaps(["western animation", "american animation"]);
+    private static bool HasConflictingAnimationLabels(HashSet<string> genres, HashSet<string> keywords)
+        => (genres.Contains(Anime) || keywords.Overlaps([Anime, "japanese animation"])) && keywords.Overlaps(["western animation", "american animation"]);
 
     private static string? NarrativeFamily(HashSet<string> genres, string? seriesType)
     {
-        var declared = seriesType?.Trim().ToUpperInvariant() switch
-        {
-            "DOCUMENTARY" => "documentary",
-            "REALITY" => "reality",
-            "NEWS" => "news",
-            "TALK SHOW" => "talk show",
-            "SCRIPTED" => "scripted",
-            _ => null
-        };
+        var declared = NormalizeNarrativeType(seriesType);
         if (declared is not null)
         {
             return declared;
@@ -154,4 +158,18 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 
         return genres.Contains("Talk") ? "talk show" : null;
     }
+
+    internal static string? NormalizeOriginalLanguage(string? language)
+        => language is not null && LanguageIdentity.IsLanguageOnlyTag(language) ? LanguageIdentity.GetIso6391Code(language) : null;
+
+    internal static string? NormalizeNarrativeType(string? seriesType)
+        => GenreNormalizer.Name(seriesType).ToUpperInvariant() switch
+        {
+            "DOCUMENTARY" => "documentary",
+            "REALITY" => "reality",
+            "NEWS" => "news",
+            "TALK" => "talk show",
+            "SCRIPTED" => "scripted",
+            _ => null
+        };
 }
