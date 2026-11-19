@@ -520,7 +520,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 Score = Math.Round(s.Score, 4),
                 Reason = s.Reason,
                 ReasonKey = s.ReasonKey,
-                Genres = s.Item.Genres ?? [],
+                Genres = contentAffinityLookup[s.Item.Id].EffectiveGenres.ToArray(),
+                TitleMetadata = contentAffinityLookup[s.Item.Id].TitleMetadata,
                 Year = s.Item.ProductionYear,
                 CommunityRating = s.Item.CommunityRating,
                 CriticRating = s.Item.CriticRating,
@@ -1049,15 +1050,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var snapshot = BuildFeatures(candidate);
             var ranked = RankCandidate(candidate, snapshot, scoringContext);
             scored.Add(ranked);
-            if (ScoringHelper.IsContentEligible(snapshot.Features))
-            {
-                contentEligible.Add(candidate.Id);
-                if (ScoringHelper.HasCoherentContentSupport(snapshot.Features))
-                {
-                    contentSupported.Add(candidate.Id);
-                    tasteLanes[candidate.Id] = snapshot.Features.ContentTasteKey ?? candidate.Id;
-                }
-            }
+            CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, contentEligible, contentSupported, tasteLanes);
 
             CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, strategy);
         }
@@ -1098,6 +1091,21 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ScoringStrategyKey = strategy.NameKey,
             Cohort = _strategySelector.GetCohortName(userProfile.UserId)
         };
+    }
+
+    private static void CaptureContentSelectionEvidence(Guid candidateId, CandidateFeatures features, HashSet<Guid> eligible, HashSet<Guid> supported, Dictionary<Guid, Guid> tasteLanes)
+    {
+        if (!ScoringHelper.IsContentEligible(features))
+        {
+            return;
+        }
+
+        eligible.Add(candidateId);
+        if (ScoringHelper.HasCoherentContentSupport(features))
+        {
+            supported.Add(candidateId);
+            tasteLanes[candidateId] = features.ContentTasteKey ?? candidateId;
+        }
     }
 
     private static void CaptureRankingTrace(Dictionary<Guid, CandidateRankingEntry> trace, BaseItem candidate, CandidateFeatures features, double score, IScoringStrategy strategy)
@@ -1913,9 +1921,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         => GenreNormalizer.Set(ResolveEffectiveGenres(candidate, metadata));
 
     private static IReadOnlyList<string> ResolveEffectiveGenres(BaseItem candidate, TitleMetadataSnapshot? metadata)
-        => candidate.Genres is { Length: > 0 } existing
-            ? existing.ToArray()
-            : metadata?.GenreIds is { } ids ? TmdbGenreMap.ToJellyfinGenres(ids) : [];
+    {
+        if (candidate.Genres is { Length: > 0 } existing)
+        {
+            return existing.ToArray();
+        }
+
+        return metadata?.GenreIds is { } ids ? TmdbGenreMap.ToJellyfinGenres(ids) : [];
+    }
 
     /// <summary>
     ///     Builds the case-insensitive studio set for a candidate, or null when it has no studios.

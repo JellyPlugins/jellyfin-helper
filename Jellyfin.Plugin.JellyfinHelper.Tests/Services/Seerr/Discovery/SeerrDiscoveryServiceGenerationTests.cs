@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
@@ -17,10 +18,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
@@ -50,7 +53,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly string _cacheFilePath;
     private readonly PerUserEnsembleRegistry _perUserRegistry;
     private readonly SeerrDiscoveryService _sut;
-    private readonly TitleMetadataCache _titleMetadata = new();
+    private readonly TitleMetadataCache _titleMetadata;
+    private readonly ServerConfiguration _serverConfiguration = new() { PreferredMetadataLanguage = "" };
+    private readonly OffsetClock _metadataClock = new();
 
     public SeerrDiscoveryServiceGenerationTests()
     {
@@ -119,6 +124,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         localization.Setup(l => l.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
         localization.Setup(l => l.GetRatingScore("18", "DE")).Returns(new ParentalRatingScore(18, null));
 
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(_serverConfiguration);
+        _titleMetadata = new TitleMetadataCache(server.Object, clock: _metadataClock);
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
@@ -132,6 +140,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object,
             localization.Object,
+            serverConfiguration: server.Object,
             linkedChildren: _linkedChildren.Object,
             titleMetadataCache: _titleMetadata);
     }
@@ -150,6 +159,231 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     // Guard ladder
+
+    [Fact]
+    public async Task WeeklyWarmupsEventuallyReachEveryLocalTitleBeyondTheFirst128()
+    {
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns([]);
+        var titles = Enumerable.Range(1, 300).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(titles);
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]} """));
+        };
+        for (var pass = 0; pass < 3; pass++)
+        {
+            _metadataClock.Days = pass * 8;
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(300, _handler.Requests.Select(request => request.Path).Distinct().Count());
+        // The extra 84 refresh reservations reuse the service's short-lived detail cache.
+        Assert.Equal(300, _handler.Requests.Count);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 300, "movie"));
+    }
+
+    [Fact]
+    public async Task OptionalWarmupEnumerationFailurePreservesCachedMetadata()
+    {
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Throws(new IOException("library unavailable"));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task PendingMetadataCannotBePublishedIntoAChangedProviderScope(int change)
+    {
+        var original = new PluginConfiguration { SeerrUrl = Plugin.Instance!.Configuration.SeerrUrl, SeerrApiKey = Plugin.Instance.Configuration.SeerrApiKey };
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _handler.ResponseOverride = (_, _) =>
+        {
+            if (change == 0) Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+            if (change == 1) Plugin.Instance!.Configuration.SeerrApiKey = "other-test-key";
+            if (change == 2) Plugin.Instance!.Configuration.SeerrUrl = "not a URL";
+            if (change == 3) ControllerTestFactory.TeardownPluginInstance();
+            return Task.FromResult(JsonResponse("""{"id":123,"keywords":[{"id":42,"name":"wrong scope"}]}"""));
+        };
+        try
+        {
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.Single(_handler.Requests);
+            Assert.Null(_titleMetadata.Get(original, 123, "movie"));
+            if (Plugin.Instance is { } plugin) Assert.Null(_titleMetadata.Get(plugin.Configuration, 123, "movie"));
+        }
+        finally
+        {
+            ControllerTestFactory.InitializePluginInstance();
+        }
+    }
+
+    [Fact]
+    public async Task AResponseArrivingAfterALanguageChangeStaysInItsRequestedLanguageScope()
+    {
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            Assert.Equal("?language=en", request.RequestUri!.Query);
+            await Task.Yield();
+            token.ThrowIfCancellationRequested();
+            _serverConfiguration.PreferredMetadataLanguage = "de";
+            return JsonResponse("""{"id":123,"overview":"English synopsis","keywords":[]} """);
+        };
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 123, "movie"));
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.Equal("English synopsis", _titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.Overview);
+    }
+
+    [Fact]
+    public async Task ReusedDetailKeepsItsOriginalAcquisitionTimeWithoutAnotherHttpRequest()
+    {
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[]} """);
+        var enrich = typeof(SeerrDiscoveryService).GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var arguments = new object[] { client, new Uri("https://seerr.example.com/"), "test-api-key", candidate, TestContext.Current.CancellationToken, false };
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, arguments)!);
+        var acquired = candidate.TitleMetadata!.FetchedAtUtc;
+        var second = new TmdbDiscoverItem { Id = 123 };
+        arguments[3] = second;
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, arguments)!);
+        Assert.Single(_handler.Requests);
+        Assert.Equal(acquired, second.TitleMetadata!.FetchedAtUtc);
+    }
+
+    private sealed class OffsetClock : TimeProvider
+    {
+        internal int Days { get; set; }
+
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.AddDays(Days);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedCandidateMetadataSuppliesAvailableGenresAndSurvivesAPartialDetailResponse(bool providerGenres)
+    {
+        var profile = NewProfile();
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"], Tags = ["anime", "pirate", "friendship"] });
+        profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3 };
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        var acquired = DateTime.UtcNow.AddDays(-1);
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 9001, GenreIds = providerGenres ? [16] : null, Keywords = ["anime", "pirate", "friendship"], KeywordReferences = [new(42, "pirate"), new(43, "friendship")], FetchedAtUtc = acquired });
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK, """{"id":9001,"mediaInfo":{"status":1}}""");
+        var result = await _sut.ScoreExternalCandidatesAsync(profile.UserId, [new ExternalDiscoveryCandidate { TmdbId = 9001, GenreIds = [], SourceGenres = providerGenres ? null : ["Animation"], VoteAverage = 9, Title = "Cached narrative", Year = 2020 }], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.Equal(1, selected.ScoringFeatures.ContentFitSupport);
+        Assert.Equal("pirate", selected.TitleMetadata!.KeywordReferences!.Value[0].Name);
+        Assert.Equal(acquired, selected.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.KeywordReferences)]);
+        Assert.True(selected.AvailabilityVerified);
+    }
+
+    [Fact]
+    public async Task AClockDisagreementInTheOptionalCacheCannotEraseAValidProviderResponse()
+    {
+        _metadataClock.Days = -1;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[{"id":42,"name":"provider data"}]}""");
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var enrich = typeof(SeerrDiscoveryService).GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, [client, new Uri("https://seerr.example.com/"), "test-api-key", candidate, TestContext.Current.CancellationToken, false])!);
+        Assert.Equal("provider data", Assert.Single(candidate.TitleMetadata!.Keywords!.Value));
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SourceGenresRemainUsableWhenTheSharedCacheHasNoTitleSnapshot()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3 };
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK, """{"id":9001,"mediaInfo":{"status":1}}""");
+        var result = await _sut.ScoreExternalCandidatesAsync(profile.UserId, [new ExternalDiscoveryCandidate { TmdbId = 9001, GenreIds = [], SourceGenres = ["Animation"], VoteAverage = 9, Title = "Uncached source", Year = 2020 }], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.True(selected.AvailabilityVerified);
+        Assert.Null(selected.TitleMetadata!.GenreIds);
+    }
+
+    [Fact]
+    public async Task InvalidCachedDetailCannotEnrichOrPublishAnotherTitlesMetadata()
+    {
+        var type = typeof(SeerrDiscoveryService);
+        var baseUri = new Uri("https://seerr.example.com/");
+        var key = (string)type.GetMethod("MetadataCacheKey", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [baseUri, "test-api-key", "api/v1/movie/123"])!;
+        type.GetMethod("CacheDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_sut, [key, new SeerrMediaDetailResponse { Id = 999 }, DateTime.UtcNow]);
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var enrich = type.GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.False(await (Task<bool>)enrich.Invoke(_sut, [client, baseUri, "test-api-key", candidate, TestContext.Current.CancellationToken, false])!);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Theory]
+    [InlineData(TaskMode.Activate)]
+    [InlineData(TaskMode.DryRun)]
+    public async Task WarmupCanUseHistoryWhenTheLibraryReturnsNoCandidateList(TaskMode mode)
+    {
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = mode;
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((IReadOnlyList<BaseItem>)null!);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[]} """);
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Fact]
+    public async Task WarmupWithoutAPluginInstanceIsANetworkFreeNoOp()
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        try
+        {
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.Empty(_handler.Requests);
+            _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+        }
+        finally
+        {
+            ControllerTestFactory.InitializePluginInstance();
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task WarmupWithNoProviderCredentialDoesNotEnumerateHistoryOrSendRequests(string? apiKey)
+    {
+        Plugin.Instance!.Configuration.SeerrApiKey = apiKey!;
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+    }
 
     [Theory]
     [InlineData(TaskMode.Deactivate)]

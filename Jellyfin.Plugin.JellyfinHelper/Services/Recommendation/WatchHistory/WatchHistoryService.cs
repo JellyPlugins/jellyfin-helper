@@ -35,7 +35,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
     private readonly ILinkedChildrenService? _linkedChildren;
-    private readonly TitleMetadataCache? _titleMetadataCache;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -47,7 +46,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="linkedChildren">Optional authoritative Jellyfin collection membership service.</param>
-    /// <param name="titleMetadataCache">Optional shared, network-free title metadata cache.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
         IPluginConfigurationService configService,
@@ -55,8 +53,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
         ILogger<WatchHistoryService> logger,
-        ILinkedChildrenService? linkedChildren = null,
-        TitleMetadataCache? titleMetadataCache = null)
+        ILinkedChildrenService? linkedChildren = null)
     {
         _libraryManager = libraryManager;
         _configService = configService;
@@ -65,8 +62,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _pluginLog = pluginLog;
         _logger = logger;
         _linkedChildren = linkedChildren;
-        _titleMetadataCache = titleMetadataCache;
     }
+
+    /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
+    internal TitleMetadataCache? TitleMetadataCache { get; init; }
 
     /// <inheritdoc />
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
@@ -574,7 +573,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var titleType = seriesId.HasValue || item is Series ? "tv" : "movie";
         if (item is not Episode || seriesId.HasValue)
         {
-            watchedItem.TitleMetadata = _titleMetadataCache?.Get(_configService.GetConfiguration(), titleId, titleType);
+            watchedItem.TitleMetadata = TitleMetadataCache?.Get(_configService.GetConfiguration(), titleId, titleType);
         }
 
         ApplyCachedGenres(watchedItem);
@@ -748,7 +747,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
             OfficialRating = series.OfficialRating,
-            TitleMetadata = _titleMetadataCache?.Get(_configService.GetConfiguration(), favoriteSeriesTmdbId, "tv"),
+            TitleMetadata = TitleMetadataCache?.Get(_configService.GetConfiguration(), favoriteSeriesTmdbId, "tv"),
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode

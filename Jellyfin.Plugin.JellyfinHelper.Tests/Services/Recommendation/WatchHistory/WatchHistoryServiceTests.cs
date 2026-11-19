@@ -70,7 +70,7 @@ public sealed class WatchHistoryServiceTests
         var episode = new Episode { Id = Guid.NewGuid(), SeriesId = parent.Id, Name = "Episode", Tags = ["own episode tag"] };
         _mockUserDataManager.Setup(manager => manager.GetUserData(user, episode)).Returns(new UserItemData { Key = "episode", Played = true, PlayCount = 1 });
         var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object,
-            _mockPluginLog.Object, _mockLogger.Object, titleMetadataCache: cache);
+            _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
         var profile = service.BuildProfile(user, [episode], [parent], collectionIds: []);
         var row = Assert.Single(profile.WatchedItems);
         Assert.Same(snapshot, row.TitleMetadata);
@@ -88,12 +88,59 @@ public sealed class WatchHistoryServiceTests
         var movie = new Movie { Id = Guid.NewGuid(), Name = "Watched", ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
         _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "movie", Played = true, PlayCount = 1 });
         var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object,
-            _mockPluginLog.Object, _mockLogger.Object, titleMetadataCache: cache);
+            _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
         var profile = service.BuildProfile(user, [movie], [], collectionIds: []);
         Assert.Contains("Animation", Assert.Single(profile.WatchedItems).Genres);
         Assert.Equal(1, profile.GenreDistribution["Animation"]);
         Assert.Empty(movie.Genres);
         Assert.Empty(movie.Tags);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASeriesFavoriteUsesTypedProviderMetadataAndFallbackGenresWithoutPlayback(bool missingLocalMetadata)
+    {
+        var cache = new TitleMetadataCache();
+        cache.Store(_mockConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 123, MediaType = "tv", GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
+        var user = CreateTestUser("favorite metadata");
+        var series = new Series { Id = Guid.NewGuid(), Name = "Favorite series", ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        if (missingLocalMetadata)
+        {
+            series.Name = null!;
+            series.Genres = null!;
+            series.Studios = null!;
+            series.Tags = null!;
+        }
+
+        var originalGenres = series.Genres;
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, series)).Returns(new UserItemData { Key = "favorite", IsFavorite = true });
+        var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object,
+            _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
+        var profile = service.BuildProfile(user, [], [series], collectionIds: []);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.True(row.IsFavorite);
+        Assert.False(row.Played);
+        Assert.Equal("tv", row.TitleMetadata!.MediaType);
+        Assert.Contains("Animation", row.Genres);
+        Assert.Equal(1, profile.GenreDistribution["Animation"]);
+        Assert.Equal(originalGenres, series.Genres);
+        Assert.Equal(missingLocalMetadata ? string.Empty : "Favorite series", row.Name);
+    }
+
+    [Fact]
+    public void OrphanEpisodeCannotUseAMovieSnapshotWithTheSameNumericProviderId()
+    {
+        var cache = new TitleMetadataCache();
+        cache.Store(_mockConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 123, GenreIds = [16], FetchedAtUtc = DateTime.UtcNow });
+        var user = CreateTestUser("orphan metadata");
+        var episode = new Episode { Id = Guid.NewGuid(), Name = "Orphan", ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, episode)).Returns(new UserItemData { Key = "orphan", Played = true });
+        var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object,
+            _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
+        var row = Assert.Single(service.BuildProfile(user, [episode], [], collectionIds: []).WatchedItems);
+        Assert.Null(row.TitleMetadata);
+        Assert.Empty(row.Genres);
     }
 
     [Fact]

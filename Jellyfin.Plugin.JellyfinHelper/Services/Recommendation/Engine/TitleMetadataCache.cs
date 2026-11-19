@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
@@ -25,6 +26,7 @@ public sealed class TitleMetadataCache
     private readonly IFileSystem? _fileSystem;
     private readonly string? _cachePath;
     private readonly TimeProvider _clock;
+    private int _nextRefreshIndex;
 
     /// <summary>Initializes a new instance of the <see cref="TitleMetadataCache"/> class.</summary>
     /// <param name="serverConfiguration">Optional metadata-language context.</param>
@@ -49,10 +51,19 @@ public sealed class TitleMetadataCache
     /// <returns>Immutable metadata, or null when unavailable or from another configuration.</returns>
     public TitleMetadataSnapshot? Get(PluginConfiguration config, int tmdbId, string mediaType)
     {
+        ArgumentNullException.ThrowIfNull(config);
         var key = Key(config, tmdbId, mediaType);
         lock (_gate)
         {
-            return _entries.TryGetValue(key, out var snapshot) && snapshot.FetchedAtUtc <= Now && snapshot.FetchedAtUtc > Now.AddDays(-30) ? snapshot : null;
+            var now = Now;
+            if (!_entries.TryGetValue(key, out var snapshot) || !IsUsable(snapshot.FetchedAtUtc, now))
+            {
+                return null;
+            }
+
+            return snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
+                ? snapshot
+                : MergeFields(snapshot, null, now);
         }
     }
 
@@ -63,6 +74,7 @@ public sealed class TitleMetadataCache
     /// <returns>Whether this scheduled pass should refresh the title.</returns>
     public bool TryBeginRefresh(PluginConfiguration config, int tmdbId, string mediaType)
     {
+        ArgumentNullException.ThrowIfNull(config);
         if (tmdbId <= 0 || mediaType is not ("movie" or "tv"))
         {
             return false;
@@ -92,17 +104,27 @@ public sealed class TitleMetadataCache
     /// <param name="snapshot">The immutable provider result.</param>
     public void Store(PluginConfiguration config, TitleMetadataSnapshot snapshot)
     {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Store(config, snapshot, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
+    }
+
+    internal TitleMetadataSnapshot? Store(PluginConfiguration config, TitleMetadataSnapshot snapshot, string? requestedLanguage)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(snapshot);
         if (snapshot.TmdbId <= 0 || snapshot.MediaType is not ("movie" or "tv") || snapshot.FetchedAtUtc > Now)
         {
-            return;
+            return null;
         }
 
-        var key = Key(config, snapshot.TmdbId, snapshot.MediaType);
+        var key = Key(config, snapshot.TmdbId, snapshot.MediaType, requestedLanguage);
         lock (_gate)
         {
-            if (_entries.TryGetValue(key, out var previous) && previous.FetchedAtUtc > snapshot.FetchedAtUtc)
+            _entries.TryGetValue(key, out var previous);
+            if (previous is not null && previous.FetchedAtUtc > snapshot.FetchedAtUtc)
             {
-                return;
+                return previous;
             }
 
             if (_entries.Count >= MaximumEntries && !_entries.ContainsKey(key))
@@ -110,21 +132,82 @@ public sealed class TitleMetadataCache
                 _entries.Remove(_entries.MinBy(pair => pair.Value.FetchedAtUtc).Key);
             }
 
-            _entries[key] = previous is null
-                ? snapshot
-                : snapshot with
-                {
-                    GenreIds = snapshot.GenreIds ?? previous.GenreIds,
-                    KeywordIds = snapshot.KeywordIds ?? previous.KeywordIds,
-                    Keywords = snapshot.Keywords ?? previous.Keywords,
-                    KeywordReferences = snapshot.KeywordReferences ?? previous.KeywordReferences,
-                    OriginalLanguage = snapshot.OriginalLanguage ?? previous.OriginalLanguage,
-                    SeriesType = snapshot.SeriesType ?? previous.SeriesType,
-                    OriginCountries = snapshot.OriginCountries ?? previous.OriginCountries,
-                    ProductionCountries = snapshot.ProductionCountries ?? previous.ProductionCountries,
-                    Overview = snapshot.Overview ?? previous.Overview
-                };
+            _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now);
+            return _entries[key];
         }
+    }
+
+    internal (int TmdbId, string MediaType)[] ReserveRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, int maximum)
+    {
+        lock (_gate)
+        {
+            // Never-fetched and least-recently attempted titles precede recently refreshed titles.
+            // Include failed attempts in the age ordering so a permanently failing prefix cannot starve the tail.
+            var candidates = titles.Distinct().ToArray();
+            if (candidates.Length == 0 || maximum <= 0)
+            {
+                return [];
+            }
+
+            var start = _nextRefreshIndex % candidates.Length;
+            var reserved = candidates.Select((title, index) => (Title: title, Index: index))
+                .OrderBy(candidate => RefreshPriority(Key(config, candidate.Title.TmdbId, candidate.Title.MediaType)))
+                .ThenBy(candidate => (candidate.Index - start + candidates.Length) % candidates.Length)
+                .Where(candidate => TryBeginRefresh(config, candidate.Title.TmdbId, candidate.Title.MediaType)).Take(maximum).ToArray();
+            if (reserved.Length > 0)
+            {
+                // Rotation also protects large libraries when bounded cache/attempt entries are evicted.
+                _nextRefreshIndex = (reserved[^1].Index + 1) % candidates.Length;
+            }
+
+            return reserved.Select(candidate => candidate.Title).ToArray();
+        }
+    }
+
+    private DateTime RefreshPriority(string key)
+    {
+        var fetched = _entries.TryGetValue(key, out var snapshot) ? snapshot.FetchedAtUtc : DateTime.MinValue;
+        return _attempts.TryGetValue(key, out var attempted) && attempted > fetched ? attempted : fetched;
+    }
+
+    private static bool IsUsable(DateTime acquiredAt, DateTime now)
+        => acquiredAt <= now && acquiredAt > now.AddDays(-30);
+
+    private static TitleMetadataSnapshot MergeFields(TitleMetadataSnapshot snapshot, TitleMetadataSnapshot? previous, DateTime now)
+    {
+        var times = ImmutableDictionary.CreateBuilder<string, DateTime>(StringComparer.Ordinal);
+        T Field<T>(T incoming, T retained, string name)
+        {
+            var source = incoming is not null ? snapshot : previous;
+            var value = incoming is not null ? incoming : retained;
+            if (value is null || source is null)
+            {
+                return default!;
+            }
+
+            var time = source.FieldFetchedAtUtc?.GetValueOrDefault(name, source.FetchedAtUtc) ?? source.FetchedAtUtc;
+            if (!IsUsable(time, now))
+            {
+                return default!;
+            }
+
+            times[name] = time;
+            return value;
+        }
+
+        var merged = snapshot with
+        {
+            GenreIds = Field(snapshot.GenreIds, previous?.GenreIds, nameof(TitleMetadataSnapshot.GenreIds)),
+            KeywordIds = Field(snapshot.KeywordIds, previous?.KeywordIds, nameof(TitleMetadataSnapshot.KeywordIds)),
+            Keywords = Field(snapshot.Keywords, previous?.Keywords, nameof(TitleMetadataSnapshot.Keywords)),
+            KeywordReferences = Field(snapshot.KeywordReferences, previous?.KeywordReferences, nameof(TitleMetadataSnapshot.KeywordReferences)),
+            OriginalLanguage = Field(snapshot.OriginalLanguage, previous?.OriginalLanguage, nameof(TitleMetadataSnapshot.OriginalLanguage)),
+            SeriesType = Field(snapshot.SeriesType, previous?.SeriesType, nameof(TitleMetadataSnapshot.SeriesType)),
+            OriginCountries = Field(snapshot.OriginCountries, previous?.OriginCountries, nameof(TitleMetadataSnapshot.OriginCountries)),
+            ProductionCountries = Field(snapshot.ProductionCountries, previous?.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries)),
+            Overview = Field(snapshot.Overview, previous?.Overview, nameof(TitleMetadataSnapshot.Overview))
+        };
+        return merged with { FieldFetchedAtUtc = times.ToImmutable() };
     }
 
     /// <summary>Saves only metadata during an active scheduled pass, using atomic replacement.</summary>
@@ -159,8 +242,11 @@ public sealed class TitleMetadataCache
     }
 
     private string Key(PluginConfiguration config, int tmdbId, string mediaType)
+        => Key(config, tmdbId, mediaType, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
+
+    private static string Key(PluginConfiguration config, int tmdbId, string mediaType, string? metadataLanguage)
     {
-        var context = string.Join('\n', config.SeerrUrl, config.SeerrApiKey, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
+        var context = string.Join('\n', config.SeerrUrl, config.SeerrApiKey, metadataLanguage);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(context))) + ":" + mediaType + ":" + tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 

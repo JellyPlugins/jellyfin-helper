@@ -223,6 +223,43 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         PosterPath = "/p" + tmdbId + ".jpg",
     };
 
+    [Fact]
+    public async Task ExternalSourceGenresRemainVisibleAndObservedWhenProviderGenresAreAbsent()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var candidate = Candidate(101);
+        candidate.GenreIds = [];
+        candidate.SourceGenres = ["action", "drama"];
+        _detailById[101] = """{"id":101,"keywords":[],"mediaInfo":{"status":1}}""";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [candidate], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Equal(new[] { "Action", "Drama" }, selected.Genres.Order(StringComparer.Ordinal));
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.True(selected.ScoringFeatures.GenreSimilarity > 0);
+    }
+
+    [Fact]
+    public async Task WarmupWithoutAnOptionalSharedCacheMakesNoProviderRequests()
+    {
+        await CreateService().WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(0, _detailCalls);
+        _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+    }
+
+    [Fact]
+    public async Task MissingOptionalServerSettingsDoNotPreventExternalScoring()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns((ServerConfiguration)null!);
+        var result = await CreateService(serverConfiguration: server.Object).ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Equal(101, selected.TmdbId);
+        Assert.True(selected.AvailabilityVerified);
+    }
+
     private static string CertifiedDetail(int id, int age) => $$"""{"id":{{id}},"genres":[{"id":28}],"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"{{age}}"}]}] } }""";
 
     [Fact]

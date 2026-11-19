@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -43,6 +44,10 @@ public sealed record TitleMetadataSnapshot
 
     /// <summary>Gets the time this metadata was obtained, in UTC.</summary>
     public DateTime FetchedAtUtc { get; init; }
+
+    /// <summary>Gets the acquisition times of individual fields retained across partial provider responses.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableDictionary<string, DateTime>? FieldFetchedAtUtc { get; init; }
 
     /// <summary>Gets the source of the snapshot.</summary>
     public string Source { get; init; } = "seerr";

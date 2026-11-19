@@ -14,6 +14,51 @@ public sealed class ContentFitConfidenceTests
     private static readonly string[] Story = ["anime", "shounen", "pirate", "friendship", "sea", "ship"];
 
     [Theory]
+    [InlineData(null, false, 1, 1, false)]
+    [InlineData(0.0, true, 1, .5, true)]
+    [InlineData(0.0, true, 0, 1, false)]
+    [InlineData(0.0, true, 1, .49, false)]
+    [InlineData(.5, false, 0, 0, true)]
+    public void CoherentSelectionRequiresActualGenreOrContinuationEvidence(double? continuation, bool genres, double similarity, double support, bool expected)
+    {
+        var features = new CandidateFeatures { CollectionContinuationSupport = continuation, HasGenreEvidence = genres, GenreSimilarity = similarity, ContentFitSupport = support };
+        Assert.Equal(expected, ScoringHelper.HasCoherentContentSupport(features));
+        Assert.False(ScoringHelper.HasCoherentContentSupport(null));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void EachCapturedContextSignalIndependentlyAppearsInTheMarginalExplanation(int signal)
+    {
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        if (signal == 0) features.ContentFitAffinity = .8;
+        if (signal == 1) features.ContentFitSupport = .8;
+        if (signal == 2) features.AudienceMismatch = .25;
+        if (signal == 3) features.CollectionContinuationSupport = .8;
+        if (signal == 4) features.ContentFamilyMismatch = .5;
+        var explanation = ScoringHelper.BuildMarginalExplanation(features, f => ScoringHelper.ComputeContextualScore(.8, f, 1), "synthetic");
+        Assert.NotNull(explanation.ContentFitContribution);
+        Assert.Equal(explanation.FinalScore - ScoringHelper.ComputeContextualScore(.8, features.WithoutContentFit(), 1), explanation.ContentFitContribution!.Value, 12);
+    }
+
+    [Fact]
+    public void KnownZeroContextDoesNotInventAContentContributionInEitherExplanationPath()
+    {
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7, ContentFitSupport = 0, AudienceMismatch = 0, CollectionContinuationSupport = 0, ContentFamilyMismatch = 0 };
+        var marginal = ScoringHelper.BuildMarginalExplanation(features, f => ScoringHelper.ComputeContextualScore(.8, f, 1), "synthetic");
+        Assert.Null(marginal.ContentFitContribution);
+        using var strategy = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1));
+        var method = typeof(EnsembleScoringStrategy).GetMethod("ComputeBlendedExplanation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var blended = (ScoreExplanation)method.Invoke(strategy, [features, 0.0, 0.0, 1.0])!;
+        Assert.Equal(new HeuristicScoringStrategy(1).Score(features), blended.FinalScore, 12);
+        Assert.Null(blended.ContentFitContribution);
+    }
+
+    [Theory]
     [InlineData(0, 0)]
     [InlineData(.75, 0)]
     [InlineData(.45, .30)]

@@ -143,13 +143,25 @@ public class HelperCleanupTaskTests
     public async Task MetadataIsWarmedBeforeRecommendationsOnlyInTheBackgroundTask(TaskMode mode)
     {
         _config.RecommendationsTaskMode = mode;
-        var warmed = false;
+        var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _seerrDiscoveryServiceMock.Setup(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()))
-            .Callback(() => warmed = true).Returns(Task.CompletedTask);
-        _recommendationEngine.Setup(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Callback(() => Assert.True(warmed)).Returns(new Collection<RecommendationResult>());
-        await _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken);
+            .Callback(() => entered.TrySetResult()).Returns(warmup.Task);
+        var execution = _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.False(execution.IsCompleted);
+            _recommendationEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            warmup.TrySetResult();
+            await execution;
+        }
+
         _seerrDiscoveryServiceMock.Verify(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _recommendationEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -160,6 +172,16 @@ public class HelperCleanupTaskTests
             .ThrowsAsync(new HttpRequestException("optional provider unavailable"));
         await _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken);
         _recommendationEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancellingMetadataWarmupStopsGenerationRatherThanSwallowingCancellation()
+    {
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        _seerrDiscoveryServiceMock.Setup(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken));
+        _recommendationEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

@@ -37,16 +37,20 @@ internal sealed class ContentFitProfile
     private readonly KeywordDocument[] _documents;
     private readonly Dictionary<string, double> _termWeights;
     private readonly bool _prefersOlderAnimation;
+    private readonly bool _hasPositiveChildrenInterest;
+    private readonly bool _hasUnclassifiedChildrenRepresentation;
     private readonly DimensionProfile[] _dimensions;
     private readonly int _positiveTitleCount;
     private readonly ContentFitProfile? _identityProfile;
     private readonly DimensionProfile _likelyRepresentations;
 
-    private ContentFitProfile(KeywordDocument[] documents, Dictionary<string, double> weights, bool prefersOlderAnimation, DimensionProfile[]? dimensions = null, int positiveTitleCount = 0, ContentFitProfile? identityProfile = null, DimensionProfile? likelyRepresentations = null)
+    private ContentFitProfile(KeywordDocument[] documents, Dictionary<string, double> weights, AnimationAudience audience, DimensionProfile[]? dimensions = null, int positiveTitleCount = 0, ContentFitProfile? identityProfile = null, DimensionProfile? likelyRepresentations = null)
     {
         _documents = documents;
         _termWeights = weights;
-        _prefersOlderAnimation = prefersOlderAnimation;
+        _prefersOlderAnimation = audience.PrefersOlder;
+        _hasPositiveChildrenInterest = audience.HasPositiveChildrenInterest;
+        _hasUnclassifiedChildrenRepresentation = audience.HasUnclassifiedChildrenRepresentation;
         _dimensions = dimensions ?? [new([], 0), new([], 0), new([], 0)];
         _positiveTitleCount = positiveTitleCount;
         _identityProfile = identityProfile;
@@ -54,7 +58,7 @@ internal sealed class ContentFitProfile
     }
 
     /// <summary>Gets an empty profile which cannot invent thematic or audience preferences.</summary>
-    internal static ContentFitProfile Empty { get; } = new([], new Dictionary<string, double>(StringComparer.Ordinal), false);
+    internal static ContentFitProfile Empty { get; } = new([], new Dictionary<string, double>(StringComparer.Ordinal), default);
 
     /// <summary>Builds independent per-title documents from the same eligible own/parent metadata as other preferences.</summary>
     /// <param name="profile">The current or already self-excluded historical profile.</param>
@@ -80,9 +84,11 @@ internal sealed class ContentFitProfile
         var descriptors = positiveTitles.Select(title => ContentDescriptor.Create(title.Genres, title.Terms, title.Metadata)).ToArray();
         var representations = DimensionPreferences(descriptors.Select(descriptor => descriptor.Representation is { } value ? new[] { value } : []));
         var narratives = DimensionPreferences(descriptors.Select(descriptor => descriptor.Narrative is { } value ? new[] { value } : []));
-        var topics = DimensionPreferences(descriptors.Select(descriptor => descriptor.Topics?.ToArray() ?? []));
+        var topics = DimensionPreferences(descriptors.Select(descriptor => descriptor.Topics.ToArray()));
         var likely = DimensionPreferences(descriptors.Select(descriptor => (descriptor.Representation ?? descriptor.ProbableRepresentation) is { } value ? new[] { value } : []));
-        return new ContentFitProfile(prepared, weights, older > children, [representations, narratives, topics], positiveTitles.Length, BuildIdentityProfile(positiveTitles), likely);
+        var unclassifiedChildren = positiveTitles.Any(title => IsChildrenTitle(title.Genres, title.Terms)
+            && ContentDescriptor.Create(title.Genres, title.Terms, title.Metadata).Representation is null);
+        return new ContentFitProfile(prepared, weights, new(older > children, children > 0, unclassifiedChildren), [representations, narratives, topics], positiveTitles.Length, BuildIdentityProfile(positiveTitles), likely);
     }
 
     private static DimensionProfile DimensionPreferences(IEnumerable<string[]> values)
@@ -90,6 +96,9 @@ internal sealed class ContentFitProfile
         var known = values.Where(value => value.Length > 0).ToArray();
         return new(known.SelectMany(value => value).GroupBy(value => value, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal), known.Length);
     }
+
+    private static bool IsChildrenTitle(HashSet<string> genres, HashSet<string> keywords)
+        => genres.Contains("Kids") || keywords.Overlaps(ChildrenLabels);
 
     private static ContentFitProfile? BuildIdentityProfile(TitleKeywords[] titles)
     {
@@ -101,23 +110,23 @@ internal sealed class ContentFitProfile
 
         var weights = BuildTermWeights(identified.Select(title => title.Terms).ToArray());
         var documents = identified.Select(title => new KeywordDocument(title.Terms, title.Terms.Sum(term => weights[term]), title.Genres, title.Key)).ToArray();
-        return new ContentFitProfile(documents, weights, false);
+        return new ContentFitProfile(documents, weights, default);
     }
 
     private static HashSet<string> IdentityTerms(TitleMetadataSnapshot? metadata)
     {
         var terms = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var keyword in metadata?.KeywordReferences ?? [])
+        foreach (var keyword in (metadata?.KeywordReferences ?? []).Where(IsNarrativeKeyword))
         {
-            if (keyword.Id > 0 && keyword.Name is not null && CanonicalKeyword(keyword.Name) is { } name
-                && name != "anime" && !GenreNormalizer.IsKnownGenreKeyword(name) && !FormatLabels.Contains(name))
-            {
-                terms.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tmdb:keyword:{keyword.Id}"));
-            }
+            terms.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tmdb:keyword:{keyword.Id}"));
         }
 
         return terms;
     }
+
+    private static bool IsNarrativeKeyword(ProviderKeyword keyword)
+        => keyword.Id > 0 && keyword.Name is not null && CanonicalKeyword(keyword.Name) is { } name
+            && name != "anime" && !GenreNormalizer.IsKnownGenreKeyword(name) && !FormatLabels.Contains(name);
 
     private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache)
     {
@@ -252,13 +261,10 @@ internal sealed class ContentFitProfile
             // known title. Require two actual narrative matches and a majority of THAT document;
             // scattered words, language, Anime/Shounen and adaptation format alone give no support.
             var coverage = overlap.Weight / document.Weight;
-            if (overlap.NarrativeMatches >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres))
+            if (overlap.NarrativeMatches >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres) && coverage > support)
             {
-                if (coverage > support)
-                {
-                    support = coverage;
-                    tasteKey = document.Key;
-                }
+                support = coverage;
+                tasteKey = document.Key;
             }
         }
 
@@ -318,7 +324,7 @@ internal sealed class ContentFitProfile
 
     private double ResolveAudienceMismatch(HashSet<string> canonical, IEnumerable<string>? tags, string? officialRating, Dictionary<string, double> preferences, MatchEvidence match)
     {
-        if (!_prefersOlderAnimation || preferences.Count == 0 || canonical.Contains("Kids"))
+        if (!_prefersOlderAnimation || _hasPositiveChildrenInterest || preferences.Count == 0 || canonical.Contains("Kids"))
         {
             return 0;
         }
@@ -365,14 +371,7 @@ internal sealed class ContentFitProfile
         }
 
         var canonical = GenreNormalizer.Set(genres);
-        var match = Match(tags, canonical);
-        if (_identityProfile is not null && metadata?.KeywordReferences is not null)
-        {
-            var identityMatch = _identityProfile.Match(IdentityTerms(metadata), canonical);
-            // Independent identity evidence may strengthen translated labels, never dilute a
-            // valid local/text match or count one topic twice as two narrative matches.
-            match = new MatchEvidence(Math.Max(match.Affinity, identityMatch.Affinity), Math.Max(match.Support, identityMatch.Support), identityMatch.Support > match.Support ? identityMatch.TasteKey : match.TasteKey);
-        }
+        var match = MatchWithIdentity(tags, canonical, metadata);
 
         features.HasContentMetadata = (tags is not null && _documents.Length > 0) || (_identityProfile is not null && metadata?.KeywordReferences is not null);
         features.ContentFitAffinity = features.HasContentMetadata == true ? match.Affinity : null;
@@ -383,9 +382,7 @@ internal sealed class ContentFitProfile
         features.ContentFitSupport = null;
         features.ContentTasteKey = null;
         features.AudienceMismatch = null;
-        var familyMismatch = ResolveFamilyMismatch(ContentDescriptor.Create(genres, tags, metadata));
-        var childrenMismatch = ResolveConfirmedChildrenMismatch(tags, preferences);
-        features.ContentFamilyMismatch = familyMismatch.HasValue || childrenMismatch.HasValue ? Math.Max(familyMismatch ?? 0, childrenMismatch ?? 0) : null;
+        features.ContentFamilyMismatch = CombinedFamilyMismatch(genres, tags, preferences, metadata);
         if (features.HasGenreEvidence && features.GenreSimilarity > 0)
         {
             features.ContentFitSupport = match.Support > 0 ? match.Support : null;
@@ -394,10 +391,32 @@ internal sealed class ContentFitProfile
         }
     }
 
+    private MatchEvidence MatchWithIdentity(IEnumerable<string>? tags, HashSet<string> genres, TitleMetadataSnapshot? metadata)
+    {
+        var match = Match(tags, genres);
+        if (_identityProfile is null || metadata?.KeywordReferences is null)
+        {
+            return match;
+        }
+
+        var identity = _identityProfile.Match(IdentityTerms(metadata), genres);
+        // Independent identity evidence may strengthen translated labels, never dilute a
+        // valid text match or count one topic twice as two narrative matches.
+        return new MatchEvidence(Math.Max(match.Affinity, identity.Affinity), Math.Max(match.Support, identity.Support), identity.Support > match.Support ? identity.TasteKey : match.TasteKey);
+    }
+
+    private double? CombinedFamilyMismatch(IReadOnlyList<string> genres, IEnumerable<string>? tags, Dictionary<string, double> preferences, TitleMetadataSnapshot? metadata)
+    {
+        var preserveChildrenRepresentation = _hasUnclassifiedChildrenRepresentation && IsChildrenTitle(GenreNormalizer.Set(genres), Keywords(tags));
+        var family = ResolveFamilyMismatch(ContentDescriptor.Create(genres, tags, metadata), preserveChildrenRepresentation);
+        var children = ResolveConfirmedChildrenMismatch(tags, preferences);
+        return family.HasValue || children.HasValue ? Math.Max(family ?? 0, children ?? 0) : null;
+    }
+
     private double? ResolveConfirmedChildrenMismatch(IEnumerable<string>? tags, Dictionary<string, double> preferences)
     {
         var keywords = Keywords(tags);
-        if (!_prefersOlderAnimation || !keywords.Overlaps(ChildrenLabels) || keywords.Overlaps(OlderAnimationLabels))
+        if (!_prefersOlderAnimation || _hasPositiveChildrenInterest || !keywords.Overlaps(ChildrenLabels) || keywords.Overlaps(OlderAnimationLabels))
         {
             return null;
         }
@@ -414,19 +433,19 @@ internal sealed class ContentFitProfile
         return 0.5;
     }
 
-    private double? ResolveFamilyMismatch(ContentDescriptor candidate)
+    private double? ResolveFamilyMismatch(ContentDescriptor candidate, bool preserveChildrenRepresentation)
     {
         if (_positiveTitleCount < 3)
         {
             return null;
         }
 
-        string[][] values = [candidate.Representation is { } representation ? [representation] : [], candidate.Narrative is { } narrative ? [narrative] : [], candidate.Topics?.ToArray() ?? []];
+        string[][] values = [candidate.Representation is { } representation ? [representation] : [], candidate.Narrative is { } narrative ? [narrative] : [], candidate.Topics.ToArray()];
         var known = false;
         for (var dimension = 0; dimension < values.Length; dimension++)
         {
             var profile = _dimensions[dimension];
-            if (values[dimension].Length == 0 || profile.KnownTitleCount < _positiveTitleCount * 0.8)
+            if ((dimension == 0 && preserveChildrenRepresentation) || values[dimension].Length == 0 || profile.KnownTitleCount < _positiveTitleCount * 0.8)
             {
                 continue;
             }
@@ -439,7 +458,7 @@ internal sealed class ContentFitProfile
         }
 
         var likelyRepresentation = candidate.Representation ?? candidate.ProbableRepresentation;
-        if (likelyRepresentation is not null && _likelyRepresentations.KnownTitleCount >= _positiveTitleCount * 0.8)
+        if (!preserveChildrenRepresentation && likelyRepresentation is not null && _likelyRepresentations.KnownTitleCount >= _positiveTitleCount * 0.8)
         {
             if (!_likelyRepresentations.Preferences.ContainsKey(likelyRepresentation))
             {
@@ -550,6 +569,8 @@ internal sealed class ContentFitProfile
     }
 
     private readonly record struct MatchEvidence(double Affinity, double Support, Guid? TasteKey = null);
+
+    private readonly record struct AnimationAudience(bool PrefersOlder, bool HasPositiveChildrenInterest, bool HasUnclassifiedChildrenRepresentation);
 
     private readonly record struct KeywordOverlap(double Weight, int SpecificMatches, int NarrativeMatches);
 

@@ -22,6 +22,101 @@ public sealed class EngineContentFitTests
     private static readonly string[] Genres = ["Animation", "Action & Adventure"];
 
     [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public void ColdStartUsesCapturedProviderGenresAndMetadataWithoutReplacingLocalGenres(bool batch, bool localGenres, bool nullGenres)
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        cache.Store(harness.ConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var candidate = new Movie { Id = Guid.NewGuid(), Name = "Cold start title", Path = "/media/new.mkv", Genres = localGenres ? ["Drama"] : [], CommunityRating = 8, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "101" } };
+        if (nullGenres) candidate.Genres = null!;
+        var originalGenres = candidate.Genres;
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [candidate] : []);
+        var result = batch ? Assert.Single(harness.Engine.GetAllRecommendations(1, TestContext.Current.CancellationToken)) : harness.Engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!;
+        var selected = Assert.Single(result.Recommendations);
+        Assert.Equal(localGenres ? ["Drama"] : new[] { "Animation" }, selected.Genres);
+        Assert.Equal("anime", Assert.Single(selected.TitleMetadata!.Keywords!.Value));
+        Assert.Equal(originalGenres, candidate.Genres);
+    }
+
+    [Fact]
+    public void SeriesMetadataUsesTheTvNamespaceAndItsCachedGenresDuringLiveRanking()
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        cache.Store(harness.ConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 101, MediaType = "tv", GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedMovieCount = 1, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"] }] };
+        var series = new Series { Id = Guid.NewGuid(), Name = "Unseen series", Path = "/media/new-series", CommunityRating = 8, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "101" } };
+        var episode = Episode(series, 0);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.Series) == true) return [series];
+            if (query.IncludeItemTypes?.Contains(BaseItemKind.Episode) == true) return [episode];
+            return [];
+        });
+        var selected = Assert.Single(harness.Engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!.Recommendations);
+        Assert.Equal(series.Id, selected.ItemId);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.Equal("tv", selected.TitleMetadata!.MediaType);
+        Assert.Empty(series.Genres);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LiveCandidateMissingFromTheSnapshotLookupUsesTheSameNetworkFreeMetadataFallback(bool unreadablePeople)
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        cache.Store(harness.ConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedMovieCount = 1, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"] }] };
+        var candidate = new Movie { Id = Guid.NewGuid(), Path = "/media/new.mkv", Name = "Late title", CommunityRating = 8, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "101" } };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [candidate] : []);
+        Assert.Single(harness.Engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!.Recommendations);
+        var snapshot = harness.Engine.GetType().GetField("_cachedSnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(harness.Engine)!;
+        var lookup = (System.Collections.IDictionary)snapshot.GetType().GetProperty("ContentAffinityLookup")!.GetValue(snapshot)!;
+        lookup.Remove(candidate.Id);
+        if (unreadablePeople) harness.LibraryManager.Setup(manager => manager.GetPeople(candidate)).Throws(new IOException("people unavailable"));
+        var selected = Assert.Single(harness.Engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!.Recommendations);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.NotNull(selected.TitleMetadata);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.Empty(candidate.Genres);
+    }
+
+    [Fact]
+    public void ScheduledRunsKeepTheRelevanceCoreButRotateExplorationWithoutNewFeedback()
+    {
+        var harness = EngineTestFactory.Create(new HeuristicScoringStrategy());
+        using var lifetime = harness.Engine;
+        var profile = new UserWatchProfile { UserId = Guid.Parse("00000000-0000-0000-0000-000000000001") };
+        var candidates = Enumerable.Range(1, 200).Select(id => (BaseItem)new Movie { Id = Guid.Parse($"00000000-0000-0000-0001-{id:000000000000}"), Path = $"/media/{id}.mkv", Name = $"Title {id}", CommunityRating = 10 - (id * .01f) }).ToArray();
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? candidates : []);
+        var runs = Enumerable.Range(0, 3).Select(_ => Assert.Single(harness.Engine.GetAllRecommendations(20, TestContext.Current.CancellationToken)).Recommendations.Select(item => item.ItemId).ToHashSet()).ToArray();
+        Assert.All(runs.Skip(1), run => Assert.InRange(run.Intersect(runs[0]).Count(), 18, 20));
+        Assert.True(runs.SelectMany(run => run).Distinct().Count() > 20);
+        var live = harness.Engine.GetRecommendations(profile.UserId, 20, TestContext.Current.CancellationToken)!.Recommendations.Select(item => item.ItemId).ToArray();
+        Assert.Equal(live, harness.Engine.GetRecommendations(profile.UserId, 20, TestContext.Current.CancellationToken)!.Recommendations.Select(item => item.ItemId));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void ProviderGenresAreUsedConsistentlyWhenTheLocalCandidateHasNoGenres(bool batch)

@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -23,6 +24,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -190,6 +192,28 @@ public class PluginServiceRegistratorTests : IDisposable
         var service = provider.GetService<IRecommendationPlaylistService>();
         Assert.NotNull(service);
         Assert.IsType<RecommendationPlaylistService>(service);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RegisteredWatchHistoryUsesTheSameSingletonMetadataCache(bool pluginAvailable)
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        if (pluginAvailable) ControllerTestFactory.InitializePluginInstance();
+        var sc = Register();
+        sc.AddLogging();
+        sc.AddSingleton(new Mock<ILibraryManager>().Object);
+        sc.AddSingleton(new Mock<IUserManager>().Object);
+        sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        sc.AddSingleton(new Mock<ILinkedChildrenService>().Object);
+        sc.AddSingleton<IFileSystem>(new System.IO.Abstractions.TestingHelpers.MockFileSystem());
+        using var provider = sc.BuildServiceProvider(validateScopes: true);
+        var cache = provider.GetRequiredService<TitleMetadataCache>();
+        var history = Assert.IsType<WatchHistoryService>(provider.GetRequiredService<IWatchHistoryService>());
+        Assert.Same(cache, history.TitleMetadataCache);
+        Assert.Same(history, provider.GetRequiredService<IWatchHistoryService>());
+        Assert.Equal(pluginAvailable, cache.Save());
     }
 
     [Fact]

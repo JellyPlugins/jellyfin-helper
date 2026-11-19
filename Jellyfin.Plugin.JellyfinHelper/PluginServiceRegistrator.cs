@@ -24,6 +24,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Services.WebInjection;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
@@ -154,7 +156,17 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
         serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
-        serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
+        serviceCollection.AddSingleton<IWatchHistoryService>(sp => new WatchHistoryService(
+            sp.GetRequiredService<ILibraryManager>(),
+            sp.GetRequiredService<IPluginConfigurationService>(),
+            sp.GetRequiredService<IUserManager>(),
+            sp.GetRequiredService<IUserDataManager>(),
+            sp.GetRequiredService<IPluginLogService>(),
+            sp.GetRequiredService<ILogger<WatchHistoryService>>(),
+            sp.GetService<ILinkedChildrenService>())
+        {
+            TitleMetadataCache = sp.GetRequiredService<TitleMetadataCache>()
+        });
         serviceCollection.AddSingleton(sp => new TitleMetadataCache(
             sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(),
             sp.GetRequiredService<IFileSystem>(),

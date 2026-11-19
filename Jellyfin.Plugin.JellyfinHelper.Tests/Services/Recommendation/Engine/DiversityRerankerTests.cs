@@ -61,6 +61,29 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void WideSupportedPoolAndExplorationBandCannotDuplicateSelectedOrRemainingTitles()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        var supported = candidates.Skip(100).Take(40).Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Equal(20, selected.Count);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.All(selected, candidate => Assert.Equal(candidates.Single(original => original.Item.Id == candidate.Item.Id).Score, candidate.Score));
+    }
+
+    [Fact]
+    public void ExplorationDoesNotRepeatASelectedLibraryIdFromEitherLeftoverPool()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        candidates[99].Item.Id = candidates[0].Item.Id;
+        candidates[199].Item.Id = candidates[0].Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+        Assert.Equal(20, selected.Count);
+        Assert.Single(selected, candidate => candidate.Item.Id == candidates[0].Item.Id);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+    }
+
+    [Fact]
     public void ApplyDiversityReranking_SameSeed_ProducesIdenticalSelection()
     {
         // Build a large candidate list so exploration slots are actually filled from the widened pool. With 400 candidates and count=20 the exploration band spans ranks 100..400, which is more than enough for the seeded RNG to matter.

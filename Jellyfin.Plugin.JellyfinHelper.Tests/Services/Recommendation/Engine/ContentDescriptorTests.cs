@@ -48,6 +48,18 @@ public sealed class ContentDescriptorTests
     public void ContradictoryAnimeAndLiveActionEvidenceRemainsUnknown()
         => Assert.Null(ContentDescriptor.Create(["Action"], ["anime", "live action"]).Family);
 
+    [Theory]
+    [InlineData("anime", "western animation")]
+    [InlineData("japanese animation", "american animation")]
+    [InlineData("western animation", "anime")]
+    public void ConflictingLocalAndProviderStylesCannotClassifyOrGuessTheRepresentation(string local, string provider)
+    {
+        var descriptor = ContentDescriptor.Create(["Animation"], [local], new TitleMetadataSnapshot { Keywords = [provider], OriginalLanguage = "ja", OriginCountries = ["JP"] });
+        Assert.Null(descriptor.Representation);
+        Assert.Null(descriptor.ProbableRepresentation);
+        Assert.Null(descriptor.Family);
+    }
+
     [Fact]
     public void AnimeDocumentaryRetainsBothIndependentContentDimensions()
     {

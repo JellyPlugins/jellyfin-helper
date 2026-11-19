@@ -932,6 +932,45 @@ public class TrainingFeatureComputerTests
     }
 
     [Fact]
+    public void AggregatedSeriesUsesCapturedProviderMetadataWithoutLearningFromItsOwnTitle()
+    {
+        var (series, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        var metadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow };
+        foreach (var row in episodes)
+        {
+            row.Genres = ["Adventure"];
+            row.TitleMetadata = metadata;
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Adventure"], TitleMetadata = metadata });
+        var preferences = new Dictionary<string, double> { ["Adventure"] = 1 };
+        var output = new List<TrainingExample>();
+        TrainingFeatureComputer.AddAggregatedSeriesExample(output, episodes, series, profile, preferences,
+            coOccurrence: [], collaborativeMax: 0, avgYear: 2020, BuildExposure(preferences, profile),
+            cachedPeopleLookup: [], preferredPeopleWeights: new Dictionary<string, double>(), itemStudiosLookup: [], preferredStudios: [],
+            itemTagsLookup: [], preferredTags: [], preferredFranchises: new Dictionary<string, double>(), preferredCountries: new Dictionary<string, double>(),
+            preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
+            organicFallbackTimestamp: DateTime.UtcNow);
+        var example = Assert.Single(output);
+        Assert.Equal(1, example.Features.ContentFitSupport);
+        Assert.NotNull(example.Features.ContentTasteKey);
+        Assert.Equal(41, example.Features.ToVector().Length);
+    }
+
+    [Fact]
+    public void AnEmptyAggregatedSeriesCannotInventMetadataOrAnObservedOutcome()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int>());
+        var example = RunAggregatedSeriesExample([], Guid.NewGuid(), profile, context);
+        Assert.False(example.IsObserved);
+        Assert.False(example.Features.HasGenreEvidence);
+        Assert.False(example.Features.HasContentMetadata);
+        Assert.Null(example.Features.ContentFitSupport);
+        Assert.Null(example.Features.ContentTasteKey);
+    }
+
+    [Fact]
     public void AddAggregatedSeriesExample_FavoriteOnlyNoPlayback_UsesFavoriteLabel()
     {
         // When a series has zero played episodes but at least one favourite, the label must be 0.65 (explicit-interest signal) - NOT the abandoned label (0.0).

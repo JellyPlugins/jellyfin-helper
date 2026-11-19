@@ -165,7 +165,8 @@ internal static class ScoringHelper
         var mismatch = hasGenres ? Math.Min(0.5, features.AudienceMismatch.GetValueOrDefault()) : 0;
         // Completed collection progress is stronger personal evidence than an ambiguous All-Ages hint.
         // Explicit preschool mismatch remains separate; neither rule changes certification permission.
-        var familyMismatch = features.ContentFamilyMismatch is { } family && double.IsFinite(family) ? Math.Clamp(family, 0, 0.5) : 0;
+        // CandidateFeatures already rejects non-finite values and bounds this captured confidence.
+        var familyMismatch = features.ContentFamilyMismatch.GetValueOrDefault();
         return (support, Math.Max(familyMismatch, continuation >= 0.5 && mismatch <= 0.25 ? 0 : mismatch));
     }
 

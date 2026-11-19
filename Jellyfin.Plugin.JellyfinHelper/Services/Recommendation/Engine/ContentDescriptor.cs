@@ -6,8 +6,14 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 /// <summary>Evidence-based content families. Unknown metadata never establishes a negative preference.</summary>
-internal sealed record ContentDescriptor(string? Family, string? Representation = null, string? Narrative = null, IReadOnlySet<string>? Topics = null, string? ProbableRepresentation = null)
+internal sealed record ContentDescriptor(string? Family, string? Representation = null, string? Narrative = null, string? ProbableRepresentation = null)
 {
+    private const string TrueCrime = "true crime";
+    private const string Anime = "anime";
+
+    /// <summary>Gets verified documentary topics; absent topic evidence is an empty set.</summary>
+    internal IReadOnlySet<string> Topics { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     internal static ContentDescriptor Create(IEnumerable<string>? genres, IEnumerable<string>? tags, TitleMetadataSnapshot? metadata = null)
     {
         var canonical = GenreNormalizer.Set(genres);
@@ -28,16 +34,17 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
         var topics = DocumentaryTopics(narrative, keywords);
         if (narrative is not null)
         {
-            var family = topics.Contains("true crime") ? "true crime" : narrative;
-            return new(narrative == "scripted" ? representation : family, representation, narrative, topics, probable);
+            var family = topics.Contains(TrueCrime) ? TrueCrime : narrative;
+            return new(narrative == "scripted" ? representation : family, representation, narrative, probable) { Topics = topics };
         }
 
-        return new(representation, representation, Topics: topics, ProbableRepresentation: probable);
+        return new(representation, representation, ProbableRepresentation: probable) { Topics = topics };
     }
 
     private static string? ProbableAnimationFamily(HashSet<string> genres, HashSet<string> keywords, TitleMetadataSnapshot? metadata)
     {
-        if (!genres.Contains("Animation") || keywords.Overlaps(["live action", "live action and animation"]) || metadata is null)
+        if (!genres.Contains("Animation") || keywords.Overlaps(["live action", "live action and animation"])
+            || HasConflictingAnimationLabels(keywords) || metadata is null)
         {
             return null;
         }
@@ -47,7 +54,7 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
         // confirmed style evidence or a country-based selection ban.
         if (string.Equals(metadata.OriginalLanguage?.Trim(), "ja", StringComparison.OrdinalIgnoreCase) && countries.Contains("JP"))
         {
-            return "anime";
+            return Anime;
         }
 
         return string.Equals(metadata.OriginalLanguage?.Trim(), "en", StringComparison.OrdinalIgnoreCase) && countries.Contains("US") ? "animation" : null;
@@ -61,9 +68,9 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
             return topics;
         }
 
-        if (keywords.Contains("true crime"))
+        if (keywords.Contains(TrueCrime))
         {
-            topics.Add("true crime");
+            topics.Add(TrueCrime);
         }
 
         if (keywords.Overlaps(["nature documentary", "wildlife documentary"]))
@@ -87,8 +94,9 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
     private static string? RepresentationFamily(HashSet<string> canonical, HashSet<string> keywords)
     {
         var liveAction = keywords.Contains("live action");
-        var anime = keywords.Contains("anime") || keywords.Contains("japanese animation");
-        if (keywords.Contains("live action and animation") || (liveAction && (anime || canonical.Contains("Animation"))))
+        var anime = keywords.Contains(Anime) || keywords.Contains("japanese animation");
+        if (keywords.Contains("live action and animation") || HasConflictingAnimationLabels(keywords)
+            || (liveAction && (anime || canonical.Contains("Animation"))))
         {
             return null;
         }
@@ -100,7 +108,7 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 
         if (anime)
         {
-            return "anime";
+            return Anime;
         }
 
         // Animation without an Anime keyword does not prove non-Anime; language, country and
@@ -109,6 +117,9 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
             ? "animation"
             : null;
     }
+
+    private static bool HasConflictingAnimationLabels(HashSet<string> keywords)
+        => keywords.Overlaps([Anime, "japanese animation"]) && keywords.Overlaps(["western animation", "american animation"]);
 
     private static string? NarrativeFamily(HashSet<string> genres, string? seriesType)
     {

@@ -318,8 +318,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }) ?? []).Where(item => item is Movie or Series)
                 .Select(item => (TmdbId: TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0, MediaType: item is Series ? "tv" : "movie"))
                 .Where(key => key.TmdbId > 0).Distinct();
-            var pending = history.Concat(library).Distinct()
-                .Where(key => _titleMetadataCache.TryBeginRefresh(config, key.TmdbId, key.MediaType)).Take(128).ToArray();
+            var pending = _titleMetadataCache.ReserveRefreshes(config, history.Concat(library), 128);
             var options = new ParallelOptions
             {
                 MaxDegreeOfParallelism = MetadataEnrichmentParallelism, CancellationToken = budget.Token
@@ -352,9 +351,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (row.SeriesTmdbId, "tv");
         }
 
-        return string.Equals(row.ItemType, "Episode", StringComparison.OrdinalIgnoreCase)
-            ? (0, "tv")
-            : (row.TmdbId, string.Equals(row.ItemType, "Series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie");
+        if (string.Equals(row.ItemType, "Episode", StringComparison.OrdinalIgnoreCase))
+        {
+            return (0, "tv");
+        }
+
+        return (row.TmdbId, string.Equals(row.ItemType, "Series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie");
     }
 
     private static IEnumerable<(int TmdbId, string MediaType)> MetadataHistoryKeys(IEnumerable<UserWatchProfile> profiles)
@@ -2512,6 +2514,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (_titleMetadataCache is not null && config is not null)
             {
                 candidate.TitleMetadata ??= _titleMetadataCache.Get(config, candidate.Id, candidate.MediaType);
+                if (candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
+                {
+                    candidate.GenreIds = genreIds.ToList();
+                }
+
                 if (candidate.TitleMetadata?.Keywords is { } keywords)
                 {
                     candidate.KnownKeywords ??= keywords.ToList();
@@ -2522,7 +2529,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (detail is not null)
             {
                 candidate.MetadataFetchAttempted = true;
-                candidate.MetadataFetchSucceeded = ApplyFetchedDetail(candidate, detail);
+                candidate.MetadataFetchSucceeded = ApplyCachedDetail(candidate, detail);
             }
         }
     }
@@ -3712,13 +3719,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
 
-        var mediaPath = MetadataPath(candidate);
+        var requestedLanguage = _serverConfiguration?.Configuration?.PreferredMetadataLanguage;
+        var mediaPath = MetadataPath(candidate, requestedLanguage);
         var cacheKey = MetadataCacheKey(baseUri, apiKey, mediaPath);
         var cachedDetail = forceRefresh ? null : CachedDetail(cacheKey);
         if (cachedDetail is not null)
         {
-            candidate.MetadataFetchSucceeded = ApplyFetchedDetail(candidate, cachedDetail);
-            CacheSharedTitleMetadata(baseUri, apiKey, mediaPath, candidate);
+            candidate.MetadataFetchSucceeded = ApplyCachedDetail(candidate, cachedDetail);
+            CacheSharedTitleMetadata(baseUri, apiKey, requestedLanguage, candidate);
             return candidate.MetadataFetchSucceeded;
         }
 
@@ -3739,8 +3747,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return false;
             }
 
-            CacheDetail(cacheKey, detail);
-            CacheSharedTitleMetadata(baseUri, apiKey, mediaPath, candidate);
+            CacheDetail(cacheKey, detail, candidate.TitleMetadata!.FetchedAtUtc);
+            CacheSharedTitleMetadata(baseUri, apiKey, requestedLanguage, candidate);
 
             candidate.MetadataFetchSucceeded = true;
             return true;
@@ -3759,16 +3767,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private void CacheSharedTitleMetadata(Uri baseUri, string apiKey, string mediaPath, TmdbDiscoverItem candidate)
+    private void CacheSharedTitleMetadata(Uri baseUri, string apiKey, string? requestedLanguage, TmdbDiscoverItem candidate)
     {
-        if (_titleMetadataCache is null || candidate.TitleMetadata is not { } snapshot || MetadataPath(candidate) != mediaPath)
+        if (_titleMetadataCache is null || candidate.TitleMetadata is not { } snapshot)
         {
             return;
         }
 
         if (CurrentMetadataConfiguration(baseUri, apiKey) is { } config)
         {
-            _titleMetadataCache.Store(config, snapshot);
+            candidate.TitleMetadata = _titleMetadataCache.Store(config, snapshot, requestedLanguage) ?? snapshot;
         }
     }
 
@@ -3793,26 +3801,28 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     private string MetadataPath(TmdbDiscoverItem candidate)
+        => MetadataPath(candidate, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
+
+    private static string MetadataPath(TmdbDiscoverItem candidate, string? language)
     {
         var path = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
             ? $"api/v1/tv/{candidate.Id}"
             : $"api/v1/movie/{candidate.Id}";
-        var language = _serverConfiguration?.Configuration?.PreferredMetadataLanguage;
         return string.IsNullOrWhiteSpace(language) ? path : path + "?language=" + Uri.EscapeDataString(language);
     }
 
     private static string MetadataCacheKey(Uri baseUri, string apiKey, string mediaPath)
         => baseUri.AbsoluteUri + mediaPath + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)));
 
-    private SeerrMediaDetailResponse? CachedDetail(string key)
+    private CachedMediaDetail? CachedDetail(string key)
     {
         lock (_metadataCacheLock)
         {
-            return _metadataCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > DateTime.UtcNow ? cached.Detail : null;
+            return _metadataCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > DateTime.UtcNow ? cached : null;
         }
     }
 
-    private void CacheDetail(string key, SeerrMediaDetailResponse detail)
+    private void CacheDetail(string key, SeerrMediaDetailResponse detail, DateTime acquiredAtUtc)
     {
         lock (_metadataCacheLock)
         {
@@ -3821,7 +3831,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _metadataCache.Remove(_metadataCache.MinBy(pair => pair.Value.ExpiresAtUtc).Key);
             }
 
-            _metadataCache[key] = new CachedMediaDetail(detail, DateTime.UtcNow.Add(SeerrUserCacheTtl));
+            _metadataCache[key] = new CachedMediaDetail(detail, acquiredAtUtc.Add(SeerrUserCacheTtl));
         }
     }
 
@@ -3867,6 +3877,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.KnownPeople = ExtractTopPeople(detail.Credits);
         }
 
+        return true;
+    }
+
+    private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached)
+    {
+        if (!ApplyFetchedDetail(candidate, cached.Detail))
+        {
+            return false;
+        }
+
+        candidate.TitleMetadata = candidate.TitleMetadata! with { FetchedAtUtc = cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl) };
         return true;
     }
 

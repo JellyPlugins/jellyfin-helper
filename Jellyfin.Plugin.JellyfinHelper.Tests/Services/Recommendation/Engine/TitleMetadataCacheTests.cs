@@ -1,7 +1,9 @@
+using System.Collections.Immutable;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Configuration;
@@ -145,8 +147,177 @@ public sealed class TitleMetadataCacheTests
     {
         var fs = new MockFileSystem();
         var path = Path.GetFullPath("invalid-titles.json");
-        fs.AddFile(path, JsonSerializer.Serialize(new Dictionary<string, TitleMetadataSnapshot> { ["future"] = Snapshot() with { FetchedAtUtc = _clock.Now.AddDays(1) }, ["expired"] = Snapshot() with { FetchedAtUtc = _clock.Now.AddDays(-31) } }));
-        Assert.Null(new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock).Get(_config, 123, "movie"));
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        for (var id = 1; id <= 3; id++) cache.Store(_config, Snapshot() with { TmdbId = id });
+        Assert.True(cache.Save());
+        var records = JsonSerializer.Deserialize<Dictionary<string, TitleMetadataSnapshot>>(fs.File.ReadAllText(path), JsonDefaults.Options)!;
+        var future = records.Single(pair => pair.Value.TmdbId == 1).Key;
+        var expired = records.Single(pair => pair.Value.TmdbId == 2).Key;
+        records[future] = records[future] with { FetchedAtUtc = _clock.Now.AddDays(1) };
+        records[expired] = records[expired] with { FetchedAtUtc = _clock.Now.AddDays(-31) };
+        records["missing-record"] = null!;
+        records["invalid-title"] = Snapshot() with { TmdbId = 0 };
+        fs.File.WriteAllText(path, JsonSerializer.Serialize(records));
+        var restored = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        Assert.Null(restored.Get(_config, 1, "movie"));
+        Assert.Null(restored.Get(_config, 2, "movie"));
+        Assert.NotNull(restored.Get(_config, 3, "movie"));
+        // Get also filters age; Save verifies Load itself did not retain the invalid records.
+        Assert.True(restored.Save());
+        Assert.Equal(3, Assert.Single(JsonSerializer.Deserialize<Dictionary<string, TitleMetadataSnapshot>>(fs.File.ReadAllText(path), JsonDefaults.Options)!).Value.TmdbId);
+    }
+
+    [Fact]
+    public void PublicCacheOperationsRejectNullArguments()
+    {
+        var cache = new TitleMetadataCache();
+        Assert.Throws<ArgumentNullException>(() => cache.Get(null!, 123, "movie"));
+        Assert.Throws<ArgumentNullException>(() => cache.TryBeginRefresh(null!, 123, "movie"));
+        Assert.Throws<ArgumentNullException>(() => cache.Store(null!, Snapshot()));
+        Assert.Throws<ArgumentNullException>(() => cache.Store(_config, null!));
+    }
+
+    [Fact]
+    public void PartialResponsesCannotRenewRetainedFieldsEvenAcrossPersistence()
+    {
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("partial-titles.json");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        var acquired = _clock.Now;
+        cache.Store(_config, Snapshot() with { GenreIds = [16], KeywordIds = [42], KeywordReferences = [new(42, "anime")], OriginalLanguage = "ja", SeriesType = "Scripted", OriginCountries = ["JP"], ProductionCountries = ["JP"], Overview = "old synopsis" });
+        foreach (var day in new[] { 8, 16, 24 })
+        {
+            _clock.Now = acquired.AddDays(day);
+            cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 123, GenreIds = [16], FetchedAtUtc = _clock.Now });
+            Assert.Equal("anime", Assert.Single(cache.Get(_config, 123, "movie")!.Keywords!.Value));
+            Assert.True(cache.Save());
+            cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        }
+
+        _clock.Now = acquired.AddDays(30);
+        var expiredFields = cache.Get(_config, 123, "movie")!;
+        Assert.Equal(16, Assert.Single(expiredFields.GenreIds!.Value));
+        Assert.Null(expiredFields.Keywords);
+        Assert.Null(expiredFields.KeywordIds);
+        Assert.Null(expiredFields.KeywordReferences);
+        Assert.Null(expiredFields.OriginalLanguage);
+        Assert.Null(expiredFields.SeriesType);
+        Assert.Null(expiredFields.OriginCountries);
+        Assert.Null(expiredFields.ProductionCountries);
+        Assert.Null(expiredFields.Overview);
+        _clock.Now = acquired.AddDays(32);
+        cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 123, GenreIds = [16], FetchedAtUtc = _clock.Now });
+        Assert.Null(cache.Get(_config, 123, "movie")!.Keywords);
+        cache.Store(_config, Snapshot() with { Keywords = ["new evidence"] });
+        Assert.Equal("new evidence", Assert.Single(cache.Get(_config, 123, "movie")!.Keywords!.Value));
+    }
+
+    [Fact]
+    public void FreshAndExplicitEmptyFieldsRenewOnlyTheirOwnAcquisitionTimes()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var acquired = _clock.Now;
+        cache.Store(_config, Snapshot() with { OriginalLanguage = "ja", Overview = "old" });
+        _clock.Now = acquired.AddDays(24);
+        cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 123, Keywords = [], Overview = "new", FetchedAtUtc = _clock.Now });
+        _clock.Now = acquired.AddDays(31);
+        var snapshot = cache.Get(_config, 123, "movie")!;
+        Assert.Empty(snapshot.Keywords!.Value);
+        Assert.Equal("new", snapshot.Overview);
+        Assert.Null(snapshot.OriginalLanguage);
+        Assert.Equal(acquired.AddDays(24), snapshot.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Keywords)]);
+    }
+
+    [Fact]
+    public void RefreshReservationProgressesBeyondTheFirstBudgetEvenWithPermanentFailures()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var titles = Enumerable.Range(1, 300).Select(id => (id, "movie")).ToArray();
+        var visited = new HashSet<int>();
+        for (var pass = 0; pass < 3; pass++)
+        {
+            var reserved = cache.ReserveRefreshes(_config, titles, 128);
+            Assert.Equal(128, reserved.Length);
+            visited.UnionWith(reserved.Select(title => title.TmdbId));
+            foreach (var title in reserved.Where(title => title.TmdbId % 2 == 0)) cache.Store(_config, Snapshot() with { TmdbId = title.TmdbId });
+            _clock.Now = _clock.Now.AddDays(8);
+        }
+
+        Assert.Equal(300, visited.Count);
+    }
+
+    [Fact]
+    public void RefreshRotationAlsoReachesTitlesBeyondTheBoundedCacheAndRetryCapacity()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var titles = Enumerable.Range(1, 4608).Select(id => (id, "movie")).ToArray();
+        var visited = new HashSet<int>();
+        for (var pass = 0; pass < 36; pass++)
+        {
+            var reserved = cache.ReserveRefreshes(_config, titles, 128);
+            Assert.Equal(128, reserved.Length);
+            visited.UnionWith(reserved.Select(title => title.TmdbId));
+            _clock.Now = _clock.Now.AddDays(8);
+        }
+
+        Assert.Equal(titles.Length, visited.Count);
+        Assert.Empty(cache.ReserveRefreshes(_config, [], 128));
+        Assert.Empty(cache.ReserveRefreshes(_config, titles, 0));
+    }
+
+    [Fact]
+    public void CapturedRequestLanguageCannotBeStoredUnderTheLiveLanguage()
+    {
+        var serverConfig = new ServerConfiguration { PreferredMetadataLanguage = "de" };
+        var manager = new Mock<IServerConfigurationManager>();
+        manager.SetupGet(value => value.Configuration).Returns(serverConfig);
+        var cache = new TitleMetadataCache(manager.Object, clock: _clock);
+        cache.Store(_config, Snapshot(), "en");
+        Assert.Null(cache.Get(_config, 123, "movie"));
+        Assert.True(cache.TryBeginRefresh(_config, 123, "movie"));
+        serverConfig.PreferredMetadataLanguage = "en";
+        Assert.NotNull(cache.Get(_config, 123, "movie"));
+    }
+
+    [Fact]
+    public void AbsentOptionalServerConfigurationUsesTheUnlocalizedProviderScope()
+    {
+        var manager = new Mock<IServerConfigurationManager>();
+        manager.SetupGet(value => value.Configuration).Returns((ServerConfiguration)null!);
+        var cache = new TitleMetadataCache(manager.Object, clock: _clock);
+        cache.Store(_config, Snapshot());
+        Assert.NotNull(cache.Get(_config, 123, "movie"));
+    }
+
+    [Theory]
+    [InlineData(-31)]
+    [InlineData(1)]
+    public void ImportedFieldTimesCannotMakeExpiredOrFutureEvidenceUsable(int acquiredDay)
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var metadata = Snapshot() with
+        {
+            GenreIds = [16],
+            OriginalLanguage = "ja",
+            FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.Keywords), _clock.Now.AddDays(acquiredDay))
+        };
+        cache.Store(_config, metadata);
+        var snapshot = cache.Get(_config, 123, "movie")!;
+        Assert.Null(snapshot.Keywords);
+        Assert.Equal("ja", snapshot.OriginalLanguage);
+        Assert.Equal(16, Assert.Single(snapshot.GenreIds!.Value));
+    }
+
+    [Fact]
+    public void ASerializedNullCacheIsTreatedAsAbsentOptionalMetadata()
+    {
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("null-titles.json");
+        fs.AddFile(path, "null");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        Assert.Null(cache.Get(_config, 123, "movie"));
+        Assert.True(cache.Save());
+        Assert.Empty(JsonSerializer.Deserialize<Dictionary<string, TitleMetadataSnapshot>>(fs.File.ReadAllText(path), JsonDefaults.Options)!);
     }
 
     [Fact]
