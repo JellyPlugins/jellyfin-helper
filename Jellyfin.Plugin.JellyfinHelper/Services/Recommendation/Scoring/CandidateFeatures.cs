@@ -232,6 +232,7 @@ public sealed class CandidateFeatures
     private double? _audienceMismatch;
     private double? _collectionContinuationSupport;
     private double? _contentFitAffinity;
+    private double? _contentFamilyMismatch;
 
     /// <summary>Gets or sets captured title-level thematic affinity; never replaces raw tag-Jaccard.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -244,6 +245,18 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets whether own provider keywords and a positive personal title document were available; known nonmatches remain real zeros.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasContentMetadata { get; set; }
+
+    /// <summary>Gets or sets the captured coherent-title interest lane, not an outcome or an ML coordinate.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ContentTasteKey { get; set; }
+
+    /// <summary>Gets or sets a captured content-family confidence guard. Not an ML coordinate or parental permission.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ContentFamilyMismatch
+    {
+        get => _contentFamilyMismatch;
+        set => _contentFamilyMismatch = value.HasValue && double.IsFinite(value.Value) ? Math.Clamp(value.Value, 0, 0.5) : null;
+    }
 
     /// <summary>Gets or sets coherent narrative support, shared by v6 model inputs and bounded final confidence. Missing evidence remains unknown.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -645,6 +658,8 @@ public sealed class CandidateFeatures
     {
         var copy = Copy();
         copy.ContentFitSupport = null;
+        copy.ContentTasteKey = null;
+        copy.ContentFamilyMismatch = null;
         copy.AudienceMismatch = null;
         copy.CollectionContinuationSupport = null;
         copy.ContentFitAffinity = null;

@@ -51,6 +51,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
+    private readonly TitleMetadataCache? _titleMetadataCache;
 
     // Short-lived candidate-metadata cache (NOT a result cache): the expensive-to-rebuild library working set (candidate BaseItems, people/BoxSet lookups, episode counts).
     private readonly Lock _snapshotRefreshLock = new();
@@ -77,6 +78,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="perUserRegistry">The per-user ensemble registry (per-user models + global fallback).</param>
     /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
     /// <param name="linkedChildren">Jellyfin's authoritative collection relationship service.</param>
+    /// <param name="titleMetadataCache">Shared cached provider metadata; no network calls during recommendation generation.</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
@@ -87,11 +89,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         IStrategySelector strategySelector,
         IPerUserEnsembleRegistry perUserRegistry,
         IDiscoveryFeedbackStore discoveryFeedbackStore,
-        ILinkedChildrenService? linkedChildren = null)
+        ILinkedChildrenService? linkedChildren = null,
+        TitleMetadataCache? titleMetadataCache = null)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
         _linkedChildren = linkedChildren;
+        _titleMetadataCache = titleMetadataCache;
         _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
@@ -977,6 +981,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var rankingTrace = new Dictionary<Guid, CandidateRankingEntry>();
+        var contentEligible = new HashSet<Guid>();
+        var contentSupported = new HashSet<Guid>();
+        var tasteLanes = new Dictionary<Guid, Guid>();
         var scoringAt = DateTime.UtcNow;
         var scoringContext = new UserScoringContext
         {
@@ -1042,12 +1049,23 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var snapshot = BuildFeatures(candidate);
             var ranked = RankCandidate(candidate, snapshot, scoringContext);
             scored.Add(ranked);
+            if (ScoringHelper.IsContentEligible(snapshot.Features))
+            {
+                contentEligible.Add(candidate.Id);
+                if (ScoringHelper.HasCoherentContentSupport(snapshot.Features))
+                {
+                    contentSupported.Add(candidate.Id);
+                    tasteLanes[candidate.Id] = snapshot.Features.ContentTasteKey ?? candidate.Id;
+                }
+            }
+
             CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, strategy);
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
-        var selected = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed);
+        var selectionPool = scored.Where(candidate => contentEligible.Contains(candidate.Item.Id)).ToList();
+        var selected = DiversityReranker.ApplyDiversityReranking(selectionPool, maxResults, explorationSeed, contentSupported, tasteLanes);
         var selectedIds = selected.Select(item => item.Item.Id).ToHashSet();
         ReserveSelectedRankingTrace(rankingTrace, selected, selectedIds);
         var topItems = selected
@@ -1101,6 +1119,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 : null,
             ContentFitSupport = features.ContentFitSupport,
             AudienceMismatch = features.AudienceMismatch,
+            ContentFamilyMismatch = features.ContentFamilyMismatch,
             CollectionContinuationSupport = features.CollectionContinuationSupport
         };
     }
@@ -1118,7 +1137,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             rank++;
             if (trace.TryGetValue(itemId, out var entry))
             {
-                entries.Add(entry with { InitialRank = rank, SelectionStage = ResolveSelectionStage(selected.Contains(itemId), rank, count) });
+                entries.Add(entry with
+                {
+                    InitialRank = rank,
+                    SelectionStage = entry.ContentFamilyMismatch is >= 0.5 ? "NotSelectedContentFamilyMismatch" : ResolveSelectionStage(selected.Contains(itemId), rank, count)
+                });
             }
         }
 
@@ -1237,7 +1260,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             Reason = s.Reason,
             ReasonKey = s.ReasonKey,
             RelatedItemName = s.RelatedItem,
-            Genres = s.Item.Genres ?? [],
+            Genres = content.EffectiveGenres,
             Year = s.Item.ProductionYear,
             CommunityRating = s.Item.CommunityRating,
             CriticRating = s.Item.CriticRating,
@@ -1253,6 +1276,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             DateCreated = s.Item.DateCreated,
             // Content-affinity fields for the top-N result DTO come from the per-snapshot precompute (resolved once into `content` above) rather than a fresh GetInheritedTags()/GetPeople per top-N item per user.
             TmdbCollectionName = content.TmdbCollectionName,
+            TitleMetadata = content.TitleMetadata,
             TmdbCollectionId = content.TmdbCollectionId,
             ProductionCountries = content.ProductionCountries,
             InheritedTags = content.InheritedTags,
@@ -1410,7 +1434,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         BaseItem candidate,
         UserScoringContext context)
     {
-        var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], context.GenrePreferences, context.GenreNormSq);
+        var content = context.ContentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
+            ? cachedContent
+            : ResolveContentAffinity(candidate);
+        var genres = content.EffectiveGenres;
+        var genreScore = SimilarityComputer.ComputeGenreSimilarity(genres, context.GenrePreferences, context.GenreNormSq);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, context.CoOccurrence, context.CollaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
@@ -1420,7 +1448,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, context.AverageYear);
 
         // Genre level engagement package for the three interaction features.
-        var candidateGenresForEngagement = candidate.Genres ?? Array.Empty<string>();
+        var candidateGenresForEngagement = genres;
         var (familiarity, genreAvgCompletion, genreAbandonRate) = ContentScoring.ComputeGenreEngagement(candidateGenresForEngagement, context.GenreEngagement);
         var hasUserInteraction = familiarity > 0.0;
         var completionRatio = genreAvgCompletion;
@@ -1430,11 +1458,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // A scored candidate is unwatched, so a per-item rating is always absent here; the genre-level
         // aggregate is the discriminative signal, computed from the same per-user context as engagement.
         var userRatingScore = ContentScoring.ComputeGenreRatingScore(candidateGenresForEngagement, context.GenreEngagement);
-
-        // Resolve the candidate's user-invariant content-affinity data from the per-snapshot precompute (built once per candidate, never per user).
-        var content = context.ContentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
-            ? cachedContent
-            : ResolveContentAffinity(candidate);
 
         // Aliases onto the precomputed sets; reused for studioMatch and ContentNearestNeighborScore.
         var candidateGenreSet = content.GenreSet;
@@ -1469,7 +1492,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var billingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
             content.Billing, context.PreferredPeopleWeights);
         var genreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(
-            candidate.Genres, candidate.Studios, context.GenreStudioIdf);
+            genres, candidate.Studios, context.GenreStudioIdf);
 
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
@@ -1480,7 +1503,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = yearScore,
-            GenreCount = GenreNormalizer.Set(candidate.Genres).Count,
+            GenreCount = content.GenreSet.Count,
             IsSeries = candidate is Series,
             UserRatingScore = userRatingScore,
             HasUserInteraction = hasUserInteraction,
@@ -1523,12 +1546,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Genre exposure features: soft signals for genre distribution awareness
         // Computed once per user (genreExposure), applied per candidate (O(genres) per item)
         var (underexposure, dominanceRatio, affinityGap) =
-            PreferenceBuilder.ComputeGenreExposureFeatures(candidate.Genres ?? [], context.GenreExposure);
+            PreferenceBuilder.ComputeGenreExposureFeatures(genres, context.GenreExposure);
         features.GenreUnderexposure = underexposure;
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        context.ContentFit.Apply(features, candidate.Genres ?? [], content.OwnTags, content.OfficialRating, context.GenrePreferences);
+        context.ContentFit.Apply(features, genres, content.OwnTags, content.OfficialRating, context.GenrePreferences, content.TitleMetadata);
         features.CollectionContinuationSupport = context.CollectionContinuation.TryGetValue(candidate.Id, out var continuationSupport) ? continuationSupport : null;
 
         return new CandidateFeatureSnapshot(features, content, candidateMediaLanguages.Audio, candidateMediaLanguages.Subtitles);
@@ -1846,6 +1869,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         foreach (var candidate in candidates)
         {
+            var titleMetadata = CachedTitleMetadata(candidate);
             IReadOnlyList<PersonInfo>? people;
             try
             {
@@ -1864,12 +1888,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ContentAffinityResolver.ResolveSeriesEndDate(candidate),
                 ContentAffinityResolver.ExtractWriterNames(people),
                 ExtractBillingWeightMap(people),
-                BuildGenreSet(candidate),
+                BuildGenreSet(candidate, titleMetadata),
                 BuildStudioSet(candidate))
             {
                 TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
                 OwnTags = candidate.Tags?.ToArray() ?? [],
-                OfficialRating = candidate.OfficialRating
+                OfficialRating = candidate.OfficialRating,
+                TitleMetadata = titleMetadata,
+                EffectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata)
             };
         }
 
@@ -1881,9 +1907,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     precompute and the live fallback build it identically.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
+    /// <param name="metadata">Optional captured provider genres, used only when local genres are missing.</param>
     /// <returns>A case-insensitive set of the candidate's genres (never null; possibly empty).</returns>
-    private static HashSet<string> BuildGenreSet(BaseItem candidate)
-        => GenreNormalizer.Set(candidate.Genres);
+    private static HashSet<string> BuildGenreSet(BaseItem candidate, TitleMetadataSnapshot? metadata = null)
+        => GenreNormalizer.Set(ResolveEffectiveGenres(candidate, metadata));
+
+    private static IReadOnlyList<string> ResolveEffectiveGenres(BaseItem candidate, TitleMetadataSnapshot? metadata)
+        => candidate.Genres is { Length: > 0 } existing
+            ? existing.ToArray()
+            : metadata?.GenreIds is { } ids ? TmdbGenreMap.ToJellyfinGenres(ids) : [];
 
     /// <summary>
     ///     Builds the case-insensitive studio set for a candidate, or null when it has no studios.
@@ -1902,6 +1934,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <returns>The candidate's content-affinity source data.</returns>
     private CandidateContentAffinity ResolveContentAffinity(BaseItem candidate)
     {
+        var titleMetadata = CachedTitleMetadata(candidate);
         IReadOnlyList<PersonInfo>? people;
         try
         {
@@ -1920,14 +1953,19 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ContentAffinityResolver.ResolveSeriesEndDate(candidate),
             ContentAffinityResolver.ExtractWriterNames(people),
             ExtractBillingWeightMap(people),
-            BuildGenreSet(candidate),
+            BuildGenreSet(candidate, titleMetadata),
             BuildStudioSet(candidate))
         {
             TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
             OwnTags = candidate.Tags?.ToArray() ?? [],
-            OfficialRating = candidate.OfficialRating
+            OfficialRating = candidate.OfficialRating,
+            TitleMetadata = titleMetadata,
+            EffectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata)
         };
     }
+
+    private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)
+        => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : "movie");
 
     private Dictionary<Guid, int> LoadCollectionIds(IEnumerable<BaseItem> candidates)
     {
@@ -2999,6 +3037,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         /// <summary>Gets provider certification metadata, separate from permission checks and explicit user ratings.</summary>
         public string? OfficialRating { get; init; }
+
+        /// <summary>Gets immutable structured provider metadata from the same candidate boundary.</summary>
+        public TitleMetadataSnapshot? TitleMetadata { get; init; }
+
+        /// <summary>Gets existing Jellyfin genres, with provider genres only filling a missing local list.</summary>
+        public IReadOnlyList<string> EffectiveGenres { get; init; } = [];
     }
 
     /// <summary>

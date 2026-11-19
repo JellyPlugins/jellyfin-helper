@@ -131,6 +131,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     if (existing.GetStatus() == DiscoveryInteractionStatus.Generated)
                     {
                         existing.ScoringFeatures = null;
+                        existing.TitleMetadata = null;
                         existing.ShownAtUtc = now;
                         modified = true;
                     }
@@ -325,6 +326,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             {
                 // Legacy/non-card actions have no delivery proof. Do not attribute them to an unseen generation.
                 entry.ScoringFeatures = null;
+                entry.TitleMetadata = null;
                 entry.ShownAtUtc = DateTime.UtcNow;
             }
 
@@ -356,6 +358,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         entry.Popularity = item.Popularity;
         entry.Score = item.Score;
         entry.ScoringFeatures = item.ScoringFeatures?.Copy();
+        entry.TitleMetadata = item.TitleMetadata;
         entry.ShownAtUtc = DateTimeNormalization.ToUtc(generatedAtUtc);
         entry.PredictionEvidenceAtUtc = DateTime.UtcNow;
     }
@@ -488,6 +491,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Popularity = e.Popularity,
                 Score = e.Score,
                 ScoringFeatures = e.ScoringFeatures?.Copy(),
+                TitleMetadata = e.TitleMetadata,
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
                 PredictionInputsCompacted = e.PredictionInputsCompacted,
@@ -585,6 +589,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             foreach (var entry in userResult.Entries.Where(entry => !entry.HasConfirmedPrediction))
             {
                 entry.ScoringFeatures = null;
+                entry.TitleMetadata = null;
             }
 
             // Remove expired entries based on their most recent activity
@@ -675,6 +680,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var previousSize = JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions).LongLength;
             entry.PredictionInputsCompacted = true;
             entry.ScoringFeatures = null;
+            entry.TitleMetadata = null;
             entry.Title = string.Empty;
             entry.Year = null;
             entry.Genres = [];

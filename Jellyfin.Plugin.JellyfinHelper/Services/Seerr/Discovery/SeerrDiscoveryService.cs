@@ -20,6 +20,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Globalization;
@@ -171,6 +173,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly ILocalizationManager? _localization;
     private readonly IServerConfigurationManager? _serverConfiguration;
     private readonly ILinkedChildrenService? _linkedChildren;
+    private readonly TitleMetadataCache? _titleMetadataCache;
 
     /// <summary>
     ///     Cached Seerr user list to avoid re-fetching the full paginated roster on every ResolveSeerrUserIdAsync call (e.g., every frontend request).
@@ -212,6 +215,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="localization">Jellyfin's rating mapper; missing certification data fails closed for restricted accounts.</param>
     /// <param name="serverConfiguration">Supplies the same metadata country Jellyfin uses for parental ratings.</param>
     /// <param name="linkedChildren">Supplies actual BoxSet memberships rather than inferring them from collection names.</param>
+    /// <param name="titleMetadataCache">Shared title metadata; never a source of current permission or availability decisions.</param>
     public SeerrDiscoveryService(
         IHttpClientFactory httpClientFactory,
         IWatchHistoryService watchHistoryService,
@@ -226,7 +230,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ILogger<SeerrDiscoveryService> logger,
         ILocalizationManager? localization = null,
         IServerConfigurationManager? serverConfiguration = null,
-        ILinkedChildrenService? linkedChildren = null)
+        ILinkedChildrenService? linkedChildren = null,
+        TitleMetadataCache? titleMetadataCache = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(watchHistoryService);
@@ -254,6 +259,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _localization = localization;
         _serverConfiguration = serverConfiguration;
         _linkedChildren = linkedChildren;
+        _titleMetadataCache = titleMetadataCache;
     }
 
     /// <summary>
@@ -281,6 +287,88 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <inheritdoc />
     int ISeerrDiscoveryService.MaxVisiblePerUser => MaxVisiblePerUser;
+
+    /// <inheritdoc />
+    public async Task WarmTitleMetadataAsync(CancellationToken cancellationToken)
+    {
+        var current = Plugin.Instance?.Configuration;
+        if (_titleMetadataCache is null || current is null || current.RecommendationsTaskMode == TaskMode.Deactivate
+            || string.IsNullOrWhiteSpace(current.SeerrUrl) || string.IsNullOrWhiteSpace(current.SeerrApiKey))
+        {
+            return;
+        }
+
+        var config = new PluginConfiguration
+        {
+            SeerrUrl = current.SeerrUrl,
+            SeerrApiKey = current.SeerrApiKey,
+            SeerrSkipCertificateValidation = current.SeerrSkipCertificateValidation,
+            RecommendationsTaskMode = current.RecommendationsTaskMode
+        };
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(45));
+        try
+        {
+            var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+            var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
+            var history = MetadataHistoryKeys(_watchHistoryService.GetAllUserWatchProfiles());
+            var library = (_libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true
+            }) ?? []).Where(item => item is Movie or Series)
+                .Select(item => (TmdbId: TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0, MediaType: item is Series ? "tv" : "movie"))
+                .Where(key => key.TmdbId > 0).Distinct();
+            var pending = history.Concat(library).Distinct()
+                .Where(key => _titleMetadataCache.TryBeginRefresh(config, key.TmdbId, key.MediaType)).Take(128).ToArray();
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = MetadataEnrichmentParallelism, CancellationToken = budget.Token
+            };
+            await Parallel.ForEachAsync(pending, options, async (key, token) =>
+            {
+                var candidate = new TmdbDiscoverItem { Id = key.TmdbId, MediaType = key.MediaType };
+                await EnrichCandidateWithMetadataAsync(client, baseUri, apiKey, candidate, token).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogDebug(LogCategory, "Optional title metadata refresh incomplete; using local or cached metadata.", _logger);
+        }
+
+        if (config.RecommendationsTaskMode == TaskMode.Activate && !_titleMetadataCache.Save())
+        {
+            _pluginLog.LogDebug(LogCategory, "Title metadata stays in memory; optional persistence was unavailable.", _logger);
+        }
+    }
+
+    private static (int TmdbId, string MediaType) HistoryTitleKey(WatchedItemInfo row)
+    {
+        if (row.SeriesId is { } parent && parent != Guid.Empty)
+        {
+            return (row.SeriesTmdbId, "tv");
+        }
+
+        return string.Equals(row.ItemType, "Episode", StringComparison.OrdinalIgnoreCase)
+            ? (0, "tv")
+            : (row.TmdbId, string.Equals(row.ItemType, "Series", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie");
+    }
+
+    private static IEnumerable<(int TmdbId, string MediaType)> MetadataHistoryKeys(IEnumerable<UserWatchProfile> profiles)
+    {
+        var lanes = profiles.Select(profile => profile.WatchedItems.Where(PreferenceBuilder.IsEligibleForPreferenceWeighting)
+            .OrderByDescending(row => row.LastPlayedDate).Select(HistoryTitleKey).Where(key => key.TmdbId > 0).Distinct().Take(64).ToArray()).ToArray();
+        for (var rank = 0; rank < 64; rank++)
+        {
+            foreach (var lane in lanes.Where(lane => lane.Length > rank))
+            {
+                yield return lane[rank];
+            }
+        }
+    }
 
     /// <inheritdoc />
     public async Task GenerateDiscoveryRecommendationsAsync(CancellationToken cancellationToken)
@@ -747,6 +835,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         HashSet<Guid> carriedForwardUsers)
     {
         var persisted = _cache.Save(allResults);
+        _titleMetadataCache?.Save();
         if (!persisted)
         {
             _pluginLog.LogWarning(
@@ -2225,6 +2314,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Title = isTv ? null : c.Title,
             Name = isTv ? c.Title : null,
             GenreIds = [.. c.GenreIds],
+            SourceGenres = c.SourceGenres?.ToArray(),
             VoteAverage = c.VoteAverage,
             Popularity = c.Popularity,
             PosterPath = c.PosterPath,
@@ -2416,8 +2506,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private void ApplyCachedCandidateMetadata(CandidateScoringContext context)
     {
+        var config = _titleMetadataCache is null ? null : CurrentMetadataConfiguration(context.BaseUri, context.ApiKey);
         foreach (var candidate in context.Candidates.Where(candidate => !candidate.MetadataFetchAttempted))
         {
+            if (_titleMetadataCache is not null && config is not null)
+            {
+                candidate.TitleMetadata ??= _titleMetadataCache.Get(config, candidate.Id, candidate.MediaType);
+                if (candidate.TitleMetadata?.Keywords is { } keywords)
+                {
+                    candidate.KnownKeywords ??= keywords.ToList();
+                }
+            }
+
             var detail = CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate)));
             if (detail is not null)
             {
@@ -2701,6 +2801,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ExternalCandidateFeatureBuilder.UserContext? userContext = null)
     {
         var genres = TmdbGenreMap.ToJellyfinGenres(item.GenreIds);
+        if (genres.Count == 0 && item.SourceGenres is { } sourceGenres)
+        {
+            genres = GenreNormalizer.Set(sourceGenres).ToList();
+        }
+
         var (reasonKey, relatedInfo) = genrePreferences is null
             ? DetermineReason(features, item, topGenres, preferredPeople)
             : DetermineReasonFromPreferences(features, item, genrePreferences, preferredPeople);
@@ -2724,6 +2829,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             Year = item.EffectiveReleaseDate?.Year,
             Score = score,
             ScoringFeatures = features.Copy(),
+            TitleMetadata = item.TitleMetadata,
             CertificationScore = item.CertificationScore,
             CertificationPolicyCountry = item.CertificationPolicyCountry,
             ReasonKey = reasonKey,
@@ -3612,6 +3718,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (cachedDetail is not null)
         {
             candidate.MetadataFetchSucceeded = ApplyFetchedDetail(candidate, cachedDetail);
+            CacheSharedTitleMetadata(baseUri, apiKey, mediaPath, candidate);
             return candidate.MetadataFetchSucceeded;
         }
 
@@ -3633,6 +3740,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             CacheDetail(cacheKey, detail);
+            CacheSharedTitleMetadata(baseUri, apiKey, mediaPath, candidate);
 
             candidate.MetadataFetchSucceeded = true;
             return true;
@@ -3648,6 +3756,39 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Metadata enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
                 _logger);
             return false;
+        }
+    }
+
+    private void CacheSharedTitleMetadata(Uri baseUri, string apiKey, string mediaPath, TmdbDiscoverItem candidate)
+    {
+        if (_titleMetadataCache is null || candidate.TitleMetadata is not { } snapshot || MetadataPath(candidate) != mediaPath)
+        {
+            return;
+        }
+
+        if (CurrentMetadataConfiguration(baseUri, apiKey) is { } config)
+        {
+            _titleMetadataCache.Store(config, snapshot);
+        }
+    }
+
+    private PluginConfiguration? CurrentMetadataConfiguration(Uri baseUri, string apiKey)
+    {
+        if (Plugin.Instance?.Configuration is not { } current)
+        {
+            return null;
+        }
+
+        var captured = new PluginConfiguration { SeerrUrl = current.SeerrUrl, SeerrApiKey = current.SeerrApiKey };
+        try
+        {
+            var (configuredUri, configuredKey) = ValidateSeerrConfig(captured.SeerrUrl, _secretProtector.Unprotect(captured.SeerrApiKey));
+            return configuredUri == baseUri && configuredKey == apiKey ? captured : null;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // A configuration change during enrichment must not publish metadata into the new scope.
+            return null;
         }
     }
 
@@ -3692,6 +3833,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         ApplyEnrichedMetadata(candidate, detail);
+        candidate.TitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, DateTime.UtcNow);
         if (detail.Genres is not null)
         {
             foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())

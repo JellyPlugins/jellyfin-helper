@@ -24,6 +24,65 @@ public sealed class EngineContentFitTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void ProviderGenresAreUsedConsistentlyWhenTheLocalCandidateHasNoGenres(bool batch)
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        cache.Store(harness.ConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedMovieCount = 3, GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3 } };
+        for (var id = 1; id <= 3; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Animation"], Tags = ["anime"] });
+        var candidate = new Movie { Id = Guid.NewGuid(), Name = "Unseen anime", Path = "/media/anime.mkv", CommunityRating = 8, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "101" } };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [candidate] : []);
+        var result = batch ? Assert.Single(harness.Engine.GetAllRecommendations(1, TestContext.Current.CancellationToken)) : harness.Engine.GetRecommendations(user, 1, TestContext.Current.CancellationToken)!;
+        var selected = Assert.Single(result.Recommendations);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.Equal(1, selected.ScoringFeatures.GenreSimilarity);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.Empty(candidate.Genres);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedCachedMetadataImprovesPlaylistRankingWithoutExternalCallsOrChangingRecordedVectors(bool batch)
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(new HeuristicScoringStrategy(genrePenaltyFloor: 1), titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        var config = harness.ConfigService.Object.GetConfiguration();
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["anime", "pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow });
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 102, Keywords = ["live action"], FetchedAtUtc = DateTime.UtcNow });
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedMovieCount = 3, GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3, ["Action"] = 3 } };
+        for (var id = 1; id <= 3; id++) profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true, Genres = ["Animation", "Action"],
+            TitleMetadata = new TitleMetadataSnapshot { Keywords = ["anime", "pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow }
+        });
+        var supported = new Movie { Id = Guid.NewGuid(), Name = "Related anime", Path = "/media/anime.mkv", Genres = ["Animation", "Action"], CommunityRating = 7, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "101" } };
+        var other = new Movie { Id = Guid.NewGuid(), Name = "Popular live action", Path = "/media/action.mkv", Genres = ["Action"], CommunityRating = 10, ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "102" } };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes?.Contains(BaseItemKind.Movie) == true ? [supported, other] : []);
+        var result = batch ? Assert.Single(harness.Engine.GetAllRecommendations(2, TestContext.Current.CancellationToken)) : harness.Engine.GetRecommendations(user, 2, TestContext.Current.CancellationToken)!;
+        Assert.Equal(supported.Id, Assert.Single(result.Recommendations).ItemId);
+        Assert.Equal(1, result.Recommendations[0].ScoringFeatures!.ContentFitSupport);
+        Assert.NotNull(result.Recommendations[0].TitleMetadata);
+        var excluded = Assert.Single(result.RankingDiagnostics!.Entries, entry => entry.ItemId == other.Id);
+        Assert.Equal(.5, excluded.ContentFamilyMismatch);
+        Assert.Equal("NotSelectedContentFamilyMismatch", excluded.SelectionStage);
+        var saved = result.Recommendations[0].ScoringFeatures!.Copy();
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["changed"], FetchedAtUtc = DateTime.UtcNow });
+        Assert.Equal(saved.ToVector(), result.Recommendations[0].ScoringFeatures!.ToVector());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void MeaningfulBattleStoryOutranksGenericAllAgesAnimationThroughTheFullPipeline(bool batch)
     {
         var predictor = Predictor();

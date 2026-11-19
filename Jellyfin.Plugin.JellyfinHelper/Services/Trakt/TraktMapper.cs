@@ -87,6 +87,7 @@ internal static class TraktMapper
             VoteAverage = Math.Clamp(item.Rating ?? 0, 0d, 10d),
             Popularity = 0,
             GenreIds = [],
+            SourceGenres = item.Genres?.ToArray(),
             PosterPath = null,
             Adult = false,
             TraktSlug = SanitizeSlug(item.Ids?.Slug),

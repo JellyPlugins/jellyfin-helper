@@ -15,6 +15,10 @@ public sealed class DiscoveryRecommendation
     /// <summary>Gets or sets the raw features captured when this candidate was scored.</summary>
     public CandidateFeatures? ScoringFeatures { get; set; }
 
+    /// <summary>Gets or sets immutable provider metadata captured with this prediction, not fetched when feedback arrives.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>Gets or sets the verified Jellyfin-scale certification score; null means unknown, never child-safe.</summary>
     public int? CertificationScore { get; set; }
 
@@ -159,6 +163,7 @@ public sealed class DiscoveryRecommendation
         TraktSlug = TraktSlug,
         SourceRank = SourceRank,
         ScoringFeatures = ScoringFeatures?.Copy(),
+        TitleMetadata = TitleMetadata,
         CertificationScore = CertificationScore,
         CertificationPolicyCountry = CertificationPolicyCountry,
         IsPersonalized = IsPersonalized,

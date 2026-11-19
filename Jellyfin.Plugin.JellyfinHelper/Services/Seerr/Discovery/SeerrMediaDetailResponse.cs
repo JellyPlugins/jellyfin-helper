@@ -93,6 +93,22 @@ internal sealed class SeerrMediaDetailResponse
     [JsonPropertyName("productionCompanies")]
     public List<GenreRef>? ProductionCompanies { get; set; }
 
+    /// <summary>Gets or sets the original language; it does not establish available audio tracks.</summary>
+    [JsonPropertyName("originalLanguage")]
+    public string? OriginalLanguage { get; set; }
+
+    /// <summary>Gets or sets the TV narrative format (for example Reality or Scripted).</summary>
+    [JsonPropertyName("type")]
+    public string? SeriesType { get; set; }
+
+    /// <summary>Gets or sets series origin-country codes, separate from production countries.</summary>
+    [JsonPropertyName("originCountry")]
+    public List<string>? OriginCountry { get; set; }
+
+    /// <summary>Gets or sets production-country references.</summary>
+    [JsonPropertyName("productionCountries")]
+    public List<CountryRef>? ProductionCountries { get; set; }
+
     /// <summary>Gets or sets the movie collection; an explicit null means the provider confirmed no collection.</summary>
     [JsonPropertyName("collection")]
     public GenreRef? Collection
@@ -129,5 +145,13 @@ internal sealed class SeerrMediaDetailResponse
         /// </summary>
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+    }
+
+    /// <summary>A production country in the documented Seerr/TMDb response shape.</summary>
+    public sealed class CountryRef
+    {
+        /// <summary>Gets or sets the ISO country code.</summary>
+        [JsonPropertyName("iso_3166_1")]
+        public string? Code { get; set; }
     }
 }

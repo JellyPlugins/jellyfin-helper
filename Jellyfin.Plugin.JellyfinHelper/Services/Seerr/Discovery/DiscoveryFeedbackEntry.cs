@@ -16,6 +16,10 @@ public sealed class DiscoveryFeedbackEntry
     /// <summary>Gets or sets the immutable-by-copy prediction-time features, absent on legacy feedback.</summary>
     public CandidateFeatures? ScoringFeatures { get; set; }
 
+    /// <summary>Gets or sets immutable underlying metadata from the confirmed prediction, never a later provider refresh.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>Gets or sets the first confirmed viewport impression, distinct from candidate generation.</summary>
     public DateTime? ImpressionAtUtc { get; set; }
 

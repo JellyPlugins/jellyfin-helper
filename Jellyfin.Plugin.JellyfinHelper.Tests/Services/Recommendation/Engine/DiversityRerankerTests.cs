@@ -35,6 +35,32 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void CoherentInterestOutsideTheGenericMmrWindowCannotBeBuriedByPopularity()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(353);
+        var target = candidates[147];
+        var supported = new HashSet<Guid> { target.Item.Id };
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Contains(selected, candidate => candidate.Item.Id == target.Item.Id);
+        Assert.Equal(target.Score, selected.Single(candidate => candidate.Item.Id == target.Item.Id).Score);
+    }
+
+    [Fact]
+    public void RepeatedCandidatesForOneTasteCannotSuppressASmallerEvidencedInterest()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        var firstInterest = Guid.NewGuid();
+        var secondInterest = Guid.NewGuid();
+        var lanes = candidates.ToDictionary(candidate => candidate.Item.Id, _ => firstInterest);
+        lanes[candidates[^1].Item.Id] = secondInterest;
+        var supported = candidates.Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 10, seed: 42, contentSupported: supported, tasteLanes: lanes);
+        Assert.Equal(secondInterest, lanes[selected[1].Item.Id]);
+        Assert.Equal(10, selected.Count);
+        Assert.Equal(candidates[^1].Score, selected[1].Score);
+    }
+
+    [Fact]
     public void ApplyDiversityReranking_SameSeed_ProducesIdenticalSelection()
     {
         // Build a large candidate list so exploration slots are actually filled from the widened pool. With 400 candidates and count=20 the exploration band spans ranks 100..400, which is more than enough for the seeded RNG to matter.

@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -34,6 +35,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
     private readonly ILinkedChildrenService? _linkedChildren;
+    private readonly TitleMetadataCache? _titleMetadataCache;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -45,6 +47,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="linkedChildren">Optional authoritative Jellyfin collection membership service.</param>
+    /// <param name="titleMetadataCache">Optional shared, network-free title metadata cache.</param>
     public WatchHistoryService(
         ILibraryManager libraryManager,
         IPluginConfigurationService configService,
@@ -52,7 +55,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IUserDataManager userDataManager,
         IPluginLogService pluginLog,
         ILogger<WatchHistoryService> logger,
-        ILinkedChildrenService? linkedChildren = null)
+        ILinkedChildrenService? linkedChildren = null,
+        TitleMetadataCache? titleMetadataCache = null)
     {
         _libraryManager = libraryManager;
         _configService = configService;
@@ -61,6 +65,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _pluginLog = pluginLog;
         _logger = logger;
         _linkedChildren = linkedChildren;
+        _titleMetadataCache = titleMetadataCache;
     }
 
     /// <inheritdoc />
@@ -565,9 +570,25 @@ public sealed class WatchHistoryService : IWatchHistoryService
             WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
         };
 
+        var titleId = seriesId.HasValue ? seriesTmdbId : watchedItem.TmdbId;
+        var titleType = seriesId.HasValue || item is Series ? "tv" : "movie";
+        if (item is not Episode || seriesId.HasValue)
+        {
+            watchedItem.TitleMetadata = _titleMetadataCache?.Get(_configService.GetConfiguration(), titleId, titleType);
+        }
+
+        ApplyCachedGenres(watchedItem);
         profile.WatchedItems.Add(watchedItem);
 
-        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, genres, ref ratingSum, ref ratingCount);
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, watchedItem.Genres, ref ratingSum, ref ratingCount);
+    }
+
+    private static void ApplyCachedGenres(WatchedItemInfo row)
+    {
+        if (row.Genres.Count == 0 && row.TitleMetadata?.GenreIds is { } genreIds)
+        {
+            row.Genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(genreIds)).ToArray();
+        }
     }
 
     private static IReadOnlyList<string> WatchedGenres(BaseItem item, Guid? seriesId, Dictionary<Guid, IReadOnlyList<string>> lookup)
@@ -713,7 +734,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // because the favorite IS the series, not an episode of one.
         var favoriteSeriesTmdbId = TmdbLibraryMapper.TryGetTmdbId(series, out var resolvedTmdbId) ? resolvedTmdbId : 0;
 
-        profile.WatchedItems.Add(new WatchedItemInfo
+        var favorite = new WatchedItemInfo
         {
             ItemId = series.Id,
             Name = series.Name ?? string.Empty,
@@ -727,6 +748,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
             OfficialRating = series.OfficialRating,
+            TitleMetadata = _titleMetadataCache?.Get(_configService.GetConfiguration(), favoriteSeriesTmdbId, "tv"),
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
@@ -748,10 +770,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
             EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
             WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
-        });
+        };
+        ApplyCachedGenres(favorite);
+        profile.WatchedItems.Add(favorite);
 
         // Also accumulate genre distribution for series-level favorites
-        AccumulateGenreDistribution(profile, series.Genres);
+        AccumulateGenreDistribution(profile, favorite.Genres);
     }
 
     /// <summary>

@@ -443,15 +443,31 @@ public class HelperCleanupTask : IScheduledTask
         return task.ExecuteAsync(progress, cancellationToken, config.RecommendationsTaskMode);
     }
 
-    private Task RunRecommendationsUpdate(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
+    private async Task RunRecommendationsUpdate(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
+        if (config.RecommendationsTaskMode != TaskMode.Deactivate)
+        {
+            try
+            {
+                await _seerrDiscoveryService.WarmTitleMetadataAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                _pluginLog.LogWarning("Recommendations", "Optional metadata refresh failed; generating recommendations with local or cached data.", ex, _logger);
+            }
+        }
+
         var task = new RecommendationsTask(
             _recsEngine,
             _recsCacheService,
             _pluginLog,
             _playlistService,
             _loggerFactory.CreateLogger<RecommendationsTask>());
-        return task.ExecuteAsync(config, progress, cancellationToken);
+        await task.ExecuteAsync(config, progress, cancellationToken).ConfigureAwait(false);
     }
 
     private Task RunLinkRepair(IProgress<double> progress, CancellationToken cancellationToken)

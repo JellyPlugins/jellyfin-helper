@@ -28,6 +28,7 @@ public class HelperCleanupTaskTests
     private readonly Mock<IRecommendationPlaylistService> _playlistServiceMock;
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService> _traktDiscoveryMock;
     private readonly HelperCleanupTask _task;
+    private readonly Mock<IRecommendationEngine> _recommendationEngine;
     private PluginConfiguration _config;
 
     public HelperCleanupTaskTests()
@@ -97,6 +98,7 @@ public class HelperCleanupTaskTests
             .Returns(new UserActivityResult());
         var userActivityCacheMock = new Mock<IUserActivityCacheService>();
         var recsEngineMock = new Mock<IRecommendationEngine>();
+        _recommendationEngine = recsEngineMock;
         recsEngineMock
             .Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .Returns(new Collection<RecommendationResult>());
@@ -133,6 +135,31 @@ public class HelperCleanupTaskTests
     public void Name_ReturnsHelperCleanup()
     {
         Assert.Equal("Helper Cleanup", _task.Name);
+    }
+
+    [Theory]
+    [InlineData(TaskMode.Activate)]
+    [InlineData(TaskMode.DryRun)]
+    public async Task MetadataIsWarmedBeforeRecommendationsOnlyInTheBackgroundTask(TaskMode mode)
+    {
+        _config.RecommendationsTaskMode = mode;
+        var warmed = false;
+        _seerrDiscoveryServiceMock.Setup(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => warmed = true).Returns(Task.CompletedTask);
+        _recommendationEngine.Setup(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(() => Assert.True(warmed)).Returns(new Collection<RecommendationResult>());
+        await _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken);
+        _seerrDiscoveryServiceMock.Verify(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task OptionalMetadataFailureCannotPreventRecommendationGeneration()
+    {
+        _config.RecommendationsTaskMode = TaskMode.Activate;
+        _seerrDiscoveryServiceMock.Setup(service => service.WarmTitleMetadataAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("optional provider unavailable"));
+        await _task.ExecuteAsync(new Progress<double>(), TestContext.Current.CancellationToken);
+        _recommendationEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

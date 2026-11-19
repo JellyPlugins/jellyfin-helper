@@ -33,6 +33,9 @@ public sealed class ExternalDiscoveryCandidate
     /// <summary>Gets or sets the TMDb genre ids (used by the parental filter and genre features).</summary>
     public IReadOnlyList<int> GenreIds { get; set; } = [];
 
+    /// <summary>Gets or sets optional source genre labels, without inventing TMDb genre IDs.</summary>
+    public IReadOnlyList<string>? SourceGenres { get; set; }
+
     /// <summary>Gets or sets the poster path (relative to the TMDb CDN).</summary>
     public string? PosterPath { get; set; }
 

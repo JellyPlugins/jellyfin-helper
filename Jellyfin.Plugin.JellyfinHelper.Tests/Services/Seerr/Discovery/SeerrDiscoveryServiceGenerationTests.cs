@@ -50,6 +50,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly string _cacheFilePath;
     private readonly PerUserEnsembleRegistry _perUserRegistry;
     private readonly SeerrDiscoveryService _sut;
+    private readonly TitleMetadataCache _titleMetadata = new();
 
     public SeerrDiscoveryServiceGenerationTests()
     {
@@ -131,7 +132,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object,
             localization.Object,
-            linkedChildren: _linkedChildren.Object);
+            linkedChildren: _linkedChildren.Object,
+            titleMetadataCache: _titleMetadata);
     }
 
     public void Dispose()
@@ -148,6 +150,125 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     // Guard ladder
+
+    [Theory]
+    [InlineData(TaskMode.Deactivate)]
+    [InlineData(TaskMode.DryRun)]
+    public async Task SharedMetadataWarmupIsOptionalAndNeverRequestsWithoutSeerr(TaskMode mode)
+    {
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = mode;
+        if (mode != TaskMode.Deactivate) Plugin.Instance.Configuration.SeerrUrl = "";
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupDeduplicatesEpisodesAndTypedProviderTitles()
+    {
+        var parent = Guid.NewGuid();
+        var profile = NewProfile();
+        for (var i = 0; i < 200; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = parent, SeriesTmdbId = 123, Played = true });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", TmdbId = 999, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/123", HttpStatusCode.OK, """{"id":123,"type":"Reality","keywords":[],"genres":[{"id":10764}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[{"id":42,"name":"anime"}],"genres":[{"id":16}],"originalLanguage":"ja"}""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, _handler.Requests.Count);
+        Assert.Equal("Reality", _titleMetadata.Get(Plugin.Instance!.Configuration, 123, "tv")!.SeriesType);
+        Assert.Equal("ja", _titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.OriginalLanguage);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance.Configuration, 999, "movie"));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, _handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedMetadataWarmupKeepsLastGoodDataWhenProviderFailsOrReturnsAnotherId(bool mismatch)
+    {
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow.AddDays(-8) });
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", mismatch ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable, """{"id":999,"keywords":[]}""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("known", Assert.Single(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.Keywords!.Value));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupHonorsCallerCancellation()
+    {
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(NewProfile()));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.WarmTitleMetadataAsync(cancellation.Token));
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupBudgetDoesNotLetRepeatedEpisodesHideAnotherUsersTaste()
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        for (var id = 1; id <= 200; id++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
+        second.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Series", TmdbId = 500, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        var libraryTitles = Enumerable.Range(1000, 200).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(libraryTitles);
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
+        };
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(128, _handler.Requests.Count);
+        Assert.Contains(_handler.Requests.Take(3), request => request.Path == "/api/v1/tv/500");
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 500, "tv"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WarmedProviderHistoryReachesDiscoveryScoringSelectionAndPersistedCards(bool knownOtherRepresentation)
+    {
+        var user = Guid.NewGuid();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(() =>
+        {
+            var profile = NewProfile();
+            profile.UserId = user;
+            profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3, ["Action"] = 3 };
+            for (var id = 1; id <= 3; id++) profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true, Genres = ["Animation", "Action"],
+                TitleMetadata = _titleMetadata.Get(Plugin.Instance!.Configuration, id, "movie")
+            });
+            return Profiles(profile);
+        });
+        for (var id = 1; id <= 3; id++) _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK,
+            $$"""{"id":{{id}},"genres":[{"id":16},{"id":28}],"keywords":[{"id":1,"name":"anime"},{"id":42,"name":"pirate"},{"id":43,"name":"friendship"}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/discover/movies/genre/16?page=1", HttpStatusCode.OK, BuildDiscoverJson([16, 28], Candidate(9001, 7), Candidate(9002, 10)));
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK,
+            """{"id":9001,"genres":[{"id":16},{"id":28}],"keywords":[{"id":1,"name":"anime"},{"id":42,"name":"pirate"},{"id":43,"name":"friendship"}],"mediaInfo":{"status":1}}""");
+        var otherKeywords = knownOtherRepresentation ? "[{\"id\":55,\"name\":\"live action\"}]" : "[]";
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9002", HttpStatusCode.OK,
+            $$"""{"id":9002,"genres":[{"id":28}],"keywords":{{otherKeywords}},"mediaInfo":{"status":1} }""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 1, "movie"));
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var result = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(user, result.UserId);
+        var related = Assert.Single(result.Recommendations, candidate => candidate.TmdbId == 9001);
+        Assert.Equal(1, related.ScoringFeatures!.ContentFitSupport);
+        Assert.Equal(0, related.ScoringFeatures.ContentFamilyMismatch);
+        Assert.Equal(!knownOtherRepresentation, result.Recommendations.Any(candidate => candidate.TmdbId == 9002));
+        Assert.Equal(41, related.ScoringFeatures.ToVector().Length);
+    }
 
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_PluginInstanceNull_LogsWarningAndReturns()

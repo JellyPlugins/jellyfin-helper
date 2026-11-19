@@ -50,6 +50,19 @@ public sealed class TraktMapperTests
     }
 
     [Fact]
+    public void OptionalSourceGenresArePreservedWithoutInventingTmdbIdsOrSharingMutableInput()
+    {
+        var item = Media(100);
+        var genres = new List<string> { "animation", "adventure" };
+        item.Genres = genres;
+        var candidate = Assert.Single(TraktMapper.MapMediaItems([item], "tv", out _));
+        Assert.Equal(genres, candidate.SourceGenres);
+        Assert.Empty(candidate.GenreIds);
+        genres.Clear();
+        Assert.Equal(2, candidate.SourceGenres!.Count);
+    }
+
+    [Fact]
     public void MapMediaItems_NullsBlankSlug()
     {
         var item = Media(100);

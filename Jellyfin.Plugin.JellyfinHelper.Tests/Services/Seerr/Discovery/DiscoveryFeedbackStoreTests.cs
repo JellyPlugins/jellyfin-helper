@@ -54,6 +54,34 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Fact]
+    public void ConfirmedRequestRetainsUnderlyingMetadataAndTheExactPredictionThroughRefreshReloadAndTraining()
+    {
+        var store = CreateStore();
+        var user = Guid.NewGuid();
+        var generated = DateTime.UtcNow.AddDays(-2);
+        var metadata = new TitleMetadataSnapshot { TmdbId = 700, MediaType = "tv", Keywords = ["anime", "pirate", "friendship"], KeywordReferences = [new(42, "pirate"), new(43, "friendship")], OriginalLanguage = "ja", FetchedAtUtc = generated.AddMinutes(-1) };
+        var features = new CandidateFeatures { IsExternalCandidate = true, HasGenreEvidence = true, GenreSimilarity = .7, ContentFitSupport = .78, ContentTasteKey = Guid.NewGuid() };
+        var item = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Genres = ["Animation"], Popularity = 50, TitleMetadata = metadata, ScoringFeatures = features };
+        store.RecordGenerated(user, "synthetic user", [item], generated);
+        Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries).TitleMetadata);
+        store.RecordRequested(user, item, generated);
+        item.TitleMetadata = metadata with { Keywords = ["later data"] };
+        item.ScoringFeatures!.GenreSimilarity = .1;
+        store.RecordGenerated(user, "synthetic user", [item], DateTime.UtcNow);
+        var feedback = CreateStore().LoadAll();
+        var entry = Assert.Single(Assert.Single(feedback).Entries);
+        Assert.Equal("ja", entry.TitleMetadata!.OriginalLanguage);
+        Assert.Equal(["anime", "pirate", "friendship"], entry.TitleMetadata.Keywords!.Value);
+        Assert.Equal(2, entry.TitleMetadata.KeywordReferences!.Value.Length);
+        Assert.Equal(.7, entry.ScoringFeatures!.GenreSimilarity);
+        var example = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(feedback, new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken).Examples);
+        Assert.Equal(EngineConstants.DiscoveryRequestedLabel, example.Label);
+        Assert.True(example.IsObserved);
+        Assert.Equal(entry.ScoringFeatures.ToVector(), example.Features.ToVector());
+        Assert.Equal(entry.ScoringFeatures.ContentTasteKey, example.Features.ContentTasteKey);
+    }
+
+    [Fact]
     public void Backfill_RecordsObservedEmptyCreditsAndDoesNotReplaceThemWithLaterPeople()
     {
         var store = CreateStore();

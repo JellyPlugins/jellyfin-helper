@@ -772,7 +772,7 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences);
+        contentSets.ContentFit.Apply(features, rec.Genres, candidateTags, rec.OfficialRating, genrePreferences, rec.TitleMetadata);
         features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(rec.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample
@@ -1177,7 +1177,7 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = organicDomRatio;
         features.GenreAffinityGap = organicAffGap;
 
-        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences);
+        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences, w.TitleMetadata);
         features.CollectionContinuationSupport = history.Content.CollectionContinuation.TryGetValue(w.ItemId, out var continuation) ? continuation : null;
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.
@@ -1456,7 +1456,7 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = negDomRatio;
         features.GenreAffinityGap = negAffGap;
 
-        contentSets.ContentFit.Apply(features, negGenres, negTags, neg.OfficialRating, genrePreferences);
+        contentSets.ContentFit.Apply(features, negGenres, negTags, neg.OfficialRating, genrePreferences, neg.TitleMetadata);
         features.CollectionContinuationSupport = contentSets.CollectionContinuation.TryGetValue(neg.ItemId, out var continuation) ? continuation : null;
 
         return new TrainingExample

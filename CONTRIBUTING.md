@@ -481,6 +481,10 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
 │       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
 │       │   ├── ContentFitProfileTests.cs              # Story-vs-genre/alias evidence, audience hints, provenance and detached contexts
+│       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
+│       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
+│       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
+│       │   ├── TitleMetadataCacheTests.cs             # Scope isolation, refresh throttling, bounded stale fallback and atomic persistence
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -730,6 +734,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ContentAffinityResolver.cs # Shared library-free resolvers for content-affinity source data
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   ├── ContentFitProfile.cs # Title-balanced semantic keywords; weak audience hints, not rating bans
+│   │   │   ├── ContentDescriptor.cs # Evidence-based content families, independent of language and parental permission
+│   │   │   ├── TitleMetadataSnapshot.cs # Immutable title-level metadata; typed IDs, source and acquisition time
+│   │   │   ├── ProviderKeyword.cs # Immutable keyword ID/label pairs for language-independent story matching
+│   │   │   ├── TitleMetadataCache.cs # Shared bounded provider-scoped metadata; scheduled refresh and persistence only
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
 │   │   │   ├── IScoringStrategy.cs   # Also declares ITrainableStrategy (no separate file)

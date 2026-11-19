@@ -76,6 +76,9 @@ public sealed class WatchedItemInfo
     /// <summary>Gets or sets captured provider certification, never the user's explicit rating or a target-age ban.</summary>
     public string? OfficialRating { get; set; }
 
+    /// <summary>Gets or sets an immutable title-level provider snapshot captured without any network request.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
     /// <summary>
     ///     Gets or sets the genres associated with this item.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.

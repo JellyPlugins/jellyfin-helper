@@ -155,6 +155,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
         serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
         serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
+        serviceCollection.AddSingleton(sp => new TitleMetadataCache(
+            sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(),
+            sp.GetRequiredService<IFileSystem>(),
+            string.IsNullOrEmpty(Plugin.Instance?.DataFolderPath) ? null : Path.Join(Plugin.Instance.DataFolderPath, "title-metadata-v1.json")));
         serviceCollection.AddSingleton(sp =>
         {
             var dataPath = Plugin.Instance?.DataFolderPath;

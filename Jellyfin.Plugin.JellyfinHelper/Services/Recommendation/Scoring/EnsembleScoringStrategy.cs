@@ -638,7 +638,7 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
     {
-        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0 || features.ContentFamilyMismatch is > 0)
         {
             var contextual = ScoringHelper.BuildMarginalExplanation(features, CaptureContextualScore(alpha, beta, floor), Name);
             contextual.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);

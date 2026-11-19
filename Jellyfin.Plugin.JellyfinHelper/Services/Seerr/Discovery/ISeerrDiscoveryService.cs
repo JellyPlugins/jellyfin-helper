@@ -16,6 +16,11 @@ public interface ISeerrDiscoveryService
     /// </summary>
     int MaxVisiblePerUser { get; }
 
+    /// <summary>Warms shared metadata for watched and local candidate titles in the background task only.</summary>
+    /// <param name="cancellationToken">The scheduled task cancellation token.</param>
+    /// <returns>A bounded optional refresh; provider failures leave existing metadata usable.</returns>
+    Task WarmTitleMetadataAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
     /// <summary>Verifies current Jellyfin parental policy before a user submits an external media request.</summary>
     /// <param name="userId">The authenticated Jellyfin user.</param>
     /// <param name="tmdbId">The requested provider title.</param>

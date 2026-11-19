@@ -13,6 +13,35 @@ public sealed class ExternalContentFitTests
     private static readonly string[] Tags = ["anime", "shounen", "pirate", "friendship"];
     private static readonly Dictionary<string, double> Genres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1 };
 
+    [Fact]
+    public void StructuredContentEvidenceIsIdenticalForPlaylistAndDiscoveryScoring()
+    {
+        var profile = Profile();
+        profile.WatchedItems[0].TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
+        for (var i = 0; i < 2; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"], Tags = ["anime"], TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" } });
+        var candidate = Candidate();
+        candidate.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Reality", GenreIds = [10764], Keywords = [] };
+        var external = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile);
+        var local = new CandidateFeatures { GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(["Animation", "Action & Adventure"], Genres) };
+        ContentFitProfile.Create(profile).Apply(local, ["Animation", "Action & Adventure"], null, null, Genres, candidate.TitleMetadata);
+        Assert.Equal(.5, external.ContentFamilyMismatch);
+        Assert.Equal(local.ContentFamilyMismatch, external.ContentFamilyMismatch);
+        Assert.Equal(local.ContentFitAffinity, external.ContentFitAffinity);
+    }
+
+    [Fact]
+    public void OptionalTraktGenresRemainGenreEvidenceRatherThanPretendProviderKeywords()
+    {
+        var profile = Profile();
+        var candidate = Candidate();
+        candidate.GenreIds = [];
+        candidate.SourceGenres = ["animation", "adventure"];
+        var features = ExternalCandidateFeatureBuilder.Build(candidate, Genres, [], 2000, PreferenceBuilder.BuildGenreExposureAnalysis(Genres, profile), profile);
+        Assert.True(features.HasGenreEvidence);
+        Assert.True(features.GenreSimilarity > 0);
+        Assert.False(features.IsExternalFeatureKnown(FeatureIndex.TagSimilarity));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
