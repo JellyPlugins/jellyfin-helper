@@ -143,9 +143,9 @@ public sealed class TitleMetadataCache
         // same-provider observation supersedes old scalar values, including false hints,
         // before Get merges independent providers. Retained fields keep their own ages.
         TitleMetadataSnapshot? combined = null;
-        foreach (var group in snapshots.OrderBy(snapshot => snapshot.FetchedAtUtc).GroupBy(snapshot => snapshot.FetchedAtUtc))
+        foreach (var current in snapshots.OrderBy(snapshot => snapshot.FetchedAtUtc).GroupBy(snapshot => snapshot.FetchedAtUtc)
+            .Select(group => TitleMetadataMerger.Combine(group.ToArray())!))
         {
-            var current = TitleMetadataMerger.Combine(group.ToArray())!;
             combined = MergeFields(combined is null ? current : LinkSuppliedIdentity(current, combined), combined, now, preferNewerFields: true);
         }
 
