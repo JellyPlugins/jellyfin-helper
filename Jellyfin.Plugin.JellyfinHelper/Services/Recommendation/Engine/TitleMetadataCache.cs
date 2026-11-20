@@ -33,8 +33,6 @@ public sealed class TitleMetadataCache
     private readonly string? _cachePath;
     private readonly TimeProvider _clock;
     private Task<bool>? _pendingSave;
-    private long _generation;
-    private long _savedGeneration;
     private int _nextRefreshIndex;
 
     /// <summary>Initializes a new instance of the <see cref="TitleMetadataCache"/> class.</summary>
@@ -89,25 +87,10 @@ public sealed class TitleMetadataCache
             var snapshots = keys.GroupBy(key => key.Split(':')[0]).Select(group =>
             {
                 var observations = group.Select(key => ReadEntry(key, now)).OfType<TitleMetadataSnapshot>().Distinct()
-                    .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot)).ToArray();
-                var exact = observations.FirstOrDefault(snapshot => tmdbId > 0 && snapshot.TmdbId == tmdbId);
-                if (exact is not null)
-                {
-                    observations = observations.Where(snapshot => TitleProviderIdentity.Compatible(exact, snapshot)).ToArray();
-                }
-
-                if (ConflictingIdentities(observations))
-                {
-                    return null;
-                }
-
-                return ReconcileSourceObservations(observations.Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray(), now);
+                    .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot))
+                    .Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray();
+                return ReconcileSourceObservations(observations, now);
             }).OfType<TitleMetadataSnapshot>().ToArray();
-            if (tmdbId <= 0 && ConflictingIdentities(snapshots))
-            {
-                return null;
-            }
-
             return TitleMetadataMerger.Combine(snapshots);
         }
     }
@@ -156,14 +139,6 @@ public sealed class TitleMetadataCache
     }
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
-
-    private static bool ConflictingIdentities(IEnumerable<TitleMetadataSnapshot> observations)
-    {
-        var snapshots = observations.ToArray();
-        return CompetingClaims(snapshots.Where(snapshot => snapshot.TmdbId > 0).Select(snapshot => snapshot.TmdbId))
-            || CompetingClaims(snapshots.Where(snapshot => snapshot.TvdbId > 0).Select(snapshot => snapshot.TvdbId))
-            || CompetingClaims(snapshots.Select(snapshot => TitleProviderIdentity.NormalizeImdb(snapshot.ImdbId)).OfType<string>());
-    }
 
     internal static TitleMetadataSnapshot? ReconcileSourceObservations(TitleMetadataSnapshot[] snapshots, DateTime now)
     {
@@ -314,7 +289,6 @@ public sealed class TitleMetadataCache
             }
 
             _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now);
-            _generation++;
             RegisterAliases(key, _entries[key]);
             return ReadUsableEntry(key, Now);
         }
@@ -390,7 +364,7 @@ public sealed class TitleMetadataCache
         }
     }
 
-    internal static string SourceDigest(MetadataSourceScope source, string? language)
+    private static string SourceDigest(MetadataSourceScope source, string? language)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', source.Source, source.Url, source.ApiKey, language))));
 
     internal (int TmdbId, string MediaType)[] ReserveRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, int maximum)
@@ -520,11 +494,9 @@ public sealed class TitleMetadataCache
             try
             {
                 Dictionary<string, TitleMetadataSnapshot> snapshot;
-                long generation;
                 lock (_gate)
                 {
                     snapshot = new Dictionary<string, TitleMetadataSnapshot>(_entries, StringComparer.Ordinal);
-                    generation = _generation;
                 }
 
                 var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Options);
@@ -538,11 +510,6 @@ public sealed class TitleMetadataCache
                 _fileSystem.Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
                 _fileSystem.File.WriteAllText(_cachePath + ".tmp", json);
                 _fileSystem.File.Move(_cachePath + ".tmp", _cachePath, overwrite: true);
-                lock (_gate)
-                {
-                    _savedGeneration = generation;
-                }
-
                 return true;
             }
             catch (Exception ex) when (!ex.IsFatal())
@@ -564,12 +531,6 @@ public sealed class TitleMetadataCache
         }
 
         Task<bool> writer;
-        long requestedGeneration;
-        lock (_gate)
-        {
-            requestedGeneration = _generation;
-        }
-
         lock (_writerGate)
         {
             // Safe abandonment is bounded to one writer per cache. Repeated scheduled
@@ -587,11 +548,7 @@ public sealed class TitleMetadataCache
 
         try
         {
-            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-            lock (_gate)
-            {
-                return saved && _savedGeneration >= requestedGeneration;
-            }
+            return await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {

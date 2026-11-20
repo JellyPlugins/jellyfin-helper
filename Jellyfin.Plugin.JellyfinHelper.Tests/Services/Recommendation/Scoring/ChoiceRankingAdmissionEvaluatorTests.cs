@@ -10,32 +10,6 @@ public sealed class ChoiceRankingAdmissionEvaluatorTests
 {
     private static readonly DateTime Now = DateTime.UtcNow;
 
-    [Theory]
-    [InlineData(.6)]
-    [InlineData(.1)]
-    public void RawReplayAndCurrentViewsCannotCalibrateAgainstAnObsoletePositiveRating(double latestLabel)
-    {
-        var user = Guid.NewGuid();
-        TrainingExample[] Slice()
-        {
-            return Rows(user, 24).SelectMany(original =>
-            {
-                var current = original.Copy();
-                current.GeneratedAtUtc = Now.AddDays(-1);
-                current.Label = latestLabel;
-                current.Choice = null;
-                return new[] { original, current };
-            }).ToArray();
-        }
-
-        var calibration = Slice();
-        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, Slice(),
-            new(Predictor(_ => .6), Predictor(features => features.GenreSimilarity > .5 ? .95 : .1)), Now, .75, 0);
-        Assert.False(decision.Accepted);
-        Assert.All(calibration.Where(row => row.Choice is not null), row => Assert.Equal(.85, row.Label));
-        Assert.All(calibration.Where(row => row.Choice is null), row => Assert.Equal(latestLabel, row.Label));
-    }
-
     [Fact]
     public void RealHeldOutChoicesPermitRankingLearningWithoutExplicitNegativeRatings()
     {

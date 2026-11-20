@@ -395,7 +395,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── SeerrMediaDetailsTests.cs
 │   │   ├── SeerrRequestPageTests.cs                    # Null-coalescing on Results; non-null same-reference contract; reassignment clears to empty
 │   │   └── Discovery/            # Seerr Discovery tests
-│   │       ├── DiscoveryCacheServiceTests.cs            # Disk/memory snapshots; bounded single-writer waits, cancellation and safe deferred disposal
+│   │       ├── DiscoveryCacheServiceTests.cs            # Disk + memory persistence; per-test real file to avoid cross-test contamination
 │   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
 │   │       ├── DiscoveryFeedbackStoreTests.cs
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
@@ -451,7 +451,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
 │   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/yearly thresholds), GenerateBucketStarts bucket spacing, IsDayBased detection and MergeDailySeries.
 │   ├── Trakt/                     # Trakt discovery source tests
-│   │   ├── TraktMapperTests.cs            # Typed mapping, rank offsets and response acquisition times preserved across reversed publication
+│   │   ├── TraktMapperTests.cs            # Trakt->candidate mapping: tmdbId required (drop + count), media-type normalization, trending unwrap, rating carry, source-rank assignment + offset
 │   │   ├── TraktCacheServiceTests.cs      # Per-user personal + global trending get/set, TTL expiry, invalidation, per-user isolation
 │   │   ├── TraktApiTests.cs               # Base-url resolver: production default + no trailing slash
 │   │   ├── TraktDiscoveryServiceTests.cs  # Orchestration: enable/link guards, cache-hit short-circuit, personal + trending fetch->map->seam->cache, RefreshAll warms linked users
@@ -481,11 +481,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
 │       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
-│       │   ├── ContentFitProfileTests.cs              # Unclassified adult-family/children's interests, independent format checks and cutoff-safe genre provenance
+│       │   ├── ContentFitProfileTests.cs              # Local/provider audience evidence, minority children's/adult family interests and detached contexts
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
-│       │   ├── TitleMetadataCacheTests.cs             # Compatible per-scope/cross-provider identities, captured language and generation-aware bounded persistence
+│       │   ├── TitleMetadataCacheTests.cs             # Per-scope reconciliation, dispatched-only attempts, captured language and bounded atomic persistence waits
 │       │   ├── SupplementalMetadataTests.cs           # Scoped supersession, field acquisition times, idempotent formats and independent-source conflicts
 │       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
@@ -509,8 +509,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── HistoricalLanguageFeaturesTests.cs # Dated/self-excluded language evidence and organic train/serve units
 │       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
-│       │       ├── RecommendationChoiceBuilderTests.cs # Saved prediction boundaries, orphan episode identities, cutoff-safe targets and never-engaged alternatives
-│       │       ├── RecommendationChoiceHistoryTests.cs # Identity aliases, latest outcomes, shared effective budgets and generation-aware bounded persistence
+│       │       ├── RecommendationChoiceBuilderTests.cs # Never-engaged alternatives, replay/resume uncertainty, original prediction times and bounded fitting contrasts
+│       │       ├── RecommendationChoiceHistoryTests.cs # Replay withdrawal of engaged alternatives, unchanged outcomes, bounded budgets and permanent folds
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
@@ -532,7 +532,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Compatible observation views, independent calibration/acceptance and minority/incumbent protections
-│       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Latest observed calibration labels, macro-user support, K=10/K=20 and minority/incumbent protection
+│       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Macro-user effective support, K=10/K=20 safety, independent reservation and minority/incumbent protection
 │       │   ├── ChoiceRankingTrainingTests.cs              # Real learner and accepted-mixture reversal of an incorrect heuristic ranking
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
 │       │   ├── AcceptedModelStoreTests.cs                # Complete v6 bundle round trips, invalid coordinates/evidence and non-destructive storage failure
@@ -801,7 +801,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── UserWatchProfile.cs
 │   │   │   ├── LanguageProfileEntry.cs
 │   │   │   ├── PlaybackLanguageEvidence.cs   # Single-pass availability capture and conservative saved selections
-│   │   │   └── WatchedItemInfo.cs              # Detached playback, local/provider genre provenance and conservative metadata cutoffs
+│   │   │   └── WatchedItemInfo.cs
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
 │   │   │   ├── RecommendationPlaylistService.cs
@@ -842,7 +842,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrRequestResult.cs     # Explicit submitted/already-requested intent outcome
 │   │       ├── SeerrRequestCoordinator.cs # Per-title async coordination, independent cancellation and idle-lock disposal
 │   │       ├── SeerrTitleStatus.cs       # Status-only detail parsing, separate from scoring enrichment and certification
-│   │       ├── DiscoveryCacheService.cs  # Disk/memory snapshots; one managed writer and bounded cancellation-aware scheduled saves
+│   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
 │   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds the shared 41-feature vector for TMDb items
 │   │       ├── DiscoverySelection.cs                # Personal relevance floor, genre diversity and collection saturation
 │   │       ├── PersonalDiscoveryRetrieval.cs        # Provider-title seeds replace variety slots; fair optional frontier without score bonuses
@@ -897,7 +897,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── ITraktPersonalSourceService.cs # Per-user source-lifecycle contract (official-token resolve, cheap link check, warm ids)
 │   │   ├── TraktPersonalSourceService.cs  # Resolves the official plugin token as read-only source; owns all resolution rules so the discovery service stays within its constructor budget
 │   │   ├── TraktPersonalSource.cs         # Resolved source value (official client id + bearer)
-│   │   ├── TraktMapper.cs           # Typed candidates, stable source ranks and matching observation scopes/acquisition times for shared publication
+│   │   ├── TraktMapper.cs           # Trakt item -> ExternalDiscoveryCandidate; drops items without a TMDb id (counts them); carries Trakt's list order as SourceRank; genres filled by Seerr enrichment downstream
 │   │   ├── TraktCacheService.cs     # In-memory per-user personal + global trending cache with TTL + invalidation
 │   │   ├── TraktIds.cs              # Cross-service id bag (trakt/slug/tmdb); items without tmdb are dropped on mapping
 │   │   ├── TraktMediaItem.cs        # A Trakt movie/show (title/year/overview/rating/certification/genres/ids)

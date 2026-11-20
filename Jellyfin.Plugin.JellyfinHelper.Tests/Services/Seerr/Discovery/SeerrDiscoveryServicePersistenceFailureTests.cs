@@ -180,8 +180,8 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
 
             var recorded = new List<Guid>();
             _feedbackStore
-                .Setup(f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-                .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((id, _, _, _, _) => recorded.Add(id)).ReturnsAsync(true);
+                .Setup(f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+                .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((id, _, _) => recorded.Add(id));
 
             await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -216,7 +216,7 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
             _feedbackStore.Verify(
-                f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+                f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
                 Times.Never);
         }
         finally
@@ -226,9 +226,9 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
     }
 
     [Fact]
-    public async Task GenerateDiscovery_RecordGeneratedAsyncThrows_DoesNotFailTheRun()
+    public async Task GenerateDiscovery_RecordShownThrows_DoesNotFailTheRun()
     {
-        // Save succeeds, but the asynchronous feedback store throws a non-fatal exception.
+        // Save succeeds, but the feedback store's RecordShown throws a non-fatal exception.
         // The best-effort feedback catch must swallow it so the whole task still completes.
         var cache = NewFileCache(out var filePath);
         try
@@ -239,14 +239,13 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
             RegisterMovieGenre(28, (2801, 8.0));
 
             _feedbackStore
-                .Setup(f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-                .ThrowsAsync(new InvalidOperationException("feedback write failed"));
+                .Setup(f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+                .Throws(new InvalidOperationException("feedback write failed"));
 
-            // Must actually invoke the failing writer without failing the whole run.
+            // Must not throw despite the failing RecordShown.
             await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
             Assert.True(File.Exists(filePath));
-            _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
         }
         finally
         {
@@ -455,8 +454,8 @@ public sealed class SeerrDiscoveryServicePersistenceFailureTests : IDisposable
 
             var recorded = new List<Guid>();
             _feedbackStore
-                .Setup(f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-                .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((id, _, _, _, _) => recorded.Add(id)).ReturnsAsync(true);
+                .Setup(f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+                .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((id, _, _) => recorded.Add(id));
 
             await CreateSut(cache).GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 

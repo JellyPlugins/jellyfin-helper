@@ -22,40 +22,6 @@ public sealed class EngineContentFitTests
     private static readonly string[] Genres = ["Animation", "Action & Adventure"];
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ContentSnapshotKeepsOneDetachedGenreViewWhenLibraryMetadataChanges(bool batch)
-    {
-        var harness = EngineTestFactory.Create();
-        using var lifetime = harness.Engine;
-        var genres = new[] { "Drama" };
-        var candidate = new Movie { Id = Guid.NewGuid(), Genres = genres };
-        harness.LibraryManager.Setup(manager => manager.GetPeople(candidate)).Callback(() =>
-        {
-            genres[0] = "Comedy";
-            candidate.Genres = ["Comedy", "Family"];
-        }).Returns([]);
-        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        object content;
-        if (batch)
-        {
-            var lookup = (System.Collections.IDictionary)harness.Engine.GetType().GetMethod("BuildCandidateContentAffinityLookup", flags)!
-                .Invoke(harness.Engine, [new List<BaseItem> { candidate }, new Dictionary<Guid, int>()])!;
-            content = lookup[candidate.Id]!;
-        }
-        else
-        {
-            content = harness.Engine.GetType().GetMethod("ResolveContentAffinity", flags)!.Invoke(harness.Engine, [candidate])!;
-        }
-
-        var effective = Assert.IsType<IReadOnlyList<string>>(content.GetType().GetProperty("EffectiveGenres")!.GetValue(content), exactMatch: false);
-        var set = Assert.IsType<HashSet<string>>(content.GetType().GetProperty("GenreSet")!.GetValue(content));
-        Assert.Equal(new[] { "Drama" }, effective);
-        Assert.Equal(effective.Order(StringComparer.Ordinal), set.Order(StringComparer.Ordinal));
-        Assert.Equal(new[] { "Comedy", "Family" }, candidate.Genres);
-    }
-
-    [Theory]
     [InlineData(false, false, false)]
     [InlineData(true, false, false)]
     [InlineData(false, true, false)]

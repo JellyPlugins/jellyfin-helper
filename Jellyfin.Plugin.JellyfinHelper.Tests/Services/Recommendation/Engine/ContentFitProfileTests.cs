@@ -13,68 +13,6 @@ public sealed class ContentFitProfileTests
     private static readonly string[] BattleKeywords = ["anime", "shounen", "pirate", "friendship", "super power"];
     private static readonly Dictionary<string, double> BattleGenres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
 
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void HistoricalGenresKeepLocalEvidenceButCannotBorrowLaterProviderFallback(bool local, bool typed)
-    {
-        var cutoff = DateTime.UtcNow.AddDays(-3);
-        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
-        for (var index = 0; index < 3; index++)
-        {
-            var row = Watch(["Documentary"], []);
-            row.LocalGenres = local ? ["Documentary"] : [];
-            row.LastPlayedDate = cutoff.AddDays(-1);
-            row.TitleMetadata = new TitleMetadataSnapshot
-            {
-                GenreIds = typed ? [99] : null, SourceGenres = typed ? null : ["Documentary"], FetchedAtUtc = cutoff.AddDays(1)
-            };
-            profile.WatchedItems.Add(row);
-        }
-
-        var historical = new CandidateFeatures();
-        ContentFitProfile.Create(profile, metadataCutoff: cutoff).Apply(historical, ["Reality"], [], null, []);
-        Assert.Equal(local ? .5 : null, historical.ContentFamilyMismatch);
-        var current = new CandidateFeatures();
-        ContentFitProfile.Create(profile).Apply(current, ["Reality"], [], null, []);
-        Assert.Equal(.5, current.ContentFamilyMismatch);
-        var detached = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training.TrainingHistory.Before(profile, cutoff);
-        var cached = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training.TrainingHistoryCache([profile], TestContext.Current.CancellationToken)
-            .Get(profile.UserId, cutoff, new HashSet<Guid>()).Profile;
-        Assert.All(detached.WatchedItems, row =>
-        {
-            Assert.Equal(local ? new[] { "Documentary" } : [], row.Genres);
-            Assert.Null(row.TitleMetadata);
-        });
-        Assert.All(profile.WatchedItems, row => Assert.Equal(new[] { "Documentary" }, row.Genres));
-        Assert.Equal(detached.WatchedItems.SelectMany(row => row.Genres), cached.WatchedItems.SelectMany(row => row.Genres));
-    }
-
-    [Fact]
-    public void LaterFieldAcquisitionCannotHideBehindAnEarlierSnapshotTimestamp()
-    {
-        var cutoff = DateTime.UtcNow.AddDays(-3);
-        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
-        for (var index = 0; index < 3; index++)
-        {
-            var row = Watch(["Documentary"], []);
-            row.LocalGenres = [];
-            row.TitleMetadata = new TitleMetadataSnapshot
-            {
-                SourceGenres = ["Documentary"], FetchedAtUtc = cutoff.AddDays(-1),
-                FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.SourceGenres), cutoff.AddDays(1))
-            };
-            profile.WatchedItems.Add(row);
-        }
-
-        var historical = new CandidateFeatures();
-        ContentFitProfile.Create(profile, metadataCutoff: cutoff).Apply(historical, ["Reality"], [], null, []);
-        Assert.Null(historical.ContentFamilyMismatch);
-        Assert.All(profile.WatchedItems, row => Assert.NotNull(row.TitleMetadata));
-    }
-
     [Fact]
     public void KnownGermanAnimeAndStoryTagsReuseTheExistingNormalizerWithoutTextUnderstanding()
     {
@@ -242,69 +180,6 @@ public sealed class ContentFitProfileTests
         Assert.True(ScoringHelper.IsContentEligible(features));
         Assert.Equal(1, features.ContentFitSupport);
         Assert.Null(features.AudienceMismatch);
-    }
-
-    [Theory]
-    [InlineData(3, false, null, true)]
-    [InlineData(20, false, null, true)]
-    [InlineData(80, false, null, true)]
-    [InlineData(20, true, null, true)]
-    [InlineData(20, false, "children's film", true)]
-    [InlineData(20, false, "preschool", false)]
-    public void AnUnclassifiedPositiveFamilyAnimationLaneCannotInheritTheMajoritysStyle(int animeCount, bool providerGenres, string? audience, bool eligible)
-    {
-        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), MaxParentalRating = 18 };
-        for (var index = 0; index < animeCount; index++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
-        var family = Watch(providerGenres ? ["Animation"] : ["Animation", "Family"], ["magic", "friendship", "princess"]);
-        if (providerGenres) family.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = ["Family"], FetchedAtUtc = DateTime.UtcNow };
-        profile.WatchedItems.Add(family);
-        var tags = new List<string> { "western animation", "magic", "friendship", "princess" };
-        if (audience is not null) tags.Add(audience);
-        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
-        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], tags, "FSK-0", BattleGenres);
-        Assert.Equal(1, features.ContentFitSupport);
-        Assert.Equal(eligible, ScoringHelper.IsContentEligible(features));
-        Assert.Equal(eligible ? null : .5, features.ContentFamilyMismatch);
-        Assert.Equal(providerGenres ? new[] { "Animation" } : ["Animation", "Family"], family.Genres);
-    }
-
-    [Theory]
-    [InlineData(false, null)]
-    [InlineData(true, 2.0)]
-    public void UnplayedOrExplicitlyDislikedFamilyAnimationDoesNotCreatePositiveUnclassifiedInterest(bool played, double? rating)
-    {
-        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
-        for (var index = 0; index < 20; index++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
-        var family = Watch(["Animation", "Family"], ["magic", "friendship", "princess"]);
-        family.Played = played;
-        family.UserRating = rating;
-        profile.WatchedItems.Add(family);
-        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
-        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "friendship", "princess"], null, BattleGenres);
-        Assert.False(ScoringHelper.IsContentEligible(features));
-    }
-
-    [Fact]
-    public void UnknownFamilyAnimationStyleDoesNotEraseVerifiedNarrativeOrConfirmedAnimeStyle()
-    {
-        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
-        for (var index = 0; index < 20; index++)
-        {
-            var row = Watch(["Animation"], BattleKeywords);
-            row.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
-            profile.WatchedItems.Add(row);
-        }
-
-        var family = Watch(["Animation", "Family"], ["magic", "princess"]);
-        family.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
-        profile.WatchedItems.Add(family);
-        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
-        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], null, BattleGenres,
-            new TitleMetadataSnapshot { SeriesType = "Reality" });
-        Assert.Equal(.5, features.ContentFamilyMismatch);
-        family.Tags = ["anime", "magic", "princess"];
-        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], null, BattleGenres);
-        Assert.Equal(.5, features.ContentFamilyMismatch);
     }
 
     [Theory]

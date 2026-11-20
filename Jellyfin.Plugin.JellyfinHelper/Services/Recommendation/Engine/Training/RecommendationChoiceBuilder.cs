@@ -52,20 +52,7 @@ internal static class RecommendationChoiceBuilder
     }
 
     internal static HashSet<Guid> EngagedTitles(UserWatchProfile profile, IReadOnlyDictionary<Guid, int> titleIds)
-    {
-        var engaged = EngagedTitles(profile, new TitleKeys(profile.UserId, titleIds));
-        // Persisted alternatives may predate provider ID acquisition. Retain both
-        // namespaced provider and original library aliases only when they differ.
-        var titles = profile.WatchedItems.Where(item => item.HasMeaningfulInteraction())
-            .Select(item => item.SeriesId.GetValueOrDefault() != Guid.Empty ? item.SeriesId!.Value : item.ItemId)
-            .Concat(profile.FavoriteSeriesIds).Distinct();
-        foreach (var title in titles.Where(title => title != Guid.Empty && titleIds.GetValueOrDefault(title) > 0))
-        {
-            engaged.Add(TrainingExample.CreateLibraryObservationId(profile.UserId, title));
-        }
-
-        return engaged;
-    }
+        => EngagedTitles(profile, new TitleKeys(profile.UserId, titleIds));
 
     private static HashSet<Guid> EngagedTitles(UserWatchProfile profile, TitleKeys keys)
         => profile.WatchedItems.Where(item => item.HasMeaningfulInteraction()).Select(keys.Get)
@@ -169,12 +156,6 @@ internal static class RecommendationChoiceBuilder
         internal Guid Get(WatchedItemInfo item)
         {
             var parent = item.SeriesId.GetValueOrDefault();
-            if (parent == Guid.Empty && string.Equals(item.ItemType, "Episode", StringComparison.OrdinalIgnoreCase))
-            {
-                // An episode's own TMDb number is neither a movie nor a series title ID.
-                return TrainingExample.CreateLibraryObservationId(user, item.ItemId);
-            }
-
             return Get(parent != Guid.Empty ? parent : item.ItemId, parent != Guid.Empty || string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase));
         }
 

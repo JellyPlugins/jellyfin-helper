@@ -210,8 +210,6 @@ internal static class TrainingFeatureComputer
             .OrderByDescending(e => e.LastPlayedDate)
             .FirstOrDefault();
         var predictionTime = DateTimeNormalization.ToUtc(mostRecent?.LastPlayedDate ?? organicFallbackTimestamp);
-        episodes = episodes.Select(episode => episode.AtMetadataCutoff(predictionTime)).ToList();
-        mostRecent = mostRecent?.AtMetadataCutoff(predictionTime);
 
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0

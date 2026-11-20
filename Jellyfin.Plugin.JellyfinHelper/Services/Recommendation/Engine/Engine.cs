@@ -1886,7 +1886,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         foreach (var candidate in candidates)
         {
             var titleMetadata = CachedTitleMetadata(candidate);
-            var effectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata);
             IReadOnlyList<PersonInfo>? people;
             try
             {
@@ -1905,14 +1904,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 ContentAffinityResolver.ResolveSeriesEndDate(candidate),
                 ContentAffinityResolver.ExtractWriterNames(people),
                 ExtractBillingWeightMap(people),
-                GenreNormalizer.Set(effectiveGenres),
+                BuildGenreSet(candidate, titleMetadata),
                 BuildStudioSet(candidate))
             {
                 TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
                 OwnTags = candidate.Tags?.ToArray() ?? [],
                 OfficialRating = candidate.OfficialRating,
                 TitleMetadata = titleMetadata,
-                EffectiveGenres = effectiveGenres
+                EffectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata)
             };
         }
 
@@ -1926,6 +1925,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="candidate">The candidate item.</param>
     /// <param name="metadata">Optional captured provider genres, used only when local genres are missing.</param>
     /// <returns>A case-insensitive set of the candidate's genres (never null; possibly empty).</returns>
+    private static HashSet<string> BuildGenreSet(BaseItem candidate, TitleMetadataSnapshot? metadata = null)
+        => GenreNormalizer.Set(ResolveEffectiveGenres(candidate, metadata));
+
     private static IReadOnlyList<string> ResolveEffectiveGenres(BaseItem candidate, TitleMetadataSnapshot? metadata)
     {
         if (candidate.Genres is { Length: > 0 } existing)
@@ -1955,7 +1957,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private CandidateContentAffinity ResolveContentAffinity(BaseItem candidate)
     {
         var titleMetadata = CachedTitleMetadata(candidate);
-        var effectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata);
         IReadOnlyList<PersonInfo>? people;
         try
         {
@@ -1974,14 +1975,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             ContentAffinityResolver.ResolveSeriesEndDate(candidate),
             ContentAffinityResolver.ExtractWriterNames(people),
             ExtractBillingWeightMap(people),
-            GenreNormalizer.Set(effectiveGenres),
+            BuildGenreSet(candidate, titleMetadata),
             BuildStudioSet(candidate))
         {
             TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
             OwnTags = candidate.Tags?.ToArray() ?? [],
             OfficialRating = candidate.OfficialRating,
             TitleMetadata = titleMetadata,
-            EffectiveGenres = effectiveGenres
+            EffectiveGenres = ResolveEffectiveGenres(candidate, titleMetadata)
         };
     }
 
@@ -2639,7 +2640,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                          .Select(userFeedback => userFeedback.UserId))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                UpdateWatchedStatusForUser(userId, profileById, tmdbIdByItemId, mediaTypeByItemId, cancellationToken);
+                UpdateWatchedStatusForUser(userId, profileById, tmdbIdByItemId, mediaTypeByItemId);
             }
         }
         catch (OperationCanceledException)
@@ -2689,13 +2690,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="profileById">Watch profiles keyed by user id.</param>
     /// <param name="tmdbIdByItemId">ItemId -> TMDb ID mapping.</param>
     /// <param name="mediaTypeByItemId">ItemId -> media type mapping.</param>
-    /// <param name="cancellationToken">Scheduled-task cancellation for the bounded feedback wait.</param>
     private void UpdateWatchedStatusForUser(
         Guid userId,
         Dictionary<Guid, UserWatchProfile> profileById,
         Dictionary<Guid, int> tmdbIdByItemId,
-        Dictionary<Guid, string> mediaTypeByItemId,
-        CancellationToken cancellationToken)
+        Dictionary<Guid, string> mediaTypeByItemId)
     {
         try
         {
@@ -2711,7 +2710,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             if (watchedItems.Count > 0)
             {
-                _discoveryFeedbackStore.MarkWatchedAsync(userId, watchedItems, cancellationToken).GetAwaiter().GetResult();
+                _discoveryFeedbackStore.MarkWatched(userId, watchedItems);
             }
         }
         catch (OperationCanceledException)

@@ -108,24 +108,18 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     {
         var user = Guid.NewGuid();
         var metadata = new TitleMetadataCache();
-        var acquired = DateTimeOffset.UtcNow.AddHours(-1);
-        var sut = CreateServiceWithFactory(_factory.Object, () => acquired, metadata);
-        IReadOnlyList<ExternalDiscoveryCandidate>? mapped = null;
+        var sut = CreateServiceWithFactory(_factory.Object, () => DateTimeOffset.UtcNow, metadata);
         _responses.Enqueue((HttpStatusCode.OK, """[{"title":"Movie","genres":["animation"],"language":"ja","country":"jp","overview":"movie synopsis","ids":{"tmdb":11,"imdb":"tt123456"}}]"""));
         _responses.Enqueue((HttpStatusCode.OK, """[{"title":"Show","genres":["anime"],"language":"ja","country":"jp","ids":{"tvdb":22}}]"""));
         _discovery.Setup(value => value.ScoreExternalCandidatesAsync(user, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
-            .Callback((Guid _, IReadOnlyList<ExternalDiscoveryCandidate> candidates, CancellationToken _) => mapped = candidates)
             .ReturnsAsync(Scored(user, (11, "movie", "Movie")));
         await sut.GetPersonalAsync(user, TestContext.Current.CancellationToken);
         var config = Plugin.Instance!.Configuration;
         var movie = metadata.Get(config, 11, "movie")!;
-        Assert.Equal(acquired.UtcDateTime, movie.FetchedAtUtc);
-        Assert.Equal(acquired.UtcDateTime, Assert.Single(Assert.IsType<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped, exactMatch: false)).TitleMetadata!.FetchedAtUtc);
         Assert.Equal("movie synopsis", movie.Overview);
         Assert.Equal("ja", movie.OriginalLanguage);
         Assert.Equal("tt123456", movie.ImdbId);
         var show = metadata.Get(config, 0, "tv", 22)!;
-        Assert.Equal(acquired.UtcDateTime, show.FetchedAtUtc);
         Assert.Equal(0, show.TmdbId);
         Assert.Equal("anime", ContentDescriptor.Create([], [], show).Representation);
         Assert.Empty(_responses);

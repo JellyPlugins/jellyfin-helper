@@ -546,7 +546,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
             CommunityRating = item.CommunityRating,
             OfficialRating = officialRating,
             Genres = genres,
-            LocalGenres = genres.ToArray(),
             Year = item.ProductionYear,
             SeriesId = seriesId,
             TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
@@ -596,7 +595,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
     private static void ApplyCachedGenres(WatchedItemInfo row)
     {
-        row.LocalGenres ??= row.Genres.ToArray();
         if (row.Genres.Count == 0 && row.TitleMetadata?.GenreIds is { } genreIds)
         {
             row.Genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(genreIds)).ToArray();

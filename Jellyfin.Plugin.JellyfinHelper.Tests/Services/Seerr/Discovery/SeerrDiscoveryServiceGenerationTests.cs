@@ -161,40 +161,6 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
     // Guard ladder
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DiscoveryPersistenceCannotBlockCompletionOrCancellationBehindItsCacheWriter(bool cancel)
-    {
-        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
-        await gate.WaitAsync(TestContext.Current.CancellationToken);
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var result = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "test user" };
-        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var persistence = (Task)method.Invoke(_sut, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), cancellation.Token])!;
-        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
-        try
-        {
-            if (cancel)
-            {
-                cancellation.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence);
-            }
-            else
-            {
-                await persistence.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            }
-
-            _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
-            Assert.False(writer.IsCompleted);
-        }
-        finally
-        {
-            gate.Release();
-            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
-        }
-    }
-
     [Fact]
     public async Task WeeklyWarmupsEventuallyReachEveryLocalTitleBeyondTheFirst128()
     {
@@ -264,15 +230,13 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             _serverConfiguration.PreferredMetadataLanguage = "de";
             return Profiles(profile);
         });
-        var dispatchedQueries = new ConcurrentBag<string>();
         _handler.ResponseOverride = (request, _) =>
         {
-            dispatchedQueries.Add(request.RequestUri!.Query);
+            Assert.Contains("language=en", request.RequestUri!.Query);
             return Task.FromResult(JsonResponse("{}", HttpStatusCode.ServiceUnavailable));
         };
         await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
         Assert.Single(_handler.Requests);
-        Assert.Contains("language=en", Assert.Single(dispatchedQueries), StringComparison.Ordinal);
         Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance!.Configuration, 123, "movie"));
         _serverConfiguration.PreferredMetadataLanguage = "en";
         Assert.False(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 123, "movie"));
@@ -569,8 +533,6 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     {
         var first = NewProfile();
         var second = NewProfile();
-        var series = Guid.NewGuid();
-        for (var episode = 0; episode < 200; episode++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, SeriesTmdbId = 1, Played = true });
         for (var id = 1; id <= 200; id++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
         second.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Series", TmdbId = 500, Played = true });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
@@ -581,24 +543,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
             return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
         };
-        // Fairness belongs to reservation order, not the arrival order of three
-        // independently scheduled HTTP workers. Exercise the productive selector
-        // with the same empty cache state and include the library tail.
-        var history = (IEnumerable<(int TmdbId, string MediaType)>)typeof(SeerrDiscoveryService)
-            .GetMethod("MetadataHistoryKeys", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [Profiles(first, second)])!;
-        var selector = new TitleMetadataCache(clock: _metadataClock);
-        var reserved = selector.ReserveRefreshes(
-            Plugin.Instance!.Configuration,
-            history.Concat(libraryTitles.Select(item => (int.Parse(item.ProviderIds["Tmdb"], System.Globalization.CultureInfo.InvariantCulture), "movie"))),
-            128,
-            _serverConfiguration.PreferredMetadataLanguage);
-        Assert.Equal(128, reserved.Length);
-        Assert.Contains((500, "tv"), reserved.Take(3));
-        Assert.Single(reserved, title => title == (1, "tv"));
         await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(128, _handler.Requests.Count);
-        Assert.Contains(_handler.Requests, request => request.Path == "/api/v1/tv/500");
+        Assert.Contains(_handler.Requests.Take(3), request => request.Path == "/api/v1/tv/500");
         Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 500, "tv"));
     }
 
@@ -668,7 +615,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Never);
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
     }
 
@@ -681,7 +628,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Never);
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
     }
 
@@ -694,7 +641,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
         Assert.False(File.Exists(_cacheFilePath));
         _history.Verify(history => history.GetSeriesEpisodeCounts(), Times.Never);
@@ -711,13 +658,13 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Once);
         Assert.NotNull(recorded);
         Assert.Contains(recorded!, r => r.TmdbId == 501 && r.MediaType == "movie");
@@ -735,7 +682,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         // Dry-run must generate but never persist or feed the training store.
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
         Assert.False(File.Exists(_cacheFilePath));
     }
@@ -764,8 +711,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -790,8 +737,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -808,7 +755,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
     }
 
@@ -873,7 +820,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _handler.RegisterResponse(HttpMethod.Get, "/movie/3150", HttpStatusCode.OK, """{"id":3150,"mediaInfo":{"status":5},"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"6"}]}]}}""");
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
         Assert.Empty(await _cache.LoadAsync(CancellationToken.None));
-        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedbackStore.Verify(store => store.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()), Times.Never);
     }
 
     [Fact]
@@ -928,7 +875,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         Assert.Equal(3401, Assert.Single(Assert.Single(await _cache.LoadAsync(CancellationToken.None)).Recommendations).TmdbId);
-        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedbackStore.Verify(store => store.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()), Times.Never);
     }
 
     [Fact]
@@ -944,8 +891,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -965,7 +912,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
     }
 
@@ -1354,8 +1301,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1377,8 +1324,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1404,8 +1351,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1432,8 +1379,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1459,8 +1406,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1487,7 +1434,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         // The per-instance catch swallows the Arr failure; discovery still completes and persists.
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Once);
     }
 
@@ -1512,8 +1459,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1536,7 +1483,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Never);
     }
 
@@ -1554,8 +1501,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1577,8 +1524,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1600,8 +1547,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1628,7 +1575,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
+            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
             Times.Once);
     }
 
@@ -1645,8 +1592,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1668,8 +1615,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1690,8 +1637,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
+            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 

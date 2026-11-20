@@ -86,12 +86,11 @@ internal static class ChoiceRankingAdmissionEvaluator
     }
 
     private static ChoiceRow[] Capture(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
-        => examples.Where(example => example.IsObserved && example.HasStableObservationId)
-            .GroupBy(example => (example.UserId, example.ObservationId))
-            .Select(group => EnsembleAdmissionEvaluator.SelectObservationView(group, referenceTime))
-            .Where(example => example.Label > 0.5
+        => examples.Where(example => example.IsObserved && example.Label > 0.5 && example.HasStableObservationId
                 && example.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight
                 && example.Choice?.IsValid(example.ObservationId, referenceTime) == true)
+            .GroupBy(example => (example.UserId, example.ObservationId))
+            .Select(group => group.OrderByDescending(example => example.Choice!.ChosenAtUtc).First())
             .Select(example => new ChoiceRow(
                 example.UserId,
                 example.ObservationId,

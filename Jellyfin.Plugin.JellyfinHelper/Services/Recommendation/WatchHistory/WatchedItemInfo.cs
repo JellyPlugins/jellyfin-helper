@@ -89,9 +89,6 @@ public sealed class WatchedItemInfo
         set => _genres = value ?? [];
     }
 
-    /// <summary>Gets or sets captured Jellyfin genres before provider fallback; null denotes unknown legacy provenance.</summary>
-    public IReadOnlyList<string>? LocalGenres { get; set; }
-
     /// <summary>
     ///     Gets or sets the production year.
     /// </summary>
@@ -259,7 +256,6 @@ public sealed class WatchedItemInfo
         copy.UserRating = null;
         copy.LastPlayedDate = LastPlayedDate.HasValue ? DateTimeNormalization.ToUtc(LastPlayedDate.Value) : null;
         copy.Genres = Genres.ToArray();
-        copy.LocalGenres = LocalGenres?.ToArray();
         copy.PeopleNames = PeopleNames.ToArray();
         copy.PeopleWeights = PeopleWeights.ToArray();
         copy.WriterNames = WriterNames.ToArray();
@@ -281,20 +277,6 @@ public sealed class WatchedItemInfo
             copy.LanguagePlaybackDate = null;
         }
 
-        return copy;
-    }
-
-    internal WatchedItemInfo AtMetadataCutoff(DateTime cutoff)
-    {
-        if (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
-            && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff))))
-        {
-            return this;
-        }
-
-        var copy = (WatchedItemInfo)MemberwiseClone();
-        copy.Genres = LocalGenres?.ToArray() ?? [];
-        copy.TitleMetadata = null;
         return copy;
     }
 }

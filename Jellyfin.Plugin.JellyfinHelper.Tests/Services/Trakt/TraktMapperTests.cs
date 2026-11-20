@@ -71,9 +71,7 @@ public sealed class TraktMapperTests
             Ids = new TraktIds { Tvdb = 456, Imdb = " TT123456 " },
             Genres = genres, OriginalLanguage = "jpn", Country = "jp", Overview = "provider overview"
         };
-        var acquired = DateTime.UtcNow.AddHours(-1);
-        var metadata = TraktMapper.Metadata(item, "TV", acquired);
-        Assert.Equal(acquired, metadata.FetchedAtUtc);
+        var metadata = TraktMapper.Metadata(item, "TV");
         Assert.Equal(0, metadata.TmdbId);
         Assert.Equal(456, metadata.TvdbId);
         Assert.Equal("tt123456", metadata.ImdbId);
@@ -84,38 +82,11 @@ public sealed class TraktMapperTests
         Assert.Equal("trakt", metadata.Source);
         genres.Clear();
         Assert.Equal(2, metadata.SourceGenres!.Value.Length);
-        var absent = TraktMapper.Metadata(new TraktMediaItem(), "movie", acquired);
+        var absent = TraktMapper.Metadata(new TraktMediaItem(), "movie");
         Assert.Null(absent.SourceGenres);
         Assert.Null(absent.ImdbId);
         Assert.Null(absent.OriginalLanguage);
         Assert.Null(absent.ProductionCountries);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ResponseAcquisitionTimesRemainStableWhenOlderResponsesPublishLast(bool trending)
-    {
-        var acquired = DateTime.UtcNow.AddHours(-2);
-        var older = Media(100);
-        older.OriginalLanguage = "ja";
-        older.Genres = ["animation"];
-        var newer = Media(100);
-        newer.OriginalLanguage = "en";
-        newer.Genres = ["drama"];
-        var mapped = trending
-            ? Assert.Single(TraktMapper.MapTrendingItems([new TraktTrendingItem { Movie = older }], "movie", out _, acquiredAtUtc: acquired))
-            : Assert.Single(TraktMapper.MapMediaItems([older], "movie", out _, acquiredAtUtc: acquired));
-        var config = new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { TraktSourcingEnabled = true };
-        var cache = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache { TraktMetadataAvailable = _ => true };
-        var scope = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.MetadataSourceScope("trakt", "https://api.trakt.tv", "public-metadata");
-        cache.StoreSupplemental(config, TraktMapper.Metadata(newer, "movie", acquired.AddHours(1)), scope, null);
-        cache.StoreSupplemental(config, TraktMapper.Metadata(older, "movie", acquired), scope, null);
-        Assert.Equal(acquired, mapped.TitleMetadata!.FetchedAtUtc);
-        var latest = cache.Get(config, 100, "movie")!;
-        Assert.Equal(acquired.AddHours(1), latest.FetchedAtUtc);
-        Assert.Equal("en", latest.OriginalLanguage);
-        Assert.Equal("drama", Assert.Single(latest.SourceGenres!.Value));
     }
 
     [Fact]

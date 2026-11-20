@@ -556,7 +556,7 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
         string relPath, string mediaType, TraktPersonalSource source, int limit, int rankOffset, Guid userId, CancellationToken cancellationToken)
     {
         using var request = BuildRequest(relPath, source.ClientId, limit, source.AccessToken);
-        var (items, status, retryAfter, acquiredAtUtc) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
+        var (items, status, retryAfter) = await SendAndReadAsync<List<TraktMediaItem>>(request, relPath, hasBearer: true, userId, cancellationToken).ConfigureAwait(false);
 
         // A revoked/stale official token answers 401 OR 403 ("unapproved app" when the token predates the current
         // official client id). We are read-only on it (the official plugin owns refresh/re-link), and the next
@@ -566,8 +566,8 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             return ([], true, retryAfter);
         }
 
-        var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset, acquiredAtUtc);
-        PublishMetadata(items ?? [], mediaType, acquiredAtUtc);
+        var mapped = TraktMapper.MapMediaItems(items, mediaType, out var dropped, rankOffset);
+        PublishMetadata(items ?? [], mediaType);
         LogDropped(dropped, mediaType, "personal");
         return (mapped, false, retryAfter);
     }
@@ -582,27 +582,27 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         using (var movieReq = BuildRequest("/movies/trending", clientId, TraktLimit, accessToken: null))
         {
-            var (movies, _, _, acquiredAtUtc) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
-            PublishMetadata((movies ?? []).Select(item => item.Movie).OfType<TraktMediaItem>(), MediaTypeMovie, acquiredAtUtc);
-            all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies, acquiredAtUtc: acquiredAtUtc));
+            var (movies, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(movieReq, "/movies/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            PublishMetadata((movies ?? []).Select(item => item.Movie).OfType<TraktMediaItem>(), MediaTypeMovie);
+            all.AddRange(TraktMapper.MapTrendingItems(movies, MediaTypeMovie, out var droppedMovies));
             LogDropped(droppedMovies, MediaTypeMovie, "trending");
         }
 
         using (var showReq = BuildRequest("/shows/trending", clientId, TraktLimit, accessToken: null))
         {
-            var (shows, _, _, acquiredAtUtc) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
-            PublishMetadata((shows ?? []).Select(item => item.Show).OfType<TraktMediaItem>(), MediaTypeTv, acquiredAtUtc);
+            var (shows, _, _) = await SendAndReadAsync<List<TraktTrendingItem>>(showReq, "/shows/trending", hasBearer: false, userId: null, cancellationToken).ConfigureAwait(false);
+            PublishMetadata((shows ?? []).Select(item => item.Show).OfType<TraktMediaItem>(), MediaTypeTv);
 
             // Continue the ranking after the movies so trending shows rank below trending movies, matching
             // the fetch order the user sees.
-            all.AddRange(TraktMapper.MapTrendingItems(shows, MediaTypeTv, out var droppedShows, all.Count, acquiredAtUtc));
+            all.AddRange(TraktMapper.MapTrendingItems(shows, MediaTypeTv, out var droppedShows, all.Count));
             LogDropped(droppedShows, MediaTypeTv, "trending");
         }
 
         return all;
     }
 
-    private void PublishMetadata(IEnumerable<TraktMediaItem> items, string mediaType, DateTime acquiredAtUtc)
+    private void PublishMetadata(IEnumerable<TraktMediaItem> items, string mediaType)
     {
         var config = Plugin.Instance?.Configuration;
         if (MetadataCache is null || config is null || !config.TraktSourcingEnabled || !_personalSources.IsAvailable(config))
@@ -612,11 +612,11 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
 
         foreach (var item in items.OfType<TraktMediaItem>())
         {
-            MetadataCache.StoreSupplemental(config, TraktMapper.Metadata(item, mediaType, acquiredAtUtc), new("trakt", "https://api.trakt.tv", "public-metadata"), language: null);
+            MetadataCache.StoreSupplemental(config, TraktMapper.Metadata(item, mediaType), new("trakt", "https://api.trakt.tv", "public-metadata"), language: null);
         }
     }
 
-    private async Task<(T? Data, HttpStatusCode Status, TimeSpan? RetryAfter, DateTime AcquiredAtUtc)> SendAndReadAsync<T>(
+    private async Task<(T? Data, HttpStatusCode Status, TimeSpan? RetryAfter)> SendAndReadAsync<T>(
         HttpRequestMessage request, string relPath, bool hasBearer, Guid? userId, CancellationToken cancellationToken)
     {
         try
@@ -627,19 +627,18 @@ public sealed class TraktDiscoveryService : ITraktDiscoveryService
             {
                 var retryAfter = ExtractRetryAfter(response);
                 LogFetchFailure(relPath, hasBearer, userId, response, retryAfter);
-                return (default, response.StatusCode, retryAfter, default);
+                return (default, response.StatusCode, retryAfter);
             }
 
             var json = await HttpResponseReader.ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
-            var acquiredAtUtc = UtcNow().UtcDateTime;
-            return (JsonSerializer.Deserialize<T>(json), response.StatusCode, null, acquiredAtUtc);
+            return (JsonSerializer.Deserialize<T>(json), response.StatusCode, null);
         }
         catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
         {
             // Network, timeout, size-limit, and malformed-payload failures degrade to an empty
             // fetch (ServiceUnavailable is never treated as Unauthorized, so the link survives).
             _pluginLog.LogWarning(LogSource, $"Trakt fetch failed ({relPath}).", ex, _logger);
-            return (default, HttpStatusCode.ServiceUnavailable, null, default);
+            return (default, HttpStatusCode.ServiceUnavailable, null);
         }
     }
 
