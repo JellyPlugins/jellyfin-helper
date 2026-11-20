@@ -168,6 +168,7 @@ public class PluginServiceRegistratorTests : IDisposable
     [InlineData(typeof(NeuralScoringStrategy))]
     [InlineData(typeof(EnsembleScoringStrategy))]
     [InlineData(typeof(DiscoveryCacheService))]
+    [InlineData(typeof(MediaStatisticsUserDataSource))]
     public void RegisterServices_RegistersConcreteStrategy(Type concreteType)
     {
         var sc = Register();
@@ -224,6 +225,42 @@ public class PluginServiceRegistratorTests : IDisposable
         var service = provider.GetService<IRecommendationPlaylistService>();
         Assert.NotNull(service);
         Assert.IsType<RecommendationPlaylistService>(service);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RegisteredStatisticsUsesTheLocalUserDataSourceWithoutMakingUserServicesOrProvidersMandatory(bool usersAvailable)
+    {
+        var sc = Register();
+        sc.AddLogging();
+        var library = TestMockFactory.CreateLibraryManager();
+        library.Setup(value => value.GetVirtualFolders()).Returns([]);
+        library.Setup(value => value.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>())).Returns([]);
+        var users = new Mock<IUserManager>();
+        users.Setup(value => value.GetUsers()).Returns(Array.Empty<Jellyfin.Database.Implementations.Entities.User>().AsQueryable());
+        sc.AddSingleton(library.Object);
+        sc.AddSingleton(TestMockFactory.CreateFileSystem().Object);
+        sc.AddSingleton(TestMockFactory.CreateCleanupConfigHelper().Object);
+        sc.AddSingleton<IPluginLogService>(TestMockFactory.CreatePluginLogService());
+        var ownership = new Mock<IArrOrphanProtectionService>(MockBehavior.Strict);
+        sc.AddSingleton(ownership.Object);
+        if (usersAvailable)
+        {
+            sc.AddSingleton(users.Object);
+            sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        }
+
+        using var provider = sc.BuildServiceProvider(validateScopes: true);
+        var statistics = Assert.IsType<MediaStatisticsService>(provider.GetRequiredService<IMediaStatisticsService>());
+        var userData = provider.GetRequiredService<MediaStatisticsUserDataSource>();
+        Assert.Same(userData, provider.GetRequiredService<MediaStatisticsUserDataSource>());
+        Assert.Same(statistics, provider.GetRequiredService<IMediaStatisticsService>());
+        Assert.Equal(usersAvailable, userData.IsAvailable);
+        Assert.All(typeof(MediaStatisticsService).GetConstructors(), constructor => Assert.InRange(constructor.GetParameters().Length, 1, 7));
+        Assert.Empty(statistics.CalculateStatistics().Libraries);
+        users.Verify(value => value.GetUsers(), usersAvailable ? Times.Once() : Times.Never());
+        ownership.VerifyNoOtherCalls();
     }
 
     [Theory]

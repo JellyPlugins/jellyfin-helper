@@ -153,6 +153,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ITrashService, TrashService>();
         serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
         serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
+        serviceCollection.AddSingleton<MediaStatisticsUserDataSource>();
         serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
         serviceCollection.AddSingleton<IArrOrphanProtectionService, ArrOrphanProtectionService>();
         serviceCollection.AddSingleton<IStatisticsCacheService, StatisticsCacheService>();

@@ -440,6 +440,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── MediaStatisticsServiceLanguageTests.cs # Audio/subtitle language extraction, track labels, variant collapsing
 │   │   ├── MediaStatisticsServiceTvShowTests.cs # TV show structure and orphaned-metadata handling
 │   │   ├── MediaStatisticsServiceWatchedTests.cs # Watched status extraction (disabled users excluded)
+│   │   ├── MediaStatisticsUserDataSourceTests.cs # Enabled-user selection, batch-first lookup, partial-map fallback and isolated failures
 │   │   ├── StatisticsCacheServiceTests.cs # Persisting and loading cached statistics results
 │   │   ├── WatchedUserDetailTests.cs # WatchedUserDetail DTO defaults and JSON round-trip
 │   │   └── MediaStatisticsServiceTrashPathResolutionTests.cs # Trash-path resolution and BuildItemLookup case-insensitive keying / empty-path skip
@@ -873,6 +874,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
 │   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
+│   │   ├── MediaStatisticsUserDataSource.cs # Local enabled-user and batch-first watch-data boundary; scan caches remain caller-owned
 │   │   ├── IArrOrphanProtectionService.cs # Optional scan-local Arr ownership contract
 │   │   ├── ArrOrphanProtectionService.cs # Bounded configured-only ownership lookup through the existing Arr integration
 │   │   └── OrphanProtectionSnapshot.cs # Immutable positive ownership and scoped uncertainty; no deletion authorization
@@ -1213,6 +1215,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `MediaStatisticsServiceBitrateTests.cs` - Unit tests for MediaStatisticsService bitrate tier thresholds and legacy mapping
 - `MediaStatisticsServiceLanguageTests.cs` - Unit tests for MediaStatisticsService audio/subtitle language extraction
 - `MediaStatisticsServiceWatchedTests.cs` - Unit tests for MediaStatisticsService watched status extraction (disabled users excluded)
+- `MediaStatisticsUserDataSourceTests.cs` - Local user availability, disabled accounts, batch/per-item fallback and cancellation
 - `WatchedUserDetailTests.cs` - Unit tests for the WatchedUserDetail DTO defaults and JSON round-trip
 - `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
@@ -1613,6 +1616,7 @@ the heuristic rules and ensemble blend limits are unchanged.
 - `LibraryStatistics.cs` - Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks
 - `MediaStatisticsResult.cs` - Aggregated media scan result grouping libraries by type with computed totals
 - `MediaStatisticsService.cs` - Recursively scans libraries computing size, codec, resolution, and health statistics
+- `MediaStatisticsUserDataSource.cs` - Reads enabled users and local watch data without retaining scan state or performing provider requests
 - `WatchedUserDetail.cs` - Per-file per-user watch detail DTO (username, play count, last played)
 - `StatisticsCacheService.cs` - Persists the latest statistics result to disk as JSON via atomic write
 
