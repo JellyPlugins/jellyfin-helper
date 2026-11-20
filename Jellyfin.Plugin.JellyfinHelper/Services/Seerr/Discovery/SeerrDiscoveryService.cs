@@ -3934,9 +3934,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private bool ApplyFetchedDetail(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
-        => ApplyDetail(candidate, detail, DateTime.UtcNow);
-
     private bool ApplyDetail(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, DateTime acquiredAtUtc, string? scope = null)
     {
         if (detail.Id <= 0 || detail.Id != candidate.Id)

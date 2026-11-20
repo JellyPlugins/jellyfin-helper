@@ -415,8 +415,10 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             mapper.Setup(value => value.GetRatingScore("0", "DE")).Callback(() => configuration.MetadataCountryCode = "US").Returns(new ParentalRatingScore(0, null)));
         var detail = System.Text.Json.JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"id":101,"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"0"}]},{"iso_3166_1":"US","release_dates":[{"certification":"TV-Y7"}]}]}}""")!;
         var candidate = new TmdbDiscoverItem { Id = 101 };
-        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        Assert.True((bool)method.Invoke(service, [candidate, detail])!);
+        var acquired = DateTime.UtcNow;
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True((bool)method.Invoke(service, [candidate, detail, acquired, null])!);
+        Assert.Equal(acquired, candidate.SeerrTitleMetadata!.FetchedAtUtc);
         Assert.Equal(0, candidate.CertificationScore);
         Assert.Equal("DE", candidate.CertificationPolicyCountry);
         Assert.Equal("US", configuration.MetadataCountryCode);
@@ -469,7 +471,9 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var restored = System.Text.Json.JsonSerializer.Deserialize<TitleMetadataSnapshot>(System.Text.Json.JsonSerializer.Serialize(projected))!;
         var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = restored };
         var detail = new SeerrMediaDetailResponse { Id = 101, Keywords = [] };
-        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, detail])!);
+        var acquired = DateTime.UtcNow;
+        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, detail, acquired, null])!);
+        Assert.Equal(acquired, candidate.SeerrTitleMetadata!.FetchedAtUtc);
         Assert.Empty(candidate.KnownKeywords!);
         Assert.Equal(independentAnime, candidate.TitleMetadata!.Keywords!.Value.Contains("anime"));
         Assert.Contains("friendship", candidate.TitleMetadata.Keywords.Value);
@@ -508,7 +512,9 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         };
         var detail = new SeerrMediaDetailResponse { Id = 101, Keywords = [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "pirate" }] };
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", flags)!.Invoke(service, [candidate, detail])!);
+        var fetched = DateTime.UtcNow;
+        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", flags)!.Invoke(service, [candidate, detail, fetched, null])!);
+        Assert.Equal(fetched, candidate.SeerrTitleMetadata!.FetchedAtUtc);
         typeof(SeerrDiscoveryService).GetMethod("CacheSharedTitleMetadata", flags)!.Invoke(service, [new Uri("https://seerr.example.com/"), "seerr-key", null, candidate]);
         Assert.Equal("ja", candidate.TitleMetadata!.OriginalLanguage);
         Assert.Equal("external synopsis", candidate.TitleMetadata.Overview);

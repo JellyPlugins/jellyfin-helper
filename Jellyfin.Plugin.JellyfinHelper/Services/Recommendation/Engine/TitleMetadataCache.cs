@@ -556,9 +556,6 @@ public sealed class TitleMetadataCache
         }
     }
 
-    private string Key(PluginConfiguration config, int tmdbId, string mediaType)
-        => Key(config, tmdbId, mediaType, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
-
     private static string Key(PluginConfiguration config, int tmdbId, string mediaType, string? metadataLanguage)
     {
         var context = string.Join('\n', config.SeerrUrl, config.SeerrApiKey, metadataLanguage);
