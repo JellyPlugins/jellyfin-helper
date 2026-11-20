@@ -148,7 +148,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Once);
         _feedback.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -207,7 +207,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedback.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 }

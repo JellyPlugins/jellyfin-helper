@@ -396,7 +396,9 @@ internal sealed class TrainingService : IDisposable
             var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
                 .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
             examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow, engaged);
-            if (!ChoiceHistory.Save())
+            // Fitting has an established synchronous contract. Only the bounded,
+            // cancelable caller wait runs here; atomic I/O belongs to the managed writer.
+            if (!ChoiceHistory.SaveAsync(cancellationToken).GetAwaiter().GetResult())
             {
                 _pluginLog.LogDebug(LogSource, "Observed choices remain in memory; optional replay persistence was unavailable.", _logger);
             }

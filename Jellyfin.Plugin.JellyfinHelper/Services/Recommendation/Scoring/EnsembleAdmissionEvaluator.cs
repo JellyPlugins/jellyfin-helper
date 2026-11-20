@@ -261,17 +261,28 @@ internal static class EnsembleAdmissionEvaluator
         return selected.ToArray();
     }
 
-    private static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
+    internal static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
     {
         var ordered = rows.OrderByDescending(row => row.GeneratedAtUtc).ToArray();
+        var latestOutcome = ordered.FirstOrDefault(row => row.IsObserved) ?? ordered[0];
+        var effective = ordered.Where(row => row.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight).ToArray();
+        var fallback = effective.FirstOrDefault() ?? ordered[0];
         // Fresh explicit negative outcomes supersede old positive comparisons. Otherwise
         // keep the original valid choice view instead of losing it to a newer publication.
-        if (ordered[0].IsObserved && ordered[0].Label <= .5)
+        if (latestOutcome.IsObserved && latestOutcome.Label <= .5)
         {
-            return ordered[0];
+            return latestOutcome;
         }
 
-        return ordered.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? ordered[0];
+        var selected = effective.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? fallback;
+        if (ReferenceEquals(selected, latestOutcome))
+        {
+            return selected;
+        }
+
+        var copy = selected.Copy();
+        copy.Label = latestOutcome.Label;
+        return copy;
     }
 
     internal static bool HasOrdinaryRankingSupport(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)

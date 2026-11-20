@@ -199,7 +199,20 @@ internal static class TrainingDataBuilder
             }
         }
 
+        NormalizeChoiceContrasts(ctx);
         return (examples, organicCount, randomNegativeCount, discoveryCount);
+    }
+
+    private static void NormalizeChoiceContrasts(TrainingContext ctx)
+    {
+        if (ctx.Choices.Count == 0)
+        {
+            return;
+        }
+
+        var engaged = ctx.ProfileById.Values.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, ctx.Lookups.TmdbIds)
+            .Select(title => (profile.UserId, title))).ToHashSet();
+        RecommendationChoiceHistory.ApplyOpportunityContrasts(ctx.Examples, DateTime.UtcNow, engaged);
     }
 
     /// <summary>Uses the earliest known source instant, never the training clock, for undated organic outcomes.</summary>
@@ -483,7 +496,7 @@ internal static class TrainingDataBuilder
             var plan = BuildRecommendationChoicePlan(ctx, prevResult, userCtx);
             foreach (var choice in plan.Choices)
             {
-                ctx.Choices[(prevResult.UserId, choice.Key)] = choice.Value;
+                ctx.Choices[(prevResult.UserId, choice.Key, choice.Value.RecommendedAtUtc)] = choice.Value;
             }
 
             userCtx = userCtx with { FittingChoiceAlternatives = plan.FittingAlternatives };
@@ -512,6 +525,7 @@ internal static class TrainingDataBuilder
 
     private static RecommendedItem ProjectHistoricalChoice(WatchedItemInfo row, DateTime predictionAt)
     {
+        row = row.AtMetadataCutoff(DateTimeNormalization.ToUtc(predictionAt));
         var seriesId = row.SeriesId.GetValueOrDefault();
         return new RecommendedItem
         {
@@ -543,12 +557,32 @@ internal static class TrainingDataBuilder
     private static void AttachRecommendationChoices(TrainingContext ctx)
     {
         foreach (var pair in ctx.Examples.Where(example => example.IsObserved && example.Label > 0.5)
-            .Select(example => (Example: example, Choice: ctx.Choices.GetValueOrDefault((example.UserId, example.ObservationId))))
+            .Select(example => (Example: example, Choice: ctx.Choices.GetValueOrDefault((example.UserId, example.ObservationId, example.GeneratedAtUtc))))
             .Where(pair => pair.Choice is not null))
         {
             pair.Example.Choice = pair.Choice!.Copy();
-            pair.Example.Features = pair.Choice.ChosenFeatures.Copy();
-            pair.Example.GeneratedAtUtc = pair.Choice.RecommendedAtUtc;
+        }
+
+        var referenceTime = DateTime.UtcNow;
+        foreach (var (key, choice) in ctx.Choices)
+        {
+            if (ctx.Examples.Any(row => row.UserId == key.User && row.ObservationId == key.Observation && row.Choice?.RecommendedAtUtc == key.Prediction))
+            {
+                continue;
+            }
+
+            var observed = ctx.Examples.Where(row => row.IsObserved && row.UserId == key.User && row.ObservationId == key.Observation)
+                .OrderByDescending(row => row.GeneratedAtUtc).FirstOrDefault();
+            if (observed is null || observed.Label <= .5)
+            {
+                continue;
+            }
+
+            var view = observed.Copy();
+            view.Features = choice.ChosenFeatures.Copy();
+            view.GeneratedAtUtc = choice.RecommendedAtUtc;
+            view.Choice = choice.Copy();
+            RecommendationChoiceHistory.AddChoiceView(ctx.Examples, view, referenceTime);
         }
     }
 
@@ -1147,6 +1181,7 @@ internal static class TrainingDataBuilder
     {
         var excluded = isSeries ? ContentScoring.BuildSeriesExcludeSet(w.ItemId, userCtx.UserProfile) : new HashSet<Guid> { w.ItemId };
         var predictionTime = DateTimeNormalization.ToUtc(w.LastPlayedDate ?? ctx.OrganicFallbackTimestamp);
+        w = w.AtMetadataCutoff(predictionTime);
         var history = HistoricalInputs(ctx, userCtx.UserProfile.UserId, predictionTime, excluded);
         var userProfile = history.Profile;
         var watchedBoxSetCountsOrganic = history.Content.WatchedBoxSetCounts;
@@ -1260,11 +1295,18 @@ internal static class TrainingDataBuilder
             GeneratedAtUtc = w.LastPlayedDate ?? organicFallbackTimestamp,
             SampleWeight = 0.7,
             UserId = userProfile.UserId,
-            ObservationId = TrainingExample.CreateTitleObservationId(userProfile.UserId, w.ItemId, lookups.TmdbIds.GetValueOrDefault(w.ItemId), isSeries),
+            ObservationId = TrainingExample.CreateTitleObservationId(
+                userProfile.UserId,
+                w.ItemId,
+                OrganicProviderId(w, lookups.TmdbIds.GetValueOrDefault(w.ItemId)),
+                isSeries),
             HasStableObservationId = true,
             IsObserved = HasReliableOutcome(w, isSeries)
         };
     }
+
+    private static int OrganicProviderId(WatchedItemInfo item, int mappedId)
+        => string.Equals(item.ItemType, "Episode", StringComparison.OrdinalIgnoreCase) ? 0 : mappedId;
 
     private static double ComputeOrganicStandaloneLabel(WatchedItemInfo item, double completionRatio)
         => item.UserRating is > 0 && double.IsFinite(item.UserRating.Value)
@@ -1666,7 +1708,7 @@ internal static class TrainingDataBuilder
         public IReadOnlyDictionary<Guid, int>? SeriesEpisodeCounts { get; init; }
 
         /// <summary>Gets captured revealed choices keyed by the same stable user/title identities as outcomes.</summary>
-        public Dictionary<(Guid User, Guid Observation), RecommendationChoiceEvidence> Choices { get; init; }
+        public Dictionary<(Guid User, Guid Observation, DateTime Prediction), RecommendationChoiceEvidence> Choices { get; init; }
     }
 
     /// <summary>

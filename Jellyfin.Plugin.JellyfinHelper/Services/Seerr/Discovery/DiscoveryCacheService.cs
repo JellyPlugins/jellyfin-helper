@@ -36,8 +36,11 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     Serialises access to _memoryCache and the on-disk file.
     /// </summary>
     private readonly SemaphoreSlim _fileLock = new(initialCount: 1, maxCount: 1);
+    private readonly Lock _saveGate = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryCacheService> _logger;
+    private Task<bool>? _pendingSave;
+    private bool _disposed;
 
     /// <summary>
     ///     In-memory cache of discovery results. Avoids reading from disk on every API call.
@@ -631,11 +634,59 @@ public sealed class DiscoveryCacheService : IDisposable
         }
     }
 
-    /// <summary>
-    ///     Releases the SemaphoreSlim used to serialise cache access. The DI container (Microsoft.Extensions.DependencyInjection) owns this service's lifetime and will call Dispose when the plugin is torn down.
-    /// </summary>
+    /// <summary>Persists a detached snapshot with one managed writer and a bounded, cancellation-aware caller wait.</summary>
+    /// <param name="results">The results to persist.</param>
+    /// <param name="cancellationToken">Cancels the caller wait, never an atomic write already in progress.</param>
+    /// <returns>True only when this snapshot was persisted; false on timeout or while another snapshot is being written.</returns>
+    public async Task<bool> SaveAsync(IReadOnlyList<DiscoveryResult> results, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        cancellationToken.ThrowIfCancellationRequested();
+        Task<bool> writer;
+        lock (_saveGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_pendingSave is { IsCompleted: false })
+            {
+                // The existing writer owns different results. Joining it must not
+                // report success for this caller or accumulate queued disk work.
+                return false;
+            }
+
+            var snapshot = results.Select(result => result.Clone()).ToArray();
+            writer = Task.Run(() => Save(snapshot), CancellationToken.None);
+            _pendingSave = writer;
+        }
+
+        try
+        {
+            return await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Releases the cache lock after any safely abandoned writer finishes, without blocking plugin teardown.</summary>
     public void Dispose()
     {
-        _fileLock.Dispose();
+        lock (_saveGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (_pendingSave is { IsCompleted: false } writer)
+            {
+                _ = writer.ContinueWith(_ => _fileLock.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            else
+            {
+                _fileLock.Dispose();
+            }
+        }
     }
 }
