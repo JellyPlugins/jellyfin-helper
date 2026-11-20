@@ -392,7 +392,10 @@ internal sealed class TrainingService : IDisposable
 
         if (ChoiceHistory is not null)
         {
-            examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow);
+            var titleIds = TrainingDataBuilder.BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata);
+            var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
+                .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
+            examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow, engaged);
             if (!ChoiceHistory.Save())
             {
                 _pluginLog.LogDebug(LogSource, "Observed choices remain in memory; optional replay persistence was unavailable.", _logger);

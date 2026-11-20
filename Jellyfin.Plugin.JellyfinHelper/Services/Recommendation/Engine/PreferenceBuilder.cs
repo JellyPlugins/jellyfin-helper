@@ -1115,10 +1115,13 @@ internal static class PreferenceBuilder
 
         // Map ratio in [0,1] to multiplier in [ProgressionFloor, ProgressionCeiling].
         // rawRatio=0 -> ProgressionFloor (0.3), rawRatio=0.5 -> 0.9, rawRatio=1 -> 1.5.
-        return Math.Clamp(
+        var multiplier = Math.Clamp(
             ProgressionFloor + (rawRatio * ProgressionSpan),
             ProgressionFloor,
             ProgressionCeiling);
+        // Completion cannot withdraw an explicit favorite's neutral floor.
+        // Actual completed-series progress can still lift it above that floor.
+        return item.IsFavorite ? Math.Max(1.0, multiplier) : multiplier;
     }
 
     /// <summary>Franchise weights with exact-name identity evidence for safe mixed legacy/current histories.</summary>

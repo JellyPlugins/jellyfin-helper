@@ -127,10 +127,30 @@ public sealed class TitleMetadataCache
             return null;
         }
 
-        return TitleMetadataMerger.Combine(current);
+        return CombineScopedEntries(current, now);
     }
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
+
+    private static TitleMetadataSnapshot? CombineScopedEntries(TitleMetadataSnapshot[] snapshots, DateTime now)
+    {
+        if (snapshots.Length == 1)
+        {
+            return snapshots[0];
+        }
+
+        // These entries share the alias's configuration/language digest. A newer
+        // same-provider observation supersedes old scalar values, including false hints,
+        // before Get merges independent providers. Retained fields keep their own ages.
+        TitleMetadataSnapshot? combined = null;
+        foreach (var group in snapshots.OrderBy(snapshot => snapshot.FetchedAtUtc).GroupBy(snapshot => snapshot.FetchedAtUtc))
+        {
+            var current = TitleMetadataMerger.Combine(group.ToArray())!;
+            combined = MergeFields(combined is null ? current : LinkSuppliedIdentity(current, combined), combined, now, preferNewerFields: true);
+        }
+
+        return combined;
+    }
 
     private TitleMetadataSnapshot? ReadUsableEntry(string key, DateTime now)
     {
@@ -358,13 +378,16 @@ public sealed class TitleMetadataCache
     private static bool IsUsable(DateTime acquiredAt, DateTime now)
         => acquiredAt <= now && acquiredAt > now.AddDays(-30);
 
-    private static TitleMetadataSnapshot MergeFields(TitleMetadataSnapshot snapshot, TitleMetadataSnapshot? previous, DateTime now)
+    private static TitleMetadataSnapshot MergeFields(TitleMetadataSnapshot snapshot, TitleMetadataSnapshot? previous, DateTime now, bool preferNewerFields = false)
     {
         var times = ImmutableDictionary.CreateBuilder<string, DateTime>(StringComparer.Ordinal);
         T Field<T>(T incoming, T retained, string name)
         {
-            var source = incoming is not null ? snapshot : previous;
-            var value = incoming is not null ? incoming : retained;
+            var keepRetained = preferNewerFields && incoming is not null && retained is not null && previous is not null
+                && (previous.FieldFetchedAtUtc?.GetValueOrDefault(name, previous.FetchedAtUtc) ?? previous.FetchedAtUtc)
+                    > (snapshot.FieldFetchedAtUtc?.GetValueOrDefault(name, snapshot.FetchedAtUtc) ?? snapshot.FetchedAtUtc);
+            var source = incoming is not null && !keepRetained ? snapshot : previous;
+            var value = incoming is not null && !keepRetained ? incoming : retained;
             if (value is null || source is null)
             {
                 return default!;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
@@ -28,13 +29,29 @@ internal sealed class RecommendationChoiceHistory
         Load();
     }
 
-    internal List<TrainingExample> Merge(IReadOnlyList<TrainingExample> current, IReadOnlySet<Guid> activeUsers, DateTime referenceTime)
+    internal List<TrainingExample> Merge(
+        IReadOnlyList<TrainingExample> current,
+        IReadOnlySet<Guid> activeUsers,
+        DateTime referenceTime,
+        IReadOnlySet<(Guid User, Guid Title)>? engagedTitles = null)
     {
+        var engaged = current.Where(row => row.IsObserved && row.HasStableObservationId).Select(Key).ToHashSet();
+        engaged.UnionWith(engagedTitles ?? new HashSet<(Guid, Guid)>());
+        // Withdraw comparisons from both fitting and admission. LastPlayedDate cannot
+        // recover an alternative's first engagement, and a later watch must not revive
+        // a prior unobserved comparison on the next publication or restart.
+        current = current.Where(row => !row.IsContrastSample || !engaged.Contains(Key(row)))
+            .Select(row => WithoutEngagedAlternatives(row, engaged, referenceTime)).ToArray();
         var observed = current.Where(row => row.IsObserved && row.HasStableObservationId)
             .GroupBy(Key).ToDictionary(group => group.Key, group => group.OrderByDescending(row => row.GeneratedAtUtc).First());
         var result = current.ToList();
         lock (_gate)
         {
+            foreach (var key in _entries.Keys.ToArray())
+            {
+                _entries[key] = WithoutEngagedAlternatives(_entries[key], engaged, referenceTime);
+            }
+
             foreach (var key in _entries.Keys.Where(key => !activeUsers.Contains(key.User) || !observed.TryGetValue(key, out var row)
                 || row.Label <= .5 || !Valid(_entries[key], referenceTime)).ToArray())
             {
@@ -58,7 +75,7 @@ internal sealed class RecommendationChoiceHistory
                 _entries[Key(row)] = row;
                 if (!current.Any(item => Key(item) == Key(row) && item.Choice?.IsValid(item.ObservationId, referenceTime) == true))
                 {
-                    AddReplay(result, row, referenceTime);
+                    AddReplay(result, row, referenceTime, engaged);
                 }
             }
         }
@@ -66,7 +83,25 @@ internal sealed class RecommendationChoiceHistory
         return result;
     }
 
-    private static void AddReplay(List<TrainingExample> result, TrainingExample row, DateTime referenceTime)
+    private static TrainingExample WithoutEngagedAlternatives(TrainingExample row, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime)
+    {
+        if (row.Choice is not { } choice || !choice.IsValid(row.ObservationId, referenceTime))
+        {
+            return row;
+        }
+
+        var alternatives = choice.Alternatives.Where(alternative => !engaged.Contains((row.UserId, alternative.ObservationId))).ToImmutableArray();
+        if (alternatives.Length == choice.Alternatives.Length)
+        {
+            return row;
+        }
+
+        var copy = row.Copy();
+        copy.Choice = alternatives.IsEmpty ? null : (choice with { Alternatives = alternatives }).Copy();
+        return copy;
+    }
+
+    private static void AddReplay(List<TrainingExample> result, TrainingExample row, DateTime referenceTime, HashSet<(Guid User, Guid Title)> engaged)
     {
         // Two feature views remain one observed title, not two watches. Preserve the
         // caller's prediction and labels while sharing its original sample-weight budget.
@@ -94,7 +129,8 @@ internal sealed class RecommendationChoiceHistory
             return;
         }
 
-        var alternatives = row.Choice!.Alternatives.OrderBy(alternative => alternative.ObservationId)
+        var alternatives = row.Choice!.Alternatives.Where(alternative => !engaged.Contains((row.UserId, alternative.ObservationId)))
+            .OrderBy(alternative => alternative.ObservationId)
             .Take(RecommendationChoiceBuilder.FittingAlternativeLimit(row.Choice.RecommendedAtUtc, referenceTime)).ToArray();
         foreach (var alternative in alternatives)
         {

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Moq;
 using Xunit;
@@ -78,6 +79,35 @@ public sealed class ChoiceRankingAdmissionEvaluatorTests
         var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, new(Predictor(_ => .4), learned), Now, .75, 0);
         Assert.False(decision.Accepted);
         Assert.Equal("RejectedChoiceRanking", decision.Reason);
+    }
+
+    [Fact]
+    public void ImprovedNdcgAtTwentyCannotAdmitAChoiceModelThatLosesAllTopTenChoices()
+    {
+        var user = Guid.NewGuid();
+        TrainingExample[] Slice()
+        {
+            var rows = Rows(user, 24);
+            for (var index = 0; index < rows.Length; index++)
+            {
+                var above = index < 12 ? 9 : 19;
+                rows[index].Choice = rows[index].Choice! with
+                {
+                    Alternatives = Enumerable.Range(0, 20).Select(alternative => new RecommendationChoiceAlternative(Guid.NewGuid(),
+                        new CandidateFeatures { GenreSimilarity = 0, CollaborativeScore = alternative < above ? 1 : 0, TagSimilarity = alternative < 10 ? 1 : 0 })).ToImmutableArray()
+                };
+            }
+
+            return rows;
+        }
+
+        var heuristic = Predictor(features => features.GenreSimilarity > .5 ? .5 : features.CollaborativeScore > .5 ? .9 : .1);
+        var learned = Predictor(features => features.GenreSimilarity > .5 ? .8 : features.TagSimilarity > .5 ? 1 : 0);
+        var decision = ChoiceRankingAdmissionEvaluator.Evaluate(Slice(), Slice(), new(heuristic, learned), Now, (.75, 0), null)!;
+        Assert.False(decision.Accepted);
+        Assert.Equal("RejectedChoiceRanking", decision.Reason);
+        Assert.True(decision.Utility.LowerHeuristicImprovement > 0);
+        Assert.Equal(0, decision.Utility.ChoiceRecallAtK);
     }
 
     [Fact]

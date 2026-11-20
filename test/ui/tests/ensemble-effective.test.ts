@@ -175,6 +175,7 @@ describe('selected-user effective ensemble diagnostics', () => {
   test.each([
     ['Provisional', 'Provisional — ranking not yet verified'],
     ['Verified', 'Independently verified'],
+    ['ChoiceRanking', 'Independently verified choice ranking'],
   ])('personal %s status does not manufacture a frozen or verified claim', (ValidationLevel, expected) => {
     ui.renderEnsembleDiagnostics(host, { Available: true, EffectiveAlpha: .65, EffectiveNeuralBeta: .12,
       NeuralEnabled: true, IsPerUser: true, UserName: 'Warm user', TrainingExampleCount: 72,
@@ -189,5 +190,11 @@ describe('selected-user effective ensemble diagnostics', () => {
       NeuralEnabled: true, QualityGateFrozen: true, ValidationLevel: 'Provisional' });
     expect(shares(host)).toEqual(['100%', '0%', 'off']);
     expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('frozen');
+  });
+
+  test('frozen status still overrides a stale ChoiceRanking label', () => {
+    ui.renderEnsembleDiagnostics(host, { Available: true, QualityGateFrozen: true, ValidationLevel: 'ChoiceRanking' });
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('frozen');
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).not.toContain('verified choice ranking');
   });
 });

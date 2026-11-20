@@ -188,7 +188,7 @@ internal sealed class ContentFitProfile
 
         foreach (var title in titles.Values)
         {
-            AddProviderTerms(title, cache.Normalized);
+            AddProviderEvidence(title, cache.Normalized);
         }
 
         return titles;
@@ -202,8 +202,14 @@ internal sealed class ContentFitProfile
         }
     }
 
-    private static void AddProviderTerms(TitleKeywords title, Dictionary<string, string?> normalized)
+    private static void AddProviderEvidence(TitleKeywords title, Dictionary<string, string?> normalized)
     {
+        title.Genres.UnionWith(GenreNormalizer.Set(title.Metadata?.SourceGenres));
+        if (title.Metadata?.GenreIds is { } ids)
+        {
+            title.Genres.UnionWith(GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)));
+        }
+
         if (title.Metadata?.Keywords is { } keywords)
         {
             title.Terms.UnionWith(Keywords(keywords, normalized));

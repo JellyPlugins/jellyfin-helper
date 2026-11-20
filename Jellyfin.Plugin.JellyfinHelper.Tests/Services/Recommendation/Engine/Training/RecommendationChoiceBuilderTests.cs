@@ -62,8 +62,11 @@ public sealed class RecommendationChoiceBuilderTests
         Assert.Equal(expectedCount > 0 ? .25 : 0, contrasts.Sum(example => example.SampleWeight), 12);
         Assert.Equal(contrasts.Length, TrainingMath.FilterEffectiveExamples(contrasts, reference, LearnedScoringStrategy.MinSampleWeight).Count);
         Assert.All(examples.Where(example => example.IsObserved), example => Assert.NotNull(example.Choice));
-        Assert.Equal(26, examples.Where(example => example.IsObserved).SelectMany(example => example.Choice!.Alternatives)
+        Assert.Equal(20, examples.Where(example => example.IsObserved).SelectMany(example => example.Choice!.Alternatives)
             .Select(alternative => alternative.ObservationId).Distinct().Count());
+        var observedIds = examples.Where(example => example.IsObserved).Select(example => example.ObservationId).ToHashSet();
+        Assert.All(examples.Where(example => example.Choice is not null).SelectMany(example => example.Choice!.Alternatives),
+            alternative => Assert.DoesNotContain(alternative.ObservationId, observedIds));
         Assert.All(examples.Where(example => !example.IsObserved && !example.IsContrastSample), example =>
             Assert.Empty(TrainingMath.FilterEffectiveExamples([example], reference, LearnedScoringStrategy.MinSampleWeight)));
     }
@@ -204,6 +207,27 @@ public sealed class RecommendationChoiceBuilderTests
         var examples = TrainingDataBuilder.BuildExamples([result], [Profile(user, undated, Watch(chosen, Prediction.AddDays(-10), Prediction.AddDays(1)))], TestContext.Current.CancellationToken).Examples;
         Assert.All(examples, example => Assert.Null(example.Choice));
         Assert.All(examples, example => Assert.False(example.IsContrastSample));
+        Assert.Equal(2, examples.Count(example => example.IsObserved));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void AReplayedOrResumedTitleCannotBecomeAnUnobservedAlternativeFromItsLastPlayDate(int starts)
+    {
+        var user = Guid.NewGuid();
+        var chosen = Title(user, false);
+        var replayed = Title(user, false);
+        var unseen = Title(user, false);
+        var later = Watch(replayed, Prediction.AddDays(-10), Prediction.AddDays(2));
+        later.PlayCount = starts;
+        var result = Result(user, Item(replayed, .9), Item(unseen, .8), Item(chosen, .2));
+        var profile = Profile(user, Watch(chosen, Prediction.AddDays(-10), Prediction.AddDays(1)), later);
+        var examples = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples;
+        var unobservedId = TrainingExample.CreateTitleObservationId(user, unseen, 0, false);
+        Assert.All(examples.Where(example => example.IsObserved), example =>
+            Assert.Equal(unobservedId, Assert.Single(example.Choice!.Alternatives).ObservationId));
+        Assert.Equal(unobservedId, Assert.Single(examples, example => example.IsContrastSample).ObservationId);
         Assert.Equal(2, examples.Count(example => example.IsObserved));
     }
 

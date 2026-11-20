@@ -186,7 +186,8 @@ internal static class ChoiceRankingAdmissionEvaluator
     }
 
     private static bool RankingSafe(ChoiceRow[] rows, Func<AdmissionScores, double> candidate, Func<AdmissionScores, double> baseline)
-        => SafetyGroups(rows).All(group => Mean(group, row => Ndcg(row, candidate, 20)) + Tolerance >= Mean(group, row => Ndcg(row, baseline, 20))
+        => SafetyGroups(rows).All((ChoiceRow[] group) => new[] { RankingMetrics.DefaultK, 20 }.All((int k) =>
+            Mean(group, row => Ndcg(row, candidate, k)) + Tolerance >= Mean(group, row => Ndcg(row, baseline, k)))
             && Mean(group, row => ChoiceLoss(row, candidate)) <= Mean(group, row => ChoiceLoss(row, baseline)) + Tolerance);
 
     private static bool CalibrationSafe(ChoiceRow[] rows, Func<AdmissionScores, double> candidate, Func<AdmissionScores, double> baseline)

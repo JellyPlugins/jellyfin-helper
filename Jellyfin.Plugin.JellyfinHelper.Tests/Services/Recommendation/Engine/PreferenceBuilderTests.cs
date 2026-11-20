@@ -114,6 +114,7 @@ public class PreferenceBuilderTests
     [InlineData(false, false, .3)]
     [InlineData(true, false, .42)]
     [InlineData(false, true, 1.0)]
+    [InlineData(true, true, 1.0)]
     public void KnownZeroProgressUsesTheFloorAndTheFirstCompletionIncreasesGenreAndPeopleWeight(bool played, bool favorite, double multiplier)
     {
         var series = Guid.NewGuid();
@@ -128,6 +129,27 @@ public class PreferenceBuilderTests
         var weightedPeople = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, totals);
         Assert.Equal(multiplier, weightedPeople["Actor"] / neutralPeople["Actor"], 10);
         Assert.Equal(favorite ? 1 : multiplier, weighted["Action"] / weighted["Anchor"] / (neutral["Action"] / neutral["Anchor"]), 10);
+    }
+
+    [Theory]
+    [InlineData(0, 1.0)]
+    [InlineData(1, 1.0)]
+    [InlineData(8, 1.26)]
+    [InlineData(10, 1.5)]
+    public void FavoriteCompletionPreservesItsFloorAndStillAllowsRealSeriesProgressBoosts(int completed, double multiplier)
+    {
+        var series = Guid.NewGuid();
+        var episode = new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 4, Played = completed > 0, IsFavorite = true, Genres = ["Action"] };
+        var anchor = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Anchor"] };
+        var profile = new UserWatchProfile { WatchedItems = [episode, anchor] };
+        for (var id = 1; id < completed; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, Played = true });
+        var totals = new Dictionary<Guid, int> { [series] = 10 };
+        var people = new Dictionary<Guid, HashSet<string>> { [episode.ItemId] = ["Favorite actor"], [anchor.ItemId] = ["Anchor actor"] };
+        var genres = PreferenceBuilder.BuildGenrePreferenceVector(profile, totals);
+        var neutral = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, people, totals);
+        Assert.Equal(multiplier, weights["Favorite actor"], 10);
+        Assert.Equal((multiplier + 3) / 4, (genres["Action"] / genres["Anchor"]) / (neutral["Action"] / neutral["Anchor"]), 10);
     }
 
     [Fact]

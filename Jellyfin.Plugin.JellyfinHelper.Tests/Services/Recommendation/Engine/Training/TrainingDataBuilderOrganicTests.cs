@@ -15,6 +15,30 @@ public sealed class TrainingDataBuilderOrganicTests
 {
     private static readonly DateTime Anchor = new(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
 
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void OrganicMovieMetadataMustHaveExistedAtThePredictionTime(int acquiredDays, bool available)
+    {
+        var user = Guid.NewGuid();
+        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-5), Genres = ["Adventure"], Tags = ["pirate", "friendship"] };
+        var target = new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Anchor, Genres = ["Adventure"],
+            TitleMetadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = Anchor.AddDays(acquiredDays) }
+        };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [prior, target] };
+        var examples = TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples;
+        var id = TrainingExample.CreateTitleObservationId(user, target.ItemId, 0, false);
+        var example = Assert.Single(examples, row => row.ObservationId == id);
+        Assert.Equal(available ? 1 : null, example.Features.ContentFitSupport);
+        Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
+        Assert.Equal(Anchor, example.GeneratedAtUtc);
+        Assert.Equal(41, example.Features.ToVector().Length);
+        Assert.Equal(Anchor.AddDays(acquiredDays), target.TitleMetadata.FetchedAtUtc);
+    }
+
     [Fact]
     public void BuildExamples_OrganicUserWithoutPriorResults_EmitsOrganicExample()
     {

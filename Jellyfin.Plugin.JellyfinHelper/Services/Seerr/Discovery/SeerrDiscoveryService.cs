@@ -2532,7 +2532,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private void ApplyCachedCandidateMetadata(CandidateScoringContext context)
     {
         var config = _titleMetadataCache is null ? null : CurrentMetadataConfiguration(context.BaseUri, context.ApiKey);
-        foreach (var candidate in context.Candidates.Where(candidate => !candidate.MetadataFetchAttempted))
+        foreach (var candidate in context.Candidates)
         {
             if (_titleMetadataCache is not null && config is not null)
             {
@@ -2540,7 +2540,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 ApplyCachedSnapshot(candidate, cached);
             }
 
-            var detail = CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate)));
+            var detail = candidate.MetadataFetchAttempted ? null : CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate)));
             if (detail is not null)
             {
                 candidate.MetadataFetchAttempted = true;

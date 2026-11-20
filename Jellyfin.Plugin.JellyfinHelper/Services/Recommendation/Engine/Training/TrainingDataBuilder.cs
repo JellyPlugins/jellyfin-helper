@@ -245,7 +245,7 @@ internal static class TrainingDataBuilder
         return ids;
     }
 
-    private static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
+    internal static Dictionary<Guid, int> BuildTitleIdLookup(IReadOnlyList<RecommendationResult> previous, Collection<UserWatchProfile> profiles, LibraryItemMetadata? library)
     {
         var ids = new Dictionary<Guid, int>();
         foreach (var item in previous.SelectMany(result => result.Recommendations.Concat(result.TrainingContrasts ?? [])).Where(item => item.TmdbId > 0))
@@ -1246,7 +1246,8 @@ internal static class TrainingDataBuilder
         features.GenreDominanceRatio = organicDomRatio;
         features.GenreAffinityGap = organicAffGap;
 
-        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences, w.TitleMetadata);
+        var metadataAtPrediction = w.TitleMetadata is { } metadata && metadata.FetchedAtUtc <= predictionTime ? metadata : null;
+        history.Content.ContentFit.Apply(features, wGenres, organicTags ?? w.Tags, w.OfficialRating, genrePreferences, metadataAtPrediction);
         features.CollectionContinuationSupport = history.Content.CollectionContinuation.TryGetValue(w.ItemId, out var continuation) ? continuation : null;
 
         // Organic watches are positives. Favorites without playback get a fixed positive label.

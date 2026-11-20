@@ -26,13 +26,7 @@ internal static class RecommendationChoiceBuilder
         var keys = new TitleKeys(result.UserId, context.TitleIds);
         var recorded = result.Recommendations.Where(item => item.ScoringFeatures is not null)
             .GroupBy(item => keys.Get(item.ItemId, string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase))).ToDictionary(group => group.Key, group => group.First());
-        var engaged = context.Profile.WatchedItems.Where(item => item.HasMeaningfulInteraction())
-            .GroupBy(keys.Get).ToDictionary(group => group.Key, group => group.Min(item => ConservativeEngagementAt(item, context.ReferenceTime)));
-        foreach (var series in context.Profile.FavoriteSeriesIds.Where(series => series != Guid.Empty))
-        {
-            engaged.TryAdd(keys.Get(series, true), DateTime.UnixEpoch);
-        }
-
+        var engaged = EngagedTitles(context.Profile, keys);
         var prepared = new Prepared(context, recorded, engaged);
         var choices = new Dictionary<Guid, RecommendationChoiceEvidence>();
         var fitting = new HashSet<Guid>();
@@ -53,9 +47,16 @@ internal static class RecommendationChoiceBuilder
             }
         }
 
-        return new Plan(choices, fitting.Where(id => !engaged.ContainsKey(id)).Order()
+        return new Plan(choices, fitting.Where(id => !engaged.Contains(id)).Order()
             .Take(FittingAlternativeLimit(recommendedAt, context.ReferenceTime)).ToHashSet());
     }
+
+    internal static HashSet<Guid> EngagedTitles(UserWatchProfile profile, IReadOnlyDictionary<Guid, int> titleIds)
+        => EngagedTitles(profile, new TitleKeys(profile.UserId, titleIds));
+
+    private static HashSet<Guid> EngagedTitles(UserWatchProfile profile, TitleKeys keys)
+        => profile.WatchedItems.Where(item => item.HasMeaningfulInteraction()).Select(keys.Get)
+            .Concat(profile.FavoriteSeriesIds.Where(series => series != Guid.Empty).Select(series => keys.Get(series, true))).ToHashSet();
 
     internal static int FittingAlternativeLimit(DateTime predictedAt, DateTime referenceTime)
     {
@@ -77,8 +78,10 @@ internal static class RecommendationChoiceBuilder
             return null;
         }
 
-        var chosenAt = DateTimeNormalization.ToUtc(selected.LastPlayedDate!.Value);
-        var alternatives = recorded.Where(pair => pair.Key != group.Key && (!prepared.Engaged.TryGetValue(pair.Key, out var engagedAt) || engagedAt > chosenAt))
+        // LastPlayedDate can be a replay, resume or later episode, not the first
+        // engagement. Without earliest-engagement evidence, any engaged title is unknown
+        // as an unobserved alternative, regardless of how late its last play was.
+        var alternatives = recorded.Where(pair => pair.Key != group.Key && !prepared.Engaged.Contains(pair.Key))
             .Take(RecommendationChoiceEvidence.MaximumAlternatives)
             .Select(pair => new RecommendationChoiceAlternative(pair.Key, pair.Value.ScoringFeatures!.Copy())).ToImmutableArray();
         if (alternatives.IsEmpty)
@@ -122,14 +125,6 @@ internal static class RecommendationChoiceBuilder
             && (playedAt - recommendationAt).TotalDays <= EngineConstants.RecommendationInfluenceWindowDays;
     }
 
-    private static DateTime ConservativeEngagementAt(WatchedItemInfo item, DateTime referenceTime)
-    {
-        var time = DateTimeNormalization.ToUtc(item.LastPlayedDate ?? DateTime.UnixEpoch);
-        // Missing/future engagement times cannot prove that an alternative was still
-        // unobserved when the user chose another title. Exclude it from comparisons.
-        return time <= referenceTime ? time : DateTime.UnixEpoch;
-    }
-
     private static DateTime? AvailableAt(WatchedItemInfo item, DateTime recommendationAt, bool wasRecommended)
     {
         if (item.DateCreated.HasValue && DateTimeNormalization.ToUtc(item.DateCreated.Value) > DateTime.UnixEpoch)
@@ -152,7 +147,7 @@ internal static class RecommendationChoiceBuilder
 
     private sealed record CapturedChoice(RecommendationChoiceEvidence Evidence, bool ForFitting);
 
-    private sealed record Prepared(Context Context, Dictionary<Guid, RecommendedItem> Recorded, Dictionary<Guid, DateTime> Engaged);
+    private sealed record Prepared(Context Context, Dictionary<Guid, RecommendedItem> Recorded, HashSet<Guid> Engaged);
 
     private sealed class TitleKeys(Guid user, IReadOnlyDictionary<Guid, int> ids)
     {

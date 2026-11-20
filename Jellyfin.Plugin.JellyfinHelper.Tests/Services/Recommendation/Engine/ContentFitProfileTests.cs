@@ -96,6 +96,48 @@ public sealed class ContentFitProfileTests
     }
 
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void LatestProviderGenresSupplyPositiveChildrenEvidenceWithoutChangingLocalGenres(bool typedIds, bool positive)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var child = Watch(["Animation"], ["dog", "rescue mission"]);
+        child.UserRating = positive ? null : 2;
+        child.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = typedIds ? null : ["Children"], GenreIds = typedIds ? [10762] : null };
+        profile.WatchedItems.Add(child);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool", "dog", "rescue mission"], null, BattleGenres);
+        Assert.Equal(positive, ScoringHelper.IsContentEligible(features));
+        Assert.Equal(new[] { "Animation" }, child.Genres);
+        Assert.Equal(typedIds ? null : new[] { "Children" }, child.TitleMetadata.SourceGenres?.ToArray());
+    }
+
+    [Fact]
+    public void SupersededProviderChildrenGenresDoNotOutliveTheLatestTitleSnapshot()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var series = Guid.NewGuid();
+        var old = Watch(["Animation"], []);
+        old.SeriesId = series;
+        old.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = ["Kids"], FetchedAtUtc = DateTime.UtcNow.AddDays(-1) };
+        var latest = Watch(["Animation"], []);
+        latest.SeriesId = series;
+        latest.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = [], FetchedAtUtc = DateTime.UtcNow };
+        profile.WatchedItems.Add(old);
+        profile.WatchedItems.Add(latest);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, BattleGenres);
+        Assert.False(ScoringHelper.IsContentEligible(features));
+        latest.Genres = ["Animation", "Kids"];
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, BattleGenres);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
     [InlineData("anime", "western animation", true, null)]
     [InlineData("anime", "western animation", false, null)]
     [InlineData("anime", "western animation", true, 2.0)]

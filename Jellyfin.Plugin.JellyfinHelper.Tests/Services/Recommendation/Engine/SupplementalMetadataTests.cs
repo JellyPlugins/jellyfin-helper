@@ -184,6 +184,73 @@ public sealed class SupplementalMetadataTests
         Assert.Equal("anime", animation.ProbableRepresentation);
     }
 
+    [Theory]
+    [InlineData("Talk", "talk show")]
+    [InlineData("talk show", "talk show")]
+    [InlineData("talk-show", "talk show")]
+    [InlineData("Scripted", "scripted")]
+    [InlineData("Documentary", "documentary")]
+    [InlineData("Reality", "reality")]
+    [InlineData("News", "news")]
+    public void NarrativeNormalizationRemainsIdempotentAcrossSupplementalMerging(string original, string expected)
+    {
+        var now = DateTime.UtcNow;
+        var first = new TitleMetadataSnapshot { TmdbId = 123, MediaType = "tv", SeriesType = original, Source = "seerr", FetchedAtUtc = now };
+        var combined = TitleMetadataMerger.Combine([first, first with { Source = "trakt" }])!;
+        Assert.Equal(expected, ContentDescriptor.NormalizeNarrativeType(original));
+        Assert.Equal(expected, ContentDescriptor.NormalizeNarrativeType(expected));
+        Assert.Equal(ContentDescriptor.Create([], [], first).Narrative, ContentDescriptor.Create([], [], combined).Narrative);
+        Assert.Null(combined.ConflictingValues);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ANewSonarrModeSupersedesItsOlderAliasObservationIncludingAfterRestart(bool refreshOldPrimary)
+    {
+        var config = Configuration();
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("sonarr-mode-migration.json");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path);
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "sonarr-test");
+        var now = DateTime.UtcNow;
+        var oldest = now.AddDays(-2);
+        var latestMode = now.AddDays(-1);
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", AnimeHint = true, SourceGenres = ["Animation"], Overview = "retained", FetchedAtUtc = oldest }, source, null);
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = false, FetchedAtUtc = latestMode }, source, null);
+        if (refreshOldPrimary) cache.StoreSupplemental(config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", SourceGenres = ["Animation"], FetchedAtUtc = now }, source, null);
+        foreach (var persisted in new[] { false, true })
+        {
+            if (persisted)
+            {
+                Assert.True(cache.Save());
+                cache = new TitleMetadataCache(fileSystem: fs, cachePath: path);
+            }
+
+            var projection = cache.Get(config, 0, "tv", 456)!;
+            Assert.False(projection.AnimeHint);
+            Assert.Null(ContentDescriptor.Create([], [], projection).ProbableRepresentation);
+            Assert.Equal("retained", projection.Overview);
+            Assert.Equal(oldest, projection.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
+            Assert.Equal(latestMode, projection.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.AnimeHint)]);
+            Assert.False(cache.Get(config, 123, "tv", 456)!.AnimeHint);
+        }
+    }
+
+    [Fact]
+    public void OneConfiguredSonarrCannotClearAnIndependentSourcesCurrentAnimeHint()
+    {
+        var config = Configuration();
+        config.SonarrInstances.Add(new ArrInstanceConfig { Url = "https://other-sonarr.example.test", ApiKey = "other-sonarr-test" });
+        var cache = new TitleMetadataCache();
+        var now = DateTime.UtcNow;
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = now.AddDays(-1) }, new("sonarr", "https://other-sonarr.example.test", "other-sonarr-test"), null);
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = false, FetchedAtUtc = now }, new("sonarr", "https://sonarr.example.test", "sonarr-test"), null);
+        Assert.True(cache.Get(config, 123, "tv", 456)!.AnimeHint);
+        config.SonarrInstances.RemoveAt(1);
+        Assert.False(cache.Get(config, 123, "tv", 456)!.AnimeHint);
+    }
+
     [Fact]
     public void AbsentIdentityIsNotAProofThatUnrelatedSourcesDescribeTheSameTitle()
     {

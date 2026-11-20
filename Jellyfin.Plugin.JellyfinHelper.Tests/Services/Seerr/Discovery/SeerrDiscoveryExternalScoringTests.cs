@@ -239,6 +239,37 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.True(selected.ScoringFeatures.GenreSimilarity > 0);
     }
 
+    [Theory]
+    [InlineData("6", true)]
+    [InlineData("18", false)]
+    [InlineData(null, false)]
+    public async Task RequiredCertificationEnrichmentStillNormalizesRetainedSharedGenreAndKeywordEvidence(string? certification, bool allowed)
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user, maxParentalRating: 6);
+        var profile = _history.Object.GetUserWatchProfile(user)!;
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"], Tags = ["pirate", "friendship"] });
+        var cache = new TitleMetadataCache();
+        cache.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 101, GenreIds = [28], Keywords = ["pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow.AddDays(-10) });
+        var candidate = Candidate(101);
+        candidate.GenreIds = [];
+        var release = certification is null ? string.Empty : $$""", "releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"{{certification}}"}]}]}""";
+        _detailById[101] = $$"""{"id":101,"mediaInfo":{"status":1}{{release}}}""";
+        var result = await CreateService(titleMetadataCache: cache).ScoreExternalCandidatesAsync(user, [candidate], TestContext.Current.CancellationToken);
+        if (!allowed)
+        {
+            Assert.Null(result);
+            return;
+        }
+
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Equal(new[] { "Action" }, selected.Genres);
+        Assert.Equal(6, selected.CertificationScore);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.Equal(1, selected.ScoringFeatures.TagSimilarity, 10);
+        Assert.Equal(new[] { "pirate", "friendship" }, selected.TitleMetadata!.Keywords!.Value);
+    }
+
     [Fact]
     public async Task WarmupWithoutAnOptionalSharedCacheMakesNoProviderRequests()
     {

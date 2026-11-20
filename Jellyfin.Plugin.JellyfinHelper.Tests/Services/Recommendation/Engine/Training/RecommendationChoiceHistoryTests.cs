@@ -63,6 +63,76 @@ public sealed class RecommendationChoiceHistoryTests
         Assert.All(replay, row => Assert.True(row.IsPermanentHoldout));
     }
 
+    [Theory]
+    [InlineData(.85)]
+    [InlineData(.1)]
+    public void ACurrentlyObservedAlternativeIsWithdrawnFromReplayFittingAndAdmissionWithoutChangingActualOutcomes(double laterLabel)
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var chosen = Identity(false);
+        var later = Identity(false);
+        var unseen = Identity(false);
+        var original = Observation(user, chosen, now, true);
+        original.Choice = original.Choice! with { Alternatives = [new(later, new CandidateFeatures { GenreSimilarity = .8 }), new(unseen, new CandidateFeatures { GenreSimilarity = .7 })] };
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("withdraw-engaged-choice.json");
+        var history = new RecommendationChoiceHistory(fs, path);
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        var current = Observation(user, chosen, now, false);
+        var watchedLater = Observation(user, later, now, false);
+        watchedLater.Label = laterLabel;
+        var projected = history.Merge([current, watchedLater], new HashSet<Guid> { user }, now.AddDays(1));
+        var replay = Assert.Single(projected, row => row.Choice is not null);
+        Assert.Equal(unseen, Assert.Single(replay.Choice!.Alternatives).ObservationId);
+        var comparison = Assert.Single(projected, row => row.IsContrastSample);
+        Assert.Equal(unseen, comparison.ObservationId);
+        Assert.Equal(.25, comparison.SampleWeight);
+        Assert.Equal(laterLabel, Assert.Single(projected, row => row.ObservationId == later).Label);
+        Assert.Equal(1, current.SampleWeight);
+        Assert.Equal(1, watchedLater.SampleWeight);
+        Assert.Equal(2, original.Choice.Alternatives.Length);
+        Assert.Equal(original.GeneratedAtUtc, replay.GeneratedAtUtc);
+        Assert.Equal(original.Features.ToVector(), replay.Features.ToVector());
+        Assert.True(history.Save());
+        var restarted = new RecommendationChoiceHistory(fs, path).Merge([current], new HashSet<Guid> { user }, now.AddDays(2));
+        Assert.Equal(unseen, Assert.Single(Assert.Single(restarted, row => row.Choice is not null).Choice!.Alternatives).ObservationId);
+        Assert.DoesNotContain(restarted, row => row.ObservationId == later);
+    }
+
+    [Fact]
+    public void AChoiceWithNoRemainingUnobservedAlternativesIsWithdrawnWithoutRelabelingItsWatch()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var chosen = Identity(false);
+        var original = Observation(user, chosen, now, true);
+        var alternative = original.Choice!.Alternatives[0].ObservationId;
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        var current = new[] { Observation(user, chosen, now, false), Observation(user, alternative, now, false) };
+        var result = history.Merge(current, new HashSet<Guid> { user }, now);
+        Assert.Equal(2, result.Count);
+        Assert.All(result, row => { Assert.True(row.IsObserved); Assert.Null(row.Choice); Assert.Equal(.85, row.Label); });
+        Assert.All(current, row => Assert.Equal(1, row.SampleWeight));
+    }
+
+    [Fact]
+    public void AnUnfinishedKnownEngagementAlsoCannotReceiveAReplayContrast()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var alternative = original.Choice!.Alternatives[0].ObservationId;
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        var result = history.Merge([Observation(user, original.ObservationId, now, false)], new HashSet<Guid> { user }, now,
+            new HashSet<(Guid, Guid)> { (user, alternative) });
+        Assert.Single(result);
+        Assert.Null(result[0].Choice);
+        Assert.False(result[0].IsContrastSample);
+    }
+
     [Fact]
     public void IndependentChosenTitlesAccumulateAcrossDifferentPlaylistGenerations()
     {
