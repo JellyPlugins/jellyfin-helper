@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -191,10 +192,14 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         var titles = Enumerable.Range(1000, 300).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
         _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(titles);
+        var returnedContents = new ConcurrentBag<HttpContent>();
         _handler.ResponseOverride = (request, _) =>
         {
             var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
-            return Task.FromResult(id < 1000 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) : JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
+            var response = JsonResponse(id < 1000 ? "{}" : $$"""{"id":{{id}},"keywords":[]}""",
+                id < 1000 ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK);
+            returnedContents.Add(response.Content);
+            return Task.FromResult(response);
         };
         for (var pass = 0; pass < 3; pass++)
         {
@@ -207,6 +212,11 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.All(Enumerable.Range(1000, 300), id => Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, id, "movie")));
         Assert.Equal(364, _handler.Requests.Select(request => request.Path).Distinct().Count());
         Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 1, "movie"));
+        Assert.Equal(_handler.Requests.Count, returnedContents.Count);
+        await Assert.AllAsync(returnedContents, async content =>
+        {
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        });
     }
 
     [Fact]
@@ -1698,8 +1708,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     // Helpers
 
     // Ownership passes directly to HttpClient; the service disposes each received response.
-    private static HttpResponseMessage JsonResponse(string json)
-        => new(HttpStatusCode.OK) { Content = new StringContent(json) };
+    private static HttpResponseMessage JsonResponse(string json, HttpStatusCode status = HttpStatusCode.OK)
+        => new(status) { Content = new StringContent(json) };
 
     private static Collection<UserWatchProfile> Profiles(params UserWatchProfile[] profiles)
     {
