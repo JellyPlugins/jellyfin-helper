@@ -253,6 +253,7 @@ function ensembleStatusSummary(data) {
         var levels = {
             Provisional: ['recsEnsembleStatusProvisional', 'Provisional — ranking not yet verified'],
             Verified: ['recsEnsembleStatusVerified', 'Independently verified'],
+            ChoiceRanking: ['recsEnsembleStatusChoiceRanking', 'Independently verified choice ranking'],
             GlobalPrior: ['recsEnsembleStatusPrior', 'Starting mixture from global priors']
         };
         var level = levels[data.ValidationLevel];

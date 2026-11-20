@@ -5,6 +5,7 @@
   "recsEnsembleStatusPrior": "Mélange initial issu des modèles globaux",
   "recsEnsembleStatusProvisional": "Provisoire — classement non encore vérifié",
   "recsEnsembleStatusVerified": "Vérifié indépendamment",
+  "recsEnsembleStatusChoiceRanking": "Classement des choix vérifié indépendamment",
   "recsEnsembleStoredTarget": "Part ML cible enregistrée",
   "recsEnsembleNeuralSchema": "Modèle neuronal v{0} : {1} caractéristiques",
   "genre.12": "Aventure",

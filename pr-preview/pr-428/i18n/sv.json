@@ -5,6 +5,7 @@
   "recsEnsembleStatusPrior": "Startblandning från globala modeller",
   "recsEnsembleStatusProvisional": "Preliminär — rankningen ännu inte verifierad",
   "recsEnsembleStatusVerified": "Oberoende verifierad",
+  "recsEnsembleStatusChoiceRanking": "Oberoende verifierad preferensrankning",
   "recsEnsembleStoredTarget": "Sparad målandel för ML",
   "recsEnsembleNeuralSchema": "Neural modell v{0}: {1} egenskaper",
   "genre.12": "Äventyr",
