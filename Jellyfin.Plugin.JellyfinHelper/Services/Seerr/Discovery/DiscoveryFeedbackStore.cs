@@ -194,18 +194,48 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var saved = false;
+            Exception? failure = null;
             try
             {
                 saved = write.Operation();
-                write.Completion.TrySetResult(saved);
             }
             catch (Exception exception) when (!exception.IsFatal())
             {
-                write.Completion.TrySetException(exception);
+                failure = exception;
             }
 
             successful &= saved;
             CompleteObservedWrite(write, saved);
+            var finished = ReleaseWriterIfIdle();
+            // Publication includes completion bookkeeping. A successful receipt
+            // must not race a stale busy flag on the caller's next generation.
+            if (failure is null)
+            {
+                write.Completion.TrySetResult(saved);
+            }
+            else
+            {
+                write.Completion.TrySetException(failure);
+            }
+
+            if (finished)
+            {
+                return successful;
+            }
+        }
+    }
+
+    private bool ReleaseWriterIfIdle()
+    {
+        lock (_writerGate)
+        {
+            if (_writes.Count > 0)
+            {
+                return false;
+            }
+
+            _writerRunning = false;
+            return true;
         }
     }
 
