@@ -456,6 +456,46 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASeerrKeywordClearReplacesOnlySeerrEvidenceEvenAfterProjectionSerialization(bool independentAnime)
+    {
+        var service = CreateService();
+        var old = DateTime.UtcNow.AddDays(-1);
+        var seerr = new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["anime"], Overview = "retained", Source = "seerr", FetchedAtUtc = old };
+        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = independentAnime ? ["anime", "friendship"] : ["friendship"], Source = "trakt", FetchedAtUtc = old };
+        var projected = TitleMetadataMerger.Combine([seerr, independent]);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<TitleMetadataSnapshot>(System.Text.Json.JsonSerializer.Serialize(projected))!;
+        var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = restored };
+        var detail = new SeerrMediaDetailResponse { Id = 101, Keywords = [] };
+        Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyFetchedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, detail])!);
+        Assert.Empty(candidate.KnownKeywords!);
+        Assert.Equal(independentAnime, candidate.TitleMetadata!.Keywords!.Value.Contains("anime"));
+        Assert.Contains("friendship", candidate.TitleMetadata.Keywords.Value);
+        Assert.Equal("retained", candidate.TitleMetadata.Overview);
+        Assert.Equal(old, candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
+        Assert.All(candidate.TitleMetadata.SourceObservations!.Value, observation => Assert.Null(observation.SourceObservations));
+    }
+
+    [Fact]
+    public void ApplyingSharedMetadataCannotReintroduceExpiredCandidateObservationFields()
+    {
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, null);
+        var stale = new TitleMetadataSnapshot
+        {
+            TmdbId = 101, Keywords = ["anime"], GenreIds = [16], FetchedAtUtc = now.AddDays(-1), ObservationScope = scope,
+            FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.Keywords), now.AddDays(-31))
+        };
+        var fresh = stale with { Keywords = null };
+        var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = stale };
+        typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [candidate, fresh]);
+        Assert.Null(candidate.TitleMetadata!.Keywords);
+        Assert.Equal(new[] { 16 }, candidate.GenreIds);
+        Assert.Null(candidate.KnownKeywords);
+    }
+
     [Fact]
     public void PublishingAnIsolatedSeerrObservationPreservesCandidateLocalMetadataWithoutCrossScopeLeakage()
     {

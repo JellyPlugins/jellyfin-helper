@@ -221,6 +221,35 @@ public sealed class EnsembleAdmissionEvaluatorTests
         Assert.Single(EnsembleAdmissionEvaluator.SelectEvaluationBlock(Enumerable.Repeat(rows[0], 20)));
     }
 
+    [Theory]
+    [InlineData(.85, true)]
+    [InlineData(.1, false)]
+    public void DeduplicationKeepsOriginalReplayChoicesWithoutOverridingFreshNegativeOutcomes(double latestLabel, bool retainsChoice)
+    {
+        var user = Guid.NewGuid();
+        var original = new TrainingExample
+        {
+            Features = new CandidateFeatures { GenreSimilarity = .2 }, UserId = user, ObservationId = Guid.NewGuid(),
+            HasStableObservationId = true, IsObserved = true, Label = .85, GeneratedAtUtc = ReferenceTime.AddDays(-3)
+        };
+        original.Choice = new RecommendationChoiceEvidence
+        {
+            ChosenObservationId = original.ObservationId, ChosenFeatures = original.Features.Copy(),
+            RecommendedAtUtc = ReferenceTime.AddDays(-3), AvailableAtUtc = ReferenceTime.AddDays(-10), ChosenAtUtc = ReferenceTime.AddDays(-2),
+            Alternatives = [new(Guid.NewGuid(), new CandidateFeatures { GenreSimilarity = .9 })]
+        };
+        var latest = original.Copy();
+        latest.Choice = null;
+        latest.GeneratedAtUtc = ReferenceTime.AddDays(-1);
+        latest.Label = latestLabel;
+        var selected = Assert.Single(EnsembleAdmissionEvaluator.SelectEvaluationBlock([latest, original], ReferenceTime));
+        Assert.Equal(retainsChoice, selected.Choice is not null);
+        Assert.Equal(retainsChoice ? original.GeneratedAtUtc : latest.GeneratedAtUtc, selected.GeneratedAtUtc);
+        Assert.Equal(latestLabel, latest.Label);
+        Assert.Null(latest.Choice);
+        Assert.NotNull(original.Choice);
+    }
+
     [Fact]
     public void HistoricalNeuralIncrementNeedsFreshLossAndRankingUtilityNotAnOldApproval()
     {

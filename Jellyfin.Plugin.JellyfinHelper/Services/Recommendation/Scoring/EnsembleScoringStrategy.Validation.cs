@@ -322,7 +322,7 @@ public sealed partial class EnsembleScoringStrategy
             return false;
         }
 
-        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration);
+        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration, now);
         var used = spent.Concat(_seedAcceptanceObservations).ToHashSet();
         var freshAcceptance = SelectFreshAcceptanceBlock(acceptance.Where(row => !used.Contains(row.ObservationId)), now);
         if (freshAcceptance is null)
@@ -390,7 +390,7 @@ public sealed partial class EnsembleScoringStrategy
             cursor = _acceptanceBlockCursor;
         }
 
-        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next);
+        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next, evaluatedAt);
         lock (_syncRoot)
         {
             if (_independentAdmissionDisposed)
@@ -823,6 +823,13 @@ public sealed partial class EnsembleScoringStrategy
 
     private HistoricalRestoration TryRestoreAgainstChallenger(ChallengerContext context, TrainedCandidates candidates, AdmissionDecision decision, ValidationBatch batch, CancellationToken cancellationToken)
     {
+        // Archives currently use ordinary mixed-outcome assessment. Do not let an
+        // unassessable archive veto an independently accepted choice-ranking challenger.
+        if (!EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(batch.Acceptance, batch.EvaluatedAt))
+        {
+            return HistoricalRestoration.NotSelected;
+        }
+
         var store = new AcceptedModelStore(_statePath, _logger);
         var historical = store.ReadHistory();
         if (historical.Length == 0)

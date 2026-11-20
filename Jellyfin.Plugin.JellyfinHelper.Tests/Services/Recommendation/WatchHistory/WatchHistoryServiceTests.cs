@@ -65,6 +65,10 @@ public sealed class WatchHistoryServiceTests
         var config = _mockConfigService.Object.GetConfiguration();
         var snapshot = new TitleMetadataSnapshot { TmdbId = 123, MediaType = "tv", Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow };
         cache.Store(config, snapshot);
+        var published = cache.Get(config, 123, "tv")!;
+        Assert.Equal(snapshot with { ObservationScope = published.ObservationScope }, published);
+        Assert.NotNull(published.ObservationScope);
+        Assert.Null(snapshot.ObservationScope);
         var user = CreateTestUser("cached metadata");
         var parent = new Series { Id = Guid.NewGuid(), Name = "Parent", Genres = ["Animation"], ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
         var episode = new Episode { Id = Guid.NewGuid(), SeriesId = parent.Id, Name = "Episode", Tags = ["own episode tag"] };
@@ -73,10 +77,10 @@ public sealed class WatchHistoryServiceTests
             _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
         var profile = service.BuildProfile(user, [episode], [parent], collectionIds: []);
         var row = Assert.Single(profile.WatchedItems);
-        Assert.Same(snapshot, row.TitleMetadata);
+        Assert.Same(published, row.TitleMetadata);
         Assert.Equal(["own episode tag"], row.OwnTags);
         Assert.DoesNotContain("anime", episode.Tags);
-        Assert.Same(snapshot, row.CopyPlaybackHistory().TitleMetadata);
+        Assert.Same(published, row.CopyPlaybackHistory().TitleMetadata);
     }
 
     [Fact]

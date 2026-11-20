@@ -116,7 +116,7 @@ internal static class DiversityReranker
 
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
         // Rank the entire candidate list once and split into two disjoint pools: * mmrPool: top count·MmrPoolFactor for the diversity-aware relevance selection.
-        var ranked = candidates.OrderByDescending(c => c.Score).ToList();
+        var ranked = candidates.OrderByDescending(c => c.Score).DistinctBy(candidate => candidate.Item.Id).ToList();
         var mmrPoolSize = Math.Min(ranked.Count, count * MmrPoolFactor);
         var explorationPoolSize = Math.Min(ranked.Count, count * ExplorationPoolFactor);
         var remaining = ranked.Where((candidate, rank) => rank < mmrPoolSize || contentSupported?.Contains(candidate.Item.Id) == true).ToList();

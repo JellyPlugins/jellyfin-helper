@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using MediaBrowser.Controller.Configuration;
@@ -22,13 +23,16 @@ public sealed class TitleMetadataCache
     private const string MovieMediaType = "movie";
     private readonly Lock _gate = new();
     private readonly Lock _persistenceGate = new();
+    private readonly Lock _writerGate = new();
     private readonly Dictionary<string, TitleMetadataSnapshot> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _attempts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _reservations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _aliases = new(StringComparer.Ordinal);
     private readonly IServerConfigurationManager? _serverConfiguration;
     private readonly IFileSystem? _fileSystem;
     private readonly string? _cachePath;
     private readonly TimeProvider _clock;
+    private Task<bool>? _pendingSave;
     private int _nextRefreshIndex;
 
     /// <summary>Initializes a new instance of the <see cref="TitleMetadataCache"/> class.</summary>
@@ -80,9 +84,13 @@ public sealed class TitleMetadataCache
             }
 
             var identity = new TitleMetadataSnapshot { TmdbId = tmdbId, TvdbId = tvdbId, ImdbId = imdbId, MediaType = mediaType };
-            var snapshots = keys.Select(key => ReadEntry(key, now)).OfType<TitleMetadataSnapshot>().Distinct()
-                .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot))
-                .Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray();
+            var snapshots = keys.GroupBy(key => key.Split(':')[0]).Select(group =>
+            {
+                var observations = group.Select(key => ReadEntry(key, now)).OfType<TitleMetadataSnapshot>().Distinct()
+                    .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot))
+                    .Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray();
+                return ReconcileSourceObservations(observations, now);
+            }).OfType<TitleMetadataSnapshot>().ToArray();
             return TitleMetadataMerger.Combine(snapshots);
         }
     }
@@ -127,16 +135,16 @@ public sealed class TitleMetadataCache
             return null;
         }
 
-        return CombineScopedEntries(current, now);
+        return ReconcileSourceObservations(current, now);
     }
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
 
-    private static TitleMetadataSnapshot? CombineScopedEntries(TitleMetadataSnapshot[] snapshots, DateTime now)
+    internal static TitleMetadataSnapshot? ReconcileSourceObservations(TitleMetadataSnapshot[] snapshots, DateTime now)
     {
         if (snapshots.Length == 1)
         {
-            return snapshots[0];
+            return FreshProjection(snapshots[0], now);
         }
 
         // These entries share the alias's configuration/language digest. A newer
@@ -149,7 +157,7 @@ public sealed class TitleMetadataCache
             combined = MergeFields(combined is null ? current : LinkSuppliedIdentity(current, combined), combined, now, preferNewerFields: true);
         }
 
-        return combined;
+        return combined is null ? null : combined with { SourceObservations = null, ObservationScope = snapshots[0].ObservationScope };
     }
 
     private TitleMetadataSnapshot? ReadUsableEntry(string key, DateTime now)
@@ -159,13 +167,26 @@ public sealed class TitleMetadataCache
             return null;
         }
 
-        var usable = snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
-            ? snapshot
-            : MergeFields(snapshot, null, now);
+        var usable = FreshProjection(snapshot, now)!;
         return IdentityKeys(key.Split(':')[0], usable.MediaType, usable.TmdbId, usable.TvdbId, usable.ImdbId).Contains(key, StringComparer.Ordinal)
             ? usable
             : null;
     }
+
+    internal static TitleMetadataSnapshot? FreshProjection(TitleMetadataSnapshot snapshot, DateTime now)
+    {
+        if (!IsUsable(snapshot.FetchedAtUtc, now))
+        {
+            return null;
+        }
+
+        return snapshot.FieldFetchedAtUtc is null || snapshot.FieldFetchedAtUtc.Values.All(time => IsUsable(time, now))
+            ? snapshot
+            : MergeFields(snapshot, null, now);
+    }
+
+    internal static string SeerrScope(PluginConfiguration config, string? language)
+        => Key(config, 0, MovieMediaType, language).Split(':')[0];
 
     /// <summary>Reserves a refresh slot, preventing duplicate title requests and rapid retries after failures.</summary>
     /// <param name="config">The captured provider configuration.</param>
@@ -173,6 +194,9 @@ public sealed class TitleMetadataCache
     /// <param name="mediaType">The title namespace.</param>
     /// <returns>Whether this scheduled pass should refresh the title.</returns>
     public bool TryBeginRefresh(PluginConfiguration config, int tmdbId, string mediaType)
+        => TryBeginRefresh(config, tmdbId, mediaType, MetadataLanguage);
+
+    private bool TryBeginRefresh(PluginConfiguration config, int tmdbId, string mediaType, string? language)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (tmdbId <= 0 || mediaType is not (MovieMediaType or "tv"))
@@ -180,7 +204,7 @@ public sealed class TitleMetadataCache
             return false;
         }
 
-        var key = Key(config, tmdbId, mediaType);
+        var key = Key(config, tmdbId, mediaType, language);
         lock (_gate)
         {
             if ((_entries.TryGetValue(key, out var snapshot) && snapshot.FetchedAtUtc > Now.AddDays(-7) && snapshot.FetchedAtUtc <= Now)
@@ -236,8 +260,9 @@ public sealed class TitleMetadataCache
         return StoreEntry(key, snapshot with { Source = source.Source });
     }
 
-    private TitleMetadataSnapshot StoreEntry(string key, TitleMetadataSnapshot snapshot)
+    private TitleMetadataSnapshot? StoreEntry(string key, TitleMetadataSnapshot snapshot)
     {
+        snapshot = snapshot with { ObservationScope = key.Split(':')[0], SourceObservations = null };
         var imdbId = TitleProviderIdentity.NormalizeImdb(snapshot.ImdbId);
         if (snapshot.ImdbId != imdbId)
         {
@@ -249,7 +274,7 @@ public sealed class TitleMetadataCache
             _entries.TryGetValue(key, out var previous);
             if (previous is not null && previous.FetchedAtUtc > snapshot.FetchedAtUtc)
             {
-                return previous;
+                return ReadUsableEntry(key, Now);
             }
 
             if (previous is not null && !TitleProviderIdentity.Compatible(previous, snapshot))
@@ -265,7 +290,7 @@ public sealed class TitleMetadataCache
 
             _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now);
             RegisterAliases(key, _entries[key]);
-            return _entries[key];
+            return ReadUsableEntry(key, Now);
         }
     }
 
@@ -343,6 +368,9 @@ public sealed class TitleMetadataCache
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', source.Source, source.Url, source.ApiKey, language))));
 
     internal (int TmdbId, string MediaType)[] ReserveRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, int maximum)
+        => ReserveRefreshes(config, titles, maximum, MetadataLanguage);
+
+    internal (int TmdbId, string MediaType)[] ReserveRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, int maximum, string? language)
     {
         lock (_gate)
         {
@@ -356,9 +384,9 @@ public sealed class TitleMetadataCache
 
             var start = _nextRefreshIndex % candidates.Length;
             var reserved = candidates.Select((title, index) => (Title: title, Index: index))
-                .OrderBy(candidate => RefreshPriority(Key(config, candidate.Title.TmdbId, candidate.Title.MediaType)))
+                .OrderBy(candidate => RefreshPriority(Key(config, candidate.Title.TmdbId, candidate.Title.MediaType, language)))
                 .ThenBy(candidate => (candidate.Index - start + candidates.Length) % candidates.Length)
-                .Where(candidate => TryBeginRefresh(config, candidate.Title.TmdbId, candidate.Title.MediaType)).Take(maximum).ToArray();
+                .Where(candidate => TryReserveRefresh(config, candidate.Title.TmdbId, candidate.Title.MediaType, language)).Take(maximum).ToArray();
             if (reserved.Length > 0)
             {
                 // Rotation also protects large libraries when bounded cache/attempt entries are evicted.
@@ -366,6 +394,36 @@ public sealed class TitleMetadataCache
             }
 
             return reserved.Select(candidate => candidate.Title).ToArray();
+        }
+    }
+
+    private bool TryReserveRefresh(PluginConfiguration config, int id, string mediaType, string? language)
+    {
+        var key = Key(config, id, mediaType, language);
+        var now = Now;
+        return id > 0 && mediaType is MovieMediaType or "tv" && _reservations.Count < MaximumEntries
+            && !(_entries.TryGetValue(key, out var snapshot) && snapshot.FetchedAtUtc > now.AddDays(-7) && snapshot.FetchedAtUtc <= now)
+            && !(_attempts.TryGetValue(key, out var attempted) && attempted > now.AddMinutes(-15))
+            && _reservations.Add(key);
+    }
+
+    internal bool DispatchRefresh(PluginConfiguration config, int id, string mediaType, string? language)
+    {
+        lock (_gate)
+        {
+            var key = Key(config, id, mediaType, language);
+            return _reservations.Remove(key) && TryBeginRefresh(config, id, mediaType, language);
+        }
+    }
+
+    internal void ReleaseRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, string? language)
+    {
+        lock (_gate)
+        {
+            foreach (var title in titles)
+            {
+                _reservations.Remove(Key(config, title.TmdbId, title.MediaType, language));
+            }
         }
     }
 
@@ -461,6 +519,43 @@ public sealed class TitleMetadataCache
         }
     }
 
+    /// <summary>Waits a bounded time for one managed atomic writer; cancellation never waits on stalled filesystem I/O.</summary>
+    /// <param name="cancellationToken">Cancellation of this caller's wait, not ownership of the shared writer.</param>
+    /// <returns>Whether persistence completed successfully within the wait budget.</returns>
+    public async Task<bool> SaveAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_cachePath is null || _fileSystem is null)
+        {
+            return false;
+        }
+
+        Task<bool> writer;
+        lock (_writerGate)
+        {
+            // Safe abandonment is bounded to one writer per cache. Repeated scheduled
+            // passes cannot accumulate blocked writes or race the atomic replacement.
+            if (_pendingSave is { IsCompleted: false } active)
+            {
+                writer = active;
+            }
+            else
+            {
+                writer = Task.Run(Save, CancellationToken.None);
+                _pendingSave = writer;
+            }
+        }
+
+        try
+        {
+            return await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
     private string Key(PluginConfiguration config, int tmdbId, string mediaType)
         => Key(config, tmdbId, mediaType, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
 
@@ -487,8 +582,8 @@ public sealed class TitleMetadataCache
             var saved = JsonSerializer.Deserialize<Dictionary<string, TitleMetadataSnapshot>>(_fileSystem.File.ReadAllText(_cachePath), JsonDefaults.Options);
             foreach (var pair in (saved ?? []).Where(pair => ValidSavedEntry(pair)).OrderByDescending(pair => pair.Value.FetchedAtUtc).Take(MaximumEntries))
             {
-                _entries[pair.Key] = pair.Value;
-                RegisterAliases(pair.Key, pair.Value);
+                _entries[pair.Key] = pair.Value with { ObservationScope = pair.Key.Split(':')[0], SourceObservations = null };
+                RegisterAliases(pair.Key, _entries[pair.Key]);
             }
         }
         catch (Exception ex) when (!ex.IsFatal())

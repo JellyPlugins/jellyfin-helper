@@ -88,6 +88,26 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void ExplorationNeverReplacesTheBestEntryOfAnIdWithItsLowerRankedDuplicate()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(40);
+        var best = candidates[1];
+        candidates[10].Item.Id = best.Item.Id;
+        var observed = false;
+        for (var seed = 0; seed < 80; seed++)
+        {
+            var selected = DiversityReranker.ApplyDiversityReranking(candidates, 2, seed, new HashSet<Guid> { candidates[0].Item.Id });
+            if (selected.Any(candidate => candidate.Item.Id == best.Item.Id))
+            {
+                observed = true;
+                Assert.Equal(best.Score, Assert.Single(selected, candidate => candidate.Item.Id == best.Item.Id).Score);
+            }
+        }
+
+        Assert.True(observed);
+    }
+
+    [Fact]
     public void ExplorationDoesNotRepeatASelectedLibraryIdFromEitherLeftoverPool()
     {
         var candidates = BuildLinearlyDecreasingCandidates(200);

@@ -220,7 +220,10 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="examples">One partition, already excluding spent acceptance identities where applicable.</param>
     /// <returns>A bounded block; unused new identities remain available for later independent rounds.</returns>
     internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples)
-        => SelectEvaluationBlock(examples, 0, out _);
+        => SelectEvaluationBlock(examples, 0, out _, DateTime.UtcNow);
+
+    internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, DateTime referenceTime)
+        => SelectEvaluationBlock(examples, 0, out _, referenceTime);
 
     /// <summary>Rotates a bounded balanced block using only identities, never labels, scores or admission results.</summary>
     /// <param name="examples">Fresh observations in one permanent partition.</param>
@@ -228,11 +231,14 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="nextOffset">Next rotation, unchanged when the entire partition fits.</param>
     /// <returns>A unique bounded block; rotation does not spend or create evidence.</returns>
     internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, long offset, out long nextOffset)
+        => SelectEvaluationBlock(examples, offset, out nextOffset, DateTime.UtcNow);
+
+    internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, long offset, out long nextOffset, DateTime referenceTime)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         nextOffset = offset;
         var users = examples.GroupBy(row => (row.UserId, row.ObservationId))
-            .Select(group => group.OrderByDescending(row => row.GeneratedAtUtc).First())
+            .Select(group => SelectObservationView(group, referenceTime))
             .GroupBy(row => row.UserId).OrderBy(group => group.Key)
             .Select(group => group.OrderBy(row => row.ObservationId).ToArray()).ToArray();
         var selected = new List<TrainingExample>();
@@ -253,6 +259,26 @@ internal static class EnsembleAdmissionEvaluator
         }
 
         return selected.ToArray();
+    }
+
+    private static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
+    {
+        var ordered = rows.OrderByDescending(row => row.GeneratedAtUtc).ToArray();
+        // Fresh explicit negative outcomes supersede old positive comparisons. Otherwise
+        // keep the original valid choice view instead of losing it to a newer publication.
+        if (ordered[0].IsObserved && ordered[0].Label <= .5)
+        {
+            return ordered[0];
+        }
+
+        return ordered.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? ordered[0];
+    }
+
+    internal static bool HasOrdinaryRankingSupport(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
+    {
+        var rows = CaptureEvidence(examples, referenceTime);
+        var users = MixedUsers(rows).ToHashSet();
+        return HasSupport(rows.Where(row => users.Contains(row.UserId)).ToArray());
     }
 
     private static long AdvanceEvaluationCursor(long offset, int advance, bool truncated)

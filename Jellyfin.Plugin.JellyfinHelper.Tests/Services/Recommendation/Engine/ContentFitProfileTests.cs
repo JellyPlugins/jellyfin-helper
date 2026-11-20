@@ -138,6 +138,20 @@ public sealed class ContentFitProfileTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CandidateProviderChildrenGenresProtectItsPositiveMinorityInterest(bool typedIds)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 4; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Kids"], []));
+        var metadata = new TitleMetadataSnapshot { SourceGenres = typedIds ? null : ["Kids"], GenreIds = typedIds ? [10762] : null, SeriesType = "Scripted" };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["western animation"], null, BattleGenres, metadata);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
     [InlineData("anime", "western animation", true, null)]
     [InlineData("anime", "western animation", false, null)]
     [InlineData("anime", "western animation", true, 2.0)]

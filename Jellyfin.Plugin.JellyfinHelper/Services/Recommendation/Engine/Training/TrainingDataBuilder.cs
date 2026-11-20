@@ -455,7 +455,7 @@ internal static class TrainingDataBuilder
 
         return (profile, artifacts, new WatchedContentSets(sets.Genre, sets.People, sets.Studio, boxes)
         {
-            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources),
+            ContentFit = ContentFitProfile.Create(profile, ctx.Lookups.ItemTagsLookup.GetValueOrDefault, sourceCache: ctx.Lookups.ContentSources, metadataCutoff: beforeUtc),
             CollectionContinuation = ctx.Lookups.Continuation.BuildSupport(profile)
         });
     }

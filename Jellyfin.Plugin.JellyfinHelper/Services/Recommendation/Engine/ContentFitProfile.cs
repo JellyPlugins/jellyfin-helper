@@ -90,15 +90,16 @@ internal sealed class ContentFitProfile
     /// <param name="lookup">Optional known source tags; null values mean unavailable, empty values remain authoritative.</param>
     /// <param name="excluded">Optional target-title exclusion, including parent/episode identities in direct training helpers.</param>
     /// <param name="sourceCache">Optional metadata-only memo shared across historical views of one feature-building cycle.</param>
+    /// <param name="metadataCutoff">Optional historical acquisition cutoff; later provider observations remain unavailable.</param>
     /// <returns>Detached semantic inputs, without retaining the caller's rows or collections.</returns>
-    internal static ContentFitProfile Create(UserWatchProfile? profile, Func<Guid, IReadOnlyList<string>?>? lookup = null, IReadOnlySet<Guid>? excluded = null, SourceCache? sourceCache = null)
+    internal static ContentFitProfile Create(UserWatchProfile? profile, Func<Guid, IReadOnlyList<string>?>? lookup = null, IReadOnlySet<Guid>? excluded = null, SourceCache? sourceCache = null, DateTime? metadataCutoff = null)
     {
         if (profile is null)
         {
             return Empty;
         }
 
-        var titles = BuildTitleKeywords(profile, lookup ?? (_ => null), excluded, sourceCache ?? new SourceCache());
+        var titles = BuildTitleKeywords(profile, lookup ?? (_ => null), excluded, sourceCache ?? new SourceCache(), metadataCutoff);
         var positiveTitles = titles.Values.Where(title => title.HasPositiveInteraction && (title.Ratings.Count == 0 || title.Ratings.Order().Average() > 5)).ToArray();
         var older = positiveTitles.Count(title => title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels));
         var children = positiveTitles.Count(title => title.Genres.Contains("Kids") || title.Terms.Overlaps(ChildrenLabels));
@@ -152,7 +153,7 @@ internal sealed class ContentFitProfile
             && !RepresentationLabels.Contains(name) && !GenreNormalizer.IsKnownGenreKeyword(name) && !FormatLabels.Contains(name)
             && !ChildrenLabels.Contains(name);
 
-    private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache)
+    private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache, DateTime? metadataCutoff)
     {
         var titles = new Dictionary<Guid, TitleKeywords>();
         foreach (var row in profile.WatchedItems.Where(PreferenceBuilder.IsEligibleForPreferenceWeighting))
@@ -183,7 +184,7 @@ internal sealed class ContentFitProfile
 
             var tags = PreferenceBuilder.ResolveMetadataPreferenceValues(row, lookup, value => (value.Tags, value.OwnTags, value.SeriesTags));
             title.Terms.UnionWith(Keywords(tags, cache.Normalized));
-            CaptureLatestMetadata(title, row.TitleMetadata);
+            CaptureLatestMetadata(title, MetadataAtCutoff(row.TitleMetadata, metadataCutoff));
         }
 
         foreach (var title in titles.Values)
@@ -201,6 +202,9 @@ internal sealed class ContentFitProfile
             title.Metadata = metadata;
         }
     }
+
+    private static TitleMetadataSnapshot? MetadataAtCutoff(TitleMetadataSnapshot? metadata, DateTime? cutoff)
+        => cutoff.HasValue && metadata?.FetchedAtUtc > cutoff.Value ? null : metadata;
 
     private static void AddProviderEvidence(TitleKeywords title, Dictionary<string, string?> normalized)
     {
@@ -439,7 +443,7 @@ internal sealed class ContentFitProfile
     {
         // Positive children's interest is not restricted to the majority's animation style.
         // Preserve narrative/topic checks: preschool evidence does not imply an interest in reality TV.
-        var preserveChildrenRepresentation = _hasPositiveChildrenInterest && IsChildrenTitle(GenreNormalizer.Set(genres), Keywords(tags));
+        var preserveChildrenRepresentation = _hasPositiveChildrenInterest && IsChildrenTitle(ContentDescriptor.GenreEvidence(genres, metadata), Keywords(tags));
         var family = ResolveFamilyMismatch(ContentDescriptor.Create(genres, tags, metadata), preserveChildrenRepresentation);
         var children = ResolveConfirmedChildrenMismatch(tags, preferences);
         return family.HasValue || children.HasValue ? Math.Max(family ?? 0, children ?? 0) : null;

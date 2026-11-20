@@ -316,7 +316,9 @@ public sealed class TitleMetadataCacheTests
             var reserved = cache.ReserveRefreshes(_config, titles, 128);
             Assert.Equal(128, reserved.Length);
             visited.UnionWith(reserved.Select(title => title.TmdbId));
+            foreach (var title in reserved) Assert.True(cache.DispatchRefresh(_config, title.TmdbId, title.MediaType, null));
             foreach (var title in reserved.Where(title => title.TmdbId % 2 == 0)) cache.Store(_config, Snapshot() with { TmdbId = title.TmdbId });
+            cache.ReleaseRefreshes(_config, reserved, null);
             _clock.Now = _clock.Now.AddDays(8);
         }
 
@@ -334,6 +336,8 @@ public sealed class TitleMetadataCacheTests
             var reserved = cache.ReserveRefreshes(_config, titles, 128);
             Assert.Equal(128, reserved.Length);
             visited.UnionWith(reserved.Select(title => title.TmdbId));
+            foreach (var title in reserved) Assert.True(cache.DispatchRefresh(_config, title.TmdbId, title.MediaType, null));
+            cache.ReleaseRefreshes(_config, reserved, null);
             _clock.Now = _clock.Now.AddDays(8);
         }
 
@@ -354,6 +358,91 @@ public sealed class TitleMetadataCacheTests
         Assert.True(cache.TryBeginRefresh(_config, 123, "movie"));
         serverConfig.PreferredMetadataLanguage = "en";
         Assert.NotNull(cache.Get(_config, 123, "movie"));
+    }
+
+    [Fact]
+    public void UndispatchedReservationsAreReleasedWithoutCooldownWhileDispatchedFailuresKeepTheirCooldown()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var titles = Enumerable.Range(1, 256).Select(id => (id, "movie")).ToArray();
+        var first = cache.ReserveRefreshes(_config, titles, 128, "en");
+        Assert.Equal(128, first.Length);
+        foreach (var title in first.Take(21)) Assert.True(cache.DispatchRefresh(_config, title.TmdbId, title.MediaType, "en"));
+        cache.ReleaseRefreshes(_config, first, "en");
+        var next = cache.ReserveRefreshes(_config, titles, 128, "en");
+        Assert.All(next, title => Assert.DoesNotContain(title.TmdbId, first.Take(21).Select(started => started.TmdbId)));
+        Assert.True(cache.DispatchRefresh(_config, next[0].TmdbId, next[0].MediaType, "en"));
+        cache.ReleaseRefreshes(_config, next, "en");
+        var remaining = cache.ReserveRefreshes(_config, titles, 128, "en");
+        Assert.Contains(remaining, title => title.TmdbId == first[21].TmdbId);
+        cache.ReleaseRefreshes(_config, remaining, "en");
+    }
+
+    [Fact]
+    public void CapturedReservationLanguageControlsTheAttemptRegardlessOfLiveLanguageChanges()
+    {
+        var serverConfiguration = new ServerConfiguration { PreferredMetadataLanguage = "en" };
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(value => value.Configuration).Returns(serverConfiguration);
+        var cache = new TitleMetadataCache(server.Object, clock: _clock);
+        var reserved = cache.ReserveRefreshes(_config, [(123, "movie")], 1, "en");
+        serverConfiguration.PreferredMetadataLanguage = "de";
+        Assert.True(cache.DispatchRefresh(_config, 123, "movie", "en"));
+        cache.ReleaseRefreshes(_config, reserved, "en");
+        Assert.True(cache.TryBeginRefresh(_config, 123, "movie"));
+        serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.False(cache.TryBeginRefresh(_config, 123, "movie"));
+    }
+
+    [Fact]
+    public void OlderPublicationReturnsOnlyTheFreshFieldsOfTheStoredWinningSnapshot()
+    {
+        var cache = new TitleMetadataCache(clock: _clock);
+        var original = _clock.Now;
+        cache.Store(_config, Snapshot());
+        _clock.Now = original.AddDays(24);
+        cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 123, GenreIds = [16], FetchedAtUtc = _clock.Now });
+        _clock.Now = original.AddDays(31);
+        var returned = cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 123, FetchedAtUtc = original.AddDays(20) }, null)!;
+        Assert.Null(returned.Keywords);
+        Assert.Equal(new[] { 16 }, returned.GenreIds!.Value);
+        Assert.Equal(original.AddDays(24), returned.FetchedAtUtc);
+        Assert.Null(cache.Get(_config, 123, "movie")!.Keywords);
+    }
+
+    [Fact]
+    public async Task StalledPersistenceHasABoundedCancelableWaitAndCannotAccumulateWriters()
+    {
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        fs.SetupGet(value => value.File).Returns(file.Object);
+        fs.SetupGet(value => value.Directory).Returns(new Mock<IDirectory>().Object);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        file.Setup(value => value.WriteAllText(It.IsAny<string>(), It.IsAny<string>())).Callback(() =>
+        {
+            started.TrySetResult();
+            release.Wait(TestContext.Current.CancellationToken);
+        });
+        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("cancelable-titles.json"), clock: _clock);
+        cache.Store(_config, Snapshot());
+        using var cancellation = new CancellationTokenSource();
+        var save = cache.SaveAsync(cancellation.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save);
+            Assert.False(await cache.SaveAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            file.Verify(value => value.WriteAllText(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+            file.Verify(value => value.Move(It.IsAny<string>(), It.IsAny<string>(), true), Times.Never);
+            Assert.NotNull(cache.Get(_config, 123, "movie"));
+        }
+        finally
+        {
+            release.Set();
+            Assert.True(await cache.SaveAsync(TestContext.Current.CancellationToken));
+        }
     }
 
     [Fact]

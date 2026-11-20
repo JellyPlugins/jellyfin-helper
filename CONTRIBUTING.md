@@ -485,7 +485,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
-│       │   ├── TitleMetadataCacheTests.cs             # Scope isolation, current alias claims, bounded stale fallback and restart-readable atomic persistence
+│       │   ├── TitleMetadataCacheTests.cs             # Per-scope reconciliation, dispatched-only attempts, captured language and bounded atomic persistence waits
 │       │   ├── SupplementalMetadataTests.cs           # Scoped supersession, field acquisition times, idempotent formats and independent-source conflicts
 │       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
@@ -516,7 +516,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
 │       │       ├── PerUserTrainingDataBuilderTests.cs # Per-user isolation and leakage regression: UserId propagation, neutral interaction features, and series genre-engagement excluding its own watched episodes
 │       │       ├── TrainingDataBuilderMetadataParityTests.cs # Watched-item studios/tags resolve from the live library (merged over cache) so training matches the serve path; null-map back-compat; series self-exclusion
-│       │       └── TrainingFeatureComputerTests.cs    # Train/serve parity and prediction-time cutoffs for aggregated series metadata
+│       │       └── TrainingFeatureComputerTests.cs    # Train/serve parity and prediction-time cutoffs for target and historical-series metadata
 │       ├── Playlist/              # Playlist sync tests
 │       │   ├── RecommendationPlaylistServiceTests.cs
 │       │   ├── RecommendationPlaylistServiceDeletionFallbackTests.cs # Fallback delete path + OperationCanceled rethrow
@@ -531,7 +531,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── LanguageFeatureImputationTests.cs           # Learned/Neural fitting-only priors, legacy refits/restart and normalization isolation
 │       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
-│       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Independent calibration/acceptance, incremental Neural utility, support and minority/incumbent protections
+│       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Compatible observation views, independent calibration/acceptance and minority/incumbent protections
 │       │   ├── ChoiceRankingAdmissionEvaluatorTests.cs    # Macro-user effective support, K=10/K=20 safety, independent reservation and minority/incumbent protection
 │       │   ├── ChoiceRankingTrainingTests.cs              # Real learner and accepted-mixture reversal of an incorrect heuristic ranking
 │       │   ├── OperatingMixturePolicyTests.cs             # 3.1.0.1 sigmoid/ramp reference, Cold/Warm prior extension and gradual bounded correction
@@ -744,10 +744,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   ├── ContentFitProfile.cs # Title-balanced semantic keywords; weak audience hints, not rating bans
 │   │   │   ├── ContentDescriptor.cs # Evidence-based content families, independent of language and parental permission
-│   │   │   ├── TitleMetadataSnapshot.cs # Immutable title-level metadata; typed IDs, source and acquisition time
+│   │   │   ├── TitleMetadataSnapshot.cs # Immutable metadata, hashed scopes, flattened source observations and acquisition times
 │   │   │   ├── MetadataSourceScope.cs # Captured provider scope; credentials are hashed for cache persistence
 │   │   │   ├── SupplementaryTitleMetadataService.cs # Optional scheduled ARR catalog metadata acquisition
-│   │   │   ├── TitleMetadataMerger.cs # Complementary metadata, conflicts and original field acquisition times
+│   │   │   ├── TitleMetadataMerger.cs # Scoped freshness/replacement, independent-source provenance and conflict-safe projections
 │   │   │   ├── TitleProviderIdentity.cs # Typed TVDB/IMDb aliases from the same Jellyfin item
 │   │   │   ├── ProviderKeyword.cs # Immutable keyword ID/label pairs for language-independent story matching
 │   │   │   ├── TitleMetadataCache.cs # Shared bounded provider-scoped metadata; scheduled refresh and persistence only

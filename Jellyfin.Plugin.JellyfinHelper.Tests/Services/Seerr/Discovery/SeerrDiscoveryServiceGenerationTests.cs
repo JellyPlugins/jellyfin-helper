@@ -220,6 +220,53 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Fact]
+    public async Task WarmupUsesOneCapturedLanguageForReservationRequestsAndRetryCooldown()
+    {
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        _history.Setup(value => value.GetAllUserWatchProfiles()).Returns(() =>
+        {
+            _serverConfiguration.PreferredMetadataLanguage = "de";
+            return Profiles(profile);
+        });
+        _handler.ResponseOverride = (request, _) =>
+        {
+            Assert.Contains("language=en", request.RequestUri!.Query);
+            return Task.FromResult(JsonResponse("{}", HttpStatusCode.ServiceUnavailable));
+        };
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance!.Configuration, 123, "movie"));
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.False(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Fact]
+    public async Task CancellationReleasesUndispatchedTitlesWithoutErasingActualRequestCooldowns()
+    {
+        _history.Setup(value => value.GetAllUserWatchProfiles()).Returns([]);
+        _libraryManager.Setup(value => value.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(
+            Enumerable.Range(1, 256).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray());
+        var count = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _handler.ResponseOverride = async (_, token) =>
+        {
+            if (Interlocked.Increment(ref count) == 3) started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return JsonResponse("{}");
+        };
+        var warming = _sut.WarmTitleMetadataAsync(cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => warming);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.False(_titleMetadata.TryBeginRefresh(Plugin.Instance!.Configuration, 1, "movie"));
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 4, "movie"));
+    }
+
+    [Fact]
     public async Task OptionalWarmupEnumerationFailurePreservesCachedMetadata()
     {
         _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow });

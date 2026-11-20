@@ -252,6 +252,19 @@ public sealed class SupplementalMetadataTests
     }
 
     [Fact]
+    public void SupplyingBothIdsCannotRestoreASeerrOrSonarrObservationSupersededInItsOwnScope()
+    {
+        var config = Configuration();
+        var cache = new TitleMetadataCache();
+        var now = DateTime.UtcNow;
+        var scope = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "sonarr-test");
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = now.AddDays(-2) }, scope, null);
+        cache.StoreSupplemental(config, new TitleMetadataSnapshot { TvdbId = 456, MediaType = "tv", AnimeHint = false, FetchedAtUtc = now.AddDays(-1) }, scope, null);
+        Assert.False(cache.Get(config, 0, "tv", 456)!.AnimeHint);
+        Assert.False(cache.Get(config, 123, "tv", 456)!.AnimeHint);
+    }
+
+    [Fact]
     public void AbsentIdentityIsNotAProofThatUnrelatedSourcesDescribeTheSameTitle()
     {
         var now = DateTime.UtcNow;

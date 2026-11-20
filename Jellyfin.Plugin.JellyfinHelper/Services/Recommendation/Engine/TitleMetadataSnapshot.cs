@@ -69,6 +69,14 @@ public sealed record TitleMetadataSnapshot
     /// <summary>Gets the source of the snapshot.</summary>
     public string Source { get; init; } = "seerr";
 
+    /// <summary>Gets the hashed provider/configuration/language scope of a raw observation.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ObservationScope { get; init; }
+
+    /// <summary>Gets flattened independent observations retained by a combined projection, without recursive projections.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<TitleMetadataSnapshot>? SourceObservations { get; init; }
+
     internal static TitleMetadataSnapshot FromDetail(SeerrMediaDetailResponse detail, string mediaType, DateTime fetchedAtUtc)
         => new()
         {

@@ -322,7 +322,7 @@ internal static class TrainingFeatureComputer
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
 
-        var contentFit = preparedContentFit ?? ContentFitProfile.Create(userProfile, itemTagsLookup.GetValueOrDefault, episodeIds);
+        var contentFit = preparedContentFit ?? ContentFitProfile.Create(languageProfile, itemTagsLookup.GetValueOrDefault, episodeIds, metadataCutoff: predictionTime);
         var metadataAtPrediction = mostRecent?.TitleMetadata is { } metadata && metadata.FetchedAtUtc <= predictionTime ? metadata : null;
         contentFit.Apply(features, genreList, seriesTags ?? mostRecent?.SeriesTags ?? mostRecent?.Tags ?? [], mostRecent?.OfficialRating, genrePreferences, metadataAtPrediction);
 

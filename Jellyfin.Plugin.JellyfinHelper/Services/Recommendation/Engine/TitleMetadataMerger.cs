@@ -15,12 +15,13 @@ internal static class TitleMetadataMerger
             return null;
         }
 
-        if (snapshots.Count == 1)
+        var observations = snapshots.SelectMany(Observations).Distinct().ToArray();
+        if (observations.Length == 1)
         {
-            return snapshots[0];
+            return observations[0];
         }
 
-        var ordered = ConnectedObservations(snapshots);
+        var ordered = ConnectedObservations(observations);
         var times = ImmutableDictionary.CreateBuilder<string, DateTime>(StringComparer.Ordinal);
         var conflicts = ImmutableDictionary.CreateBuilder<string, ImmutableArray<string>>(StringComparer.Ordinal);
         T? Select<T>(Func<TitleMetadataSnapshot, T?> selector, string name)
@@ -97,9 +98,35 @@ internal static class TitleMetadataMerger
             ProductionCountries = Union(snapshot => snapshot.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries), StringComparer.OrdinalIgnoreCase),
             Overview = Select(snapshot => snapshot.Overview, nameof(TitleMetadataSnapshot.Overview)),
             FetchedAtUtc = ordered.Max(snapshot => snapshot.FetchedAtUtc),
-            Source = string.Join('+', ordered.Select(snapshot => snapshot.Source).Distinct(StringComparer.Ordinal))
+            Source = string.Join('+', ordered.Select(snapshot => snapshot.Source).Distinct(StringComparer.Ordinal)),
+            SourceObservations = ordered.Select(snapshot => snapshot with { SourceObservations = null }).ToImmutableArray()
         };
         return merged with { FieldFetchedAtUtc = times.ToImmutable(), ConflictingValues = NonEmptyConflicts(conflicts.ToImmutable()) };
+    }
+
+    internal static IEnumerable<TitleMetadataSnapshot> Observations(TitleMetadataSnapshot snapshot)
+        => snapshot.SourceObservations is { IsDefaultOrEmpty: false } sources ? sources : [snapshot];
+
+    internal static TitleMetadataSnapshot? CombineCurrentObservations(IReadOnlyList<TitleMetadataSnapshot> snapshots, DateTime now)
+    {
+        var current = snapshots.SelectMany(Observations).Select(snapshot => TitleMetadataCache.FreshProjection(snapshot, now))
+            .OfType<TitleMetadataSnapshot>().Distinct().ToArray();
+        var scoped = current.Where(snapshot => snapshot.ObservationScope is not null).GroupBy(snapshot => snapshot.ObservationScope)
+            .Select(group => TitleMetadataCache.ReconcileSourceObservations(group.ToArray(), now)).OfType<TitleMetadataSnapshot>();
+        return Combine(scoped.Concat(current.Where(snapshot => snapshot.ObservationScope is null)).ToArray());
+    }
+
+    internal static TitleMetadataSnapshot? WithSeerrObservation(TitleMetadataSnapshot current, TitleMetadataSnapshot? previous, DateTime now)
+    {
+        var prior = previous is null ? [] : Observations(previous).ToArray();
+        var sameSource = prior.Where(snapshot => snapshot.Source == "seerr" && snapshot.ObservationScope == current.ObservationScope
+            && TitleProviderIdentity.Compatible(snapshot, current) && TitleProviderIdentity.SharesIdentity(snapshot, current));
+        var seerr = TitleMetadataCache.ReconcileSourceObservations(sameSource.Append(current).ToArray(), now);
+        // A legacy mixed projection cannot prove which source supplied a retained term.
+        // Do not launder superseded Seerr fields through it as independent evidence.
+        var independent = prior.Where(snapshot => !snapshot.Source.Split('+').Contains("seerr", StringComparer.Ordinal))
+            .Select(snapshot => TitleMetadataCache.FreshProjection(snapshot, now)).OfType<TitleMetadataSnapshot>();
+        return Combine(independent.Concat(seerr is null ? [] : new[] { seerr }).ToArray());
     }
 
     private static ImmutableDictionary<string, ImmutableArray<string>>? NonEmptyConflicts(ImmutableDictionary<string, ImmutableArray<string>> conflicts)

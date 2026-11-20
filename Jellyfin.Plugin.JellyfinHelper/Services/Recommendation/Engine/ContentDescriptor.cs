@@ -18,17 +18,11 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
 
     internal static ContentDescriptor Create(IEnumerable<string>? genres, IEnumerable<string>? tags, TitleMetadataSnapshot? metadata = null)
     {
-        var canonical = GenreNormalizer.Set(genres);
-        canonical.UnionWith(GenreNormalizer.Set(metadata?.SourceGenres));
+        var canonical = GenreEvidence(genres, metadata);
         var keywords = ContentFitProfile.Keywords(tags);
         if (metadata?.Keywords is { } providerKeywords)
         {
             keywords.UnionWith(ContentFitProfile.Keywords(providerKeywords));
-        }
-
-        if (metadata?.GenreIds is { } ids)
-        {
-            canonical.UnionWith(GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)));
         }
 
         var narrative = metadata?.ConflictingValues?.ContainsKey(nameof(TitleMetadataSnapshot.SeriesType)) == true
@@ -44,6 +38,18 @@ internal sealed record ContentDescriptor(string? Family, string? Representation 
         }
 
         return new(representation, representation, ProbableRepresentation: probable) { Topics = topics };
+    }
+
+    internal static HashSet<string> GenreEvidence(IEnumerable<string>? genres, TitleMetadataSnapshot? metadata)
+    {
+        var canonical = GenreNormalizer.Set(genres);
+        canonical.UnionWith(GenreNormalizer.Set(metadata?.SourceGenres));
+        if (metadata?.GenreIds is { } ids)
+        {
+            canonical.UnionWith(GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)));
+        }
+
+        return canonical;
     }
 
     private static string? ProbableAnimationFamily(HashSet<string> genres, HashSet<string> keywords, TitleMetadataSnapshot? metadata)
