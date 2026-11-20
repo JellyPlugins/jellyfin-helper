@@ -120,7 +120,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var config = Plugin.Instance!.Configuration;
         var movie = metadata.Get(config, 11, "movie")!;
         Assert.Equal(acquired.UtcDateTime, movie.FetchedAtUtc);
-        Assert.Equal(acquired.UtcDateTime, Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped)).TitleMetadata!.FetchedAtUtc);
+        Assert.Equal(acquired.UtcDateTime, Assert.Single(Assert.IsType<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped, exactMatch: false)).TitleMetadata!.FetchedAtUtc);
         Assert.Equal("movie synopsis", movie.Overview);
         Assert.Equal("ja", movie.OriginalLanguage);
         Assert.Equal("tt123456", movie.ImdbId);

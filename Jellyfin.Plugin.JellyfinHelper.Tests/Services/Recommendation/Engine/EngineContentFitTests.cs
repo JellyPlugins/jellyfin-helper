@@ -48,7 +48,7 @@ public sealed class EngineContentFitTests
             content = harness.Engine.GetType().GetMethod("ResolveContentAffinity", flags)!.Invoke(harness.Engine, [candidate])!;
         }
 
-        var effective = Assert.IsAssignableFrom<IReadOnlyList<string>>(content.GetType().GetProperty("EffectiveGenres")!.GetValue(content));
+        var effective = Assert.IsType<IReadOnlyList<string>>(content.GetType().GetProperty("EffectiveGenres")!.GetValue(content), exactMatch: false);
         var set = Assert.IsType<HashSet<string>>(content.GetType().GetProperty("GenreSet")!.GetValue(content));
         Assert.Equal(new[] { "Drama" }, effective);
         Assert.Equal(effective.Order(StringComparer.Ordinal), set.Order(StringComparer.Ordinal));

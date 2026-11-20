@@ -120,7 +120,7 @@ public sealed class WatchHistoryServiceTests
         var row = Assert.Single(service.BuildProfile(user, [movie], [], collectionIds: []).WatchedItems);
         Assert.Contains("Animation", row.Genres);
         Assert.Contains("Kids", row.Genres);
-        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(row.LocalGenres));
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(row.LocalGenres, exactMatch: false));
         Assert.Empty(movie.Genres);
         Assert.Empty(movie.Tags);
     }
@@ -153,7 +153,7 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal("tv", row.TitleMetadata!.MediaType);
         Assert.Contains("Animation", row.Genres);
         Assert.Equal(1, profile.GenreDistribution["Animation"]);
-        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(row.LocalGenres));
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(row.LocalGenres, exactMatch: false));
         Assert.Equal(originalGenres, series.Genres);
         Assert.Equal(missingLocalMetadata ? string.Empty : "Favorite series", row.Name);
     }
