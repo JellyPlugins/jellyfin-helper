@@ -569,6 +569,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     {
         var first = NewProfile();
         var second = NewProfile();
+        var series = Guid.NewGuid();
+        for (var episode = 0; episode < 200; episode++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, SeriesTmdbId = 1, Played = true });
         for (var id = 1; id <= 200; id++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
         second.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Series", TmdbId = 500, Played = true });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
@@ -579,9 +581,24 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
             return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
         };
+        // Fairness belongs to reservation order, not the arrival order of three
+        // independently scheduled HTTP workers. Exercise the productive selector
+        // with the same empty cache state and include the library tail.
+        var history = (IEnumerable<(int TmdbId, string MediaType)>)typeof(SeerrDiscoveryService)
+            .GetMethod("MetadataHistoryKeys", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [Profiles(first, second)])!;
+        var selector = new TitleMetadataCache(clock: _metadataClock);
+        var reserved = selector.ReserveRefreshes(
+            Plugin.Instance!.Configuration,
+            history.Concat(libraryTitles.Select(item => (int.Parse(item.ProviderIds["Tmdb"], System.Globalization.CultureInfo.InvariantCulture), "movie"))),
+            128,
+            _serverConfiguration.PreferredMetadataLanguage);
+        Assert.Equal(128, reserved.Length);
+        Assert.Contains((500, "tv"), reserved.Take(3));
+        Assert.Single(reserved, title => title == (1, "tv"));
         await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
         Assert.Equal(128, _handler.Requests.Count);
-        Assert.Contains(_handler.Requests.Take(3), request => request.Path == "/api/v1/tv/500");
+        Assert.Contains(_handler.Requests, request => request.Path == "/api/v1/tv/500");
         Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 500, "tv"));
     }
 
