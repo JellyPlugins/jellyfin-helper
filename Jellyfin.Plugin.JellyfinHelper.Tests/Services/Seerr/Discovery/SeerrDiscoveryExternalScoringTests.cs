@@ -475,11 +475,13 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, detail, acquired, null])!);
         Assert.Equal(acquired, candidate.SeerrTitleMetadata!.FetchedAtUtc);
         Assert.Empty(candidate.KnownKeywords!);
-        Assert.Equal(independentAnime, candidate.TitleMetadata!.Keywords!.Value.Contains("anime"));
-        Assert.Contains("friendship", candidate.TitleMetadata.Keywords.Value);
-        Assert.Equal("retained", candidate.TitleMetadata.Overview);
-        Assert.Equal(old, candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
-        Assert.All(candidate.TitleMetadata.SourceObservations!.Value, observation => Assert.Null(observation.SourceObservations));
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(candidate.TitleMetadata);
+        var keywords = Assert.IsType<System.Collections.Immutable.ImmutableArray<string>>(metadata.Keywords);
+        Assert.Equal(independentAnime, keywords.Contains("anime"));
+        Assert.Contains("friendship", keywords);
+        Assert.Equal("retained", metadata.Overview);
+        Assert.Equal(old, metadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.Overview)]);
+        Assert.All(metadata.SourceObservations!.Value, observation => Assert.Null(observation.SourceObservations));
     }
 
     [Fact]
