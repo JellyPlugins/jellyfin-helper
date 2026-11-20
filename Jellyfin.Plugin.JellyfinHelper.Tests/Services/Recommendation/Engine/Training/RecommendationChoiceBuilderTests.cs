@@ -12,6 +12,87 @@ public sealed class RecommendationChoiceBuilderTests
     private static readonly DateTime Prediction = DateTime.UtcNow.AddDays(-3);
 
     [Fact]
+    public void AnOrphanEpisodeCannotShareAMovieProviderObservationOrWithdrawThatMoviesChoiceAlternative()
+    {
+        var user = Guid.NewGuid();
+        var episode = Watch(Guid.NewGuid(), Prediction.AddDays(-10), Prediction.AddDays(1));
+        episode.ItemType = "Episode";
+        episode.TmdbId = 42;
+        var movie = Watch(Guid.NewGuid(), Prediction.AddDays(-10), Prediction.AddDays(2));
+        movie.TmdbId = 42;
+        movie.UserRating = 1;
+        var profile = Profile(user, episode, movie);
+        var examples = TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples;
+        var observed = examples.Where(row => row.IsObserved).ToArray();
+        Assert.Equal(2, observed.Length);
+        Assert.Equal(2, observed.Select(row => row.ObservationId).Distinct().Count());
+        Assert.Equal(.1, Assert.Single(observed, row => row.ObservationId == TrainingExample.CreateProviderObservationId(user, 42, "movie")).Label);
+        Assert.True(Assert.Single(observed, row => row.ObservationId == TrainingExample.CreateLibraryObservationId(user, episode.ItemId)).Label > .5);
+
+        var episodeOnly = Profile(user, episode);
+        var aliases = RecommendationChoiceBuilder.EngagedTitles(episodeOnly, new Dictionary<Guid, int> { [episode.ItemId] = 42, [movie.ItemId] = 42 });
+        Assert.Contains(TrainingExample.CreateLibraryObservationId(user, episode.ItemId), aliases);
+        Assert.DoesNotContain(TrainingExample.CreateProviderObservationId(user, 42, "movie"), aliases);
+        Assert.DoesNotContain(TrainingExample.CreateProviderObservationId(user, 42, "tv"), aliases);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OrganicTargetsCannotBorrowProviderGenresAcquiredAfterTheirPrediction(bool series)
+    {
+        var user = Guid.NewGuid();
+        var target = Watch(Guid.NewGuid(), Prediction.AddDays(-10), Prediction.AddDays(1));
+        target.LocalGenres = [];
+        target.Genres = ["Documentary"];
+        target.TitleMetadata = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot
+        {
+            SourceGenres = ["Documentary"], FetchedAtUtc = Prediction.AddDays(2)
+        };
+        if (series)
+        {
+            target.ItemType = "Episode";
+            target.SeriesId = Guid.NewGuid();
+        }
+
+        var examples = TrainingDataBuilder.BuildExamples([], [Profile(user, target)], TestContext.Current.CancellationToken).Examples;
+        var observed = Assert.Single(examples, row => row.IsObserved);
+        Assert.Equal(0, observed.Features.GenreCount);
+        Assert.False(observed.Features.HasGenreEvidence);
+        Assert.Equal(target.LastPlayedDate, observed.GeneratedAtUtc);
+        Assert.True(observed.Label > .5);
+        Assert.Equal(new[] { "Documentary" }, target.Genres);
+    }
+
+    [Fact]
+    public void RepeatedSavedPredictionsKeepTheirOwnFeaturesTimestampsAndMatchingChoices()
+    {
+        var user = Guid.NewGuid();
+        var chosen = Title(user, false);
+        var other = Title(user, false);
+        var firstFeatures = new CandidateFeatures { GenreSimilarity = .2, CombinedCriticScore = .3 };
+        var secondFeatures = new CandidateFeatures { GenreSimilarity = .8, CombinedCriticScore = .9 };
+        var first = Result(user, Item(chosen, .2, firstFeatures), Item(other, .9));
+        first.GeneratedAt = Prediction.AddDays(-1);
+        var second = Result(user, Item(chosen, .8, secondFeatures), Item(other, .9));
+        var profile = Profile(user, Watch(chosen, Prediction.AddDays(-10), Prediction.AddDays(1)));
+        var examples = TrainingDataBuilder.BuildExamples([first, second], [profile], TestContext.Current.CancellationToken).Examples;
+        var positives = examples.Where(row => row.IsObserved).OrderBy(row => row.GeneratedAtUtc).ToArray();
+        Assert.Equal(2, positives.Length);
+        Assert.Equal(first.GeneratedAt, positives[0].GeneratedAtUtc);
+        Assert.Equal(second.GeneratedAt, positives[1].GeneratedAtUtc);
+        Assert.Equal(firstFeatures.ToVector(), positives[0].Features.ToVector());
+        Assert.Equal(secondFeatures.ToVector(), positives[1].Features.ToVector());
+        Assert.All(positives, row =>
+        {
+            Assert.Equal(row.GeneratedAtUtc, row.Choice!.RecommendedAtUtc);
+            Assert.Equal(row.Features.ToVector(), row.Choice.ChosenFeatures.ToVector());
+        });
+        Assert.Equal(.2, firstFeatures.GenreSimilarity);
+        Assert.Equal(.8, secondFeatures.GenreSimilarity);
+    }
+
+    [Fact]
     public void ChoosingALowerRankedRecommendationPreservesItsPredictionAndContrastsTheAvailableAlternative()
     {
         var user = Guid.NewGuid();
@@ -82,9 +163,17 @@ public sealed class RecommendationChoiceBuilderTests
         var result = Result(user, Item(other, .95));
         var profile = Profile(user, Watch(chosen, Prediction.AddDays(addedDay), Prediction.AddDays(1)));
         var examples = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples;
-        var positive = Assert.Single(examples, example => example.IsObserved);
+        var positive = Assert.Single(examples, example => example.IsObserved && example.Choice is null);
+        var choice = examples.SingleOrDefault(example => example.Choice is not null);
         var unpublished = Assert.Single(examples, example => !example.IsObserved);
-        Assert.Equal(comparison, positive.Choice is not null);
+        Assert.Equal(comparison, choice is not null);
+        Assert.Equal(Prediction.AddDays(1), positive.GeneratedAtUtc);
+        Assert.Equal(.7, examples.Where(example => example.IsObserved).Sum(example => example.SampleWeight), 12);
+        if (choice is not null)
+        {
+            Assert.Equal(Prediction, choice.GeneratedAtUtc);
+            Assert.NotSame(positive.Features, choice.Features);
+        }
         Assert.Equal(comparison, unpublished.IsContrastSample);
         Assert.True(positive.Label > .5);
         Assert.Single(TrainingMath.FilterEffectiveExamples([positive], DateTime.UtcNow, .01));

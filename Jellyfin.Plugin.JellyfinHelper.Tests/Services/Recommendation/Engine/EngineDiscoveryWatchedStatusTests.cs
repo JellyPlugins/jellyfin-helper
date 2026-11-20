@@ -106,9 +106,10 @@ public sealed class EngineDiscoveryWatchedStatusTests
 
         var expected = (tmdbId, "movie");
         harness.FeedbackStore.Verify(
-            f => f.MarkWatched(
+            f => f.MarkWatchedAsync(
                 userId,
-                It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(s => s.Contains(expected))),
+                It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(s => s.Contains(expected)),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -138,7 +139,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         harness.FeedbackStore.Verify(
-            store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+            store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -155,7 +156,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
 
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
-        harness.FeedbackStore.Verify(store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -171,7 +172,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         var expected = (1399, "tv");
-        harness.FeedbackStore.Verify(store => store.MarkWatched(user, It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Contains(expected))), Times.Once);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user, It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Contains(expected)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -205,7 +206,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         harness.FeedbackStore.Verify(
-            f => f.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()),
+            f => f.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
