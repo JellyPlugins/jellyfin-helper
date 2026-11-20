@@ -128,9 +128,9 @@ public sealed class RecommendationChoiceHistoryTests
         history.Merge([original], new HashSet<Guid> { user }, now);
         var result = history.Merge([Observation(user, original.ObservationId, now, false)], new HashSet<Guid> { user }, now,
             new HashSet<(Guid, Guid)> { (user, alternative) });
-        Assert.Single(result);
-        Assert.Null(result[0].Choice);
-        Assert.False(result[0].IsContrastSample);
+        var observation = Assert.Single(result);
+        Assert.Null(observation.Choice);
+        Assert.False(observation.IsContrastSample);
     }
 
     [Fact]
