@@ -187,6 +187,90 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             TestMockFactory.CreateVirtualItemDetector(), new Mock<ILogger<SeerrDiscoveryService>>().Object, localization.Object, serverConfiguration, titleMetadataCache: titleMetadataCache);
     }
 
+    [Fact]
+    public async Task ExternalScoringCancelsItsCacheReaderAfterAWriterCallerHasAbandonedPersistence()
+    {
+        var user = Guid.NewGuid();
+        _history.Setup(history => history.GetUserWatchProfile(user)).Returns(new UserWatchProfile { UserId = user });
+        var service = CreateService();
+        var cache = _lastCache!;
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        Task<bool>? writer = null;
+        try
+        {
+            Assert.False(await cache.SaveAsync([], TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var scoring = service.ScoreExternalCandidatesAsync(user, [new ExternalDiscoveryCandidate { TmdbId = 500, MediaType = "movie" }], cancellation.Token);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scoring.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.False(writer.IsCompleted);
+        }
+        finally
+        {
+            gate.Release();
+            if (writer is not null) await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CachedEmptyGenresRespectTheWinningSeerrFieldsAcquisitionTime(bool current)
+    {
+        var service = CreateService();
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, "en");
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 101, GenreIds = [16], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now.AddSeconds(-30),
+            FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.GenreIds), now.AddSeconds(-5))
+        };
+        var candidate = new TmdbDiscoverItem { Id = 101, GenreIds = [16], TitleMetadata = metadata };
+        var ttl = (TimeSpan)typeof(SeerrDiscoveryService).GetField("SeerrUserCacheTtl", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var acquired = now.AddSeconds(current ? -1 : -15);
+        var type = typeof(SeerrDiscoveryService).GetNestedType("CachedMediaDetail", BindingFlags.NonPublic)!;
+        var cached = Activator.CreateInstance(type, new SeerrMediaDetailResponse { Id = 101, Genres = [] }, acquired.Add(ttl))!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True((bool)method.Invoke(service, [candidate, cached, scope])!);
+        Assert.Equal(current ? [] : new[] { 16 }, candidate.GenreIds);
+        Assert.Equal(current ? [] : new[] { 16 }, candidate.TitleMetadata!.GenreIds!.Value);
+        Assert.Equal(current ? acquired : now.AddSeconds(-5), candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.GenreIds)]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CachedKeywordsRespectTheirOwnAcquisitionTimeWithoutPreventingCurrentGenreUpdates(bool current)
+    {
+        var service = CreateService();
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, "en");
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 101, GenreIds = [16], Keywords = ["anime", "pirate"], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now.AddSeconds(-30),
+            FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty
+                .Add(nameof(TitleMetadataSnapshot.GenreIds), now.AddSeconds(-20)).Add(nameof(TitleMetadataSnapshot.Keywords), now.AddSeconds(-5))
+        };
+        var candidate = new TmdbDiscoverItem { Id = 101, GenreIds = [16], KnownKeywords = ["anime", "pirate"], TitleMetadata = metadata };
+        var ttl = (TimeSpan)typeof(SeerrDiscoveryService).GetField("SeerrUserCacheTtl", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var acquired = now.AddSeconds(current ? -1 : -15);
+        var type = typeof(SeerrDiscoveryService).GetNestedType("CachedMediaDetail", BindingFlags.NonPublic)!;
+        var detail = new SeerrMediaDetailResponse
+        {
+            Id = 101, Genres = [], Keywords = current ? [] : [new SeerrMediaDetailResponse.GenreRef { Id = 42, Name = "preschool" }]
+        };
+        var cached = Activator.CreateInstance(type, detail, acquired.Add(ttl))!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedDetail", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True((bool)method.Invoke(service, [candidate, cached, scope])!);
+        Assert.Empty(candidate.GenreIds);
+        Assert.Equal(current ? [] : new[] { "anime", "pirate" }, candidate.KnownKeywords);
+        Assert.Equal(current ? [] : new[] { "anime", "pirate" }, candidate.TitleMetadata!.Keywords!.Value);
+        Assert.Equal(acquired, candidate.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.GenreIds)]);
+        Assert.Equal(current ? acquired : now.AddSeconds(-5), candidate.TitleMetadata.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.Keywords)]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -249,6 +333,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var stall = false;
         var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, directory)
         {
+            WaitTimeProvider = cancel ? new ControlledWaitTimeProvider() : TimeProvider.System,
             WriteFeedback = (path, contents) =>
             {
                 if (stall)
@@ -276,7 +361,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             if (cancel)
             {
                 cancellation.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
             else
             {

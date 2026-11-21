@@ -201,7 +201,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         ArgumentNullException.ThrowIfNull(previousResults);
 
-        UpdateDiscoveryWatchedStatus(cancellationToken);
+        if (!UpdateDiscoveryWatchedStatus(cancellationToken))
+        {
+            // Preserve serving incumbents and retry next cycle. Do not fit any blend
+            // against a known-incomplete requested/watched reconciliation this run.
+            _pluginLog.LogInfo(LogCategory, "Training deferred: discovery watched-state reconciliation is incomplete; existing models retained.", _logger);
+            return false;
+        }
 
         // With no previous results there is nothing to train on, so return before the expensive library scan
         // below. TrainPerUser would reject the empty set anyway; exiting here avoids a full movie/series/episode
@@ -330,7 +336,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Refresh the library-wide genre/studio IDF rarity table once per batch (shared across users).
         // Kept as a local and handed to the snapshot ctor so the table travels atomically with the
         // candidate population it was built over, even if the stale-publish guard drops this write.
-        var genreStudioIdf = BuildGenreStudioIdfTable(candidates);
+        var genreStudioIdf = BuildGenreStudioIdfTable(candidates, item => contentAffinityLookup.GetValueOrDefault(item.Id)?.EffectiveGenres ?? []);
 
         // Pre-compute BoxSet membership for all candidates once (shared across users), avoiding
         // redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
@@ -2036,6 +2042,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="items">The candidate Movie/Series items to count over, already scoped to the allowed libraries.</param>
     /// <returns>A case-insensitive genre/studio -> normalized-IDF map (empty when unavailable).</returns>
     internal Dictionary<string, double> BuildGenreStudioIdfTable(IReadOnlyList<BaseItem> items)
+        => BuildGenreStudioIdfTable(items, item => ResolveEffectiveGenres(item, CachedTitleMetadata(item)));
+
+    private Dictionary<string, double> BuildGenreStudioIdfTable(IReadOnlyList<BaseItem> items, Func<BaseItem, IReadOnlyList<string>> genresOf)
     {
         var table = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         try
@@ -2051,7 +2060,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             // Fold each facet's per-term IDF into the shared table. Keep the higher IDF when a term appears in
             // both facets (defensive; keys rarely collide) and track the running maximum for normalization.
-            foreach (var facet in new[] { ComputeFacetIdf(items, static item => GenreNormalizer.Set(item.Genres).ToArray()), ComputeFacetIdf(items, static item => item.Studios) })
+            foreach (var facet in new[] { ComputeFacetIdf(items, item => GenreNormalizer.Set(genresOf(item)).ToArray()), ComputeFacetIdf(items, static item => item.Studios) })
             {
                 foreach (var (name, idf) in facet)
                 {
@@ -2361,7 +2370,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             // Build the library-wide genre/studio IDF rarity table over these candidates and hand it to the
             // snapshot ctor so the table travels atomically with the candidate population it describes.
-            var genreStudioIdf = BuildGenreStudioIdfTable(candidates);
+            var genreStudioIdf = BuildGenreStudioIdfTable(candidates, item => contentAffinityLookup.GetValueOrDefault(item.Id)?.EffectiveGenres ?? []);
 
             // Increment inside the lock so the sequence is assigned atomically with the cache write,
             // preventing a race with the batch path's TryPublishSnapshot.
@@ -2599,20 +2608,36 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Updates "Requested + Watched" status in the discovery feedback store.
     /// </summary>
     /// <param name="cancellationToken">Token for cooperative cancellation.</param>
-    private void UpdateDiscoveryWatchedStatus(CancellationToken cancellationToken)
+    private bool UpdateDiscoveryWatchedStatus(CancellationToken cancellationToken)
     {
         try
         {
-            var allFeedback = _discoveryFeedbackStore.LoadAll();
+            Collection<UserWatchProfile>? recoveryProfiles = null;
+            IReadOnlyList<DiscoveryFeedbackResult> allFeedback;
+            try
+            {
+                allFeedback = _discoveryFeedbackStore.LoadAll();
+            }
+            catch (IOException)
+            {
+                // Training reads correctly withhold incomplete outcomes. Recovery must
+                // still be able to resubmit Jellyfin-confirmed watches from the serving
+                // snapshot; otherwise one rejected watch would prevent its own retry.
+                recoveryProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+                allFeedback = recoveryProfiles.Select(profile => _discoveryFeedbackStore.LoadForUser(profile.UserId))
+                    .OfType<DiscoveryFeedbackResult>().ToArray();
+            }
+
             if (allFeedback.Count == 0)
             {
-                return;
+                _discoveryFeedbackStore.LoadAll();
+                return true;
             }
 
             // Build a TMDb ID -> watched set per user.
             // Query library items once and resolve their TMDb provider IDs,
             // then cross-reference with each user's watched items.
-            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+            var allProfiles = recoveryProfiles ?? _watchHistoryService.GetAllUserWatchProfiles();
             var profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
             foreach (var p in allProfiles)
             {
@@ -2630,17 +2655,26 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             if (tmdbIdByItemId.Count == 0)
             {
-                return;
+                _discoveryFeedbackStore.LoadAll();
+                return true;
             }
 
             // For each user in the feedback store, resolve which (TmdbId, MediaType) they've watched
-            foreach (var userId in allFeedback
-                         .Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
-                         .Select(userFeedback => userFeedback.UserId))
+            foreach (var feedback in allFeedback.Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                UpdateWatchedStatusForUser(userId, profileById, tmdbIdByItemId, mediaTypeByItemId, cancellationToken);
+                var requested = feedback.Entries.Where(entry => entry.RequestedAtUtc.HasValue && !entry.WasWatched)
+                    .Select(entry => (entry.TmdbId, MediaType: string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie")).ToHashSet();
+                if (!UpdateWatchedStatusForUser(feedback.UserId, profileById, tmdbIdByItemId, mediaTypeByItemId, requested, cancellationToken))
+                {
+                    return false;
+                }
             }
+
+            // A successful individual watch cannot certify unrelated rejected receipts.
+            // Fitting proceeds only after the store supplies a complete training view.
+            _discoveryFeedbackStore.LoadAll();
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -2652,6 +2686,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 LogCategory,
                 $"Discovery watched-status update failed (non-critical): {ex.Message}",
                 _logger);
+            return false;
         }
     }
 
@@ -2689,12 +2724,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="profileById">Watch profiles keyed by user id.</param>
     /// <param name="tmdbIdByItemId">ItemId -> TMDb ID mapping.</param>
     /// <param name="mediaTypeByItemId">ItemId -> media type mapping.</param>
+    /// <param name="requestedItems">This user's confirmed, not-yet-watched feedback titles; unrelated library watches cannot become rejected receipts.</param>
     /// <param name="cancellationToken">Scheduled-task cancellation for the bounded feedback wait.</param>
-    private void UpdateWatchedStatusForUser(
+    private bool UpdateWatchedStatusForUser(
         Guid userId,
         Dictionary<Guid, UserWatchProfile> profileById,
         Dictionary<Guid, int> tmdbIdByItemId,
         Dictionary<Guid, string> mediaTypeByItemId,
+        IReadOnlySet<(int TmdbId, string MediaType)> requestedItems,
         CancellationToken cancellationToken)
     {
         try
@@ -2702,17 +2739,29 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             // Find the user's watch profile via O(1) dictionary lookup
             if (!profileById.TryGetValue(userId, out var userProfile))
             {
-                return;
+                return true;
             }
 
             // Collect composite (TmdbId, MediaType) keys of items this user has watched.
             // MediaType resolved from library item type (Movie -> "movie", Series -> "tv").
             var watchedItems = CollectWatchedTmdbKeys(userProfile, tmdbIdByItemId, mediaTypeByItemId);
+            // No-op watches are not lost discovery outcomes. Restrict receipts to
+            // this user's requested titles so large libraries cannot saturate the
+            // bounded rejection ledger with unrelated played movie/TV identities.
+            watchedItems.IntersectWith(requestedItems);
 
             if (watchedItems.Count > 0)
             {
-                _discoveryFeedbackStore.MarkWatchedAsync(userId, watchedItems, cancellationToken).GetAwaiter().GetResult();
+                var saved = _discoveryFeedbackStore.MarkWatchedAsync(userId, watchedItems, cancellationToken).GetAwaiter().GetResult();
+                if (!saved)
+                {
+                    _pluginLog.LogWarning(LogCategory, $"Discovery watched-state reconciliation for user '{userId}' is incomplete; fitting deferred.", null, _logger);
+                }
+
+                return saved;
             }
+
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -2724,6 +2773,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 LogCategory,
                 $"Could not update discovery watched status for user '{userId}': {ex.Message}",
                 _logger);
+            return false;
         }
     }
 

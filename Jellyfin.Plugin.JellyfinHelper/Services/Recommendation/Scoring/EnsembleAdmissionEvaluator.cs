@@ -60,8 +60,9 @@ internal static class EnsembleAdmissionEvaluator
         if (!HasSupport(test))
         {
             var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
-            return ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence)
-                ?? AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
+            // Calibration has already selected ordinary admission and its fixed mixture.
+            // Acceptance outcomes may reject/withhold it, never select another procedure.
+            return AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
         }
 
         test = ScoreEvidence(test, models, neuralCap > 0);
@@ -290,6 +291,12 @@ internal static class EnsembleAdmissionEvaluator
         var rows = CaptureEvidence(examples, referenceTime);
         var users = MixedUsers(rows).ToHashSet();
         return HasSupport(rows.Where(row => users.Contains(row.UserId)).ToArray());
+    }
+
+    internal static TrainingExample[] SelectOrdinaryAcceptanceEvidence(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, DateTime referenceTime)
+    {
+        var users = MixedUsers(CaptureEvidence(calibration, referenceTime)).ToHashSet();
+        return acceptance.Where(row => users.Contains(row.UserId)).ToArray();
     }
 
     private static long AdvanceEvaluationCursor(long offset, int advance, bool truncated)

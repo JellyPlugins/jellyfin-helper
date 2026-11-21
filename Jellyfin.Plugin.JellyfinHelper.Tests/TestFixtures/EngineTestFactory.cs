@@ -101,6 +101,7 @@ internal static class EngineTestFactory
         perUserRegistry.Setup(r => r.HasPerUserModel(It.IsAny<Guid>())).Returns(false);
 
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
+        feedbackStore.Setup(store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         feedbackStore.Setup(f => f.LoadAll())
                      .Returns(new List<DiscoveryFeedbackResult>());
 

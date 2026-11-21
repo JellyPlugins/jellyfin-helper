@@ -81,7 +81,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             if (cancel)
             {
                 cancellation.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
             else
             {
@@ -115,7 +115,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         try
         {
             cancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             _sut.Dispose();
             _sut.Dispose();
             Assert.False(writer.IsCompleted);

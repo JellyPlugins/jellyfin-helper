@@ -28,6 +28,7 @@ public sealed class TitleMetadataCache
     private readonly Dictionary<string, DateTime> _attempts = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reservations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _aliases = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string[]> _entryAliases = new(StringComparer.Ordinal);
     private readonly IServerConfigurationManager? _serverConfiguration;
     private readonly IFileSystem? _fileSystem;
     private readonly string? _cachePath;
@@ -58,6 +59,9 @@ public sealed class TitleMetadataCache
 
     /// <summary>Gets the live optional integration check; persisted Trakt data is not proof the plugin is still active.</summary>
     internal Func<PluginConfiguration, bool> TraktMetadataAvailable { get; init; } = config => config.TraktSourcingEnabled;
+
+    /// <summary>Gets the caller-wait clock; production keeps the same two-second persistence deadline.</summary>
+    internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Returns last-known-good metadata, including bounded stale fallback during provider outages.</summary>
     /// <param name="config">The current provider configuration.</param>
@@ -179,7 +183,11 @@ public sealed class TitleMetadataCache
         foreach (var current in snapshots.OrderBy(snapshot => snapshot.FetchedAtUtc).GroupBy(snapshot => snapshot.FetchedAtUtc)
             .Select(group => TitleMetadataMerger.Combine(group.ToArray())!))
         {
-            combined = MergeFields(combined is null ? current : LinkSuppliedIdentity(current, combined), combined, now, preferNewerFields: true);
+            // Only the primary anchor is inherited here. MergeFields already retains
+            // missing TVDB/IMDb links with their original field acquisition times;
+            // copying them into the incoming observation would falsely renew them.
+            var anchored = current.TmdbId > 0 || combined is null ? current : current with { TmdbId = combined.TmdbId };
+            combined = MergeFields(anchored, combined, now, preferNewerFields: true);
         }
 
         return combined is null ? null : combined with { SourceObservations = null, ObservationScope = snapshots[0].ObservationScope };
@@ -328,12 +336,22 @@ public sealed class TitleMetadataCache
 
     private void RemoveAliases(string key)
     {
-        foreach (var pair in _aliases.Where(pair => pair.Value.Contains(key)).ToArray())
+        if (!_entryAliases.Remove(key, out var aliases))
         {
-            pair.Value.Remove(key);
-            if (pair.Value.Count == 0)
+            return;
+        }
+
+        foreach (var alias in aliases)
+        {
+            if (!_aliases.TryGetValue(alias, out var entries))
             {
-                _aliases.Remove(pair.Key);
+                continue;
+            }
+
+            entries.Remove(key);
+            if (entries.Count == 0)
+            {
+                _aliases.Remove(alias);
             }
         }
     }
@@ -342,7 +360,9 @@ public sealed class TitleMetadataCache
     {
         RemoveAliases(key);
         var scope = key.Split(':')[0];
-        foreach (var alias in IdentityKeys(scope, snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId))
+        var aliases = IdentityKeys(scope, snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).ToArray();
+        _entryAliases[key] = aliases;
+        foreach (var alias in aliases)
         {
             if (!_aliases.TryGetValue(alias, out var matches))
             {
@@ -523,7 +543,9 @@ public sealed class TitleMetadataCache
                 long generation;
                 lock (_gate)
                 {
-                    snapshot = new Dictionary<string, TitleMetadataSnapshot>(_entries, StringComparer.Ordinal);
+                    var acquired = Now;
+                    snapshot = _entries.Keys.Select(key => (Key: key, Metadata: ReadUsableEntry(key, acquired)))
+                        .Where(entry => entry.Metadata is not null).ToDictionary(entry => entry.Key, entry => entry.Metadata!, StringComparer.Ordinal);
                     generation = _generation;
                 }
 
@@ -587,7 +609,7 @@ public sealed class TitleMetadataCache
 
         try
         {
-            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), WaitTimeProvider, cancellationToken).ConfigureAwait(false);
             lock (_gate)
             {
                 return saved && _savedGeneration >= requestedGeneration;

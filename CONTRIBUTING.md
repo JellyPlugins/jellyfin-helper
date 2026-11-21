@@ -397,7 +397,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryCacheServiceTests.cs            # Disk/memory snapshots; bounded single-writer waits, cancellation and safe deferred disposal
 │   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
-│   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryFeedbackStoreTests.cs          # Typed receipt recovery, dependent watches, bounded backpressure and atomic training views
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
 │   │       ├── DiscoverySelectionTests.cs             # Relevant varied pools, source-rank preservation and honest cold-start scores
@@ -467,7 +467,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ContentScoringGenreEngagementTests.cs   # ComputeGenreEngagement: empty genres/history → neutral; familiarity/completion/abandon rate with matching genre history; per-genre confidence shrinkage (single sample damped, many samples trusted); cached GenreEngagementContext bit-identical to direct (engagement + genre rating); ComputeSeriesAffinity: non-series → 0
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineDiscoveryWatchedStatusTests.cs     # TrainStrategy marks favorited movies/series watched with the correct media type
-│       │   ├── EngineIdfRarityTests.cs                  # IDF rarity weighting: rare genres/studios contribute more than common ones
+│       │   ├── EngineIdfRarityTests.cs                  # Captured local/provider genres share exact rarity formulas across batch, live scoring and training
 │       │   ├── EngineLibraryMetadataTests.cs           # BuildLibraryItemMetadata (Movie/Series studios/tags, empty-skip) via TrainStrategy; GetEnsembleDiagnostics (ensemble non-null, non-ensemble null); featureMeans switch arms
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
@@ -485,7 +485,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
-│       │   ├── TitleMetadataCacheTests.cs             # Compatible per-scope/cross-provider identities, captured language and generation-aware bounded persistence
+│       │   ├── TitleMetadataCacheTests.cs             # Scoped reverse aliases, field chronology, expiry-filtered saves and generation-aware bounded persistence
 │       │   ├── SupplementalMetadataTests.cs           # Scoped supersession, field acquisition times, idempotent formats and independent-source conflicts
 │       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
 │       │   ├── EngineExclusionTests.cs                # Excluded-library filtering drops items under excluded roots; provider-id (TMDb) fallback skips duplicate library entries of watched titles
@@ -579,6 +579,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── RecommendationEngineTests.cs
 │       └── RecommendedItemTests.cs                     # Setter null-coalescing on the RecommendedItem DTO: SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, BoxSetIds) MUST swallow a null assignment and expose an empty list instead. Cache round-trips through JsonSerializer can null any of them; downstream training/scoring code iterates with foreach without null-guards. Reassignment (non-null → null) must actively replace the backing field so a re-clear doesn't leak the previous list.
 └── TestFixtures/                  # Shared test helpers
+    ├── ControlledWaitTimeProvider.cs # Explicit test deadline control; cancellation cases cannot race the production two-second timeout
     ├── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
     ├── DirectoryLinkTestHelper.cs # Creates directory symlinks or Windows junctions for filesystem tests without requiring elevated symlink privileges
     └── PluginSingletonLifecycleTests.cs  # Verifies Plugin.Instance singleton lifecycle (InitializePluginInstance, TeardownPluginInstance, ResetPluginConfiguration): null/non-null state transitions, idempotency, and fresh-config guarantee after teardown+reinit

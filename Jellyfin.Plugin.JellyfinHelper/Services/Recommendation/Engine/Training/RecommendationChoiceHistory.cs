@@ -35,6 +35,8 @@ internal sealed class RecommendationChoiceHistory
         Load();
     }
 
+    internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
+
     internal List<TrainingExample> Merge(
         IReadOnlyList<TrainingExample> current,
         IReadOnlySet<Guid> activeUsers,
@@ -283,7 +285,7 @@ internal sealed class RecommendationChoiceHistory
 
         try
         {
-            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), WaitTimeProvider, cancellationToken).ConfigureAwait(false);
             lock (_gate)
             {
                 return saved && _savedGeneration >= requested;

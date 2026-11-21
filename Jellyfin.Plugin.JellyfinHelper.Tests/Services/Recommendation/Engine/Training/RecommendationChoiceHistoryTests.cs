@@ -32,7 +32,11 @@ public sealed class RecommendationChoiceHistoryTests
             started.TrySetResult();
             release.Wait(TestContext.Current.CancellationToken);
         });
-        var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("bounded-choice-writer.json"));
+        var waitClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("bounded-choice-writer.json"))
+        {
+            WaitTimeProvider = cancel ? waitClock : TimeProvider.System
+        };
         history.Merge([firstRow], new HashSet<Guid> { user }, now);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var first = history.SaveAsync(cancellation.Token);
@@ -43,7 +47,7 @@ public sealed class RecommendationChoiceHistoryTests
             if (cancel)
             {
                 cancellation.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
             else
             {
@@ -51,7 +55,9 @@ public sealed class RecommendationChoiceHistoryTests
             }
 
             history.Merge([firstRow, secondRow], new HashSet<Guid> { user }, now);
-            Assert.False(await history.SaveAsync(TestContext.Current.CancellationToken));
+            var pendingWait = history.SaveAsync(TestContext.Current.CancellationToken);
+            if (cancel) waitClock.ExpireDeadlines();
+            Assert.False(await pendingWait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
             var joining = history.SaveAsync(TestContext.Current.CancellationToken);
             release.Set();

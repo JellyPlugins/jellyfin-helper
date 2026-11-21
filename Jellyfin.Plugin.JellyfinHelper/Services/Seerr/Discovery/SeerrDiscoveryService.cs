@@ -2138,7 +2138,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Drop anything our own local discovery already recommends to this user, so the Trakt tab never
         // duplicates a title the "For you" tab is already showing. Best-effort: a cache miss or read failure
         // must not break Trakt scoring.
-        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded).ConfigureAwait(false);
+        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded, cancellationToken).ConfigureAwait(false);
 
         // The Trakt tab preserves Trakt's own ranking, so our soft quality floors (minimum rating, minimum
         // year) must not silently prune what Trakt deliberately surfaced. Disable both for this path by passing
@@ -3116,11 +3116,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // external source (Trakt) never surfaces a title the "For you" tab already shows. Keyed on
     // (TmdbId, lowercased MediaType) to match DeduplicateAndFilter's exclusion lookup. Best-effort: any read
     // failure leaves the set untouched rather than aborting external scoring.
-    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded)
+    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded, CancellationToken cancellationToken)
     {
         try
         {
-            var ownResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false))
+            var ownResult = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false))
                 .FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
             if (ownResult is null)
             {
@@ -3133,7 +3133,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 userExcluded.Add((rec.TmdbId, mediaType));
             }
         }
-        catch (Exception ex) when (!ex.IsFatal())
+        catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
         {
             _pluginLog.LogDebug(
                 LogCategory,
@@ -3968,8 +3968,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return false;
         }
 
-        ApplyEnrichedMetadata(candidate, detail);
         var previous = candidate.TitleMetadata;
+        var genreTime = LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.GenreIds));
+        ApplyEnrichedMetadata(candidate, detail, acquiredAtUtc >= genreTime);
         candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc) with { ObservationScope = scope };
         candidate.TitleMetadata = TitleMetadataMerger.WithSeerrObservation(candidate.SeerrTitleMetadata, previous, DateTime.UtcNow);
         if (detail.Genres is not null)
@@ -3987,7 +3988,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.CollectionName = detail.Collection?.Name;
         }
 
-        if (detail.Keywords is not null)
+        if (detail.Keywords is not null && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
         {
             candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
         }
@@ -4011,11 +4012,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached, string? scope)
         => ApplyDetail(candidate, cached.Detail, cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl), scope);
 
+    private static DateTime LatestSeerrFieldAcquisition(TitleMetadataSnapshot? metadata, string? scope, string field)
+    {
+        if (metadata is null)
+        {
+            return DateTime.MinValue;
+        }
+
+        return TitleMetadataMerger.Observations(metadata)
+            .Where(observation => observation.Source == "seerr" && observation.ObservationScope == scope
+                && (field == nameof(TitleMetadataSnapshot.GenreIds) ? observation.GenreIds.HasValue : observation.Keywords.HasValue))
+            .Select(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(field, observation.FetchedAtUtc) ?? observation.FetchedAtUtc)
+            .DefaultIfEmpty(DateTime.MinValue).Max();
+    }
+
     // Omitted fields retain known values. Explicit genre lists replace prior provider
     // IDs, including an authoritative empty list; independent source labels remain separate.
-    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, bool currentGenres)
     {
-        if (detail.Genres is not null)
+        if (currentGenres && detail.Genres is not null)
         {
             candidate.GenreIds = detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>().Where(genre => genre.Id > 0).Select(genre => genre.Id).ToList();
         }

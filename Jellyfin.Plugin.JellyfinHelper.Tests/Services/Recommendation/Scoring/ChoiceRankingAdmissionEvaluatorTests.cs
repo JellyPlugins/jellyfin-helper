@@ -221,6 +221,86 @@ public sealed class ChoiceRankingAdmissionEvaluatorTests
             };
         }).ToArray();
 
+    [Fact]
+    public void HomogeneousAcceptanceCannotReplaceTheOrdinaryCalibrationProcedureWithChoiceRecalibration()
+    {
+        var user = Guid.NewGuid();
+        TrainingExample[] Slice()
+        {
+            var chosen = Rows(user, 24);
+            var negatives = Rows(user, 24);
+            foreach (var row in negatives)
+            {
+                row.Label = 0;
+                row.Choice = null;
+            }
+
+            return chosen.Concat(negatives).ToArray();
+        }
+
+        var calibration = Slice();
+        var acceptance = Slice();
+        var models = new AdmissionModels(Predictor(_ => .425), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1));
+        var mixed = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.False(mixed.Accepted);
+        Assert.False(mixed.Utility.IsChoiceRanking);
+        Assert.Equal(0, mixed.Candidate.Learned);
+        foreach (var row in acceptance) row.Label = .85;
+        var homogeneous = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.False(homogeneous.Accepted);
+        Assert.False(homogeneous.Utility.IsChoiceRanking);
+        Assert.Equal("HomogeneousObservedOutcomes", homogeneous.Reason);
+        Assert.Equal(mixed.Candidate, homogeneous.Candidate);
+        Assert.True(ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, (.75, 0), null)!.Accepted);
+    }
+
+    [Fact]
+    public void AnUnrelatedMixedAcceptanceUserCannotEnableTheOrdinaryArchiveVetoForAnAcceptedChoiceDecision()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        var acceptance = Rows(user, 24).ToList();
+        var unrelated = Rows(Guid.NewGuid(), 48);
+        for (var index = 0; index < unrelated.Length; index++)
+        {
+            unrelated[index].Label = index % 2 == 0 ? .85 : 0;
+            unrelated[index].Choice = null;
+        }
+
+        acceptance.AddRange(unrelated);
+        Assert.True(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, Now));
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance,
+            new(Predictor(_ => .4), Predictor(features => features.GenreSimilarity > .5 ? .9 : .1)), Now, .75, 0);
+        Assert.True(decision.Accepted);
+        Assert.True(decision.Utility.IsChoiceRanking);
+        Assert.Equal(24, decision.Evidence.AcceptanceTitles);
+        Assert.False(EnsembleScoringStrategy.ShouldAssessOrdinaryArchive(decision, acceptance, Now));
+        var ordinary = decision with { Utility = decision.Utility with { IsChoiceRanking = false } };
+        Assert.True(EnsembleScoringStrategy.ShouldAssessOrdinaryArchive(ordinary, acceptance, Now));
+    }
+
+    [Fact]
+    public void ChoiceCalibrationCoefficientsSurviveMissingSupportAndInvalidAcceptancePredictionsWithoutSpendingEvidence()
+    {
+        var user = Guid.NewGuid();
+        var calibration = Rows(user, 24);
+        var acceptance = Rows(user, 24);
+        var models = new AdmissionModels(Predictor(_ => .4), Predictor(features => features.IsSeries ? double.NaN : features.GenreSimilarity > .5 ? .9 : .1));
+        var accepted = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0);
+        Assert.True(accepted.Accepted);
+        var reserved = false;
+        var unsupported = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance.Take(19).ToArray(), models, Now, .75, 0, _ => { reserved = true; return null; });
+        Assert.False(unsupported.Accepted);
+        Assert.Equal("InsufficientIndependentRankingEvidence", unsupported.Reason);
+        Assert.Equal(accepted.Candidate, unsupported.Candidate);
+        foreach (var row in acceptance) row.Choice!.ChosenFeatures.IsSeries = true;
+        var invalid = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, models, Now, .75, 0, _ => { reserved = true; return null; });
+        Assert.False(invalid.Accepted);
+        Assert.Equal("InvalidChoicePrediction", invalid.Reason);
+        Assert.Equal(accepted.Candidate, invalid.Candidate);
+        Assert.False(reserved);
+    }
+
     private static IScoringStrategy Predictor(Func<CandidateFeatures, double> score)
     {
         var mock = new Mock<IScoringStrategy>();

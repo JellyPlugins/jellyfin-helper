@@ -396,6 +396,28 @@ public sealed class EnsembleAdmissionEvaluatorTests
     private static AdmissionDecision Evaluate(IReadOnlyList<TrainingExample> cal, IReadOnlyList<TrainingExample> test, AdmissionModels models)
         => EnsembleAdmissionEvaluator.Evaluate(cal, test, models, ReferenceTime, .75, .3);
 
+    [Fact]
+    public void OrdinaryArchiveAssessmentAndReservationsExcludeAcceptanceUsersAbsentFromCalibration()
+    {
+        var calibration = Examples(80, 301);
+        var matching = Examples(80, 302);
+        var unrelated = Examples(80, 303, user: 2);
+        foreach (var row in unrelated) row.Features.CombinedCriticScore = .85 - row.Label;
+        var all = matching.Concat(unrelated).ToArray();
+        var selected = EnsembleAdmissionEvaluator.SelectOrdinaryAcceptanceEvidence(calibration, all, ReferenceTime);
+        Assert.Equal(matching.Select(row => row.ObservationId), selected.Select(row => row.ObservationId));
+        var archive = Scorer(features => features.CombinedCriticScore);
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateFixedVersion(all, Constant(.5), archive, Constant(.7), ReferenceTime));
+        var reserved = new HashSet<Guid>();
+        var assessment = EnsembleAdmissionEvaluator.EvaluateFixedVersion(selected, Constant(.5), archive, Constant(.7), ReferenceTime,
+            ids => { reserved.UnionWith(ids); return null; });
+        Assert.NotNull(assessment);
+        Assert.True(assessment.LowerHeuristicImprovement > 0);
+        Assert.True(assessment.LowerIncumbentImprovement > 0);
+        Assert.Equal(matching.Select(row => row.ObservationId).Order(), reserved.Order());
+        Assert.All(unrelated, row => Assert.DoesNotContain(row.ObservationId, reserved));
+    }
+
     private static List<TrainingExample> Examples(int count, int seed, int user = 1)
         => Enumerable.Range(0, count).Select(index => new TrainingExample
         {

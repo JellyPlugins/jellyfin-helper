@@ -825,7 +825,8 @@ public sealed partial class EnsembleScoringStrategy
     {
         // Archives currently use ordinary mixed-outcome assessment. Do not let an
         // unassessable archive veto an independently accepted choice-ranking challenger.
-        if (!EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(batch.Acceptance, batch.EvaluatedAt))
+        var acceptance = EnsembleAdmissionEvaluator.SelectOrdinaryAcceptanceEvidence(batch.Calibration, batch.Acceptance, batch.EvaluatedAt);
+        if (!ShouldAssessOrdinaryArchive(decision, acceptance, batch.EvaluatedAt))
         {
             return HistoricalRestoration.NotSelected;
         }
@@ -840,9 +841,13 @@ public sealed partial class EnsembleScoringStrategy
         var configuration = context.Bounds.Configuration;
         var attempted = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, context.Bounds.NeuralCap);
         var calibrated = EnsembleAdmissionEvaluator.EvaluateFixedVersion(batch.Calibration, batch.Models.Heuristic, new PinnedMixturePredictor(attempted, configuration.Maximum, configuration.Floor), batch.Models.Incumbent ?? batch.Models.Heuristic, batch.EvaluatedAt);
-        var restoration = new RestorationContext(batch.Calibration, batch.Acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
+        var restoration = new RestorationContext(batch.Calibration, acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
         return TryRestoreHistoricalModel(restoration, historical, store, cancellationToken);
     }
+
+    internal static bool ShouldAssessOrdinaryArchive(AdmissionDecision decision, IReadOnlyList<TrainingExample> acceptance, DateTime evaluatedAt)
+        => !(decision.Accepted && decision.Utility.IsChoiceRanking)
+            && EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, evaluatedAt);
 
     private void TryWithdrawOnFreshEvidence(ChallengerContext context, ValidationBatch batch, CancellationToken cancellationToken)
     {

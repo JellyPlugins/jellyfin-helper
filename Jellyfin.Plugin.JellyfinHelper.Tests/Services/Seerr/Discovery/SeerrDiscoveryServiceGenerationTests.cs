@@ -178,7 +178,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             if (cancel)
             {
                 cancellation.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence);
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
             else
             {
