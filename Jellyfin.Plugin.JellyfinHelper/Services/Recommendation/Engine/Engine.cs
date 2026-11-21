@@ -1992,7 +1992,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)
-        => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : "movie", TitleProviderIdentity.Tvdb(candidate), TitleProviderIdentity.Imdb(candidate));
+        => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : TmdbLibraryMapper.MovieMediaType, TitleProviderIdentity.Tvdb(candidate), TitleProviderIdentity.Imdb(candidate));
 
     private Dictionary<Guid, int> LoadCollectionIds(IEnumerable<BaseItem> candidates)
     {
@@ -2664,7 +2664,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var requested = feedback.Entries.Where(entry => entry.RequestedAtUtc.HasValue && !entry.WasWatched)
-                    .Select(entry => (entry.TmdbId, MediaType: string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie")).ToHashSet();
+                    .Select(entry => (entry.TmdbId, MediaType: string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase) ? "tv" : TmdbLibraryMapper.MovieMediaType)).ToHashSet();
                 if (!UpdateWatchedStatusForUser(feedback.UserId, profileById, tmdbIdByItemId, mediaTypeByItemId, requested, cancellationToken))
                 {
                     return false;
@@ -2712,7 +2712,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             if (TmdbLibraryMapper.TryGetTmdbId(item, out var tmdbId))
             {
                 tmdbIdByItemId.TryAdd(item.Id, tmdbId);
-                mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : "movie");
+                mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : TmdbLibraryMapper.MovieMediaType);
             }
         }
     }
@@ -2790,7 +2790,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
             {
-                var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
+                var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : TmdbLibraryMapper.MovieMediaType;
                 watchedItems.Add((tmdbId, mt));
             }
 
