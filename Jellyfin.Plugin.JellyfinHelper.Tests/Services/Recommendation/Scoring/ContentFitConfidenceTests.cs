@@ -14,6 +14,123 @@ public sealed class ContentFitConfidenceTests
     private static readonly string[] Story = ["anime", "shounen", "pirate", "friendship", "sea", "ship"];
 
     [Theory]
+    [InlineData(null, false, 1, 1, false)]
+    [InlineData(0.0, true, 1, .5, true)]
+    [InlineData(0.0, true, 0, 1, false)]
+    [InlineData(0.0, true, 1, .49, false)]
+    [InlineData(.5, false, 0, 0, true)]
+    public void CoherentSelectionRequiresActualGenreOrContinuationEvidence(double? continuation, bool genres, double similarity, double support, bool expected)
+    {
+        var features = new CandidateFeatures { CollectionContinuationSupport = continuation, HasGenreEvidence = genres, GenreSimilarity = similarity, ContentFitSupport = support };
+        Assert.Equal(expected, ScoringHelper.HasCoherentContentSupport(features));
+        Assert.False(ScoringHelper.HasCoherentContentSupport(null));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void EachCapturedContextSignalIndependentlyAppearsInTheMarginalExplanation(int signal)
+    {
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        if (signal == 0) features.ContentFitAffinity = .8;
+        if (signal == 1) features.ContentFitSupport = .8;
+        if (signal == 2) features.AudienceMismatch = .25;
+        if (signal == 3) features.CollectionContinuationSupport = .8;
+        if (signal == 4) features.ContentFamilyMismatch = .5;
+        var explanation = ScoringHelper.BuildMarginalExplanation(features, f => ScoringHelper.ComputeContextualScore(.8, f, 1), "synthetic");
+        Assert.NotNull(explanation.ContentFitContribution);
+        Assert.Equal(explanation.FinalScore - ScoringHelper.ComputeContextualScore(.8, features.WithoutContentFit(), 1), explanation.ContentFitContribution!.Value, 12);
+    }
+
+    [Fact]
+    public void KnownZeroContextDoesNotInventAContentContributionInEitherExplanationPath()
+    {
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7, ContentFitSupport = 0, AudienceMismatch = 0, CollectionContinuationSupport = 0, ContentFamilyMismatch = 0 };
+        var marginal = ScoringHelper.BuildMarginalExplanation(features, f => ScoringHelper.ComputeContextualScore(.8, f, 1), "synthetic");
+        Assert.Null(marginal.ContentFitContribution);
+        using var strategy = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1));
+        var method = typeof(EnsembleScoringStrategy).GetMethod("ComputeBlendedExplanation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var blended = (ScoreExplanation)method.Invoke(strategy, [features, 0.0, 0.0, 1.0])!;
+        Assert.Equal(new HeuristicScoringStrategy(1).Score(features), blended.FinalScore, 12);
+        Assert.Null(blended.ContentFitContribution);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(.75, 0)]
+    [InlineData(.45, .30)]
+    public void ExplicitPreschoolAudienceCannotBeRescuedByHeuristicLearnedOrNeuralMixtures(double learnedShare, double neuralShare)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation", "Action"], Tags = Story });
+        var content = ContentFitProfile.Create(profile);
+        var preschool = new CandidateFeatures { GenreSimilarity = .8, HasGenreEvidence = true, CombinedCriticScore = 1, IsSeries = true };
+        content.Apply(preschool, ["Animation", "Kids"], ["preschool", "children's television", "pirate", "friendship"], "FSK-0", Preferences);
+        Assert.Equal(.5, preschool.ContentFamilyMismatch);
+        Assert.False(ScoringHelper.IsContentEligible(preschool));
+        using var initializer = new NeuralScoringStrategy();
+        var parameters = initializer.CapturePredictionSnapshot()!.ExportParameters();
+        Array.Clear(parameters.WeightsH4O);
+        parameters.BiasOutput = 2;
+        using var neural = NeuralScoringStrategy.FromParameters(parameters)!;
+        var heuristic = new HeuristicScoringStrategy(1);
+        var prediction = new AcceptedPrediction(heuristic, Predictor(), neural.CapturePredictionSnapshot(), new AdmissionMixture(learnedShare, neuralShare), .3);
+        var neutral = preschool.Copy();
+        neutral.ContentFamilyMismatch = null;
+        Assert.Equal(prediction.Score(neutral, .75, 1) * .5, prediction.Score(preschool, .75, 1), 12);
+        Assert.Equal(41, preschool.ToVector().Length);
+        var reloaded = JsonSerializer.Deserialize<CandidateFeatures>(JsonSerializer.Serialize(preschool))!;
+        Assert.Equal(prediction.Score(preschool, .75, 1), prediction.Score(reloaded, .75, 1));
+    }
+
+    [Fact]
+    public void AChildViewerWithPositivePawLikeFilmsKeepsPreschoolSeriesEligible()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation", "Family"], Tags = ["children's adventure", "dog", "rescue mission"] });
+        var candidate = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .8 };
+        ContentFitProfile.Create(profile).Apply(candidate, ["Animation", "Kids"], ["preschool", "dog", "rescue mission"], "FSK-0", new() { ["Animation"] = 1, ["Family"] = 1, ["Kids"] = .5 });
+        Assert.True(ScoringHelper.IsContentEligible(candidate));
+        Assert.Null(candidate.AudienceMismatch);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(.25)]
+    [InlineData(.5)]
+    [InlineData(1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void FamilyConfidenceIsBoundedAndNeverChangesTheModelVector(double mismatch)
+    {
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        var vector = features.ToVector();
+        features.ContentFamilyMismatch = mismatch;
+        var expected = double.IsFinite(mismatch) ? Math.Clamp(mismatch, 0, .5) : 0;
+        var score = ScoringHelper.ComputeContextualScore(.8, features, .1);
+        Assert.Equal(.8 * (1 - expected), score, 12);
+        Assert.Equal(.8, ScoringHelper.RecoverPreContentScore(score, features)!.Value, 12);
+        Assert.Equal(vector, features.ToVector());
+        Assert.Null(features.WithoutContentFit().ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void CapturedFamilyConfidenceSurvivesSerializationAndExplainsTheScoreExactlyOnce()
+    {
+        using var strategy = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1));
+        var features = new CandidateFeatures { GenreSimilarity = .7, ContentFamilyMismatch = .5 };
+        var neutral = features.WithoutContentFit();
+        Assert.Equal(strategy.Score(neutral) * .5, strategy.Score(features), 12);
+        Assert.Equal(strategy.Score(features) - strategy.Score(neutral), strategy.ScoreWithExplanation(features).ContentFitContribution!.Value, 12);
+        var restored = JsonSerializer.Deserialize<CandidateFeatures>(JsonSerializer.Serialize(features))!;
+        Assert.Equal(strategy.Score(features), strategy.Score(restored));
+        Assert.Equal(features.ToVector(), restored.ToVector());
+    }
+
+    [Theory]
     [InlineData(0.0)]
     [InlineData(0.2)]
     [InlineData(0.8)]

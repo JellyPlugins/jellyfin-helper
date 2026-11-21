@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -88,7 +89,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private TraktDiscoveryService CreateServiceWithFactory(IHttpClientFactory factory)
         => CreateServiceWithFactory(factory, () => DateTimeOffset.Now);
 
-    private TraktDiscoveryService CreateServiceWithFactory(IHttpClientFactory factory, Func<DateTimeOffset> now)
+    private TraktDiscoveryService CreateServiceWithFactory(IHttpClientFactory factory, Func<DateTimeOffset> now, TitleMetadataCache? metadataCache = null)
         => new(
             factory,
             new TraktPersonalSourceService(_officialPlugin.Object, now),
@@ -99,7 +100,55 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             NullLogger<TraktDiscoveryService>.Instance)
         {
             UtcNow = now,
+            MetadataCache = metadataCache,
         };
+
+    [Fact]
+    public async Task ExistingPersonalFetchPublishesFullMetadataAndTvdbOnlyTitlesWithoutAdditionalRequests()
+    {
+        var user = Guid.NewGuid();
+        var metadata = new TitleMetadataCache();
+        var acquired = DateTimeOffset.UtcNow.AddHours(-1);
+        var sut = CreateServiceWithFactory(_factory.Object, () => acquired, metadata);
+        IReadOnlyList<ExternalDiscoveryCandidate>? mapped = null;
+        _responses.Enqueue((HttpStatusCode.OK, """[{"title":"Movie","genres":["animation"],"language":"ja","country":"jp","overview":"movie synopsis","ids":{"tmdb":11,"imdb":"tt123456"}}]"""));
+        _responses.Enqueue((HttpStatusCode.OK, """[{"title":"Show","genres":["anime"],"language":"ja","country":"jp","ids":{"tvdb":22}}]"""));
+        _discovery.Setup(value => value.ScoreExternalCandidatesAsync(user, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .Callback((Guid _, IReadOnlyList<ExternalDiscoveryCandidate> candidates, CancellationToken _) => mapped = candidates)
+            .ReturnsAsync(Scored(user, (11, "movie", "Movie")));
+        await sut.GetPersonalAsync(user, TestContext.Current.CancellationToken);
+        var config = Plugin.Instance!.Configuration;
+        var movie = metadata.Get(config, 11, "movie")!;
+        Assert.Equal(acquired.UtcDateTime, movie.FetchedAtUtc);
+        Assert.Equal(acquired.UtcDateTime, Assert.Single(Assert.IsType<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped, exactMatch: false)).TitleMetadata!.FetchedAtUtc);
+        Assert.Equal("movie synopsis", movie.Overview);
+        Assert.Equal("ja", movie.OriginalLanguage);
+        Assert.Equal("tt123456", movie.ImdbId);
+        var show = metadata.Get(config, 0, "tv", 22)!;
+        Assert.Equal(acquired.UtcDateTime, show.FetchedAtUtc);
+        Assert.Equal(0, show.TmdbId);
+        Assert.Equal("anime", ContentDescriptor.Create([], [], show).Representation);
+        Assert.Empty(_responses);
+    }
+
+    [Fact]
+    public async Task NullPersonalRowsDoNotLoseValidMetadataOrTriggerFailureBackoff()
+    {
+        var user = Guid.NewGuid();
+        var metadata = new TitleMetadataCache();
+        var sut = CreateServiceWithFactory(_factory.Object, () => DateTimeOffset.UtcNow, metadata);
+        _responses.Enqueue((HttpStatusCode.OK, """[null,{"title":"Movie","language":"ja","overview":"kept","ids":{"tmdb":11}}]"""));
+        _responses.Enqueue((HttpStatusCode.OK, """[null,{"title":"Show","ids":{"tmdb":22}}]"""));
+        _discovery.Setup(value => value.ScoreExternalCandidatesAsync(user, It.IsAny<IReadOnlyList<ExternalDiscoveryCandidate>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Scored(user, (11, "movie", "Movie"), (22, "tv", "Show")));
+        var result = await sut.GetPersonalAsync(user, TestContext.Current.CancellationToken);
+        Assert.Equal(2, result!.Recommendations.Count);
+        Assert.Equal("kept", metadata.Get(Plugin.Instance!.Configuration, 11, "movie")!.Overview);
+        Assert.NotNull(metadata.Get(Plugin.Instance.Configuration, 22, "tv"));
+        Assert.Empty(_responses);
+        _discovery.Verify(value => value.ScoreExternalCandidatesAsync(user,
+            It.Is<IReadOnlyList<ExternalDiscoveryCandidate>>(items => items.Count == 2), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     private static DiscoveryResult Scored(Guid userId, params (int TmdbId, string MediaType, string Title)[] items)
         => new()

@@ -5,6 +5,7 @@
   "recsEnsembleStatusPrior": "Genel modellerden başlangıç karışımı",
   "recsEnsembleStatusProvisional": "Geçici — sıralama henüz doğrulanmadı",
   "recsEnsembleStatusVerified": "Bağımsız olarak doğrulandı",
+  "recsEnsembleStatusChoiceRanking": "Tercih sıralaması bağımsız olarak doğrulandı",
   "recsEnsembleStoredTarget": "Kaydedilmiş ML hedef payı",
   "recsEnsembleNeuralSchema": "Sinir ağı modeli v{0}: {1} özellik",
   "genre.12": "Macera",

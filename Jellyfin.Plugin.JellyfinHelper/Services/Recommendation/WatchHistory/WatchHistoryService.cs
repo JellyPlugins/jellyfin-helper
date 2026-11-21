@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -62,6 +63,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _logger = logger;
         _linkedChildren = linkedChildren;
     }
+
+    /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
+    internal TitleMetadataCache? TitleMetadataCache { get; init; }
 
     /// <inheritdoc />
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
@@ -356,7 +360,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
             uniqueSeries.ToDictionary(series => series.Id, series => (ContentAffinityResolver.ResolveSeriesStatus(series), ContentAffinityResolver.ResolveSeriesEndDate(series))),
             collectionIds ?? LoadCollectionIds(allItems))
         {
-            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating)
+            OfficialRatings = uniqueSeries.ToDictionary(series => series.Id, series => (string?)series.OfficialRating),
+            TvdbIds = uniqueSeries.ToDictionary(series => series.Id, TitleProviderIdentity.Tvdb),
+            ImdbIds = uniqueSeries.ToDictionary(series => series.Id, TitleProviderIdentity.Imdb)
         };
 
         var ratingSum = 0.0;
@@ -540,6 +546,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             CommunityRating = item.CommunityRating,
             OfficialRating = officialRating,
             Genres = genres,
+            LocalGenres = genres.ToArray(),
             Year = item.ProductionYear,
             SeriesId = seriesId,
             TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var itemTmdbId) ? itemTmdbId : 0,
@@ -565,9 +572,40 @@ public sealed class WatchHistoryService : IWatchHistoryService
             WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
         };
 
+        watchedItem.TitleMetadata = CachedWatchedTitleMetadata(item, watchedItem, metadata);
+        ApplyCachedGenres(watchedItem);
         profile.WatchedItems.Add(watchedItem);
 
-        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, genres, ref ratingSum, ref ratingCount);
+        AccumulateWatchedItemStatistics(profile, item, userData, watchedSeriesIds, watchedItem.Genres, ref ratingSum, ref ratingCount);
+    }
+
+    private TitleMetadataSnapshot? CachedWatchedTitleMetadata(BaseItem item, WatchedItemInfo row, WatchedMetadata metadata)
+    {
+        if (item is Episode && !row.SeriesId.HasValue)
+        {
+            return null;
+        }
+
+        var seriesId = row.SeriesId;
+        var titleId = seriesId.HasValue ? row.SeriesTmdbId : row.TmdbId;
+        var titleType = seriesId.HasValue || item is Series ? "tv" : "movie";
+        var tvdbId = seriesId.HasValue ? metadata.TvdbIds.GetValueOrDefault(seriesId.Value) : TitleProviderIdentity.Tvdb(item);
+        var imdbId = seriesId.HasValue ? metadata.ImdbIds.GetValueOrDefault(seriesId.Value) : TitleProviderIdentity.Imdb(item);
+        return TitleMetadataCache?.Get(_configService.GetConfiguration(), titleId, titleType, tvdbId, imdbId);
+    }
+
+    private static void ApplyCachedGenres(WatchedItemInfo row)
+    {
+        row.LocalGenres ??= row.Genres.ToArray();
+        if (row.Genres.Count == 0 && row.TitleMetadata?.GenreIds is { } genreIds)
+        {
+            row.Genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(genreIds)).ToArray();
+        }
+
+        if (row.Genres.Count == 0 && row.TitleMetadata?.SourceGenres is { } sourceGenres)
+        {
+            row.Genres = GenreNormalizer.Set(sourceGenres).ToArray();
+        }
     }
 
     private static IReadOnlyList<string> WatchedGenres(BaseItem item, Guid? seriesId, Dictionary<Guid, IReadOnlyList<string>> lookup)
@@ -713,7 +751,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // because the favorite IS the series, not an episode of one.
         var favoriteSeriesTmdbId = TmdbLibraryMapper.TryGetTmdbId(series, out var resolvedTmdbId) ? resolvedTmdbId : 0;
 
-        profile.WatchedItems.Add(new WatchedItemInfo
+        var favorite = new WatchedItemInfo
         {
             ItemId = series.Id,
             Name = series.Name ?? string.Empty,
@@ -727,6 +765,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             UserRating = seriesUserData.Rating,
             CommunityRating = series.CommunityRating,
             OfficialRating = series.OfficialRating,
+            TitleMetadata = TitleMetadataCache?.Get(_configService.GetConfiguration(), favoriteSeriesTmdbId, "tv", TitleProviderIdentity.Tvdb(series), TitleProviderIdentity.Imdb(series)),
             Genres = series.Genres ?? [],
             Year = series.ProductionYear,
             SeriesId = null, // This IS the series itself, not an episode
@@ -748,10 +787,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
             EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
             WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
-        });
+        };
+        ApplyCachedGenres(favorite);
+        profile.WatchedItems.Add(favorite);
 
         // Also accumulate genre distribution for series-level favorites
-        AccumulateGenreDistribution(profile, series.Genres);
+        AccumulateGenreDistribution(profile, favorite.Genres);
     }
 
     /// <summary>
@@ -1140,5 +1181,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
     {
         /// <summary>Gets detached parent certification metadata without another library query.</summary>
         public Dictionary<Guid, string?> OfficialRatings { get; init; } = [];
+
+        /// <summary>Gets optional TVDB identities detached from each parent series.</summary>
+        public Dictionary<Guid, int> TvdbIds { get; init; } = [];
+
+        /// <summary>Gets optional IMDb links detached from each parent series.</summary>
+        public Dictionary<Guid, string?> ImdbIds { get; init; } = [];
     }
 }

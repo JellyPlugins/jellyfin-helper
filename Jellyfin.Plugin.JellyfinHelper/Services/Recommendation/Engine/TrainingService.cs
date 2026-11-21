@@ -52,6 +52,8 @@ internal sealed class TrainingService : IDisposable
         _logger = logger;
     }
 
+    internal RecommendationChoiceHistory? ChoiceHistory { get; set; }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -387,6 +389,20 @@ internal sealed class TrainingService : IDisposable
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans, cancellationToken);
+
+        if (ChoiceHistory is not null)
+        {
+            var titleIds = TrainingDataBuilder.BuildTitleIdLookup(previousResults, allProfiles, libraryItemMetadata);
+            var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
+                .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
+            examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow, engaged);
+            // Fitting has an established synchronous contract. Only the bounded,
+            // cancelable caller wait runs here; atomic I/O belongs to the managed writer.
+            if (!ChoiceHistory.SaveAsync(cancellationToken).GetAwaiter().GetResult())
+            {
+                _pluginLog.LogDebug(LogSource, "Observed choices remain in memory; optional replay persistence was unavailable.", _logger);
+            }
+        }
 
         examples = TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, LearnedScoringStrategy.MinSampleWeight).ToList();
 

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
@@ -19,6 +20,44 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class EngineIdfRarityTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProviderOnlyGenreRarityUsesTheCapturedScoringPopulationAndMatchesTheTrainingTable(bool batch)
+    {
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
+        using var lifetime = harness.Engine;
+        var config = harness.ConfigService.Object.GetConfiguration();
+        var candidates = Enumerable.Range(1, 100).Select(id =>
+        {
+            var movie = MakeMovie("Provider title " + id, []);
+            movie.ProviderIds["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            cache.Store(config, new TitleMetadataSnapshot { TmdbId = id, GenreIds = id == 100 ? [27] : [18], FetchedAtUtc = DateTime.UtcNow });
+            return (BaseItem)movie;
+        }).ToList();
+        var trainingTable = harness.Engine.BuildGenreStudioIdfTable(candidates);
+        var commonRarity = Math.Log(101.0 / 100) / Math.Log(101.0 / 2);
+        Assert.Equal(commonRarity, trainingTable["Drama"], 12);
+        Assert.Equal(1, trainingTable["Horror"]);
+        var profile = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(), WatchedMovieCount = 1,
+            WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Drama", "Horror"] }]
+        };
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? candidates : []);
+        var results = batch
+            ? Assert.Single(harness.Engine.GetAllRecommendations(100, TestContext.Current.CancellationToken))
+            : harness.Engine.GetRecommendations(profile.UserId, 100, TestContext.Current.CancellationToken)!;
+        var horror = Assert.Single(results.Recommendations, item => item.ItemId == candidates[99].Id);
+        Assert.Equal(1, horror.ScoringFeatures!.GenreStudioIdfPrior);
+        Assert.All(results.Recommendations.Where(item => item.ItemId != horror.ItemId), item => Assert.Equal(commonRarity, item.ScoringFeatures!.GenreStudioIdfPrior, 12));
+        Assert.All(candidates, candidate => Assert.Empty(candidate.Genres));
+    }
+
     private static Movie MakeMovie(string name, string[] genres, string[]? studios = null)
     {
         return new Movie

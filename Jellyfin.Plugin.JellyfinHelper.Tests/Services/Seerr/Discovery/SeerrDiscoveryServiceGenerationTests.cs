@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
@@ -17,10 +19,12 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using Microsoft.Extensions.Logging;
@@ -50,6 +54,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly string _cacheFilePath;
     private readonly PerUserEnsembleRegistry _perUserRegistry;
     private readonly SeerrDiscoveryService _sut;
+    private readonly TitleMetadataCache _titleMetadata;
+    private readonly ServerConfiguration _serverConfiguration = new() { PreferredMetadataLanguage = "" };
+    private readonly OffsetClock _metadataClock = new();
 
     public SeerrDiscoveryServiceGenerationTests()
     {
@@ -118,6 +125,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         localization.Setup(l => l.GetRatingScore("6", "DE")).Returns(new ParentalRatingScore(6, null));
         localization.Setup(l => l.GetRatingScore("18", "DE")).Returns(new ParentalRatingScore(18, null));
 
+        var server = new Mock<IServerConfigurationManager>();
+        server.SetupGet(manager => manager.Configuration).Returns(_serverConfiguration);
+        _titleMetadata = new TitleMetadataCache(server.Object, clock: _metadataClock);
         _sut = new SeerrDiscoveryService(
             httpFactory.Object,
             _history.Object,
@@ -131,7 +141,9 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object,
             localization.Object,
-            linkedChildren: _linkedChildren.Object);
+            serverConfiguration: server.Object,
+            linkedChildren: _linkedChildren.Object,
+            titleMetadataCache: _titleMetadata);
     }
 
     public void Dispose()
@@ -148,6 +160,485 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     // Guard ladder
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoveryPersistenceCannotBlockCompletionOrCancellationBehindItsCacheWriter(bool cancel)
+    {
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var result = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "test user" };
+        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var persistence = (Task)method.Invoke(_sut, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), cancellation.Token])!;
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+        try
+        {
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => persistence.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                await persistence.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            }
+
+            _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.False(writer.IsCompleted);
+        }
+        finally
+        {
+            gate.Release();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
+    public async Task WeeklyWarmupsEventuallyReachEveryLocalTitleBeyondTheFirst128()
+    {
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns([]);
+        var titles = Enumerable.Range(1, 300).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(titles);
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]} """));
+        };
+        for (var pass = 0; pass < 3; pass++)
+        {
+            _metadataClock.Days = pass * 8;
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(300, _handler.Requests.Select(request => request.Path).Distinct().Count());
+        // The extra 84 refresh reservations reuse the service's short-lived detail cache.
+        Assert.Equal(300, _handler.Requests.Count);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 300, "movie"));
+    }
+
+    [Fact]
+    public async Task RepeatedlyFailingHistoryCannotStarveTheLocalLibraryTail()
+    {
+        var profile = NewProfile();
+        for (var id = 1; id <= 64; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var titles = Enumerable.Range(1000, 300).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(titles);
+        var returnedContents = new ConcurrentBag<HttpContent>();
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            var response = JsonResponse(id < 1000 ? "{}" : $$"""{"id":{{id}},"keywords":[]}""",
+                id < 1000 ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK);
+            returnedContents.Add(response.Content);
+            return Task.FromResult(response);
+        };
+        for (var pass = 0; pass < 3; pass++)
+        {
+            _metadataClock.Days = pass * 8;
+            var before = _handler.Requests.Count;
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.InRange(_handler.Requests.Count - before, 1, 128);
+        }
+
+        Assert.All(Enumerable.Range(1000, 300), id => Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, id, "movie")));
+        Assert.Equal(364, _handler.Requests.Select(request => request.Path).Distinct().Count());
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 1, "movie"));
+        Assert.Equal(_handler.Requests.Count, returnedContents.Count);
+        await Assert.AllAsync(returnedContents, async content =>
+        {
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        });
+    }
+
+    [Fact]
+    public async Task WarmupUsesOneCapturedLanguageForReservationRequestsAndRetryCooldown()
+    {
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        _history.Setup(value => value.GetAllUserWatchProfiles()).Returns(() =>
+        {
+            _serverConfiguration.PreferredMetadataLanguage = "de";
+            return Profiles(profile);
+        });
+        var dispatchedQueries = new ConcurrentBag<string>();
+        _handler.ResponseOverride = (request, _) =>
+        {
+            dispatchedQueries.Add(request.RequestUri!.Query);
+            return Task.FromResult(JsonResponse("{}", HttpStatusCode.ServiceUnavailable));
+        };
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.Contains("language=en", Assert.Single(dispatchedQueries), StringComparison.Ordinal);
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance!.Configuration, 123, "movie"));
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.False(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Fact]
+    public async Task CancellationReleasesUndispatchedTitlesWithoutErasingActualRequestCooldowns()
+    {
+        _history.Setup(value => value.GetAllUserWatchProfiles()).Returns([]);
+        _libraryManager.Setup(value => value.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(
+            Enumerable.Range(1, 256).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray());
+        var count = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _handler.ResponseOverride = async (_, token) =>
+        {
+            if (Interlocked.Increment(ref count) == 3) started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return JsonResponse("{}");
+        };
+        var warming = _sut.WarmTitleMetadataAsync(cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => warming);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.False(_titleMetadata.TryBeginRefresh(Plugin.Instance!.Configuration, 1, "movie"));
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 4, "movie"));
+    }
+
+    [Fact]
+    public async Task OptionalWarmupEnumerationFailurePreservesCachedMetadata()
+    {
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Throws(new IOException("library unavailable"));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task PendingMetadataCannotBePublishedIntoAChangedProviderScope(int change)
+    {
+        var original = new PluginConfiguration { SeerrUrl = Plugin.Instance!.Configuration.SeerrUrl, SeerrApiKey = Plugin.Instance.Configuration.SeerrApiKey };
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _handler.ResponseOverride = (_, _) =>
+        {
+            if (change == 0) Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+            if (change == 1) Plugin.Instance!.Configuration.SeerrApiKey = "other-test-key";
+            if (change == 2) Plugin.Instance!.Configuration.SeerrUrl = "not a URL";
+            if (change == 3) ControllerTestFactory.TeardownPluginInstance();
+            return Task.FromResult(JsonResponse("""{"id":123,"keywords":[{"id":42,"name":"wrong scope"}]}"""));
+        };
+        try
+        {
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.Single(_handler.Requests);
+            Assert.Null(_titleMetadata.Get(original, 123, "movie"));
+            if (Plugin.Instance is { } plugin) Assert.Null(_titleMetadata.Get(plugin.Configuration, 123, "movie"));
+        }
+        finally
+        {
+            ControllerTestFactory.InitializePluginInstance();
+        }
+    }
+
+    [Fact]
+    public async Task AResponseArrivingAfterALanguageChangeStaysInItsRequestedLanguageScope()
+    {
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            Assert.Equal("?language=en", request.RequestUri!.Query);
+            await Task.Yield();
+            token.ThrowIfCancellationRequested();
+            _serverConfiguration.PreferredMetadataLanguage = "de";
+            return JsonResponse("""{"id":123,"overview":"English synopsis","keywords":[]} """);
+        };
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.True(_titleMetadata.TryBeginRefresh(Plugin.Instance.Configuration, 123, "movie"));
+        _serverConfiguration.PreferredMetadataLanguage = "en";
+        Assert.Equal("English synopsis", _titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.Overview);
+    }
+
+    [Fact]
+    public async Task ReusedDetailKeepsItsOriginalAcquisitionTimeWithoutAnotherHttpRequest()
+    {
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[]} """);
+        var enrich = typeof(SeerrDiscoveryService).GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var arguments = new object[] { client, new Uri("https://seerr.example.com/"), "test-api-key", candidate, TestContext.Current.CancellationToken, false };
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, arguments)!);
+        var acquired = candidate.TitleMetadata!.FetchedAtUtc;
+        var second = new TmdbDiscoverItem { Id = 123 };
+        arguments[3] = second;
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, arguments)!);
+        Assert.Single(_handler.Requests);
+        Assert.Equal(acquired, second.TitleMetadata!.FetchedAtUtc);
+    }
+
+    private sealed class OffsetClock : TimeProvider
+    {
+        internal int Days { get; set; }
+
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow.AddDays(Days);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedCandidateMetadataSuppliesAvailableGenresAndSurvivesAPartialDetailResponse(bool providerGenres)
+    {
+        var profile = NewProfile();
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation"], Tags = ["anime", "pirate", "friendship"] });
+        profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3 };
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        var acquired = DateTime.UtcNow.AddDays(-1);
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 9001, GenreIds = providerGenres ? [16] : null, Keywords = ["anime", "pirate", "friendship"], KeywordReferences = [new(42, "pirate"), new(43, "friendship")], FetchedAtUtc = acquired });
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK, """{"id":9001,"mediaInfo":{"status":1}}""");
+        var result = await _sut.ScoreExternalCandidatesAsync(profile.UserId, [new ExternalDiscoveryCandidate { TmdbId = 9001, GenreIds = [], SourceGenres = providerGenres ? null : ["Animation"], VoteAverage = 9, Title = "Cached narrative", Year = 2020 }], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.Equal(1, selected.ScoringFeatures.ContentFitSupport);
+        Assert.Equal("pirate", selected.TitleMetadata!.KeywordReferences!.Value[0].Name);
+        Assert.Equal(acquired, selected.TitleMetadata.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.KeywordReferences)]);
+        Assert.True(selected.AvailabilityVerified);
+    }
+
+    [Fact]
+    public async Task AClockDisagreementInTheOptionalCacheCannotEraseAValidProviderResponse()
+    {
+        _metadataClock.Days = -1;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[{"id":42,"name":"provider data"}]}""");
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var enrich = typeof(SeerrDiscoveryService).GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.True(await (Task<bool>)enrich.Invoke(_sut, [client, new Uri("https://seerr.example.com/"), "test-api-key", candidate, TestContext.Current.CancellationToken, false])!);
+        Assert.Equal("provider data", Assert.Single(candidate.TitleMetadata!.Keywords!.Value));
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SourceGenresRemainUsableWhenTheSharedCacheHasNoTitleSnapshot()
+    {
+        var profile = NewProfile();
+        profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3 };
+        _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK, """{"id":9001,"mediaInfo":{"status":1}}""");
+        var result = await _sut.ScoreExternalCandidatesAsync(profile.UserId, [new ExternalDiscoveryCandidate { TmdbId = 9001, GenreIds = [], SourceGenres = ["Animation"], VoteAverage = 9, Title = "Uncached source", Year = 2020 }], TestContext.Current.CancellationToken);
+        var selected = Assert.Single(result!.Recommendations);
+        Assert.Contains("Animation", selected.Genres);
+        Assert.True(selected.ScoringFeatures!.HasGenreEvidence);
+        Assert.True(selected.AvailabilityVerified);
+        Assert.Null(selected.TitleMetadata!.GenreIds);
+    }
+
+    [Fact]
+    public async Task InvalidCachedDetailCannotEnrichOrPublishAnotherTitlesMetadata()
+    {
+        var type = typeof(SeerrDiscoveryService);
+        var baseUri = new Uri("https://seerr.example.com/");
+        var key = (string)type.GetMethod("MetadataCacheKey", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [baseUri, "test-api-key", "api/v1/movie/123"])!;
+        type.GetMethod("CacheDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_sut, [key, new SeerrMediaDetailResponse { Id = 999 }, DateTime.UtcNow]);
+        var candidate = new TmdbDiscoverItem { Id = 123 };
+        using var client = new HttpClient(_handler, disposeHandler: false);
+        var enrich = type.GetMethod("EnrichCandidateWithMetadataAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.False(await (Task<bool>)enrich.Invoke(_sut, [client, baseUri, "test-api-key", candidate, TestContext.Current.CancellationToken, false])!);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance!.Configuration, 123, "movie"));
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Theory]
+    [InlineData(TaskMode.Activate)]
+    [InlineData(TaskMode.DryRun)]
+    public async Task WarmupCanUseHistoryWhenTheLibraryReturnsNoCandidateList(TaskMode mode)
+    {
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = mode;
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((IReadOnlyList<BaseItem>)null!);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[]} """);
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie"));
+    }
+
+    [Fact]
+    public async Task WarmupWithoutAPluginInstanceIsANetworkFreeNoOp()
+    {
+        ControllerTestFactory.TeardownPluginInstance();
+        try
+        {
+            await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+            Assert.Empty(_handler.Requests);
+            _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+        }
+        finally
+        {
+            ControllerTestFactory.InitializePluginInstance();
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task WarmupWithNoProviderCredentialDoesNotEnumerateHistoryOrSendRequests(string? apiKey)
+    {
+        Plugin.Instance!.Configuration.SeerrApiKey = apiKey!;
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(TaskMode.Deactivate)]
+    [InlineData(TaskMode.DryRun)]
+    public async Task SharedMetadataWarmupIsOptionalAndNeverRequestsWithoutSeerr(TaskMode mode)
+    {
+        Plugin.Instance!.Configuration.RecommendationsTaskMode = mode;
+        if (mode != TaskMode.Deactivate) Plugin.Instance.Configuration.SeerrUrl = "";
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(_handler.Requests);
+        _history.Verify(history => history.GetAllUserWatchProfiles(), Times.Never);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupDeduplicatesEpisodesAndTypedProviderTitles()
+    {
+        var parent = Guid.NewGuid();
+        var profile = NewProfile();
+        for (var i = 0; i < 200; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = parent, SeriesTmdbId = 123, Played = true });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", TmdbId = 999, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/tv/123", HttpStatusCode.OK, """{"id":123,"type":"Reality","keywords":[],"genres":[{"id":10764}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", HttpStatusCode.OK, """{"id":123,"keywords":[{"id":42,"name":"anime"}],"genres":[{"id":16}],"originalLanguage":"ja"}""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, _handler.Requests.Count);
+        Assert.Equal("Reality", _titleMetadata.Get(Plugin.Instance!.Configuration, 123, "tv")!.SeriesType);
+        Assert.Equal("ja", _titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.OriginalLanguage);
+        Assert.Null(_titleMetadata.Get(Plugin.Instance.Configuration, 999, "movie"));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, _handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SharedMetadataWarmupKeepsLastGoodDataWhenProviderFailsOrReturnsAnotherId(bool mismatch)
+    {
+        var profile = NewProfile();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 123, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _titleMetadata.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 123, Keywords = ["known"], FetchedAtUtc = DateTime.UtcNow.AddDays(-8) });
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/123", mismatch ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable, """{"id":999,"keywords":[]}""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("known", Assert.Single(_titleMetadata.Get(Plugin.Instance.Configuration, 123, "movie")!.Keywords!.Value));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupHonorsCallerCancellation()
+    {
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(NewProfile()));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.WarmTitleMetadataAsync(cancellation.Token));
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SharedMetadataWarmupBudgetDoesNotLetRepeatedEpisodesHideAnotherUsersTaste()
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        var series = Guid.NewGuid();
+        for (var episode = 0; episode < 200; episode++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, SeriesTmdbId = 1, Played = true });
+        for (var id = 1; id <= 200; id++) first.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true });
+        second.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Series", TmdbId = 500, Played = true });
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        var libraryTitles = Enumerable.Range(1000, 200).Select(id => (BaseItem)new Movie { Id = Guid.NewGuid(), ProviderIds = new Dictionary<string, string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) } }).ToArray();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(libraryTitles);
+        _handler.ResponseOverride = (request, _) =>
+        {
+            var id = int.Parse(request.RequestUri!.AbsolutePath.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            return Task.FromResult(JsonResponse($$"""{"id":{{id}},"keywords":[]}"""));
+        };
+        // Fairness belongs to reservation order, not the arrival order of three
+        // independently scheduled HTTP workers. Exercise the productive selector
+        // with the same empty cache state and include the library tail.
+        var history = (IEnumerable<(int TmdbId, string MediaType)>)typeof(SeerrDiscoveryService)
+            .GetMethod("MetadataHistoryKeys", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [Profiles(first, second)])!;
+        var selector = new TitleMetadataCache(clock: _metadataClock);
+        var reserved = selector.ReserveRefreshes(
+            Plugin.Instance!.Configuration,
+            history.Concat(libraryTitles.Select(item => (int.Parse(item.ProviderIds["Tmdb"], System.Globalization.CultureInfo.InvariantCulture), "movie"))),
+            128,
+            _serverConfiguration.PreferredMetadataLanguage);
+        Assert.Equal(128, reserved.Length);
+        Assert.Contains((500, "tv"), reserved.Take(3));
+        Assert.Single(reserved, title => title == (1, "tv"));
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(128, _handler.Requests.Count);
+        Assert.Contains(_handler.Requests, request => request.Path == "/api/v1/tv/500");
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 500, "tv"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WarmedProviderHistoryReachesDiscoveryScoringSelectionAndPersistedCards(bool knownOtherRepresentation)
+    {
+        var user = Guid.NewGuid();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(() =>
+        {
+            var profile = NewProfile();
+            profile.UserId = user;
+            profile.GenreDistribution = new Dictionary<string, int> { ["Animation"] = 3, ["Action"] = 3 };
+            for (var id = 1; id <= 3; id++) profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = id, Played = true, Genres = ["Animation", "Action"],
+                TitleMetadata = _titleMetadata.Get(Plugin.Instance!.Configuration, id, "movie")
+            });
+            return Profiles(profile);
+        });
+        for (var id = 1; id <= 3; id++) _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK,
+            $$"""{"id":{{id}},"genres":[{"id":16},{"id":28}],"keywords":[{"id":1,"name":"anime"},{"id":42,"name":"pirate"},{"id":43,"name":"friendship"}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/discover/movies/genre/16?page=1", HttpStatusCode.OK, BuildDiscoverJson([16, 28], Candidate(9001, 7), Candidate(9002, 10)));
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9001", HttpStatusCode.OK,
+            """{"id":9001,"genres":[{"id":16},{"id":28}],"keywords":[{"id":1,"name":"anime"},{"id":42,"name":"pirate"},{"id":43,"name":"friendship"}],"mediaInfo":{"status":1}}""");
+        var otherKeywords = knownOtherRepresentation ? "[{\"id\":55,\"name\":\"live action\"}]" : "[]";
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9002", HttpStatusCode.OK,
+            $$"""{"id":9002,"genres":[{"id":28}],"keywords":{{otherKeywords}},"mediaInfo":{"status":1} }""");
+        await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(_titleMetadata.Get(Plugin.Instance!.Configuration, 1, "movie"));
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        var result = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(user, result.UserId);
+        var related = Assert.Single(result.Recommendations, candidate => candidate.TmdbId == 9001);
+        Assert.Equal(1, related.ScoringFeatures!.ContentFitSupport);
+        Assert.Equal(0, related.ScoringFeatures.ContentFamilyMismatch);
+        Assert.Equal(!knownOtherRepresentation, result.Recommendations.Any(candidate => candidate.TmdbId == 9002));
+        Assert.Equal(41, related.ScoringFeatures.ToVector().Length);
+    }
 
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_PluginInstanceNull_LogsWarningAndReturns()
@@ -177,7 +668,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Never);
         _feedbackStore.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -190,7 +681,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Never);
         _feedbackStore.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -203,7 +694,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.False(File.Exists(_cacheFilePath));
         _history.Verify(history => history.GetSeriesEpisodeCounts(), Times.Never);
@@ -220,13 +711,13 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Once);
         Assert.NotNull(recorded);
         Assert.Contains(recorded!, r => r.TmdbId == 501 && r.MediaType == "movie");
@@ -244,7 +735,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         // Dry-run must generate but never persist or feed the training store.
         _feedbackStore.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
         Assert.False(File.Exists(_cacheFilePath));
     }
@@ -273,8 +764,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -299,8 +790,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -317,7 +808,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -382,7 +873,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _handler.RegisterResponse(HttpMethod.Get, "/movie/3150", HttpStatusCode.OK, """{"id":3150,"mediaInfo":{"status":5},"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"6"}]}]}}""");
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
         Assert.Empty(await _cache.LoadAsync(CancellationToken.None));
-        _feedbackStore.Verify(store => store.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()), Times.Never);
+        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -437,7 +928,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         Assert.Equal(3401, Assert.Single(Assert.Single(await _cache.LoadAsync(CancellationToken.None)).Recommendations).TmdbId);
-        _feedbackStore.Verify(store => store.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()), Times.Never);
+        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -453,8 +944,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -474,7 +965,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -863,8 +1354,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -886,8 +1377,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -913,8 +1404,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -941,8 +1432,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -968,8 +1459,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -996,7 +1487,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         // The per-instance catch swallows the Arr failure; discovery still completes and persists.
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -1021,8 +1512,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1045,7 +1536,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -1063,8 +1554,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1086,8 +1577,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1109,8 +1600,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1137,7 +1628,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _feedbackStore.Verify(
-            f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -1154,8 +1645,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1177,8 +1668,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1199,8 +1690,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
 
         List<DiscoveryRecommendation>? recorded = null;
         _feedbackStore
-            .Setup(f => f.RecordShown(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()))
-            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>>((_, _, items) => recorded = items.ToList());
+            .Setup(f => f.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, IReadOnlyList<DiscoveryRecommendation>, DateTime?, CancellationToken>((_, _, items, _, _) => recorded = items.ToList()).ReturnsAsync(true);
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
@@ -1317,8 +1808,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     // Helpers
 
     // Ownership passes directly to HttpClient; the service disposes each received response.
-    private static HttpResponseMessage JsonResponse(string json)
-        => new(HttpStatusCode.OK) { Content = new StringContent(json) };
+    private static HttpResponseMessage JsonResponse(string json, HttpStatusCode status = HttpStatusCode.OK)
+        => new(status) { Content = new StringContent(json) };
 
     private static Collection<UserWatchProfile> Profiles(params UserWatchProfile[] profiles)
     {

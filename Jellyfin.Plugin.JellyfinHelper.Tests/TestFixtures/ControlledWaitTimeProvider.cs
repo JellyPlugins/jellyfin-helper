@@ -1,0 +1,50 @@
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+
+/// <summary>Timer deadlines advance only when the test explicitly fires them; cancellation stays independent.</summary>
+internal sealed class ControlledWaitTimeProvider : TimeProvider
+{
+    private readonly Lock _gate = new();
+    private readonly List<ControlledTimer> _timers = [];
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ControlledTimer(callback, state);
+        lock (_gate)
+        {
+            _timers.Add(timer);
+        }
+
+        return timer;
+    }
+
+    internal void ExpireDeadlines()
+    {
+        ControlledTimer[] timers;
+        lock (_gate)
+        {
+            timers = _timers.ToArray();
+        }
+
+        foreach (var timer in timers) timer.Fire();
+    }
+
+    private sealed class ControlledTimer(TimerCallback callback, object? state) : ITimer
+    {
+        private int _disposed;
+
+        public bool Change(TimeSpan dueTime, TimeSpan period) => Volatile.Read(ref _disposed) == 0;
+
+        public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+
+        internal void Fire()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) callback(state);
+        }
+    }
+}

@@ -904,7 +904,7 @@ public class TrainingFeatureComputerTests
             row.OfficialRating = "FSK-0";
         }
 
-        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Animation", "Action"], Tags = ["shounen", "pirate", "friendship"] };
+        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = episodes.Max(row => row.LastPlayedDate!.Value).AddDays(-1), Genres = ["Animation", "Action"], Tags = ["shounen", "pirate", "friendship"] };
         profile.WatchedItems.Add(prior);
         var preferences = new Dictionary<string, double> { ["Animation"] = 1, ["Action"] = 1 };
         var tags = new Dictionary<Guid, IReadOnlyList<string>> { [series] = ["JE Arr Tag: german"] };
@@ -929,6 +929,76 @@ public class TrainingFeatureComputerTests
         prior.Tags = [];
         Assert.Equal(reused.Features.GenreSimilarity, Emit(prepared).Features.GenreSimilarity);
         Assert.True(Emit(null).Features.GenreSimilarity > reused.Features.GenreSimilarity);
+    }
+
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void AggregatedSeriesUsesOnlyProviderMetadataAvailableAtItsPredictionTime(int acquisitionDays, bool available)
+    {
+        var (series, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        var prediction = episodes.Max(row => row.LastPlayedDate!.Value);
+        var metadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = prediction.AddDays(acquisitionDays) };
+        foreach (var row in episodes)
+        {
+            row.Genres = ["Adventure"];
+            row.TitleMetadata = metadata;
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = prediction.AddDays(-2), Genres = ["Adventure"], TitleMetadata = metadata });
+        var preferences = new Dictionary<string, double> { ["Adventure"] = 1 };
+        var output = new List<TrainingExample>();
+        TrainingFeatureComputer.AddAggregatedSeriesExample(output, episodes, series, profile, preferences,
+            coOccurrence: [], collaborativeMax: 0, avgYear: 2020, BuildExposure(preferences, profile),
+            cachedPeopleLookup: [], preferredPeopleWeights: new Dictionary<string, double>(), itemStudiosLookup: [], preferredStudios: [],
+            itemTagsLookup: [], preferredTags: [], preferredFranchises: new Dictionary<string, double>(), preferredCountries: new Dictionary<string, double>(),
+            preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
+            organicFallbackTimestamp: DateTime.UtcNow);
+        var example = Assert.Single(output);
+        Assert.Equal(available ? 1 : null, example.Features.ContentFitSupport);
+        Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
+        Assert.Equal(prediction, example.GeneratedAtUtc);
+        Assert.Equal(41, example.Features.ToVector().Length);
+    }
+
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(1, false)]
+    public void AggregateFallbackAndPreparedHistoryRejectFutureMetadataOnOtherHistoricalTitles(int acquiredDays, bool available)
+    {
+        var (series, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        var prediction = episodes.Max(row => row.LastPlayedDate!.Value);
+        var known = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = prediction.AddDays(-1) };
+        foreach (var episode in episodes) { episode.Genres = ["Adventure"]; episode.TitleMetadata = known; }
+        var prior = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = prediction.AddDays(-3), Genres = ["Adventure"], TitleMetadata = known with { FetchedAtUtc = prediction.AddDays(acquiredDays) } };
+        profile.WatchedItems.Add(prior);
+        var preferences = new Dictionary<string, double> { ["Adventure"] = 1 };
+        var direct = new List<TrainingExample>();
+        TrainingFeatureComputer.AddAggregatedSeriesExample(direct, episodes, series, profile, preferences,
+            coOccurrence: [], collaborativeMax: 0, avgYear: 2020, BuildExposure(preferences, profile),
+            cachedPeopleLookup: [], preferredPeopleWeights: new Dictionary<string, double>(), itemStudiosLookup: [], preferredStudios: [],
+            itemTagsLookup: [], preferredTags: [], preferredFranchises: new Dictionary<string, double>(), preferredCountries: new Dictionary<string, double>(),
+            preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null, organicFallbackTimestamp: prediction);
+        var expected = Assert.Single(direct);
+        Assert.Equal(available, expected.Features.ContentTasteKey.HasValue);
+        var prepared = TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples;
+        var seriesExample = Assert.Single(prepared, row => row.Features.IsSeries);
+        Assert.Equal(available, seriesExample.Features.ContentTasteKey.HasValue);
+        Assert.Equal(prediction.AddDays(acquiredDays), prior.TitleMetadata!.FetchedAtUtc);
+    }
+
+    [Fact]
+    public void AnEmptyAggregatedSeriesCannotInventMetadataOrAnObservedOutcome()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int>());
+        var example = RunAggregatedSeriesExample([], Guid.NewGuid(), profile, context);
+        Assert.False(example.IsObserved);
+        Assert.False(example.Features.HasGenreEvidence);
+        Assert.False(example.Features.HasContentMetadata);
+        Assert.Null(example.Features.ContentFitSupport);
+        Assert.Null(example.Features.ContentTasteKey);
     }
 
     [Fact]

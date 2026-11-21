@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -30,6 +31,7 @@ internal static class DiscoverySelection
         }
 
         var remaining = candidates
+            .Where(candidate => ScoringHelper.IsContentEligible(candidate.ScoringFeatures))
             .Where(candidate => !candidate.IsPersonalized || candidate.Score >= MinimumPersonalScore)
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.MediaType, StringComparer.Ordinal)
@@ -38,15 +40,31 @@ internal static class DiscoverySelection
         var selected = new List<DiscoveryRecommendation>(Math.Min(count, remaining.Count));
         var genres = remaining.ToDictionary(candidate => candidate, candidate => GenreNormalizer.Set(candidate.Genres));
         var collections = new Dictionary<int, int>();
+        var represented = new HashSet<Guid>();
         while (selected.Count < count && remaining.Count > 0)
         {
-            var best = BestCandidate(remaining, selected, genres, collections);
+            var best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, represented: represented);
+            if (best < 0)
+            {
+                best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true);
+            }
+
+            if (best < 0)
+            {
+                best = BestCandidate(remaining, selected, genres, collections);
+            }
+
             if (best < 0)
             {
                 break;
             }
 
             var next = remaining[best];
+            if (next.ScoringFeatures?.ContentTasteKey is { } tasteKey)
+            {
+                represented.Add(tasteKey);
+            }
+
             selected.Add(next);
             remaining.RemoveAt(best);
             if (next.TmdbCollectionId > 0)
@@ -59,13 +77,23 @@ internal static class DiscoverySelection
         return selected.OrderByDescending(candidate => candidate.Score).ToList();
     }
 
-    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections)
+    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections, bool coherentOnly = false, HashSet<Guid>? represented = null)
     {
         var best = -1;
         var bestUtility = double.NegativeInfinity;
         for (var i = 0; i < remaining.Count; i++)
         {
             var candidate = remaining[i];
+            if (coherentOnly && !ScoringHelper.HasCoherentContentSupport(candidate.ScoringFeatures))
+            {
+                continue;
+            }
+
+            if (candidate.ScoringFeatures?.ContentTasteKey is { } tasteKey && represented?.Contains(tasteKey) == true)
+            {
+                continue;
+            }
+
             if (candidate.TmdbCollectionId > 0 && collections.GetValueOrDefault(candidate.TmdbCollectionId) >= MaximumPerCollection)
             {
                 continue;

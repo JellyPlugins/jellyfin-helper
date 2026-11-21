@@ -322,7 +322,7 @@ public sealed partial class EnsembleScoringStrategy
             return false;
         }
 
-        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration);
+        calibration = EnsembleAdmissionEvaluator.SelectEvaluationBlock(calibration, now);
         var used = spent.Concat(_seedAcceptanceObservations).ToHashSet();
         var freshAcceptance = SelectFreshAcceptanceBlock(acceptance.Where(row => !used.Contains(row.ObservationId)), now);
         if (freshAcceptance is null)
@@ -390,7 +390,7 @@ public sealed partial class EnsembleScoringStrategy
             cursor = _acceptanceBlockCursor;
         }
 
-        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next);
+        var block = EnsembleAdmissionEvaluator.SelectEvaluationBlock(acceptance, cursor, out var next, evaluatedAt);
         lock (_syncRoot)
         {
             if (_independentAdmissionDisposed)
@@ -469,6 +469,11 @@ public sealed partial class EnsembleScoringStrategy
         if (_acceptedBundle is null)
         {
             return "Legacy";
+        }
+
+        if (_acceptedBundle.Utility?.IsChoiceRanking == true)
+        {
+            return "ChoiceRanking";
         }
 
         return _acceptedBundle.IsProvisional ? "Provisional" : "Verified";
@@ -818,6 +823,14 @@ public sealed partial class EnsembleScoringStrategy
 
     private HistoricalRestoration TryRestoreAgainstChallenger(ChallengerContext context, TrainedCandidates candidates, AdmissionDecision decision, ValidationBatch batch, CancellationToken cancellationToken)
     {
+        // Archives currently use ordinary mixed-outcome assessment. Do not let an
+        // unassessable archive veto an independently accepted choice-ranking challenger.
+        var acceptance = EnsembleAdmissionEvaluator.SelectOrdinaryAcceptanceEvidence(batch.Calibration, batch.Acceptance, batch.EvaluatedAt);
+        if (!ShouldAssessOrdinaryArchive(decision, acceptance, batch.EvaluatedAt))
+        {
+            return HistoricalRestoration.NotSelected;
+        }
+
         var store = new AcceptedModelStore(_statePath, _logger);
         var historical = store.ReadHistory();
         if (historical.Length == 0)
@@ -828,9 +841,13 @@ public sealed partial class EnsembleScoringStrategy
         var configuration = context.Bounds.Configuration;
         var attempted = new AcceptedPrediction(_heuristic, candidates.Learned, candidates.Neural, decision.Candidate, context.Bounds.NeuralCap);
         var calibrated = EnsembleAdmissionEvaluator.EvaluateFixedVersion(batch.Calibration, batch.Models.Heuristic, new PinnedMixturePredictor(attempted, configuration.Maximum, configuration.Floor), batch.Models.Incumbent ?? batch.Models.Heuristic, batch.EvaluatedAt);
-        var restoration = new RestorationContext(batch.Calibration, batch.Acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
+        var restoration = new RestorationContext(batch.Calibration, acceptance, context.Incumbent, configuration.Floor, batch.EvaluatedAt, calibrated?.CandidateLoss ?? double.PositiveInfinity, batch.Models.Learned, configuration) { ReserveEvidence = batch.ReserveEvidence };
         return TryRestoreHistoricalModel(restoration, historical, store, cancellationToken);
     }
+
+    internal static bool ShouldAssessOrdinaryArchive(AdmissionDecision decision, IReadOnlyList<TrainingExample> acceptance, DateTime evaluatedAt)
+        => !(decision.Accepted && decision.Utility.IsChoiceRanking)
+            && EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, evaluatedAt);
 
     private void TryWithdrawOnFreshEvidence(ChallengerContext context, ValidationBatch batch, CancellationToken cancellationToken)
     {

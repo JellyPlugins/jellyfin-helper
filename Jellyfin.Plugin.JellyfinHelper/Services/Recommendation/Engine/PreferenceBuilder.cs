@@ -13,11 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class PreferenceBuilder
 {
     /// <summary>
-    ///     Upper cap for the raw PlayCount fed into the log1p transform. Guards against pathological metadata (e.g.
-    /// </summary>
-    private const int PlayCountMaxForLog1p = 100;
-
-    /// <summary>
     ///     Lower bound of the progression multiplier: even an abandoned series must still contribute a fraction of its signal so users with mostly-abandoned watch history don't end up with an empty preference vector.
     /// </summary>
     private const double ProgressionFloor = 0.3;
@@ -31,11 +26,6 @@ internal static class PreferenceBuilder
     ///     Linear span from floor to ceiling, i.e. how much the raw ratio moves the multiplier.
     /// </summary>
     private const double ProgressionSpan = ProgressionCeiling - ProgressionFloor;
-
-    /// <summary>
-    ///     Target maximum contribution of the PlayCount log1p boost, chosen so heavy re-watchers produce a meaningful signal not drowned out by the favorite additive (FavoriteGenreBoostFactor = 3.0), while staying sub-favorite so an explicit favorite click always.
-    /// </summary>
-    private const double PlayCountLog1pCeiling = 2.0;
 
     /// <summary>
     ///     Minimum distinct watched titles in one franchise before the loyalty floor engages. A single title is an
@@ -59,12 +49,7 @@ internal static class PreferenceBuilder
     private static readonly double GenreDecayConstant = Math.Log(2.0) / EngineConstants.GenreDecayHalfLifeDays;
 
     /// <summary>
-    ///     Scale factor for the log1p PlayCount contribution.
-    /// </summary>
-    private static readonly double PlayCountLog1pScale = PlayCountLog1pCeiling / Math.Log(1.0 + PlayCountMaxForLog1p);
-
-    /// <summary>
-    ///     Builds a normalized genre preference vector from watch history. Each genre is weighted by recency (180-day half-life exponential decay), play count (log1p boost), and favorites (additive boost).
+    ///     Builds a normalized genre preference vector from watch history, weighted by recency (180-day half-life exponential decay), series progression and explicit favorites.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
     /// <param name="seriesEpisodeCounts">
@@ -216,19 +201,17 @@ internal static class PreferenceBuilder
             temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
         }
 
-        // PlayCount boost: re-watched items signal stronger preference.
-        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
-        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-
-        // Progression multiplier: for episode rows, dampen or amplify the (temporal+playCount) signal by how much of the series the user consumed.
+        // PlayCount may count starts/resumes, not completed rewatches. Its magnitude is
+        // deliberately excluded from taste weight; it remains an interaction-presence hint.
+        // For episodes, progression reflects distinct actually completed material.
         var progressionMultiplier = ComputeProgressionMultiplier(
             item,
             seriesEpisodeCounts,
             watchedEpisodesPerSeries);
-        var weight = temporalWeight * (1.0 + playCountBoost) * progressionMultiplier;
+        var weight = temporalWeight * progressionMultiplier;
 
         // Favorite boost - additive, never touched by the progression multiplier so an
-        // explicit favorite click always outweighs a mediocre re-watch pattern.
+        // explicit favorite remains stronger than an ambiguous playback-start counter.
         if (item.IsFavorite)
         {
             weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -814,7 +797,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Computes the per-row preference weight shared by the franchise/country/writer builders, using the SAME temporal-decay + play-count-log1p + favorite-additive composition as BuildGenrePreferenceVector (without series-progression, which needs a series.
+    ///     Computes the per-row preference weight shared by franchise/country/writer builders using the same temporal decay and explicit-favorite composition as genres, without series progression.
     /// </summary>
     /// <param name="item">The watched item row.</param>
     /// <returns>A non-negative preference weight.</returns>
@@ -831,10 +814,7 @@ internal static class PreferenceBuilder
             temporalWeight = item.IsFavorite ? 1.0 : Math.Exp(-GenreDecayConstant * 365.0);
         }
 
-        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
-        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-
-        var weight = temporalWeight * (1.0 + playCountBoost);
+        var weight = temporalWeight;
         if (item.IsFavorite)
         {
             weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -1028,7 +1008,7 @@ internal static class PreferenceBuilder
     /// <returns>True when the row represents an actually-completed episode.</returns>
     private static bool IsEpisodeCompletedForProgression(WatchedItemInfo row)
     {
-        return row.Played || row.PlayCount > 0;
+        return row.Played;
     }
 
     /// <summary>
@@ -1038,7 +1018,7 @@ internal static class PreferenceBuilder
     /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
     internal static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
     {
-        return row.IsFavorite || IsEpisodeCompletedForProgression(row);
+        return row.IsFavorite || row.Played || row.PlayCount > 0;
     }
 
     /// <summary>
@@ -1057,7 +1037,7 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
-    ///     Pre-aggregates the number of completed episodes per series for the user, using the strict IsEpisodeCompletedForProgression predicate (Played or PlayCount &gt; 0).
+    ///     Pre-aggregates distinct completed episodes per series using Jellyfin's Played marker, never the number of starts/resumes.
     /// </summary>
     /// <param name="profile">The user watch profile whose rows we aggregate.</param>
     /// <param name="seriesEpisodeCounts">Optional caller-supplied totals; <c>null</c> disables aggregation.</param>
@@ -1126,20 +1106,22 @@ internal static class PreferenceBuilder
             return 1.0;
         }
 
-        if (!watchedEpisodesPerSeries.TryGetValue(sid, out var playedEps) || playedEps <= 0)
-        {
-            return 1.0;
-        }
+        // Available aggregation and a known positive total make an absent count zero,
+        // not unknown. Completing the first episode must increase, never reduce, its weight.
+        var playedEps = watchedEpisodesPerSeries.GetValueOrDefault(sid);
 
         // Ratio guarded against pathological metadata where playedEps > totalEps.
         var rawRatio = Math.Min(1.0, (double)playedEps / totalEps);
 
         // Map ratio in [0,1] to multiplier in [ProgressionFloor, ProgressionCeiling].
         // rawRatio=0 -> ProgressionFloor (0.3), rawRatio=0.5 -> 0.9, rawRatio=1 -> 1.5.
-        return Math.Clamp(
+        var multiplier = Math.Clamp(
             ProgressionFloor + (rawRatio * ProgressionSpan),
             ProgressionFloor,
             ProgressionCeiling);
+        // Completion cannot withdraw an explicit favorite's neutral floor.
+        // Actual completed-series progress can still lift it above that floor.
+        return item.IsFavorite ? Math.Max(1.0, multiplier) : multiplier;
     }
 
     /// <summary>Franchise weights with exact-name identity evidence for safe mixed legacy/current histories.</summary>

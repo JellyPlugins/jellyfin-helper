@@ -6,7 +6,7 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
-  # Skip only generated or truly non-reviewable files.
+  # Exclude generated files and documentation from review.
   path_filters:
     - "!**/*.md"
     - "!**/PluginPages/configPage.html"

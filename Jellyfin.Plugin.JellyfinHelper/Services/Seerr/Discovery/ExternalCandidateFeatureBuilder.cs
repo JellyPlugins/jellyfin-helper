@@ -74,6 +74,10 @@ internal static class ExternalCandidateFeatureBuilder
         }
 
         var genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
+        if (genres.Count == 0 && candidate.SourceGenres is { } sourceGenres)
+        {
+            genres = GenreNormalizer.Set(sourceGenres).ToList();
+        }
 
         // Genre-engagement package, computed on the same basis as discovery training so the model
         // scores the signal it was trained on. External candidates are never in the watch set, so no
@@ -136,7 +140,7 @@ internal static class ExternalCandidateFeatureBuilder
         features.GenreAffinityGap = affinityGap;
 
         ApplyAvailableMetadata(features, candidate, userContext, context.WatchedCollections);
-        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences);
+        userContext.ContentFit.Apply(features, genres, candidate.KnownKeywords, null, genrePreferences, candidate.TitleMetadata);
         ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;

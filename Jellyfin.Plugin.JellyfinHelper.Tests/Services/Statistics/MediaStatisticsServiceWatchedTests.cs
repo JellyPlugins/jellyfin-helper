@@ -468,7 +468,8 @@ public class MediaStatisticsServiceWatchedTests
         ICleanupConfigHelper configHelper,
         IUserDataManager userDataManager,
         IUserManager userManager)
-        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper, userDataManager, userManager)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper,
+            new MediaStatisticsUserDataSource(pluginLog, TestMockFactory.CreateLogger<MediaStatisticsUserDataSource>().Object, userDataManager, userManager))
     {
         private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
         public void SetItemLookup(string filePath, BaseItem item) => _itemLookup[filePath] = item;

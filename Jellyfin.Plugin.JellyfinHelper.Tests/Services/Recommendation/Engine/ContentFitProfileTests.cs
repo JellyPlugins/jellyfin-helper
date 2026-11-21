@@ -13,6 +13,659 @@ public sealed class ContentFitProfileTests
     private static readonly string[] BattleKeywords = ["anime", "shounen", "pirate", "friendship", "super power"];
     private static readonly Dictionary<string, double> BattleGenres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void HistoricalGenresKeepLocalEvidenceButCannotBorrowLaterProviderFallback(bool local, bool typed)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-3);
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 3; index++)
+        {
+            var row = Watch(["Documentary"], []);
+            row.LocalGenres = local ? ["Documentary"] : [];
+            row.LastPlayedDate = cutoff.AddDays(-1);
+            row.TitleMetadata = new TitleMetadataSnapshot
+            {
+                GenreIds = typed ? [99] : null, SourceGenres = typed ? null : ["Documentary"], FetchedAtUtc = cutoff.AddDays(1)
+            };
+            profile.WatchedItems.Add(row);
+        }
+
+        var historical = new CandidateFeatures();
+        ContentFitProfile.Create(profile, metadataCutoff: cutoff).Apply(historical, ["Reality"], [], null, []);
+        Assert.Equal(local ? .5 : null, historical.ContentFamilyMismatch);
+        var current = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(current, ["Reality"], [], null, []);
+        Assert.Equal(.5, current.ContentFamilyMismatch);
+        var detached = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training.TrainingHistory.Before(profile, cutoff);
+        var cached = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training.TrainingHistoryCache([profile], TestContext.Current.CancellationToken)
+            .Get(profile.UserId, cutoff, new HashSet<Guid>()).Profile;
+        Assert.All(detached.WatchedItems, row =>
+        {
+            Assert.Equal(local ? new[] { "Documentary" } : [], row.Genres);
+            Assert.Null(row.TitleMetadata);
+        });
+        Assert.All(profile.WatchedItems, row => Assert.Equal(new[] { "Documentary" }, row.Genres));
+        Assert.Equal(detached.WatchedItems.SelectMany(row => row.Genres), cached.WatchedItems.SelectMany(row => row.Genres));
+    }
+
+    [Fact]
+    public void LaterFieldAcquisitionCannotHideBehindAnEarlierSnapshotTimestamp()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-3);
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 3; index++)
+        {
+            var row = Watch(["Documentary"], []);
+            row.LocalGenres = [];
+            row.TitleMetadata = new TitleMetadataSnapshot
+            {
+                SourceGenres = ["Documentary"], FetchedAtUtc = cutoff.AddDays(-1),
+                FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.SourceGenres), cutoff.AddDays(1))
+            };
+            profile.WatchedItems.Add(row);
+        }
+
+        var historical = new CandidateFeatures();
+        ContentFitProfile.Create(profile, metadataCutoff: cutoff).Apply(historical, ["Reality"], [], null, []);
+        Assert.Null(historical.ContentFamilyMismatch);
+        Assert.All(profile.WatchedItems, row => Assert.NotNull(row.TitleMetadata));
+    }
+
+    [Fact]
+    public void KnownGermanAnimeAndStoryTagsReuseTheExistingNormalizerWithoutTextUnderstanding()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation"], BattleKeywords)] };
+        var content = ContentFitProfile.Create(profile);
+        string[] translated = ["japanische Animation", "Shōnen", "Piraten", "Freundschaft", "Superkräfte"];
+        var english = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        var german = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        content.Apply(english, ["Animation"], BattleKeywords, null, BattleGenres);
+        content.Apply(german, ["Animation"], translated, null, BattleGenres);
+        Assert.Equal(english.ToVector(), german.ToVector());
+        Assert.Equal(1, german.ContentFitSupport);
+        Assert.Null(german.ContentFamilyMismatch);
+        Assert.Equal(ContentFitProfile.Keywords(BattleKeywords), ContentFitProfile.Keywords(translated));
+    }
+
+    [Fact]
+    public void MultipleStyleLabelsCannotFabricateSpecificStoryAffinityOrCoherentSupport()
+    {
+        string[] styles = ["western animation", "american animation", "Animation"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation"], styles)] };
+        var content = ContentFitProfile.Create(profile);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        content.Apply(features, ["Animation"], styles, null, BattleGenres);
+        Assert.Equal(0, content.ScoreTags(styles));
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+        Assert.Null(features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void ChildrenAudienceLabelsAloneAreNotTwoIndependentStoryTopics()
+    {
+        string[] audience = ["preschool", "children's television", "children's film"];
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation", "Kids"], audience)] };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], audience, null, BattleGenres);
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+        Assert.Null(features.AudienceMismatch);
+    }
+
+    [Theory]
+    [InlineData(true, null)]
+    [InlineData(true, 9.0)]
+    [InlineData(true, 2.0)]
+    [InlineData(false, null)]
+    public void MinorPositiveChildrenInterestSurvivesAnOlderAnimationMajority(bool played, double? rating)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation", "Action"], BattleKeywords));
+        var children = Watch(["Animation", "Kids"], ["preschool", "dog", "rescue mission"]);
+        children.Played = played;
+        children.UserRating = rating;
+        profile.WatchedItems.Add(children);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool", "dog", "rescue mission"], "FSK-0", BattleGenres);
+        var positive = played && rating is not <= 5;
+        Assert.Equal(positive, ScoringHelper.IsContentEligible(features));
+        if (positive)
+        {
+            Assert.Equal(1, features.ContentFitSupport);
+            Assert.NotNull(features.ContentTasteKey);
+            Assert.Null(features.AudienceMismatch);
+        }
+        else
+        {
+            Assert.Equal(.5, features.ContentFamilyMismatch);
+        }
+    }
+
+    [Fact]
+    public void PositiveKidsGenreAlonePreventsAnAudienceBanEvenWhenGenreWeightsAreSmall()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Kids"], []));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, BattleGenres);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void LatestProviderGenresSupplyPositiveChildrenEvidenceWithoutChangingLocalGenres(bool typedIds, bool positive)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var child = Watch(["Animation"], ["dog", "rescue mission"]);
+        child.UserRating = positive ? null : 2;
+        child.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = typedIds ? null : ["Children"], GenreIds = typedIds ? [10762] : null };
+        profile.WatchedItems.Add(child);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool", "dog", "rescue mission"], null, BattleGenres);
+        Assert.Equal(positive, ScoringHelper.IsContentEligible(features));
+        Assert.Equal(new[] { "Animation" }, child.Genres);
+        Assert.Equal(typedIds ? null : new[] { "Children" }, child.TitleMetadata.SourceGenres?.ToArray());
+    }
+
+    [Fact]
+    public void SupersededProviderChildrenGenresDoNotOutliveTheLatestTitleSnapshot()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var series = Guid.NewGuid();
+        var old = Watch(["Animation"], []);
+        old.SeriesId = series;
+        old.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = ["Kids"], FetchedAtUtc = DateTime.UtcNow.AddDays(-1) };
+        var latest = Watch(["Animation"], []);
+        latest.SeriesId = series;
+        latest.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = [], FetchedAtUtc = DateTime.UtcNow };
+        profile.WatchedItems.Add(old);
+        profile.WatchedItems.Add(latest);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, BattleGenres);
+        Assert.False(ScoringHelper.IsContentEligible(features));
+        latest.Genres = ["Animation", "Kids"];
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, BattleGenres);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CandidateProviderChildrenGenresProtectItsPositiveMinorityInterest(bool typedIds)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 4; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Kids"], []));
+        var metadata = new TitleMetadataSnapshot { SourceGenres = typedIds ? null : ["Kids"], GenreIds = typedIds ? [10762] : null, SeriesType = "Scripted" };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["western animation"], null, BattleGenres, metadata);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
+    [InlineData("anime", "western animation", true, null)]
+    [InlineData("anime", "western animation", false, null)]
+    [InlineData("anime", "western animation", true, 2.0)]
+    [InlineData("western animation", "anime", true, null)]
+    public void PositivePreschoolInterestIsNotRestrictedToTheMajorityOrItsPreviouslyKnownStyle(string childStyle, string candidateStyle, bool played, double? rating)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var children = Watch(["Animation", "Kids"], [childStyle, "preschool", "dog", "rescue mission"]);
+        children.Played = played;
+        children.UserRating = rating;
+        profile.WatchedItems.Add(children);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], [candidateStyle, "preschool", "dog", "rescue mission"], "FSK-0", BattleGenres);
+        Assert.Equal(played && rating is not <= 5, ScoringHelper.IsContentEligible(features));
+    }
+
+    [Fact]
+    public void AdultFamilyAnimationFansRetainDisneyLikeCandidatesWithoutAChildrensGenreOrAgeBasedPreference()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), MaxParentalRating = 18 };
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Animation", "Family"], ["western animation", "magic", "princess"]));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], "FSK-0", BattleGenres);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Null(features.AudienceMismatch);
+    }
+
+    [Theory]
+    [InlineData(3, false, null, true)]
+    [InlineData(20, false, null, true)]
+    [InlineData(80, false, null, true)]
+    [InlineData(20, true, null, true)]
+    [InlineData(20, false, "children's film", true)]
+    [InlineData(20, false, "preschool", false)]
+    public void AnUnclassifiedPositiveFamilyAnimationLaneCannotInheritTheMajoritysStyle(int animeCount, bool providerGenres, string? audience, bool eligible)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), MaxParentalRating = 18 };
+        for (var index = 0; index < animeCount; index++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var family = Watch(providerGenres ? ["Animation"] : ["Animation", "Family"], ["magic", "friendship", "princess"]);
+        if (providerGenres) family.TitleMetadata = new TitleMetadataSnapshot { SourceGenres = ["Family"], FetchedAtUtc = DateTime.UtcNow };
+        profile.WatchedItems.Add(family);
+        var tags = new List<string> { "western animation", "magic", "friendship", "princess" };
+        if (audience is not null) tags.Add(audience);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], tags, "FSK-0", BattleGenres);
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Equal(eligible, ScoringHelper.IsContentEligible(features));
+        Assert.Equal(eligible ? null : .5, features.ContentFamilyMismatch);
+        Assert.Equal(providerGenres ? new[] { "Animation" } : ["Animation", "Family"], family.Genres);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, 2.0)]
+    public void UnplayedOrExplicitlyDislikedFamilyAnimationDoesNotCreatePositiveUnclassifiedInterest(bool played, double? rating)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 20; index++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var family = Watch(["Animation", "Family"], ["magic", "friendship", "princess"]);
+        family.Played = played;
+        family.UserRating = rating;
+        profile.WatchedItems.Add(family);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "friendship", "princess"], null, BattleGenres);
+        Assert.False(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Fact]
+    public void UnknownFamilyAnimationStyleDoesNotEraseVerifiedNarrativeOrConfirmedAnimeStyle()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var index = 0; index < 20; index++)
+        {
+            var row = Watch(["Animation"], BattleKeywords);
+            row.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
+            profile.WatchedItems.Add(row);
+        }
+
+        var family = Watch(["Animation", "Family"], ["magic", "princess"]);
+        family.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
+        profile.WatchedItems.Add(family);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], null, BattleGenres,
+            new TitleMetadataSnapshot { SeriesType = "Reality" });
+        Assert.Equal(.5, features.ContentFamilyMismatch);
+        family.Tags = ["anime", "magic", "princess"];
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Family"], ["western animation", "magic", "princess"], null, BattleGenres);
+        Assert.Equal(.5, features.ContentFamilyMismatch);
+    }
+
+    [Theory]
+    [InlineData("western animation")]
+    [InlineData(null)]
+    public void AHighlyClassifiedAnimeMajorityCannotInventTheStyleOfAPositiveChildrenInterest(string? style)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 10; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        profile.WatchedItems.Add(Watch(["Animation", "Kids"], ["preschool", "dog", "rescue mission"]));
+        var tags = new List<string> { "preschool", "dog", "rescue mission" };
+        if (style is not null) tags.Add(style);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], tags, null, BattleGenres,
+            new TitleMetadataSnapshot { OriginalLanguage = "en", ProductionCountries = ["US"] });
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Null(features.ContentFamilyMismatch);
+        Assert.Equal(1, features.ContentFitSupport);
+    }
+
+    [Fact]
+    public void ChildrenRepresentationUncertaintyDoesNotEraseKnownNarrativeFormatEvidence()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 10; id++)
+        {
+            var title = Watch(["Animation"], BattleKeywords);
+            title.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
+            profile.WatchedItems.Add(title);
+        }
+
+        var child = Watch(["Kids"], ["preschool", "dog", "rescue mission"]);
+        child.TitleMetadata = new TitleMetadataSnapshot { SeriesType = "Scripted" };
+        profile.WatchedItems.Add(child);
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Kids"], ["preschool", "dog", "rescue mission"], null, BattleGenres,
+            new TitleMetadataSnapshot { SeriesType = "Reality" });
+        Assert.Equal(.5, features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void IdentityOnlyMetadataStillProvidesTranslatedCoherentEvidenceWhenKeywordLabelsAreUnavailable()
+    {
+        var row = Watch(["Adventure"], []);
+        row.TitleMetadata = new TitleMetadataSnapshot { KeywordReferences = [new(42, "pirate"), new(43, "friendship")] };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [row] };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Adventure"], null, null, new() { ["Adventure"] = 1 },
+            new TitleMetadataSnapshot { KeywordReferences = [new(42, "pirata"), new(43, "amistad")] });
+        Assert.True(features.HasContentMetadata);
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.NotNull(features.ContentTasteKey);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void MissingOrEmptyCandidateIdentitiesCannotInventSupportFromAnIdentityOnlyHistory(int metadataKind)
+    {
+        var row = Watch(["Adventure"], []);
+        row.TitleMetadata = new TitleMetadataSnapshot { KeywordReferences = [new(42, "pirate"), new(43, "friendship")] };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [row] };
+        TitleMetadataSnapshot? candidate = metadataKind switch
+        {
+            0 => null,
+            1 => new TitleMetadataSnapshot(),
+            _ => new TitleMetadataSnapshot { KeywordReferences = [] }
+        };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Adventure"], null, null, new() { ["Adventure"] = 1 }, candidate);
+        Assert.Equal(metadataKind == 2, features.HasContentMetadata);
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Theory]
+    [InlineData("Family", 1)]
+    [InlineData("Kids", 1)]
+    [InlineData("Animation", 0)]
+    public void ExplicitChildrenMetadataDoesNotBanFamilyPreferencesOrMissingGenreEvidence(string preference, double weight)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], BattleKeywords));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .7 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation", "Kids"], ["preschool"], null, new() { [preference] = weight });
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
+    [Fact]
+    public void ProviderKeywordIdentityFilteringRejectsMissingIdsLabelsAndTechnicalTerms()
+    {
+        var metadata = new TitleMetadataSnapshot { KeywordReferences = [new(0, "pirate"), new(42, null), new(43, "1080p"), new(44, "anime"), new(45, "Action"), new(46, "based on manga")] };
+        var row = Watch(["Animation"], []);
+        row.TitleMetadata = metadata;
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [row] };
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], [], null, BattleGenres, metadata);
+        Assert.Null(features.ContentFitSupport);
+        Assert.Null(features.ContentTasteKey);
+    }
+
+    [Fact]
+    public void OlderOrEqualEpisodeMetadataCannotReplaceTheNewestTitleSnapshot()
+    {
+        var parent = Guid.NewGuid();
+        var acquired = DateTime.UtcNow;
+        var newest = Watch(["Adventure"], []);
+        newest.SeriesId = parent;
+        newest.TitleMetadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = acquired };
+        var older = Watch(["Adventure"], []);
+        older.SeriesId = parent;
+        older.TitleMetadata = new TitleMetadataSnapshot { Keywords = [], FetchedAtUtc = acquired.AddDays(-1) };
+        var equal = Watch(["Adventure"], []);
+        equal.SeriesId = parent;
+        equal.TitleMetadata = new TitleMetadataSnapshot { Keywords = [], FetchedAtUtc = acquired };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [newest, older, equal] };
+        Assert.Equal(1, ContentFitProfile.Create(profile).ScoreTags(["pirate", "friendship"]));
+    }
+
+    [Theory]
+    [InlineData("anime")]
+    [InlineData("western animation")]
+    public void ConflictingStyleMetadataDoesNotExcludeEitherPositiveRepresentation(string taste)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var id = 0; id < 3; id++) profile.WatchedItems.Add(Watch(["Animation"], [taste]));
+        var features = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = 1 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["western animation"], null, BattleGenres,
+            new TitleMetadataSnapshot { Keywords = ["anime"], OriginalLanguage = "ja", OriginCountries = ["JP"] });
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Null(features.ContentFamilyMismatch);
+    }
+
+    [Theory]
+    [InlineData("anime", "Animation")]
+    [InlineData("live action", "Action")]
+    [InlineData("competition", "Reality")]
+    [InlineData("true crime", "Documentary")]
+    public void NarrowTasteModeratesOtherKnownFamiliesWithoutExcludingUnknowns(string tag, string genre)
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch([genre], [tag]));
+        var content = ContentFitProfile.Create(profile);
+        var supported = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        content.Apply(supported, [genre], [tag], null, new() { [genre] = 1 });
+        Assert.Equal(0, supported.ContentFamilyMismatch);
+        var mismatch = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        var otherTag = tag == "anime" ? "live action" : "anime";
+        content.Apply(mismatch, otherTag == "anime" ? ["Animation"] : ["Action"], [otherTag], null, new() { [genre] = 1 }, new TitleMetadataSnapshot { SeriesType = "Scripted" });
+        Assert.Equal(.5, mismatch.ContentFamilyMismatch);
+        var unknown = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        content.Apply(unknown, ["Action"], null, null, new() { [genre] = 1 });
+        Assert.Null(unknown.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void RareSecondaryInterestSurvivesHundredsOfEpisodesFromThePrimaryInterest()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++)
+        {
+            var series = Guid.NewGuid();
+            for (var episode = 0; episode < 100; episode++)
+            {
+                var row = Watch(["Animation"], ["anime"]);
+                row.SeriesId = series;
+                row.SeriesTmdbId = i + 1;
+                profile.WatchedItems.Add(row);
+            }
+        }
+
+        profile.WatchedItems.Add(Watch(["Action"], ["live action"]));
+        var features = new CandidateFeatures { GenreSimilarity = .5, HasGenreEvidence = true };
+        ContentFitProfile.Create(profile).Apply(features, ["Action"], ["live action"], null, new() { ["Animation"] = 1, ["Action"] = .1 });
+        Assert.Equal(0, features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void SparseOrMostlyUnknownHistoryCannotInventANarrowTaste()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [Watch(["Animation"], ["anime"]), Watch(["Animation"], ["anime"])] };
+        var features = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(features, ["Action"], ["live action"], null, []);
+        Assert.Null(features.ContentFamilyMismatch);
+        for (var i = 0; i < 10; i++) profile.WatchedItems.Add(Watch(["Drama"], []));
+        ContentFitProfile.Create(profile).Apply(features, ["Action"], ["live action"], null, []);
+        Assert.Null(features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void CachedHistoryAndCandidateDetailsUseTheSameContentEvidenceWithoutChangingRawTags()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++)
+        {
+            var row = Watch(["Animation"], []);
+            row.TitleMetadata = new TitleMetadataSnapshot { Keywords = ["anime", "pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow };
+            profile.WatchedItems.Add(row);
+        }
+
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true, TagSimilarity = .123 };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], [], null, new() { ["Animation"] = 1 }, new TitleMetadataSnapshot { Keywords = ["anime", "pirate", "friendship"] });
+        Assert.Equal(1, features.ContentFitAffinity);
+        Assert.Equal(1, features.ContentFitSupport);
+        Assert.Equal(0, features.ContentFamilyMismatch);
+        Assert.Equal(.123, features.TagSimilarity);
+        Assert.Equal(41, features.ToVector().Length);
+    }
+
+    [Fact]
+    public void RepresentationAndNarrativeAreIndependentForAnimatedDocumentaries()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch(["Animation", "Documentary"], ["anime"]));
+        var content = ContentFitProfile.Create(profile);
+        var animated = new CandidateFeatures();
+        content.Apply(animated, ["Documentary", "Animation"], ["anime"], null, []);
+        Assert.Equal(0, animated.ContentFamilyMismatch);
+        var liveAction = new CandidateFeatures();
+        content.Apply(liveAction, ["Documentary"], ["live action"], null, []);
+        Assert.Equal(.5, liveAction.ContentFamilyMismatch);
+        var unknownRepresentation = new CandidateFeatures();
+        content.Apply(unknownRepresentation, ["Documentary"], [], null, []);
+        Assert.Equal(0, unknownRepresentation.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void NarrativeConfidenceDoesNotGuessTheRepresentationOfRealityOrDocumentary()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch(["Reality"], []));
+        var features = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["anime"], null, []);
+        Assert.Null(features.ContentFamilyMismatch);
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["anime"], null, [], new TitleMetadataSnapshot { SeriesType = "Scripted" });
+        Assert.Equal(.5, features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void StableKeywordIdsMatchTranslatedStoriesWithoutWeakeningLocalTextMatches()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var row = Watch(["Adventure"], ["pirate", "friendship"]);
+        row.TitleMetadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], KeywordReferences = [new(42, "pirate"), new(43, "friendship")] };
+        profile.WatchedItems.Add(row);
+        var content = ContentFitProfile.Create(profile);
+        var translated = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        content.Apply(translated, ["Adventure"], ["pirata", "amistad"], null, new() { ["Adventure"] = 1 }, new TitleMetadataSnapshot
+        {
+            Keywords = ["pirata", "amistad"], KeywordReferences = [new(42, "pirata"), new(43, "amistad")]
+        });
+        Assert.Equal(1, translated.ContentFitAffinity);
+        Assert.Equal(1, translated.ContentFitSupport);
+        var local = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        content.Apply(local, ["Adventure"], ["pirate", "friendship"], null, new() { ["Adventure"] = 1 }, new TitleMetadataSnapshot { KeywordReferences = [new(100, "unrelated")] });
+        Assert.Equal(1, local.ContentFitAffinity);
+        Assert.Equal(1, local.ContentFitSupport);
+    }
+
+    [Fact]
+    public void GenericGenreFormatAndOperationalKeywordIdsCannotBecomeStoryEvidence()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var row = Watch(["Animation"], ["anime", "based on manga", "Action", "Japanese", "JE Arr Tag: pirate"]);
+        row.TitleMetadata = new TitleMetadataSnapshot { KeywordReferences = [new(1, "anime"), new(2, "based on manga"), new(3, "Action"), new(4, "Japanese"), new(5, "JE Arr Tag: pirate")] };
+        profile.WatchedItems.Add(row);
+        var features = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], [], null, new() { ["Animation"] = 1 }, row.TitleMetadata);
+        Assert.Equal(0, features.ContentFitAffinity);
+        Assert.Null(features.ContentFitSupport);
+    }
+
+    [Fact]
+    public void NewestProviderSnapshotClearsObsoleteProviderKeywordsAcrossDuplicateHistoryRows()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        var first = Watch(["Animation"], []);
+        first.TmdbId = 123;
+        first.TitleMetadata = new TitleMetadataSnapshot { Keywords = ["pirate", "friendship"], FetchedAtUtc = DateTime.UtcNow.AddDays(-1) };
+        var newer = Watch(["Animation"], []);
+        newer.TmdbId = 123;
+        newer.TitleMetadata = new TitleMetadataSnapshot { Keywords = [], FetchedAtUtc = DateTime.UtcNow };
+        profile.WatchedItems.Add(first);
+        profile.WatchedItems.Add(newer);
+        Assert.Equal(0, ContentFitProfile.Create(profile).ScoreTags(["pirate", "friendship"]));
+    }
+
+    [Fact]
+    public void TrueCrimeOnlyTasteDoesNotBecomeAGenericDocumentaryPreference()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch(["Documentary"], ["true crime"]));
+        var content = ContentFitProfile.Create(profile);
+        var knownOtherTopic = new CandidateFeatures();
+        content.Apply(knownOtherTopic, ["Documentary"], ["nature documentary"], null, []);
+        Assert.Equal(.5, knownOtherTopic.ContentFamilyMismatch);
+        var sameTopic = new CandidateFeatures();
+        content.Apply(sameTopic, ["Documentary"], ["true crime"], null, []);
+        Assert.Equal(0, sameTopic.ContentFamilyMismatch);
+        var unknown = new CandidateFeatures();
+        content.Apply(unknown, ["Documentary"], [], null, []);
+        Assert.Equal(0, unknown.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void SecondaryDocumentaryTopicsAndHybridTopicsStaySupported()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch(["Documentary"], ["true crime"]));
+        profile.WatchedItems.Add(Watch(["Documentary"], ["nature documentary"]));
+        var features = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(features, ["Documentary"], ["nature documentary"], null, []);
+        Assert.Equal(0, features.ContentFamilyMismatch);
+        ContentFitProfile.Create(profile).Apply(features, ["Documentary"], ["nature documentary", "true crime"], null, []);
+        Assert.Equal(0, features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void MultipleTopicsOnOneTitleCannotInflateTopicCoverageAcrossUnknownHistory()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        profile.WatchedItems.Add(Watch(["Documentary"], ["true crime", "nature documentary", "historical documentary"]));
+        for (var i = 0; i < 2; i++) profile.WatchedItems.Add(Watch(["Documentary"], []));
+        var features = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(features, ["Documentary"], ["sports documentary"], null, []);
+        Assert.Equal(0, features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void LikelyAnimationOriginHintsCanModerateButNeverBanARecommendation()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++)
+        {
+            var row = Watch(["Animation"], []);
+            row.TitleMetadata = new TitleMetadataSnapshot { OriginalLanguage = "ja", OriginCountries = ["JP"] };
+            profile.WatchedItems.Add(row);
+        }
+
+        var features = new CandidateFeatures { GenreSimilarity = 1, HasGenreEvidence = true };
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], ["western animation"], null, new() { ["Animation"] = 1 });
+        Assert.Equal(.25, features.ContentFamilyMismatch);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+        Assert.Equal(.6, ScoringHelper.ComputeContextualScore(.8, features, .1), 12);
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], [], null, new() { ["Animation"] = 1 });
+        Assert.Null(features.ContentFamilyMismatch);
+    }
+
+    [Fact]
+    public void ConfirmedAnimeHistoryDoesNotTurnProbableNonAnimeOriginIntoASelectionBan()
+    {
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(Watch(["Animation"], ["anime"]));
+        var features = new CandidateFeatures();
+        ContentFitProfile.Create(profile).Apply(features, ["Animation"], [], null, [], new TitleMetadataSnapshot { OriginalLanguage = "en", ProductionCountries = ["US"] });
+        Assert.Equal(.25, features.ContentFamilyMismatch);
+        Assert.True(ScoringHelper.IsContentEligible(features));
+    }
+
     [Fact]
     public void SpecificTitleMatchIsNotDilutedByThousandsOfUnrelatedHistoryKeywords()
     {

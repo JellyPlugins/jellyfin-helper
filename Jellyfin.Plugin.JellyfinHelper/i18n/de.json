@@ -5,6 +5,7 @@
   "recsEnsembleStatusPrior": "Startmischung aus globalen Priors",
   "recsEnsembleStatusProvisional": "Vorläufig — Ranking noch nicht verifiziert",
   "recsEnsembleStatusVerified": "Unabhängig verifiziert",
+  "recsEnsembleStatusChoiceRanking": "Auswahl-Ranking unabhängig verifiziert",
   "recsEnsembleStoredTarget": "Gespeicherter ML-Zielanteil",
   "recsEnsembleNeuralSchema": "Neural-Modell v{0}: {1} Merkmale",
   "genre.12": "Abenteuer",

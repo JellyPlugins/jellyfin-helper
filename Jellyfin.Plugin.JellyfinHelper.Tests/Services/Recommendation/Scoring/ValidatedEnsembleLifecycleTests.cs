@@ -328,6 +328,78 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnOrdinaryArchiveCannotVetoAcceptedChoicesUsingAnUnrelatedAcceptanceUser(bool unrelatedMixedUser)
+    {
+        var scope = "choice-compatible-history";
+        var store = new AcceptedModelStore(Path.Join(_directory, scope + "-state.json"));
+        var old = LinearBundle(inverted: false, revision: 1, DateTime.UtcNow.AddHours(-2));
+        old.Learned.Weights[(int)FeatureIndex.CombinedCriticScore] = 0;
+        old.Learned.Weights[(int)FeatureIndex.RecencyScore] = 1;
+        Assert.True(store.Commit(old));
+        var incumbent = LinearBundle(inverted: true, revision: 2, DateTime.UtcNow.AddHours(-1));
+        incumbent.Learned.Weights[(int)FeatureIndex.CombinedCriticScore] = 0;
+        incumbent.Learned.Weights[(int)FeatureIndex.RecencyScore] = -1;
+        Assert.True(store.Commit(incumbent));
+        var user = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        CandidateFeatures Features(bool chosen) => new() { GenreSimilarity = chosen ? .1 : .9, TagSimilarity = chosen ? 1 : 0, HasGenreEvidence = true, CombinedCriticScore = .8, RecencyScore = .5 };
+        TrainingExample Held(bool acceptance, bool positive)
+        {
+            Guid id;
+            do { id = Guid.NewGuid(); } while (((SHA256.HashData(id.ToByteArray())[0] & 1) != 0) != acceptance);
+            var features = Features(true);
+            if (!acceptance) features.RecencyScore = positive ? .85 : 0;
+            var row = new TrainingExample
+            {
+                UserId = user, ObservationId = id, HasStableObservationId = true, IsObserved = true,
+                Features = features, GeneratedAtUtc = now.AddDays(-3), Label = positive ? .85 : 0
+            };
+            if (positive)
+            {
+                row.Choice = new RecommendationChoiceEvidence
+                {
+                    ChosenObservationId = id, ChosenFeatures = features.Copy(), RecommendedAtUtc = now.AddDays(-3),
+                    AvailableAtUtc = now.AddDays(-10), ChosenAtUtc = now.AddDays(-2),
+                    Alternatives = [new(Guid.NewGuid(), Features(false))]
+                };
+            }
+
+            return row;
+        }
+
+        var fit = Enumerable.Range(0, 160).Select(index => new TrainingExample
+        {
+            UserId = user, ObservationId = Guid.NewGuid(), HasStableObservationId = true,
+            IsObserved = index % 2 == 0, IsContrastSample = index % 2 != 0, Features = Features(index % 2 == 0),
+            GeneratedAtUtc = now.AddDays(-3), Label = index % 2 == 0 ? .85 : .05, SampleWeight = index % 2 == 0 ? 1 : .25
+        }).ToArray();
+        var cal = Enumerable.Range(0, 24).Select(_ => Held(false, true)).ToArray();
+        var acceptance = Enumerable.Range(0, 24).Select(_ => Held(true, true)).ToList();
+        if (unrelatedMixedUser)
+        {
+            var unrelated = Guid.NewGuid();
+            for (var index = 0; index < 48; index++)
+            {
+                var row = Held(true, index % 2 == 0);
+                row.UserId = unrelated;
+                row.Choice = null;
+                acceptance.Add(row);
+            }
+        }
+
+        Assert.False(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(cal, now));
+        Assert.Equal(unrelatedMixedUser, EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, now));
+        Assert.NotEmpty(store.ReadHistory());
+        using var ensemble = Create(scope);
+        Assert.True(ensemble.TrainValidated(fit, cal.Concat(acceptance).ToArray(), false, TestContext.Current.CancellationToken));
+        Assert.True(ensemble.LastAdmission!.Accepted);
+        Assert.Equal("AcceptedChoiceRanking", ensemble.LastAdmission.Reason);
+        Assert.Equal("ChoiceRanking", ensemble.GetDiagnosticsSnapshot().ValidationLevel);
+    }
+
     [Fact]
     public void ExplanationCapturePinsOnePredictionAndBoundsAcrossAConcurrentPublication()
     {

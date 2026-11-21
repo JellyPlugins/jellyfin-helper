@@ -35,6 +35,91 @@ public class DiversityRerankerTests
     }
 
     [Fact]
+    public void CoherentInterestOutsideTheGenericMmrWindowCannotBeBuriedByPopularity()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(353);
+        var target = candidates[147];
+        var supported = new HashSet<Guid> { target.Item.Id };
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Contains(selected, candidate => candidate.Item.Id == target.Item.Id);
+        Assert.Equal(target.Score, selected.Single(candidate => candidate.Item.Id == target.Item.Id).Score);
+    }
+
+    [Fact]
+    public void RepeatedCandidatesForOneTasteCannotSuppressASmallerEvidencedInterest()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        var firstInterest = Guid.NewGuid();
+        var secondInterest = Guid.NewGuid();
+        var lanes = candidates.ToDictionary(candidate => candidate.Item.Id, _ => firstInterest);
+        lanes[candidates[^1].Item.Id] = secondInterest;
+        var supported = candidates.Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 10, seed: 42, contentSupported: supported, tasteLanes: lanes);
+        Assert.Equal(secondInterest, lanes[selected[1].Item.Id]);
+        Assert.Equal(10, selected.Count);
+        Assert.Equal(candidates[^1].Score, selected[1].Score);
+    }
+
+    [Fact]
+    public void WideSupportedPoolAndExplorationBandCannotDuplicateSelectedOrRemainingTitles()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        var supported = candidates.Skip(100).Take(40).Select(candidate => candidate.Item.Id).ToHashSet();
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42, contentSupported: supported);
+        Assert.Equal(20, selected.Count);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.All(selected, candidate => Assert.Equal(candidates.Single(original => original.Item.Id == candidate.Item.Id).Score, candidate.Score));
+    }
+
+    [Theory]
+    [InlineData(2, 3, true)]
+    [InlineData(200, 20, true)]
+    [InlineData(200, 20, false)]
+    public void DuplicateSupportedIdsCannotConsumeAnotherMmrOrSmallListSlot(int pool, int count, bool supported)
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(pool);
+        var original = candidates[0];
+        candidates[1].Item.Id = original.Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, count, seed: 42,
+            contentSupported: supported ? new HashSet<Guid> { original.Item.Id } : null);
+        Assert.Equal(Math.Min(pool - 1, count), selected.Count);
+        Assert.Equal(selected.Count, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+        Assert.Equal(original.Score, Assert.Single(selected, candidate => candidate.Item.Id == original.Item.Id).Score);
+    }
+
+    [Fact]
+    public void ExplorationNeverReplacesTheBestEntryOfAnIdWithItsLowerRankedDuplicate()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(40);
+        var best = candidates[1];
+        candidates[10].Item.Id = best.Item.Id;
+        var observed = false;
+        for (var seed = 0; seed < 80; seed++)
+        {
+            var selected = DiversityReranker.ApplyDiversityReranking(candidates, 2, seed, new HashSet<Guid> { candidates[0].Item.Id });
+            if (selected.Any(candidate => candidate.Item.Id == best.Item.Id))
+            {
+                observed = true;
+                Assert.Equal(best.Score, Assert.Single(selected, candidate => candidate.Item.Id == best.Item.Id).Score);
+            }
+        }
+
+        Assert.True(observed);
+    }
+
+    [Fact]
+    public void ExplorationDoesNotRepeatASelectedLibraryIdFromEitherLeftoverPool()
+    {
+        var candidates = BuildLinearlyDecreasingCandidates(200);
+        candidates[99].Item.Id = candidates[0].Item.Id;
+        candidates[199].Item.Id = candidates[0].Item.Id;
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+        Assert.Equal(20, selected.Count);
+        Assert.Single(selected, candidate => candidate.Item.Id == candidates[0].Item.Id);
+        Assert.Equal(20, selected.Select(candidate => candidate.Item.Id).Distinct().Count());
+    }
+
+    [Fact]
     public void ApplyDiversityReranking_SameSeed_ProducesIdenticalSelection()
     {
         // Build a large candidate list so exploration slots are actually filled from the widened pool. With 400 candidates and count=20 the exploration band spans ranks 100..400, which is more than enough for the seeded RNG to matter.

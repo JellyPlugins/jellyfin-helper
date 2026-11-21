@@ -151,6 +151,17 @@ internal sealed class TmdbDiscoverItem
     [JsonIgnore]
     public List<string>? KnownKeywords { get; set; }
 
+    /// <summary>Gets or sets optional external-source genre labels, separate from provider keyword evidence.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string>? SourceGenres { get; set; }
+
+    /// <summary>Gets or sets structured title metadata, independent of availability and parental certification.</summary>
+    [JsonIgnore]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
+
+    /// <summary>Gets or sets the isolated Seerr observation before cross-provider combination.</summary>
+    internal Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? SeerrTitleMetadata { get; set; }
+
     /// <summary>Gets or sets provider production companies; null means unknown.</summary>
     [JsonIgnore]
     public List<string>? KnownStudios { get; set; }

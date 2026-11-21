@@ -52,8 +52,9 @@ internal static class EngineTestFactory
     /// </remarks>
     /// <param name="strategyOverride">Optional custom scoring strategy to use instead of the default heuristic strategy.</param>
     /// <param name="linkedChildren">Optional authoritative collection membership service.</param>
+    /// <param name="titleMetadataCache">Optional shared cached provider metadata.</param>
     /// <returns>A new <see cref="EngineHarness"/> containing the constructed engine instance and all its associated mock references.</returns>
-    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null, ILinkedChildrenService? linkedChildren = null)
+    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null, ILinkedChildrenService? linkedChildren = null, TitleMetadataCache? titleMetadataCache = null)
     {
         var watchHistory = new Mock<IWatchHistoryService>();
         watchHistory.Setup(w => w.GetAllUserWatchProfiles())
@@ -100,6 +101,7 @@ internal static class EngineTestFactory
         perUserRegistry.Setup(r => r.HasPerUserModel(It.IsAny<Guid>())).Returns(false);
 
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
+        feedbackStore.Setup(store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         feedbackStore.Setup(f => f.LoadAll())
                      .Returns(new List<DiscoveryFeedbackResult>());
 
@@ -113,7 +115,8 @@ internal static class EngineTestFactory
             strategySelector.Object,
             perUserRegistry.Object,
             feedbackStore.Object,
-            linkedChildren);
+            linkedChildren,
+            titleMetadataCache);
 
         return new EngineHarness(
             engine,

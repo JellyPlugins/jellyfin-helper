@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Security.Authentication;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -184,7 +185,9 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 ImdbId = m.ImdbId ?? string.Empty,
                 TmdbId = m.TmdbId,
                 HasFile = m.HasFile,
-                Path = m.Path ?? string.Empty
+                Path = m.Path ?? string.Empty,
+                Genres = m.Genres?.ToArray(),
+                Overview = m.Overview
             }).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -244,7 +247,10 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 TmdbId = s.TmdbId,
                 Path = s.Path ?? string.Empty,
                 EpisodeFileCount = s.Statistics?.EpisodeFileCount ?? 0,
-                TotalEpisodeCount = s.Statistics?.TotalEpisodeCount ?? 0
+                TotalEpisodeCount = s.Statistics?.TotalEpisodeCount ?? 0,
+                Genres = s.Genres?.ToArray(),
+                Overview = s.Overview,
+                SeriesType = s.SeriesType
             }).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -580,7 +586,14 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         string? ImdbId,
         int TmdbId,
         bool HasFile,
-        string? Path);
+        string? Path)
+    {
+        [JsonInclude]
+        public IReadOnlyList<string>? Genres { get; init; }
+
+        [JsonInclude]
+        public string? Overview { get; init; }
+    }
 
     private sealed record SonarrSeriesDto(
         string? Title,
@@ -590,7 +603,17 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         // TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
         int TmdbId,
         string? Path,
-        SonarrStatisticsDto? Statistics);
+        SonarrStatisticsDto? Statistics)
+    {
+        [JsonInclude]
+        public IReadOnlyList<string>? Genres { get; init; }
+
+        [JsonInclude]
+        public string? Overview { get; init; }
+
+        [JsonInclude]
+        public string? SeriesType { get; init; }
+    }
 
     private sealed record SonarrStatisticsDto(int EpisodeFileCount, int TotalEpisodeCount);
 

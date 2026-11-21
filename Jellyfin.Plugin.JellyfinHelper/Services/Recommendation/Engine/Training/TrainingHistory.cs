@@ -22,7 +22,7 @@ internal static class TrainingHistory
             && DateTimeNormalization.ToUtc(w.LastPlayedDate.Value) < cutoff
             && w.HasPlaybackActivity()
             && (excludedIds is null || !excludedIds.Contains(w.ItemId)))
-            .Select(w => w.CopyPlaybackHistory()).ToList();
+            .Select(w => w.CopyPlaybackHistory().AtMetadataCutoff(cutoff)).ToList();
         return BuildProfile(source, rows);
     }
 
@@ -33,7 +33,8 @@ internal static class TrainingHistory
     /// <returns>A profile reusing immutable build-owned rows.</returns>
     internal static UserWatchProfile BeforePlaybackSnapshot(UserWatchProfile source, DateTime cutoff, IReadOnlySet<Guid>? excludedIds = null)
     {
-        var rows = source.WatchedItems.Where(row => row.LastPlayedDate < cutoff && (excludedIds is null || !excludedIds.Contains(row.ItemId))).ToList();
+        var rows = source.WatchedItems.Where(row => row.LastPlayedDate < cutoff && (excludedIds is null || !excludedIds.Contains(row.ItemId)))
+            .Select(row => row.AtMetadataCutoff(cutoff)).ToList();
         return BuildProfile(source, rows);
     }
 

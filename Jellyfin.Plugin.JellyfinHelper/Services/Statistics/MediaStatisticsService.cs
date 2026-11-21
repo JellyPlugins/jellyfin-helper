@@ -58,8 +58,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaStatisticsService> _logger;
     private readonly IPluginLogService _pluginLog;
-    private readonly IUserDataManager? _userDataManager;
-    private readonly IUserManager? _userManager;
+    private readonly MediaStatisticsUserDataSource? _userDataSource;
     private readonly IArrOrphanProtectionService? _arrOrphanProtection;
 
     /// <summary>
@@ -70,8 +69,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
-    /// <param name="userDataManager">The user data manager for watched status.</param>
-    /// <param name="userManager">The user manager for user enumeration.</param>
+    /// <param name="userDataSource">Optional enabled-user and watch-data reader.</param>
     /// <param name="arrOrphanProtection">Optional, positive-only Arr ownership protection.</param>
     public MediaStatisticsService(
         ILibraryManager libraryManager,
@@ -79,8 +77,7 @@ public class MediaStatisticsService : IMediaStatisticsService
         IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger,
         ICleanupConfigHelper configHelper,
-        IUserDataManager? userDataManager = null,
-        IUserManager? userManager = null,
+        MediaStatisticsUserDataSource? userDataSource = null,
         IArrOrphanProtectionService? arrOrphanProtection = null)
     {
         _libraryManager = libraryManager;
@@ -88,10 +85,9 @@ public class MediaStatisticsService : IMediaStatisticsService
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
-        _userDataManager = userDataManager!;
-        _userManager = userManager!;
+        _userDataSource = userDataSource;
         _arrOrphanProtection = arrOrphanProtection;
-        if (userDataManager == null || userManager == null)
+        if (userDataSource?.IsAvailable != true)
         {
             _pluginLog.LogWarning(
                 LogCategory,
@@ -151,13 +147,13 @@ public class MediaStatisticsService : IMediaStatisticsService
         // and keep audio items out of GetUserDataBatch.
         // This lets the scan use dictionary lookups instead of per‑file DB queries.
         // The per‑user maps in WatchLookups persist for the whole recursive scan but are released afterward.
-        var userContext = new ScanUserContext(ResolveScanUsers(), new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
+        var userContext = new ScanUserContext(_userDataSource?.GetEnabledUsers() ?? [], new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>());
         var distinctItems = itemLookup
             .Where(static kvp => kvp.Value is Video || MediaExtensions.VideoExtensions.Contains(Path.GetExtension(kvp.Key)))
             .Select(static kvp => kvp.Value).Distinct().ToList();
         foreach (var u in userContext.Users)
         {
-            userContext.WatchLookups[u.Id] = TryLoadUserWatchBatch(u, distinctItems);
+            userContext.WatchLookups[u.Id] = _userDataSource?.TryLoadBatch(u, distinctItems);
         }
 
         foreach (var vf in virtualFolders)
@@ -1172,11 +1168,11 @@ public class MediaStatisticsService : IMediaStatisticsService
         // Never watched instead of vanishing from the tier.
         var watchedDetails = new List<WatchedUserDetail>();
         var watchedUsernames = new List<string>();
-        if (item != null && _userDataManager != null)
+        if (item != null && _userDataSource != null)
         {
             foreach (var u in userContext.Users)
             {
-                var userData = LookupUserData(u, item, userContext, filePath);
+                var userData = _userDataSource.Lookup(u, item, userContext.WatchLookups.GetValueOrDefault(u.Id), filePath);
                 if (userData is { PlayCount: > 0 } or { Played: true })
                 {
                     watchedUsernames.Add(u.Username);
@@ -1202,88 +1198,6 @@ public class MediaStatisticsService : IMediaStatisticsService
         if (watchedUsernames.Count > 0)
         {
             stats.WatchedDetails[filePath] = new Collection<WatchedUserDetail>(watchedDetails);
-        }
-    }
-
-    /// <summary>
-    ///     Resolves the enabled scan users, tolerating user-manager outages.
-    /// </summary>
-    /// <returns>The enabled users, or an empty list when the lookup fails.</returns>
-    private List<Jellyfin.Database.Implementations.Entities.User> ResolveScanUsers()
-    {
-        try
-        {
-            return _userManager?.GetUsers()?.Where(static u => !IsDisabled(u)).ToList()
-                ?? new List<Jellyfin.Database.Implementations.Entities.User>();
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _pluginLog.LogWarning(LogCategory, "User lookup failed; watched status will show Never watched.", ex, _logger);
-            return new List<Jellyfin.Database.Implementations.Entities.User>();
-        }
-    }
-
-    /// <summary>
-    ///     Pre-fetches one user's watch data for many items in a single batch call.
-    /// </summary>
-    /// <param name="user">The user to load watch data for.</param>
-    /// <param name="items">The distinct library items of this scan.</param>
-    /// <returns>Item-id to watch-data map, or <c>null</c> when the batch is unavailable (per-item lookup applies).</returns>
-    private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserWatchBatch(
-        Jellyfin.Database.Implementations.Entities.User user,
-        List<BaseItem> items)
-    {
-        if (_userDataManager == null || items.Count == 0)
-        {
-            return new Dictionary<Guid, UserItemData>();
-        }
-
-        return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
-            batchCall: () => _userDataManager.GetUserDataBatch(items, user),
-            fallbackValue: null,
-            onFailure: ex => _pluginLog.LogWarning(
-                LogCategory,
-                $"Batch watch-data load failed for user '{user.Username}'; falling back to per-item lookup.",
-                ex,
-                _logger));
-    }
-
-    /// <summary>
-    ///     Looks up one user's watch data for an item, preferring the pre-fetched batch map.
-    /// </summary>
-    /// <param name="user">The user to look up.</param>
-    /// <param name="item">The library item.</param>
-    /// <param name="userContext">Enabled users plus their pre-fetched watch data.</param>
-    /// <param name="filePath">The file path (used for diagnostic logging only).</param>
-    /// <returns>The user data, or <c>null</c> when unknown or the lookup fails non-fatally.</returns>
-    private UserItemData? LookupUserData(
-        Jellyfin.Database.Implementations.Entities.User user,
-        BaseItem item,
-        ScanUserContext userContext,
-        string filePath)
-    {
-        if (userContext.WatchLookups.TryGetValue(user.Id, out var lookup) && lookup != null
-            && lookup.TryGetValue(item.Id, out var found))
-        {
-            return found;
-        }
-
-        // No batch entry (failed batch or stale/partial map): fall back to the per-item
-        // lookup so one gap never silently marks files unwatched.
-        // A single failing user must not abort the file or the scan: skip and continue
-        // with the next user, matching the containment in WatchHistoryService.
-        try
-        {
-            return _userDataManager!.GetUserData(user, item);
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            _pluginLog.LogWarning(
-                LogCategory,
-                $"Skipping watched lookup for user '{user.Username}' on '{filePath}'",
-                ex,
-                _logger);
-            return null;
         }
     }
 
@@ -1547,14 +1461,6 @@ public class MediaStatisticsService : IMediaStatisticsService
         "> 40 Mbps" => Bitrate32To60,
         _ => tier
     };
-
-    /// <summary>
-    ///     Reports whether a Jellyfin user is disabled and must be ignored by watched-status extraction.
-    /// </summary>
-    /// <param name="user">The user to check.</param>
-    /// <returns><c>true</c> when the user carries the IsDisabled permission.</returns>
-    private static bool IsDisabled(Jellyfin.Database.Implementations.Entities.User user) =>
-        user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled);
 
     /// <summary>
     /// Normalizes an ISO 639 language tag from MediaStream to a human-readable display name.

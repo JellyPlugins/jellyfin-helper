@@ -11,12 +11,13 @@ internal static class PersonalDiscoveryRetrieval
 {
     /// <summary>Chooses one positively evidenced provider title per media type, without counting every episode as a vote.</summary>
     /// <param name="profile">Only the current user's own history.</param>
-    /// <returns>At most one movie and one TV seed; missing provider or thematic evidence gives no seed.</returns>
+    /// <returns>At most one movie/TV theme seed and two independently supported content-family seeds.</returns>
     internal static IReadOnlyDictionary<string, int> Seeds(UserWatchProfile profile)
     {
         var sourceCache = new ContentFitProfile.SourceCache();
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var title in OrderedSeedTitles(profile))
+        var titles = OrderedSeedTitles(profile).ToArray();
+        foreach (var title in titles)
         {
             if (result.ContainsKey(title.Type))
             {
@@ -35,7 +36,36 @@ internal static class PersonalDiscoveryRetrieval
             }
         }
 
+        foreach (var seed in FamilySeeds(titles, result).Take(2))
+        {
+            result[seed.Key] = seed.Id;
+        }
+
         return result;
+    }
+
+    private static IEnumerable<(string Key, string Type, int Id)> FamilySeeds((string Type, int Id, WatchedItemInfo[] Rows)[] titles, Dictionary<string, int> represented)
+    {
+        return titles.Select(title => (Title: title, Family: Family(title.Rows)))
+            .Where(item => item.Family is not null)
+            .GroupBy(item => (item.Title.Type, item.Family))
+            // Multiple episodes/copies already share one provider title above. Two independently
+            // consumed titles support a retrieval lane; this is never an age or selection permit.
+            .Where(group => group.Count() >= 2)
+            .Select(group => (Key: group.Key.Type + ":" + group.Key.Family, Type: group.Key.Type,
+                Id: group.Where(item => !represented.Any(pair => pair.Value == item.Title.Id
+                    && (pair.Key == item.Title.Type || pair.Key.StartsWith(item.Title.Type + ":", StringComparison.Ordinal))))
+                    .Select(item => item.Title.Id).FirstOrDefault()))
+            .Where(seed => seed.Id > 0);
+    }
+
+    private static string? Family(WatchedItemInfo[] rows)
+    {
+        var genres = rows.SelectMany(row => row.Genres);
+        var tags = rows.SelectMany(row => HasSeriesParent(row) ? row.SeriesTags ?? row.Tags : row.OwnTags ?? row.Tags);
+        var metadata = rows.Select(row => row.TitleMetadata).OfType<TitleMetadataSnapshot>().OrderByDescending(item => item.FetchedAtUtc).FirstOrDefault();
+        var descriptor = ContentDescriptor.Create(genres, tags, metadata);
+        return descriptor.Representation ?? descriptor.ProbableRepresentation ?? descriptor.Narrative;
     }
 
     private static IEnumerable<(string Type, int Id, WatchedItemInfo[] Rows)> OrderedSeedTitles(UserWatchProfile profile)

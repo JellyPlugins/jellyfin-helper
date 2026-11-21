@@ -26,6 +26,12 @@ public sealed class GenreNormalizerTests
     [InlineData("Science-Fiction", "Science Fiction")]
     [InlineData("  Sci-Fi  ", "Science Fiction")]
     [InlineData("NEWS", "News")]
+    [InlineData("science-fiction", "Science Fiction")]
+    [InlineData("talk-show", "Talk")]
+    [InlineData("soap-opera", "Soap")]
+    [InlineData("tv-movie", "TV Movie")]
+    [InlineData("custom-genre", "custom-genre")]
+    [InlineData("Children", "Kids")]
     [InlineData("Anime", "Anime")]
     [InlineData("Sport", "Sport")]
     [InlineData(null, "")]
@@ -114,11 +120,25 @@ public sealed class GenreNormalizerTests
         Assert.True(GenreNormalizer.RegisterProviderGenre(12, label));
         Assert.Equal("Adventure", GenreNormalizer.Name(label));
         Assert.False(GenreNormalizer.RegisterProviderGenre(28, label));
+        Assert.Equal(label, GenreNormalizer.Name(label));
+        Assert.False(GenreNormalizer.RegisterProviderGenre(12, label));
         Assert.False(GenreNormalizer.RegisterProviderGenre(28, "Adventure"));
         Assert.Equal("Adventure", GenreNormalizer.Name("Adventure"));
         Assert.False(GenreNormalizer.RegisterProviderGenre(999999, "Unknown provider identity"));
         Assert.False(GenreNormalizer.RegisterProviderGenre(12, null));
         Assert.False(GenreNormalizer.RegisterProviderGenre(12, new string('a', 201)));
+        Assert.False(GenreNormalizer.RegisterProviderGenre(12, "\ud800"));
+    }
+
+    [Theory]
+    [InlineData("talk-show", "Talk")]
+    [InlineData("soap-opera", "Soap")]
+    [InlineData("tv-movie", "TV Movie")]
+    [InlineData("  Ｔａｌｋ-Ｓｈｏｗ  ", "Talk")]
+    public void ProviderCatalogCannotOverrideAHyphenFoldedBuiltInMeaning(string label, string expected)
+    {
+        Assert.False(GenreNormalizer.RegisterProviderGenre(28, label));
+        Assert.Equal(expected, GenreNormalizer.Name(label));
     }
 
     [Fact]

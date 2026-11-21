@@ -5,6 +5,7 @@
   "recsEnsembleStatusPrior": "基于全局先验的初始混合比例",
   "recsEnsembleStatusProvisional": "暂定 — 排序尚未验证",
   "recsEnsembleStatusVerified": "已独立验证",
+  "recsEnsembleStatusChoiceRanking": "已独立验证的偏好排序",
   "recsEnsembleStoredTarget": "已保存的机器学习目标权重",
   "recsEnsembleNeuralSchema": "神经网络模型 v{0}：{1} 个特征",
   "genre.12": "冒险|冒險",

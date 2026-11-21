@@ -59,7 +59,7 @@ internal static class ScoringHelper
             PopularityContribution = Effect(FeatureIndex.PopularityScore),
             InteractionContribution = Effect(FeatureIndex.GenreCountNormalized)
         };
-        if (features.ContentFitAffinity.HasValue || features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0)
+        if (features.ContentFitAffinity.HasValue || features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0 || features.ContentFamilyMismatch is > 0)
         {
             explanation.ContentFitContribution = full - score(features.WithoutContentFit());
         }
@@ -103,6 +103,19 @@ internal static class ScoringHelper
     /// <returns>A neutral multiplier for missing evidence, otherwise the configured genre penalty.</returns>
     internal static double ComputeGenrePenalty(CandidateFeatures features, double floor)
         => features.HasGenreEvidence ? ComputeSoftGenrePenalty(features.GenreSimilarity, floor) : 1.0;
+
+    /// <summary>Keeps selection and exploration inside evidenced interests; missing evidence never bans a candidate.</summary>
+    /// <param name="features">The captured prediction-time content context.</param>
+    /// <returns>Whether the candidate remains eligible for personally curated selection.</returns>
+    internal static bool IsContentEligible(CandidateFeatures? features)
+        => features?.ContentFamilyMismatch is not >= 0.5;
+
+    /// <summary>Identifies captured coherent interest evidence, not broad genres, popularity or imputed metadata.</summary>
+    /// <param name="features">The unchanged prediction-time context.</param>
+    /// <returns>Whether personally supported candidates should precede generic discovery or exploration.</returns>
+    internal static bool HasCoherentContentSupport(CandidateFeatures? features)
+        => features?.CollectionContinuationSupport is >= 0.5
+            || (features?.HasGenreEvidence == true && features.GenreSimilarity > 0 && features.ContentFitSupport is >= 0.5);
 
     /// <summary>Applies the existing genre penalty, then bounded captured content confidence once in final score space.</summary>
     /// <param name="rawScore">The raw component or mixture prediction.</param>
@@ -152,7 +165,9 @@ internal static class ScoringHelper
         var mismatch = hasGenres ? Math.Min(0.5, features.AudienceMismatch.GetValueOrDefault()) : 0;
         // Completed collection progress is stronger personal evidence than an ambiguous All-Ages hint.
         // Explicit preschool mismatch remains separate; neither rule changes certification permission.
-        return (support, continuation >= 0.5 && mismatch <= 0.25 ? 0 : mismatch);
+        // CandidateFeatures already rejects non-finite values and bounds this captured confidence.
+        var familyMismatch = features.ContentFamilyMismatch.GetValueOrDefault();
+        return (support, Math.Max(familyMismatch, continuation >= 0.5 && mismatch <= 0.25 ? 0 : mismatch));
     }
 
     /// <summary>

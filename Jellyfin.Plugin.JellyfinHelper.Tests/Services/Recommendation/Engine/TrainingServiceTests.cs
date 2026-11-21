@@ -3,6 +3,7 @@ using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -25,6 +26,134 @@ public class TrainingServiceTests
 
     private TrainingService CreateSut()
         => new(_watchHistoryMock.Object, _feedbackStoreMock.Object, _pluginLogMock.Object, _loggerMock.Object);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TrainingDoesNotWaitForStalledOptionalChoiceIoAndCancellationReleasesItsGate(bool cancel)
+    {
+        var user = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile { UserId = user };
+        for (var index = 0; index < 20; index++) profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-2), Genres = ["Drama"]
+        });
+        var chosen = profile.WatchedItems[0].ItemId;
+        var observation = TrainingExample.CreateLibraryObservationId(user, chosen);
+        var features = new CandidateFeatures { GenreSimilarity = .7 };
+        var original = new TrainingExample
+        {
+            UserId = user, ObservationId = observation, HasStableObservationId = true, Label = .85, GeneratedAtUtc = now.AddDays(-3), Features = features,
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = observation, ChosenFeatures = features.Copy(), AvailableAtUtc = now.AddDays(-5),
+                RecommendedAtUtc = now.AddDays(-3), ChosenAtUtc = now.AddDays(-2), Alternatives = [new(Guid.NewGuid(), features.Copy())]
+            }
+        };
+        var fs = new Mock<System.IO.Abstractions.IFileSystem>();
+        var file = new Mock<System.IO.Abstractions.IFile>();
+        fs.SetupGet(value => value.File).Returns(file.Object);
+        fs.SetupGet(value => value.Directory).Returns(new Mock<System.IO.Abstractions.IDirectory>().Object);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        file.Setup(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>())).Callback(() =>
+        {
+            started.TrySetResult();
+            release.Wait(TestContext.Current.CancellationToken);
+        });
+        var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("training-bounded-choice-io.json"));
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        _watchHistoryMock.Setup(value => value.GetAllUserWatchProfiles()).Returns([profile]);
+        _feedbackStoreMock.Setup(value => value.LoadAll()).Returns([]);
+        using var service = CreateSut();
+        service.ChoiceHistory = history;
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = now.AddHours(-1), Recommendations = [new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", ScoringFeatures = features.Copy() }] };
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var recording = new RecordingStrategy();
+        var training = Task.Run(() => service.Train(recording, [previous], cancellationToken: cancellation.Token), CancellationToken.None);
+        Task<bool>? writer = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            writer = (Task<bool>)typeof(RecommendationChoiceHistory).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(history)!;
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => training);
+                Assert.True(await Task.Run(() => service.Train(recording, [previous], cancellationToken: TestContext.Current.CancellationToken))
+                    .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.True(await training.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+
+            Assert.False(writer.IsCompleted);
+            file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
+            file.Verify(value => value.Move(It.IsAny<string>(), It.IsAny<string>(), true), Times.Never);
+            Assert.NotEmpty(recording.LastReceivedTrainSet!);
+        }
+        finally
+        {
+            release.Set();
+            if (writer is not null) await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public void ReplayExcludesUnfinishedSeriesEngagementUsingTheSameCanonicalLibraryProviderMappingAsTraining()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        Guid chosen;
+        Guid chosenObservation;
+        do
+        {
+            chosen = Guid.NewGuid();
+            chosenObservation = TrainingExample.CreateLibraryObservationId(user, chosen);
+        }
+        while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = chosenObservation, HasStableObservationId = true }.IsPermanentHoldout);
+        var series = Guid.NewGuid();
+        var unseen = Guid.NewGuid();
+        var seriesObservation = TrainingExample.CreateProviderObservationId(user, 43, "tv");
+        var unseenObservation = TrainingExample.CreateLibraryObservationId(user, unseen);
+        var features = new CandidateFeatures { GenreSimilarity = .5 };
+        var oldChoice = new TrainingExample
+        {
+            UserId = user, ObservationId = chosenObservation, HasStableObservationId = true, IsObserved = true,
+            Features = features, Label = .85, GeneratedAtUtc = now.AddDays(-3),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = chosenObservation, ChosenFeatures = features.Copy(), AvailableAtUtc = now.AddDays(-10),
+                RecommendedAtUtc = now.AddDays(-3), ChosenAtUtc = now.AddDays(-2),
+                Alternatives = [new(seriesObservation, features.Copy()), new(unseenObservation, features.Copy())]
+            }
+        };
+        var history = new RecommendationChoiceHistory();
+        history.Merge([oldChoice], new HashSet<Guid> { user }, now);
+        var profile = new UserWatchProfile
+        {
+            UserId = user, WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = chosen, ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-2), Genres = ["Drama"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, SeriesTmdbId = 42, PlayCount = 4, Played = false, LastPlayedDate = now.AddDays(-1), Genres = ["Drama"] }
+            ]
+        };
+        _watchHistoryMock.Setup(value => value.GetAllUserWatchProfiles()).Returns([profile]);
+        _feedbackStoreMock.Setup(value => value.LoadAll()).Returns([]);
+        using var service = CreateSut();
+        service.ChoiceHistory = history;
+        var previous = new RecommendationResult { UserId = user, GeneratedAt = now.AddHours(-1), Recommendations = [new RecommendedItem { ItemId = unseen, ItemType = "Movie", ScoringFeatures = features.Copy() }] };
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>(), new Dictionary<Guid, int> { [series] = 43 });
+        var recorder = new RecordingStrategy();
+        Assert.True(service.Train(recorder, [previous], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
+        var examples = recorder.LastReceivedTrainSet!.Concat(recorder.LastReceivedHeldOutSet ?? []).ToArray();
+        Assert.DoesNotContain(examples, row => row.IsContrastSample && row.ObservationId == seriesObservation);
+        Assert.Equal(unseenObservation, Assert.Single(Assert.Single(examples, row => row.Choice is not null).Choice!.Alternatives).ObservationId);
+        Assert.DoesNotContain(examples, row => row.ObservationId == seriesObservation);
+        Assert.Equal(2, oldChoice.Choice!.Alternatives.Length);
+    }
 
     [Fact]
     public void Training_ExcludesCachedRecommendationsAndDiscoveryFeedbackForUnavailableUsers()

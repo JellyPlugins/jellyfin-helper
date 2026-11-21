@@ -51,7 +51,7 @@ internal static class EnsembleAdmissionEvaluator
         var plan = PrepareCalibration(cal, test.Length, models, alphaCap, neuralCap);
         if (plan.Limitation is { } limitation)
         {
-            return limitation;
+            return ResolveChoiceLimitation(limitation, calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence);
         }
 
         var availableAcceptanceTitles = test.Length;
@@ -60,6 +60,8 @@ internal static class EnsembleAdmissionEvaluator
         if (!HasSupport(test))
         {
             var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
+            // Calibration has already selected ordinary admission and its fixed mixture.
+            // Acceptance outcomes may reject/withhold it, never select another procedure.
             return AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
         }
 
@@ -76,6 +78,16 @@ internal static class EnsembleAdmissionEvaluator
         }
 
         return AssessSelectedMixture(plan, test, models.Incumbent is not null);
+    }
+
+    private static AdmissionDecision ResolveChoiceLimitation(AdmissionDecision limitation, IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime referenceTime, (double Alpha, double Neural) caps, Func<IReadOnlyCollection<Guid>, string?>? reserve)
+    {
+        if (limitation.Reason is not ("HomogeneousObservedOutcomes" or "InsufficientIndependentRankingEvidence"))
+        {
+            return limitation;
+        }
+
+        return ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, referenceTime, caps, reserve) ?? limitation;
     }
 
     private static void ValidateAdmissionInputs(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, double alphaCap, double neuralCap)
@@ -209,7 +221,10 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="examples">One partition, already excluding spent acceptance identities where applicable.</param>
     /// <returns>A bounded block; unused new identities remain available for later independent rounds.</returns>
     internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples)
-        => SelectEvaluationBlock(examples, 0, out _);
+        => SelectEvaluationBlock(examples, 0, out _, DateTime.UtcNow);
+
+    internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, DateTime referenceTime)
+        => SelectEvaluationBlock(examples, 0, out _, referenceTime);
 
     /// <summary>Rotates a bounded balanced block using only identities, never labels, scores or admission results.</summary>
     /// <param name="examples">Fresh observations in one permanent partition.</param>
@@ -217,11 +232,14 @@ internal static class EnsembleAdmissionEvaluator
     /// <param name="nextOffset">Next rotation, unchanged when the entire partition fits.</param>
     /// <returns>A unique bounded block; rotation does not spend or create evidence.</returns>
     internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, long offset, out long nextOffset)
+        => SelectEvaluationBlock(examples, offset, out nextOffset, DateTime.UtcNow);
+
+    internal static TrainingExample[] SelectEvaluationBlock(IEnumerable<TrainingExample> examples, long offset, out long nextOffset, DateTime referenceTime)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         nextOffset = offset;
         var users = examples.GroupBy(row => (row.UserId, row.ObservationId))
-            .Select(group => group.OrderByDescending(row => row.GeneratedAtUtc).First())
+            .Select(group => SelectObservationView(group, referenceTime))
             .GroupBy(row => row.UserId).OrderBy(group => group.Key)
             .Select(group => group.OrderBy(row => row.ObservationId).ToArray()).ToArray();
         var selected = new List<TrainingExample>();
@@ -244,6 +262,43 @@ internal static class EnsembleAdmissionEvaluator
         return selected.ToArray();
     }
 
+    internal static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
+    {
+        var ordered = rows.OrderByDescending(row => row.GeneratedAtUtc).ToArray();
+        var latestOutcome = ordered.FirstOrDefault(row => row.IsObserved) ?? ordered[0];
+        var effective = ordered.Where(row => row.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight).ToArray();
+        var fallback = effective.FirstOrDefault() ?? ordered[0];
+        // Fresh explicit negative outcomes supersede old positive comparisons. Otherwise
+        // keep the original valid choice view instead of losing it to a newer publication.
+        if (latestOutcome.IsObserved && latestOutcome.Label <= .5)
+        {
+            return latestOutcome;
+        }
+
+        var selected = effective.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? fallback;
+        if (ReferenceEquals(selected, latestOutcome))
+        {
+            return selected;
+        }
+
+        var copy = selected.Copy();
+        copy.Label = latestOutcome.Label;
+        return copy;
+    }
+
+    internal static bool HasOrdinaryRankingSupport(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
+    {
+        var rows = CaptureEvidence(examples, referenceTime);
+        var users = MixedUsers(rows).ToHashSet();
+        return HasSupport(rows.Where(row => users.Contains(row.UserId)).ToArray());
+    }
+
+    internal static TrainingExample[] SelectOrdinaryAcceptanceEvidence(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, DateTime referenceTime)
+    {
+        var users = MixedUsers(CaptureEvidence(calibration, referenceTime)).ToHashSet();
+        return acceptance.Where(row => users.Contains(row.UserId)).ToArray();
+    }
+
     private static long AdvanceEvaluationCursor(long offset, int advance, bool truncated)
     {
         if (!truncated)
@@ -262,7 +317,7 @@ internal static class EnsembleAdmissionEvaluator
     {
         var rows = CaptureEvidence(examples, referenceTime);
         var mixed = MixedUsers(rows).ToHashSet();
-        return HasSupport(rows.Where(row => mixed.Contains(row.UserId)).ToArray());
+        return HasSupport(rows.Where(row => mixed.Contains(row.UserId)).ToArray()) || ChoiceRankingAdmissionEvaluator.HasSupport(examples, referenceTime);
     }
 
     /// <summary>Tests new observed counterevidence against a pinned incumbent, independently of challenger success.</summary>
