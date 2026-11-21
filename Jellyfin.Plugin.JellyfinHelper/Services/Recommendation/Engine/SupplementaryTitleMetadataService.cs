@@ -43,7 +43,10 @@ public sealed class SupplementaryTitleMetadataService
     /// <param name="configuration">Captured provider configuration.</param>
     /// <param name="cancellationToken">The bounded background deadline.</param>
     /// <returns>A completed optional acquisition pass.</returns>
-    public async Task WarmAsync(PluginConfiguration configuration, CancellationToken cancellationToken)
+    public Task WarmAsync(PluginConfiguration configuration, CancellationToken cancellationToken)
+        => WarmAsync(configuration, null, cancellationToken);
+
+    internal async Task WarmAsync(PluginConfiguration configuration, Func<TitleMetadataSnapshot, bool>? isEligible, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var language = MetadataLanguage();
@@ -55,8 +58,8 @@ public sealed class SupplementaryTitleMetadataService
             deadline.CancelAfter(TimeSpan.FromSeconds(15));
             await FetchAsync(
                 () => source.Movie
-                    ? FetchRadarrAsync(configuration, source.Instance, language, deadline.Token)
-                    : FetchSonarrAsync(configuration, source.Instance, language, deadline.Token),
+                    ? FetchRadarrAsync(configuration, source.Instance, language, isEligible, deadline.Token)
+                    : FetchSonarrAsync(configuration, source.Instance, language, isEligible, deadline.Token),
                 token).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
@@ -64,7 +67,7 @@ public sealed class SupplementaryTitleMetadataService
     private static ArrInstanceConfig Capture(ArrInstanceConfig instance)
         => new() { Url = instance.Url, ApiKey = instance.ApiKey, SkipCertificateValidation = instance.SkipCertificateValidation };
 
-    private async Task FetchRadarrAsync(PluginConfiguration configuration, ArrInstanceConfig instance, string? language, CancellationToken token)
+    private async Task FetchRadarrAsync(PluginConfiguration configuration, ArrInstanceConfig instance, string? language, Func<TitleMetadataSnapshot, bool>? isEligible, CancellationToken token)
     {
         var items = await _arr.GetRadarrMoviesAsync(instance.Url, _secrets.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, token).ConfigureAwait(false);
         foreach (var item in items ?? [])
@@ -79,11 +82,14 @@ public sealed class SupplementaryTitleMetadataService
                 Overview = item.Overview,
                 FetchedAtUtc = DateTime.UtcNow
             };
-            _cache.StoreSupplemental(configuration, snapshot, new("radarr", instance.Url, instance.ApiKey), language);
+            if (isEligible?.Invoke(snapshot) != false)
+            {
+                _cache.StoreSupplemental(configuration, snapshot, new("radarr", instance.Url, instance.ApiKey), language);
+            }
         }
     }
 
-    private async Task FetchSonarrAsync(PluginConfiguration configuration, ArrInstanceConfig instance, string? language, CancellationToken token)
+    private async Task FetchSonarrAsync(PluginConfiguration configuration, ArrInstanceConfig instance, string? language, Func<TitleMetadataSnapshot, bool>? isEligible, CancellationToken token)
     {
         var items = await _arr.GetSonarrSeriesAsync(instance.Url, _secrets.Unprotect(instance.ApiKey), instance.SkipCertificateValidation, token).ConfigureAwait(false);
         foreach (var item in items ?? [])
@@ -100,7 +106,10 @@ public sealed class SupplementaryTitleMetadataService
                 Overview = item.Overview,
                 FetchedAtUtc = DateTime.UtcNow
             };
-            _cache.StoreSupplemental(configuration, snapshot, new("sonarr", instance.Url, instance.ApiKey), language);
+            if (isEligible?.Invoke(snapshot) != false)
+            {
+                _cache.StoreSupplemental(configuration, snapshot, new("sonarr", instance.Url, instance.ApiKey), language);
+            }
         }
     }
 

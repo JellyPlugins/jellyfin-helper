@@ -64,17 +64,52 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Empty(results);
     }
 
+    [Fact]
+    public async Task DisposeClosesNewOperationsButAdmittedReadersAndWriterCanFinishWithoutSemaphoreRaces()
+    {
+        var cache = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath)
+        {
+            WaitTimeProvider = new ControlledWaitTimeProvider()
+        };
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        var user = Guid.NewGuid();
+        var save = cache.SaveAsync([new DiscoveryResult { UserId = user }], TestContext.Current.CancellationToken);
+        var read = cache.LoadAsync(TestContext.Current.CancellationToken);
+        var removal = cache.RemoveItemAsync(700, "movie", user, TestContext.Current.CancellationToken);
+        var released = false;
+        try
+        {
+            cache.Dispose();
+            Assert.Throws<ObjectDisposedException>(() => cache.Load());
+            Assert.Throws<ObjectDisposedException>(() => cache.Save([]));
+            Assert.Throws<ObjectDisposedException>(() => cache.RemoveItem(700, "movie", user));
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => cache.LoadAsync(TestContext.Current.CancellationToken));
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => cache.MarkAsRequestedAsync(700, "movie", TestContext.Current.CancellationToken));
+            gate.Release();
+            released = true;
+            Assert.True(await save.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            await read.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await removal.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+        finally { if (!released) gate.Release(); cache.Dispose(); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task AsyncSaveBoundsTheWaitAndKeepsOneDetachedWriterWithoutReportingAnotherSnapshotsSuccess(bool cancel)
     {
-        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        using var cache = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath)
+        {
+            WaitTimeProvider = cancel ? new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider() : TimeProvider.System
+        };
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
         await gate.WaitAsync(TestContext.Current.CancellationToken);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var original = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "original" };
-        var save = _sut.SaveAsync([original], cancellation.Token);
-        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        var save = cache.SaveAsync([original], cancellation.Token);
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
         try
         {
             original.UserName = "mutated after dispatch";
@@ -88,8 +123,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
                 Assert.False(await save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
 
-            Assert.False(await _sut.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
-            Assert.Same(writer, typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut));
+            Assert.False(await cache.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
+            Assert.Same(writer, typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache));
             Assert.False(writer.IsCompleted);
             Assert.False(File.Exists(_cacheFilePath));
         }
@@ -99,27 +134,31 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         }
 
-        Assert.Equal("original", Assert.Single(_sut.Load()).UserName);
-        Assert.True(await _sut.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
-        Assert.Equal("later", Assert.Single(_sut.Load()).UserName);
+        Assert.Equal("original", Assert.Single(cache.Load()).UserName);
+        Assert.True(await cache.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
+        Assert.Equal("later", Assert.Single(cache.Load()).UserName);
     }
 
     [Fact]
     public async Task DisposalDoesNotBreakAnAbandonedWriterOrWaitForIt()
     {
-        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        using var cache = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider()
+        };
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
         await gate.WaitAsync(TestContext.Current.CancellationToken);
         using var cancellation = new CancellationTokenSource();
-        var save = _sut.SaveAsync([], cancellation.Token);
-        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        var save = cache.SaveAsync([], cancellation.Token);
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
         try
         {
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
-            _sut.Dispose();
-            _sut.Dispose();
+            cache.Dispose();
+            cache.Dispose();
             Assert.False(writer.IsCompleted);
-            await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.SaveAsync([], TestContext.Current.CancellationToken));
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => cache.SaveAsync([], TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -138,6 +177,61 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         File.WriteAllText(_cacheFilePath, "file instead of directory");
         using var blocked = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, Path.Join(_cacheFilePath, "results.json"));
         Assert.False(await blocked.SaveAsync([], TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ExpiredCallerDeadlineKeepsOneDetachedPostCommitFollowupAndRejectsAnotherSnapshotsFollowup()
+    {
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        using var cache = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath) { WaitTimeProvider = clock };
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        var calls = 0;
+        var original = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "original" };
+        var saving = cache.SaveWithCompletionAsync([original], committed =>
+        {
+            Assert.Equal("original", Assert.Single(committed).UserName);
+            Assert.Equal("original", Assert.Single(cache.Load()).UserName);
+            Interlocked.Increment(ref calls);
+            return Task.CompletedTask;
+        }, TestContext.Current.CancellationToken);
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        try
+        {
+            original.UserName = "changed after admission";
+            clock.ExpireDeadlines();
+            Assert.False(await saving.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.Equal(0, calls);
+            Assert.False(await cache.SaveWithCompletionAsync([new DiscoveryResult { UserName = "rejected" }], _ =>
+            {
+                Interlocked.Increment(ref calls);
+                return Task.CompletedTask;
+            }, TestContext.Current.CancellationToken));
+            Assert.False(writer.IsCompleted);
+        }
+        finally
+        {
+            gate.Release();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+
+        Assert.Equal(1, calls);
+        Assert.Equal("original", Assert.Single(cache.Load()).UserName);
+    }
+
+    [Fact]
+    public async Task FailedCacheCommitNeverAttemptsItsFollowup()
+    {
+        File.WriteAllText(_cacheFilePath, "not a directory");
+        using var cache = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, Path.Join(_cacheFilePath, "results.json"));
+        var calls = 0;
+        Assert.False(await cache.SaveWithCompletionAsync([new DiscoveryResult()], _ =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.CompletedTask;
+        }, TestContext.Current.CancellationToken));
+        Assert.Equal(0, calls);
+        Assert.False(File.Exists(Path.Join(_cacheFilePath, "results.json")));
     }
 
     [Fact]

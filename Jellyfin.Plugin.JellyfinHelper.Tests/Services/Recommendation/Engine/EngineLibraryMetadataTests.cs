@@ -5,10 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -28,6 +31,111 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class EngineLibraryMetadataTests : IDisposable
 {
     private readonly string _tempDir;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActualTrainingEntryPointScopesHistoricalInputsAndReplayWhileKeepingAnAllowedProviderCopy(bool detectVirtual)
+    {
+        var replay = new RecommendationChoiceHistory();
+        var harness = EngineTestFactory.Create(virtualItems: detectVirtual ? TestMockFactory.CreateVirtualItemDetector() : null, choiceHistory: replay);
+        using var engine = harness.Engine;
+        harness.ConfigService.Object.GetConfiguration().ExcludedLibraries = "Excluded";
+        harness.LibraryManager.Setup(manager => manager.GetVirtualFolders()).Returns(
+        [
+            new MediaBrowser.Model.Entities.VirtualFolderInfo { Name = "Allowed", Locations = ["/media"] },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo { Name = "Excluded", Locations = ["/media/excluded"] }
+        ]);
+        var chosen = MakeMovie("Chosen");
+        var unseen = MakeMovie("Still eligible");
+        var excluded = MakeMovie("Excluded");
+        excluded.Path = "/media/excluded/movie.mkv";
+        excluded.ProviderIds["Tmdb"] = "700";
+        var duplicate = MakeMovie("Allowed copy");
+        duplicate.ProviderIds["Tmdb"] = "800";
+        var excludedCopy = MakeMovie("Excluded copy");
+        excludedCopy.Path = "/media/excluded/copy.mkv";
+        excludedCopy.ProviderIds["Tmdb"] = "800";
+        var all = new BaseItem[] { chosen, unseen, excluded, duplicate, excludedCopy };
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? all : []);
+        var user = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var chosenId = TrainingExample.CreateLibraryObservationId(user, chosen.Id);
+        var unseenId = TrainingExample.CreateLibraryObservationId(user, unseen.Id);
+        var excludedId = TrainingExample.CreateLibraryObservationId(user, excluded.Id);
+        var removedItem = Guid.NewGuid();
+        var removedId = TrainingExample.CreateLibraryObservationId(user, removedItem);
+        var providerId = TrainingExample.CreateProviderObservationId(user, 700, "movie");
+        var features = new CandidateFeatures { GenreSimilarity = .9 };
+        var savedChoice = new TrainingExample
+        {
+            UserId = user, ObservationId = chosenId, HasStableObservationId = true, IsObserved = true, Label = .85,
+            GeneratedAtUtc = now.AddDays(-3), Features = features.Copy(),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = chosenId, ChosenItemId = chosen.Id, ChosenFeatures = features.Copy(), AvailableAtUtc = now.AddDays(-5),
+                RecommendedAtUtc = now.AddDays(-3), ChosenAtUtc = now.AddDays(-2),
+                Alternatives = [new(excludedId, features.Copy()) { LibraryItemId = excluded.Id }, new(providerId, features.Copy()) { LibraryItemId = excluded.Id }, new(unseenId, features.Copy()) { LibraryItemId = unseen.Id }, new(removedId, features.Copy()) { LibraryItemId = removedItem }]
+            }
+        };
+        replay.Merge([savedChoice], new HashSet<Guid> { user }, now);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
+        {
+            UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = chosen.Id, ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-2), Genres = ["Action"] }]
+        }]);
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns([new DiscoveryFeedbackResult
+        {
+            UserId = user, Entries = new[] { (700, "movie"), (700, "tv"), (800, "movie") }.Select(key => new DiscoveryFeedbackEntry
+            {
+                TmdbId = key.Item1, MediaType = key.Item2, ShownAtUtc = now.AddDays(-3), RequestedAtUtc = now.AddDays(-1), WasWatched = true, Genres = ["Action"]
+            }).ToList()
+        }]);
+        var previous = new RecommendationResult
+        {
+            UserId = user, GeneratedAt = now.AddDays(-3),
+            Recommendations = [new RecommendedItem { ItemId = excluded.Id, ItemType = "Movie", TmdbId = 700, ScoringFeatures = features.Copy() }],
+            TrainingContrasts = [new RecommendedItem { ItemId = excludedCopy.Id, ItemType = "Movie", TmdbId = 800, ScoringFeatures = features.Copy() }]
+        };
+        engine.TrainStrategy([previous], cancellationToken: TestContext.Current.CancellationToken);
+        // Re-read retained choice evidence through its public merge contract. Current
+        // organic evidence has no choices and cannot reconstruct removed alternatives.
+        var organic = savedChoice.Copy();
+        organic.Choice = null;
+        var retained = replay.Merge([organic], new HashSet<Guid> { user }, now);
+        var choice = Assert.Single(retained, row => row.Choice is not null).Choice!;
+        Assert.Equal(unseenId, Assert.Single(choice.Alternatives).ObservationId);
+        Assert.Equal(4, savedChoice.Choice!.Alternatives.Length);
+        harness.PluginLog.Verify(log => log.LogInfo("Recommendations", It.Is<string>(message => message.Contains("2 discovery", StringComparison.Ordinal)), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+        Assert.Single(previous.Recommendations);
+        Assert.Single(previous.TrainingContrasts!);
+        Assert.Equal(.9, previous.Recommendations[0].ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(now.AddDays(-3), previous.GeneratedAt);
+    }
+
+    [Fact]
+    public void LibraryIdentityBoundariesUseOnlyTrustedTypedCacheAliasesAndPreserveAnAllowedDuplicate()
+    {
+        var config = new PluginConfiguration { SeerrUrl = "https://seerr.example.test", SeerrApiKey = "test" };
+        var cache = new TitleMetadataCache();
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 100, TvdbId = 111, ImdbId = "tt0000100", MediaType = "tv", FetchedAtUtc = DateTime.UtcNow });
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 200, ImdbId = "tt0000100", MediaType = "movie", FetchedAtUtc = DateTime.UtcNow });
+        var excluded = new Series { Id = Guid.NewGuid(), ProviderIds = new() { ["Tvdb"] = "111" } };
+        var duplicate = new Series { Id = Guid.NewGuid(), ProviderIds = new() { ["Imdb"] = "TT0000100" } };
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Imdb"] = "tt0000100" } };
+        var unrelatedMovie = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tvdb"] = "111" } };
+        var direct = new Series { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "300", ["Tvdb"] = "111" } };
+        var episode = new Episode { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "400" } };
+        var keys = TitleProviderIdentity.ResolveTmdbKeys([excluded, duplicate, movie, unrelatedMovie, direct, episode], cache, config, TestContext.Current.CancellationToken);
+        Assert.Equal(new HashSet<(int, string)> { (100, "tv"), (200, "movie"), (300, "tv") }, keys);
+        var excludedOnly = TitleProviderIdentity.ResolveTmdbKeys([excluded], cache, config, TestContext.Current.CancellationToken);
+        excludedOnly.ExceptWith(TitleProviderIdentity.ResolveTmdbKeys([duplicate], cache, config, TestContext.Current.CancellationToken));
+        Assert.Empty(excludedOnly);
+        config.SeerrApiKey = "changed-scope";
+        Assert.Empty(TitleProviderIdentity.ResolveTmdbKeys([excluded, duplicate, movie], cache, config, TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => TitleProviderIdentity.ResolveTmdbKeys([direct], cache, config, cancellation.Token));
+    }
 
     public EngineLibraryMetadataTests()
     {

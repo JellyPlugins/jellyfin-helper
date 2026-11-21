@@ -67,6 +67,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
     internal TitleMetadataCache? TitleMetadataCache { get; init; }
 
+    /// <summary>Gets the shared detector so virtual stubs cannot supply watch-profile or progression evidence.</summary>
+    internal VirtualItemDetector? VirtualItems { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether the registration factory enables authoritative Jellyfin access queries.</summary>
+    internal bool UseUserAccessQueries { get; init; }
+
     /// <inheritdoc />
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
     {
@@ -89,7 +95,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
-        var users = _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).ToList() ?? [];
+        var roster = _userManager.GetUsers() ?? throw new InvalidOperationException("The live user roster is unavailable; empty recommendation history cannot be inferred.");
+        var users = roster.Where(static user => !IsDisabled(user)).ToList();
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -135,9 +142,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <inheritdoc />
-    public IReadOnlyCollection<Guid> GetAllUserIds() =>
-        _userManager.GetUsers()?.Where(static u => !IsDisabled(u)).Select(static u => u.Id).ToList()
-            ?? (IReadOnlyCollection<Guid>)[];
+    public IReadOnlyCollection<Guid> GetAllUserIds()
+    {
+        var users = _userManager.GetUsers() ?? throw new InvalidOperationException("The live user roster is unavailable; account deletion cannot be inferred.");
+        return users.Where(static user => !IsDisabled(user)).Select(static user => user.Id).ToArray();
+    }
 
     /// <summary>
     ///     Returns true when the Jellyfin user is disabled. Disabled users are treated as if they do not
@@ -153,7 +162,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Called once and shared across all user profile builds.
     /// </summary>
     /// <returns>A list of all non-folder video items under the allowed roots.</returns>
-    internal IReadOnlyList<BaseItem> LoadAllVideoItems()
+    internal List<BaseItem> LoadAllVideoItems()
     {
         return LoadAllVideoItems(ResolveLibraryScope());
     }
@@ -163,14 +172,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Called once and shared across all user profile builds for series-level favorite detection.
     /// </summary>
     /// <returns>A list of all series items under the allowed roots.</returns>
-    internal IReadOnlyList<BaseItem> LoadAllSeriesItems()
+    internal List<BaseItem> LoadAllSeriesItems()
     {
         return LoadAllSeriesItems(ResolveLibraryScope());
     }
 
     // Loads non-folder video items and applies the pre-resolved excluded-library filter. The batch
     // profile path resolves the scope once and passes it here to avoid re-reading virtual folders.
-    private IReadOnlyList<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
+    private List<BaseItem> LoadAllVideoItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -182,7 +191,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     // Loads series items and applies the pre-resolved excluded-library filter. See LoadAllVideoItems.
-    private IReadOnlyList<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
+    private List<BaseItem> LoadAllSeriesItems(LibraryRootScope? scope)
     {
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
@@ -255,24 +264,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     // Drops items that live in a library the user chose to exclude from recommendations. A null
-    // scope means no library is excluded, so the input is returned untouched and the common case
-    // pays no path cost. Applied identically here and in the candidate engine to keep training and
+    // scope disables only the root filter; virtual stubs remain ineligible. Applied identically
+    // here and in the candidate engine to keep training and
     // scoring on the same item set (train/serve parity).
-    private IReadOnlyList<BaseItem> FilterToAllowedLibraries(
+    private List<BaseItem> FilterToAllowedLibraries(
         IReadOnlyList<BaseItem> items,
         LibraryRootScope? scope)
     {
-        if (scope is null)
-        {
-            return items;
-        }
-
-        var kept = items.Where(item => LibraryPathResolver.IsAllowed(item.Path, scope)).ToList();
+        var kept = items.Where(item => !item.IsVirtualItem && VirtualItems?.IsVirtual(item) != true
+            && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope))).DistinctBy(item => item.Id).ToList();
 
         // Items with an empty path are dropped by the boundary check because they cannot be placed
         // under any root. That is correct, but surface the count so an operator can tell "excluded by
         // library filter" apart from "silently missing metadata" when a profile looks sparse.
-        var droppedEmptyPath = items.Count(item => string.IsNullOrEmpty(item.Path));
+        var droppedEmptyPath = scope is null ? 0 : items.Count(item => string.IsNullOrEmpty(item.Path));
         if (droppedEmptyPath > 0)
         {
             _pluginLog.LogDebug(
@@ -348,6 +353,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // genres map once so a watched episode can inherit its series' genres, otherwise every episode-based
         // genre signal (engagement, SeriesAffinity) is systematically empty.
         allSeries ??= LoadAllSeriesItems(onDemandScope);
+        if (UseUserAccessQueries)
+        {
+            var allowed = LibraryUserAccess.GetAllowedIds(_libraryManager, user);
+            allowed.IntersectWith(allItems.Concat(allSeries).Select(item => item.Id));
+            profile.AccessibleItemIds = allowed;
+            allItems = allItems.Where(item => allowed.Contains(item.Id)).ToArray();
+            allSeries = allSeries.Where(item => allowed.Contains(item.Id)).ToArray();
+            seriesGenresById = BuildSeriesGenresLookup(allSeries);
+            seriesTmdbById = BuildSeriesTmdbLookup(allSeries);
+        }
+
         seriesGenresById ??= BuildSeriesGenresLookup(allSeries);
         seriesTmdbById ??= BuildSeriesTmdbLookup(allSeries);
         // Preserve the original dictionary-assignment semantics when a library query repeats an ID.
@@ -402,6 +418,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 AccumulateFavoriteSeries(profile, series, seriesUserData);
             }
+            else if (seriesUserData?.Rating is > 0 && double.IsFinite(seriesUserData.Rating.Value))
+            {
+                AccumulateWatchedItem(profile, series, seriesUserData, watchedSeriesIds, metadata, ref ratingSum, ref ratingCount);
+            }
         }
 
         // Build audio + subtitle language profiles in a single pass over allItems. Previously these were two separate methods each iterating allItems and calling GetUserData per item, causing 2× the UserData lookups.
@@ -424,7 +444,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     private static bool IsIncludedInHistory(UserItemData data)
-        => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite;
+        => data.Played || data.PlaybackPositionTicks > 0 || data.IsFavorite || (data.Rating is > 0 && double.IsFinite(data.Rating.Value));
 
     private UserItemData? GetPlaybackSnapshot(
         Dictionary<Guid, UserItemData?> snapshots,
@@ -691,7 +711,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         // Track genre distribution
-        AccumulateGenreDistribution(profile, genres);
+        if (userData.Played || userData.PlaybackPositionTicks > 0 || userData.IsFavorite || userData.Rating is > 5)
+        {
+            AccumulateGenreDistribution(profile, genres);
+        }
 
         // Track favorites
         if (userData.IsFavorite)

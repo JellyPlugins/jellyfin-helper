@@ -31,6 +31,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
     private readonly TraktCacheService _cache;
     private readonly Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader> _officialPlugin;
     private readonly Mock<IUserManager> _userManager = new();
+    private Action<string>? _onResponse;
 
     // Cache clock: tests that exercise backoff expiry advance this; everyone else leaves it at the start value.
     private DateTime _cacheNow = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -50,6 +51,7 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
             .ReturnsAsync(() =>
             {
                 var (status, body) = _responses.Dequeue();
+                _onResponse?.Invoke(body);
                 return new HttpResponseMessage(status) { Content = new StringContent(body) };
             });
 
@@ -109,6 +111,9 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         var user = Guid.NewGuid();
         var metadata = new TitleMetadataCache();
         var acquired = DateTimeOffset.UtcNow.AddHours(-1);
+        var movieAcquired = acquired;
+        var showAcquired = acquired.AddMinutes(1);
+        _onResponse = body => acquired = body.Contains("\"tvdb\":22", StringComparison.Ordinal) ? showAcquired : movieAcquired;
         var sut = CreateServiceWithFactory(_factory.Object, () => acquired, metadata);
         IReadOnlyList<ExternalDiscoveryCandidate>? mapped = null;
         _responses.Enqueue((HttpStatusCode.OK, """[{"title":"Movie","genres":["animation"],"language":"ja","country":"jp","overview":"movie synopsis","ids":{"tmdb":11,"imdb":"tt123456"}}]"""));
@@ -119,13 +124,13 @@ public sealed class TraktDiscoveryServiceTests : IDisposable
         await sut.GetPersonalAsync(user, TestContext.Current.CancellationToken);
         var config = Plugin.Instance!.Configuration;
         var movie = metadata.Get(config, 11, "movie")!;
-        Assert.Equal(acquired.UtcDateTime, movie.FetchedAtUtc);
-        Assert.Equal(acquired.UtcDateTime, Assert.Single(Assert.IsType<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped, exactMatch: false)).TitleMetadata!.FetchedAtUtc);
+        Assert.Equal(movieAcquired.UtcDateTime, movie.FetchedAtUtc);
+        Assert.Equal(movieAcquired.UtcDateTime, Assert.Single(Assert.IsType<IReadOnlyList<ExternalDiscoveryCandidate>>(mapped, exactMatch: false)).TitleMetadata!.FetchedAtUtc);
         Assert.Equal("movie synopsis", movie.Overview);
         Assert.Equal("ja", movie.OriginalLanguage);
         Assert.Equal("tt123456", movie.ImdbId);
         var show = metadata.Get(config, 0, "tv", 22)!;
-        Assert.Equal(acquired.UtcDateTime, show.FetchedAtUtc);
+        Assert.Equal(showAcquired.UtcDateTime, show.FetchedAtUtc);
         Assert.Equal(0, show.TmdbId);
         Assert.Equal("anime", ContentDescriptor.Create([], [], show).Representation);
         Assert.Empty(_responses);

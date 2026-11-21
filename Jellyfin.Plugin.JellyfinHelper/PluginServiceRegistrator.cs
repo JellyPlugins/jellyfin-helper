@@ -177,7 +177,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             sp.GetRequiredService<ILogger<WatchHistoryService>>(),
             sp.GetService<ILinkedChildrenService>())
         {
-            TitleMetadataCache = sp.GetRequiredService<TitleMetadataCache>()
+            TitleMetadataCache = sp.GetRequiredService<TitleMetadataCache>(),
+            VirtualItems = sp.GetRequiredService<VirtualItemDetector>(),
+            UseUserAccessQueries = true
         });
         serviceCollection.AddSingleton(sp => new TitleMetadataCache(
             sp.GetService<MediaBrowser.Controller.Configuration.IServerConfigurationManager>(),
@@ -278,7 +280,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             sp.GetService<ILinkedChildrenService>(),
             sp.GetRequiredService<TitleMetadataCache>())
         {
-            ChoiceHistory = sp.GetRequiredService<RecommendationChoiceHistory>()
+            ChoiceHistory = sp.GetRequiredService<RecommendationChoiceHistory>(),
+            VirtualItems = sp.GetRequiredService<VirtualItemDetector>()
         });
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();

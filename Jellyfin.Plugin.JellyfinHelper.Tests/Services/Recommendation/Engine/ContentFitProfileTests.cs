@@ -13,6 +13,53 @@ public sealed class ContentFitProfileTests
     private static readonly string[] BattleKeywords = ["anime", "shounen", "pirate", "friendship", "super power"];
     private static readonly Dictionary<string, double> BattleGenres = new() { ["Animation"] = 1, ["Action"] = 1, ["Adventure"] = 1, ["Family"] = .1 };
 
+    [Fact]
+    public void HistoricalThematicSupportCannotRemainAsStrongAsRecentTasteAfterSeveralYears()
+    {
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(), WatchedItems =
+            [
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = now.AddYears(-3), Genres = ["Drama"], Tags = ["pirate", "friendship"] },
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-1), Genres = ["Drama"], Tags = ["courtroom", "justice"] }
+            ]
+        };
+        var fit = ContentFitProfile.Create(profile);
+        var old = new CandidateFeatures { GenreSimilarity = 1, HasGenreEvidence = true };
+        var recent = new CandidateFeatures { GenreSimilarity = 1, HasGenreEvidence = true };
+        fit.Apply(old, ["Drama"], ["pirate", "friendship"], null, new Dictionary<string, double> { ["Drama"] = 1 });
+        fit.Apply(recent, ["Drama"], ["courtroom", "justice"], null, new Dictionary<string, double> { ["Drama"] = 1 });
+        Assert.True(recent.ContentFitSupport > old.ContentFitSupport);
+        Assert.Equal(recent.ContentFitAffinity, old.ContentFitAffinity);
+        Assert.True(recent.ContentFitSupport >= .5);
+        Assert.False(old.ContentFitSupport >= .5);
+        Assert.True(ScoringHelper.IsContentEligible(old));
+    }
+
+    [Fact]
+    public void MetadataRefreshDoesNotRenewInterestAndHistoricalConfidenceUsesThePredictionClock()
+    {
+        var now = DateTime.UtcNow;
+        var played = now.AddYears(-3);
+        var item = Watch(["Drama"], ["pirate", "friendship"]);
+        item.LocalGenres = ["Drama"];
+        item.LastPlayedDate = played;
+        item.TitleMetadata = new TitleMetadataSnapshot { TmdbId = 101, FetchedAtUtc = now, Keywords = ["pirate", "friendship"] };
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [item] };
+        CandidateFeatures Score(ContentFitProfile fit)
+        {
+            var features = new CandidateFeatures { GenreSimilarity = 1, HasGenreEvidence = true };
+            fit.Apply(features, ["Drama"], ["pirate", "friendship"], null, new Dictionary<string, double> { ["Drama"] = 1 });
+            return features;
+        }
+        Assert.False(Score(ContentFitProfile.Create(profile)).ContentFitSupport >= .5);
+        Assert.True(Score(ContentFitProfile.Create(profile, metadataCutoff: played.AddDays(1))).ContentFitSupport >= .5);
+        item.IsFavorite = true;
+        Assert.Equal(1, Score(ContentFitProfile.Create(profile)).ContentFitSupport);
+        Assert.Equal(played, item.LastPlayedDate);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -49,7 +96,14 @@ public sealed class ContentFitProfileTests
             Assert.Null(row.TitleMetadata);
         });
         Assert.All(profile.WatchedItems, row => Assert.Equal(new[] { "Documentary" }, row.Genres));
-        Assert.Equal(detached.WatchedItems.SelectMany(row => row.Genres), cached.WatchedItems.SelectMany(row => row.Genres));
+        Assert.Equal(profile.WatchedItems.Select(row => row.ItemId).Order(), detached.WatchedItems.Select(row => row.ItemId).Order());
+        Assert.Equal(profile.WatchedItems.Select(row => row.ItemId).Order(), cached.WatchedItems.Select(row => row.ItemId).Order());
+        foreach (var row in detached.WatchedItems)
+        {
+            var cachedRow = Assert.Single(cached.WatchedItems, candidate => candidate.ItemId == row.ItemId);
+            Assert.Equal(row.Genres, cachedRow.Genres);
+            Assert.Equal(row.TitleMetadata, cachedRow.TitleMetadata);
+        }
     }
 
     [Fact]

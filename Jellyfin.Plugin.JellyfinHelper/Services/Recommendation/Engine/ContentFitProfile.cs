@@ -69,6 +69,7 @@ internal sealed class ContentFitProfile
     private readonly bool _hasPositiveChildrenInterest;
     private readonly bool _hasPositiveFamilyAnimationInterest;
     private readonly bool _hasUnclassifiedFamilyAnimationInterest;
+    private readonly IReadOnlySet<string> _positiveFamilyAnimationRepresentations;
     private readonly DimensionProfile[] _dimensions;
     private readonly int _positiveTitleCount;
     private readonly ContentFitProfile? _identityProfile;
@@ -82,6 +83,7 @@ internal sealed class ContentFitProfile
         _hasPositiveChildrenInterest = audience.HasPositiveChildrenInterest;
         _hasPositiveFamilyAnimationInterest = audience.HasPositiveFamilyAnimationInterest;
         _hasUnclassifiedFamilyAnimationInterest = audience.HasUnclassifiedFamilyAnimationInterest;
+        _positiveFamilyAnimationRepresentations = audience.PositiveFamilyAnimationRepresentations ?? new HashSet<string>(StringComparer.Ordinal);
         _dimensions = dimensions ?? [new([], 0), new([], 0), new([], 0)];
         _positiveTitleCount = positiveTitleCount;
         _identityProfile = identityProfile;
@@ -110,13 +112,17 @@ internal sealed class ContentFitProfile
         var documents = positiveTitles.Where(title => title.Terms.Count > 0).Select(title => title.Terms).ToArray();
         var weights = BuildTermWeights(documents);
         var prepared = positiveTitles.Where(title => title.Terms.Count > 0)
-            .Select(title => new KeywordDocument(title.Terms, title.Terms.Order(StringComparer.Ordinal).Sum(keyword => weights[keyword]), title.Genres, title.Key)).ToArray();
+            .Select(title => new KeywordDocument(title.Terms, title.Terms.Order(StringComparer.Ordinal).Sum(keyword => weights[keyword]), title.Genres, title.Key, title.InterestConfidence)).ToArray();
         var descriptors = positiveTitles.Select(title => ContentDescriptor.Create(title.Genres, title.Terms, title.Metadata)).ToArray();
-        var representations = DimensionPreferences(descriptors.Select(descriptor => descriptor.Representation is { } value ? new[] { value } : []));
-        var narratives = DimensionPreferences(descriptors.Select(descriptor => descriptor.Narrative is { } value ? new[] { value } : []));
-        var topics = DimensionPreferences(descriptors.Select(descriptor => descriptor.Topics.ToArray()));
-        var likely = DimensionPreferences(descriptors.Select(descriptor => (descriptor.Representation ?? descriptor.ProbableRepresentation) is { } value ? new[] { value } : []));
-        return new ContentFitProfile(prepared, weights, BuildAnimationAudience(positiveTitles, descriptors), [representations, narratives, topics], positiveTitles.Length, BuildIdentityProfile(positiveTitles), likely);
+        // A dated interest may retain weak semantic affinity without establishing a
+        // current veto against another representation or narrative. Explicit favorites,
+        // ratings and unknown legacy ages remain affirmative rather than invented stale data.
+        var current = descriptors.Where((_, index) => positiveTitles[index].InterestConfidence >= 0.5).ToArray();
+        var representations = DimensionPreferences(current.Select(descriptor => descriptor.Representation is { } value ? new[] { value } : []));
+        var narratives = DimensionPreferences(current.Select(descriptor => descriptor.Narrative is { } value ? new[] { value } : []));
+        var topics = DimensionPreferences(current.Select(descriptor => descriptor.Topics.ToArray()));
+        var likely = DimensionPreferences(current.Select(descriptor => (descriptor.Representation ?? descriptor.ProbableRepresentation) is { } value ? new[] { value } : []));
+        return new ContentFitProfile(prepared, weights, BuildAnimationAudience(positiveTitles, descriptors), [representations, narratives, topics], current.Length, BuildIdentityProfile(positiveTitles), likely);
     }
 
     private static AnimationAudience BuildAnimationAudience(TitleKeywords[] titles, ContentDescriptor[] descriptors)
@@ -125,10 +131,11 @@ internal sealed class ContentFitProfile
         var children = 0;
         var family = false;
         var unclassified = false;
+        var familyRepresentations = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < titles.Length; index++)
         {
             var title = titles[index];
-            if (title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels))
+            if (title.InterestConfidence >= 0.5 && title.Genres.Contains("Animation") && title.Terms.Overlaps(OlderAnimationLabels))
             {
                 older++;
             }
@@ -142,10 +149,14 @@ internal sealed class ContentFitProfile
             {
                 family = true;
                 unclassified |= descriptors[index].Representation is null;
+                if (descriptors[index].Representation is { } representation)
+                {
+                    familyRepresentations.Add(representation);
+                }
             }
         }
 
-        return new(older > children, children > 0, family, unclassified);
+        return new(older > children, children > 0, family, unclassified) { PositiveFamilyAnimationRepresentations = familyRepresentations };
     }
 
     private static bool IsFamilyAnimation(HashSet<string> genres)
@@ -162,14 +173,14 @@ internal sealed class ContentFitProfile
 
     private static ContentFitProfile? BuildIdentityProfile(TitleKeywords[] titles)
     {
-        var identified = titles.Select(title => (Terms: IdentityTerms(title.Metadata), title.Genres, title.Key)).Where(title => title.Terms.Count > 0).ToArray();
+        var identified = titles.Select(title => (Terms: IdentityTerms(title.Metadata), title.Genres, title.Key, title.InterestConfidence)).Where(title => title.Terms.Count > 0).ToArray();
         if (identified.Length == 0)
         {
             return null;
         }
 
         var weights = BuildTermWeights(identified.Select(title => title.Terms).ToArray());
-        var documents = identified.Select(title => new KeywordDocument(title.Terms, title.Terms.Sum(term => weights[term]), title.Genres, title.Key)).ToArray();
+        var documents = identified.Select(title => new KeywordDocument(title.Terms, title.Terms.Sum(term => weights[term]), title.Genres, title.Key, title.InterestConfidence)).ToArray();
         return new ContentFitProfile(documents, weights, default);
     }
 
@@ -192,6 +203,7 @@ internal sealed class ContentFitProfile
     private static Dictionary<Guid, TitleKeywords> BuildTitleKeywords(UserWatchProfile profile, Func<Guid, IReadOnlyList<string>?> lookup, IReadOnlySet<Guid>? excluded, SourceCache cache, DateTime? metadataCutoff)
     {
         var titles = new Dictionary<Guid, TitleKeywords>();
+        var referenceTime = metadataCutoff ?? DateTime.UtcNow;
         foreach (var row in profile.WatchedItems.Where(PreferenceBuilder.IsEligibleForPreferenceWeighting))
         {
             if (excluded is not null && (excluded.Contains(row.ItemId) || (row.SeriesId is { } parent && excluded.Contains(parent))))
@@ -213,7 +225,14 @@ internal sealed class ContentFitProfile
 
             var historicalRow = metadataCutoff.HasValue ? row.AtMetadataCutoff(metadataCutoff.Value) : row;
             title.Genres.UnionWith(GenreNormalizer.Set(historicalRow.Genres));
-            title.HasPositiveInteraction |= row.Played || row.IsFavorite;
+            title.HasPositiveInteraction |= row.Played || row.IsFavorite || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
+            title.HasFavorite |= row.IsFavorite;
+            if ((row.Played || row.IsFavorite) && row.LastPlayedDate is { } playedAt
+                && (!title.LatestPositiveAtUtc.HasValue || playedAt > title.LatestPositiveAtUtc.Value))
+            {
+                title.LatestPositiveAtUtc = playedAt;
+            }
+
             CaptureRating(title, row.UserRating);
 
             var tags = PreferenceBuilder.ResolveMetadataPreferenceValues(row, lookup, value => (value.Tags, value.OwnTags, value.SeriesTags));
@@ -224,6 +243,11 @@ internal sealed class ContentFitProfile
         foreach (var title in titles.Values)
         {
             AddProviderEvidence(title, cache.Normalized);
+            // Metadata refresh is not renewed interest. Current explicit favorites
+            // remain affirmative; dated playback confidence ages at the prediction boundary.
+            title.InterestConfidence = title.HasFavorite || title.Ratings.Count > 0 || !title.LatestPositiveAtUtc.HasValue
+                ? 1.0
+                : Math.Exp(-Math.Log(2) * Math.Max(0, (referenceTime - title.LatestPositiveAtUtc.Value).TotalDays) / EngineConstants.GenreDecayHalfLifeDays);
         }
 
         return titles;
@@ -334,9 +358,10 @@ internal sealed class ContentFitProfile
             // known title. Require two actual narrative matches and a majority of THAT document;
             // scattered words, language, Anime/Shounen and adaptation format alone give no support.
             var coverage = overlap.Weight / document.Weight;
-            if (overlap.NarrativeMatches >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres) && coverage > support)
+            var confidence = coverage * document.InterestConfidence;
+            if (overlap.NarrativeMatches >= 2 && coverage >= 0.5 && genres is not null && document.Genres.Overlaps(genres) && confidence > support)
             {
-                support = coverage;
+                support = confidence;
                 tasteKey = document.Key;
             }
         }
@@ -483,13 +508,27 @@ internal sealed class ContentFitProfile
         // Positive children's interest is not restricted to the majority's animation style.
         // Preserve narrative/topic checks: preschool evidence does not imply an interest in reality TV.
         var candidateGenres = ContentDescriptor.GenreEvidence(genres, metadata);
+        var candidate = ContentDescriptor.Create(genres, tags, metadata);
         var preserveRepresentation = (_hasPositiveChildrenInterest && IsChildrenTitle(candidateGenres, Keywords(tags)))
-            || (_hasUnclassifiedFamilyAnimationInterest && IsFamilyAnimation(candidateGenres));
+            || HasPositiveFamilyAnimationRepresentation(candidateGenres, candidate);
         // An unclassified positive family-animation lane cannot inherit the majority's
         // style. This withholds a representation verdict, never narrative/topic checks.
-        var family = ResolveFamilyMismatch(ContentDescriptor.Create(genres, tags, metadata), preserveRepresentation);
+        var family = ResolveFamilyMismatch(candidate, preserveRepresentation);
         var children = ResolveConfirmedChildrenMismatch(tags, preferences, candidateGenres);
         return family.HasValue || children.HasValue ? Math.Max(family ?? 0, children ?? 0) : null;
+    }
+
+    private bool HasPositiveFamilyAnimationRepresentation(HashSet<string> genres, ContentDescriptor candidate)
+    {
+        if (!IsFamilyAnimation(genres))
+        {
+            return false;
+        }
+
+        // Aging weakens ranking strength, not the existence of an affirmed family
+        // representation. An Anime family title does not affirm western animation.
+        var representation = candidate.Representation ?? candidate.ProbableRepresentation;
+        return _hasUnclassifiedFamilyAnimationInterest || (representation is not null && _positiveFamilyAnimationRepresentations.Contains(representation));
     }
 
     private double? ResolveConfirmedChildrenMismatch(IEnumerable<string>? tags, Dictionary<string, double> preferences, HashSet<string> candidateGenres)
@@ -647,11 +686,15 @@ internal sealed class ContentFitProfile
 
     private readonly record struct MatchEvidence(double Affinity, double Support, Guid? TasteKey = null);
 
-    private readonly record struct AnimationAudience(bool PrefersOlder, bool HasPositiveChildrenInterest, bool HasPositiveFamilyAnimationInterest, bool HasUnclassifiedFamilyAnimationInterest);
+    private readonly record struct AnimationAudience(bool PrefersOlder, bool HasPositiveChildrenInterest, bool HasPositiveFamilyAnimationInterest, bool HasUnclassifiedFamilyAnimationInterest)
+    {
+        /// <summary>Gets independently affirmed family representations without renewing their preference strength.</summary>
+        internal IReadOnlySet<string>? PositiveFamilyAnimationRepresentations { get; init; }
+    }
 
     private readonly record struct KeywordOverlap(double Weight, int SpecificMatches, int NarrativeMatches);
 
-    private sealed record KeywordDocument(HashSet<string> Terms, double Weight, HashSet<string> Genres, Guid Key);
+    private sealed record KeywordDocument(HashSet<string> Terms, double Weight, HashSet<string> Genres, Guid Key, double InterestConfidence);
 
     private sealed record DimensionProfile(Dictionary<string, int> Preferences, int KnownTitleCount);
 
@@ -672,6 +715,12 @@ internal sealed class ContentFitProfile
         internal HashSet<string> Terms { get; } = new(StringComparer.Ordinal);
 
         internal bool HasPositiveInteraction { get; set; }
+
+        internal bool HasFavorite { get; set; }
+
+        internal DateTime? LatestPositiveAtUtc { get; set; }
+
+        internal double InterestConfidence { get; set; }
 
         internal List<double> Ratings { get; } = [];
 

@@ -95,6 +95,8 @@ internal static class DiversityReranker
     /// </param>
     /// <param name="contentSupported">Optional prediction-time coherent-interest membership, independent of model score.</param>
     /// <param name="tasteLanes">Optional title-balanced interest identities for supported candidates.</param>
+    /// <param name="targetSeriesShare">Optional soft personal media mix, independent of recorded scores.</param>
+    /// <param name="retainedInterests">Dated coherent interests below the current-support threshold, eligible for at most one already-reserved exploration slot.</param>
     /// <returns>The diversified selection of at most <paramref name="count"/> scored candidates.</returns>
     internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         ApplyDiversityReranking(
@@ -102,7 +104,9 @@ internal static class DiversityReranker
             int count,
             int? seed = null,
             IReadOnlySet<Guid>? contentSupported = null,
-            IReadOnlyDictionary<Guid, Guid>? tasteLanes = null)
+            IReadOnlyDictionary<Guid, Guid>? tasteLanes = null,
+            double? targetSeriesShare = null,
+            IReadOnlySet<Guid>? retainedInterests = null)
     {
         if (count <= 0)
         {
@@ -117,6 +121,16 @@ internal static class DiversityReranker
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
         // Rank the entire candidate list once and split into two disjoint pools: * mmrPool: top count·MmrPoolFactor for the diversity-aware relevance selection.
         var ranked = candidates.OrderByDescending(c => c.Score).DistinctBy(candidate => candidate.Item.Id).ToList();
+        var suitable = ranked.Where(candidate => candidate.Score >= EngineConstants.MinimumPersonalSelectionScore).ToList();
+        if (suitable.Count >= count)
+        {
+            // Coherent-interest and exploration slots must not override the current
+            // model's low assessment when a full suitable selection is available.
+            // No identity is banned: a stronger new score restores suitability, while
+            // scarce alternatives retain the existing matching backfill behaviour.
+            ranked = suitable;
+        }
+
         var mmrPoolSize = Math.Min(ranked.Count, count * MmrPoolFactor);
         var explorationPoolSize = Math.Min(ranked.Count, count * ExplorationPoolFactor);
         var remaining = ranked.Where((candidate, rank) => rank < mmrPoolSize || contentSupported?.Contains(candidate.Item.Id) == true).ToList();
@@ -131,12 +145,12 @@ internal static class DiversityReranker
             Math.Min(proportionalCap, Math.Max(0, count - 1)));
         var mmrSlotCount = count - explorationSlots;
 
-        RunMmrSelection(remaining, selected, similarity, mmrSlotCount, contentSupported, tasteLanes);
+        RunMmrSelection(remaining, selected, similarity, mmrSlotCount, contentSupported, tasteLanes, targetSeriesShare);
 
         // Build the disjoint exploration pool: * Start with the widened band ranks[mmrPoolSize .. explorationPoolSize].
         if (selected.Count < count)
         {
-            FillExplorationSlots(ranked, remaining, selected, count, mmrPoolSize, explorationPoolSize, seed);
+            FillExplorationSlots(ranked, remaining, selected, count, mmrPoolSize, explorationPoolSize, seed, retainedInterests);
         }
 
         return selected;
@@ -151,12 +165,13 @@ internal static class DiversityReranker
         SimilarityCache similarity,
         int mmrSlotCount,
         IReadOnlySet<Guid>? contentSupported,
-        IReadOnlyDictionary<Guid, Guid>? tasteLanes)
+        IReadOnlyDictionary<Guid, Guid>? tasteLanes,
+        double? targetSeriesShare)
     {
         var represented = new HashSet<Guid>();
         while (selected.Count < mmrSlotCount && remaining.Count > 0)
         {
-            var bestIdx = FindSupportedMmrIndex(remaining, selected, similarity, contentSupported, tasteLanes, represented);
+            var bestIdx = FindSupportedMmrIndex(remaining, selected, similarity, contentSupported, tasteLanes, represented, targetSeriesShare);
 
             if (bestIdx >= 0)
             {
@@ -178,7 +193,8 @@ internal static class DiversityReranker
         SimilarityCache similarity,
         IReadOnlySet<Guid>? contentSupported,
         IReadOnlyDictionary<Guid, Guid>? tasteLanes,
-        HashSet<Guid> represented)
+        HashSet<Guid> represented,
+        double? targetSeriesShare)
     {
         var supported = contentSupported is { Count: > 0 }
             ? remaining.Where(candidate => contentSupported.Contains(candidate.Item.Id)).ToList()
@@ -190,7 +206,7 @@ internal static class DiversityReranker
         }
 
         var search = supported.Count > 0 ? supported : remaining;
-        var found = FindBestMmrIndex(search, selected, similarity);
+        var found = FindBestMmrIndex(search, selected, similarity, targetSeriesShare);
         return found >= 0 && supported.Count > 0 ? remaining.IndexOf(search[found]) : found;
     }
 
@@ -200,10 +216,12 @@ internal static class DiversityReranker
     private static int FindBestMmrIndex(
         List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> remaining,
         List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
-        SimilarityCache similarity)
+        SimilarityCache similarity,
+        double? targetSeriesShare)
     {
         var bestIdx = -1;
         var bestMmrScore = double.MinValue;
+        var selectedSeries = selected.Count(candidate => candidate.Item is Series);
 
         for (var i = 0; i < remaining.Count; i++)
         {
@@ -220,7 +238,8 @@ internal static class DiversityReranker
                 }
             }
 
-            var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity);
+            var mmrScore = (EngineConstants.MmrLambda * relevance) - ((1.0 - EngineConstants.MmrLambda) * maxSimilarity)
+                + MediaTypeBalance.Adjustment(candidateItem is Series, selected.Count, selectedSeries, targetSeriesShare);
 
             if (mmrScore > bestMmrScore)
             {
@@ -242,7 +261,8 @@ internal static class DiversityReranker
         int count,
         int mmrPoolSize,
         int explorationPoolSize,
-        int? seed)
+        int? seed,
+        IReadOnlySet<Guid>? retainedInterests)
     {
         var mmrSelectedIds = new HashSet<Guid>(selected.Count);
         foreach (var s in selected)
@@ -262,6 +282,16 @@ internal static class DiversityReranker
 
         // Fall back to the MMR-pool leftovers when the widened band is exhausted so that small libraries still get exploration signal (this preserves the previous behaviour as a floor rather than as the only source).
         explorationPool.AddRange(remaining.Where(entry => !mmrSelectedIds.Contains(entry.Item.Id) && explorationIds.Add(entry.Item.Id)));
+
+        // Age weakens current preference strength, not the existence of a verified
+        // thematic match. Preserve one bounded opportunity without changing scores,
+        // first-choice ranking or treating random unseen media as rejected feedback.
+        var retained = ranked.Where(entry => retainedInterests?.Contains(entry.Item.Id) == true && !mmrSelectedIds.Contains(entry.Item.Id)).Take(1).ToArray();
+        if (retained.Length > 0 && selected.Count < count)
+        {
+            selected.Add(retained[0]);
+            explorationPool.RemoveAll(entry => entry.Item.Id == retained[0].Item.Id);
+        }
 
         if (explorationPool.Count <= 0)
         {

@@ -17,6 +17,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class EngineInstanceTests
 {
+    [Fact]
+    public async Task IncompleteProfilesCannotOverwriteTheScheduledRecommendationCacheOrPlaylists()
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var available = Guid.NewGuid();
+        var missing = Guid.NewGuid();
+        harness.WatchHistory.Setup(history => history.GetAllUserIds()).Returns([available, missing]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = available }]);
+        var cache = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.IRecommendationCacheService>();
+        var playlists = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist.IRecommendationPlaylistService>();
+        var task = new Jellyfin.Plugin.JellyfinHelper.ScheduledTasks.RecommendationsTask(engine, cache.Object, harness.PluginLog.Object, playlists.Object, harness.Logger.Object);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => task.ExecuteAsync(
+            new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.Activate, SyncRecommendationsToPlaylist = true },
+            new Progress<double>(), TestContext.Current.CancellationToken));
+        cache.Verify(value => value.SaveResults(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>()), Times.Never);
+        playlists.Verify(value => value.UpdatePlaylistsForAllUsersAsync(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.PerUserRegistry.Verify(registry => registry.PruneOrphans(It.Is<IReadOnlyCollection<Guid>>(users => users.Contains(missing))), Times.Once);
+    }
+
     // GetRecommendations - outer contract
 
     [Fact]
@@ -282,12 +302,12 @@ public sealed class EngineInstanceTests
         Assert.True(result);
     }
 
-    // GetAllRecommendations - one throwing user does not abort the batch
+    // GetAllRecommendations - one failed user must not erase their last complete cache
 
     [Fact]
-    public void GetAllRecommendations_OneUserThrows_BatchContinuesAndLogsWarning()
+    public async Task GetAllRecommendations_OneUserThrows_DefersPublicationAndLogsWarning()
     {
-        // BUG GUARD: the Parallel.ForEach body catches non-fatal exceptions and logs a warning, then continues processing remaining users.
+        // Other users may finish scoring, but the scheduled task must not publish a partial batch.
         var failingUserId = Guid.NewGuid();
         var succeedingUserId = Guid.NewGuid();
 
@@ -311,9 +331,15 @@ public sealed class EngineInstanceTests
             .Setup(s => s.GetAlphaOffset(failingUserId))
             .Throws(new InvalidOperationException("simulated per-user failure"));
 
-        // Must not throw - the catch-and-continue contract absorbs it.
-        var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
-        Assert.NotNull(results);
+        using var engine = harness.Engine;
+        var cache = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.IRecommendationCacheService>();
+        var playlists = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist.IRecommendationPlaylistService>();
+        var task = new Jellyfin.Plugin.JellyfinHelper.ScheduledTasks.RecommendationsTask(engine, cache.Object, harness.PluginLog.Object, playlists.Object, harness.Logger.Object);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => task.ExecuteAsync(
+            new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.Activate, SyncRecommendationsToPlaylist = true },
+            new Progress<double>(), TestContext.Current.CancellationToken));
+        cache.Verify(value => value.SaveResults(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>()), Times.Never);
+        playlists.Verify(value => value.UpdatePlaylistsForAllUsersAsync(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>(), It.IsAny<CancellationToken>()), Times.Never);
 
         // Warning logged for the failing user.
         harness.PluginLog.Verify(

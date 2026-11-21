@@ -765,6 +765,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<RequestResult> DismissItem([FromBody] DiscoveryDismissDto dto)
     {
         if (!IsDiscoveryUserAccessEnabled())
@@ -801,6 +802,7 @@ public sealed class UserDiscoveryController : ControllerBase
         catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentUserId);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new RequestResult { Success = false, Message = "The dismissal could not be saved permanently. Please try again." });
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });

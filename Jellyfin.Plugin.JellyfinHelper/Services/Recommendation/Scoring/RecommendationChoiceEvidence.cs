@@ -13,6 +13,9 @@ public sealed record RecommendationChoiceEvidence
     /// <summary>Gets the stable chosen user/title identity; repeated runs and episodes do not create new evidence.</summary>
     public Guid ChosenObservationId { get; init; }
 
+    /// <summary>Gets the original physical item supplying the completed outcome, including the specific episode when applicable.</summary>
+    public Guid? ChosenItemId { get; init; }
+
     /// <summary>Gets the earlier recommendation instant defining the available alternatives.</summary>
     public DateTime RecommendedAtUtc { get; init; }
 

@@ -15,6 +15,103 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
     private const string ActionGenre = "Action";
 
     [Theory]
+    [InlineData("dismissed")]
+    [InlineData("requested")]
+    [InlineData("watched")]
+    [InlineData("legacy-watched")]
+    public void LaterVisibilityCannotRenewTheAgeOrStrengthOfAnOlderObservedOutcome(string kind)
+    {
+        var outcome = DateTime.UtcNow.AddDays(-365);
+        var entry = ShownEntry(outcome.AddDays(-1));
+        entry.ImpressionAtUtc = DateTime.UtcNow.AddDays(-1);
+        entry.ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true };
+        if (kind == "dismissed") entry.DismissedAtUtc = outcome;
+        else entry.RequestedAtUtc = outcome;
+        if (kind is "watched" or "legacy-watched") entry.WasWatched = true;
+        if (kind == "watched") entry.WatchedAtUtc = outcome;
+        var vector = entry.ScoringFeatures.ToVector();
+        var example = Assert.Single(BuildFor(entry));
+        Assert.True(example.IsObserved);
+        Assert.False(example.IsPassiveSample);
+        Assert.Equal(outcome, example.GeneratedAtUtc);
+        Assert.InRange(example.ComputeEffectiveWeight(), 0, .04);
+        Assert.Equal(vector, example.Features.ToVector());
+        Assert.Equal(vector, entry.ScoringFeatures.ToVector());
+        Assert.Equal(outcome.AddDays(-1), entry.ShownAtUtc);
+        Assert.True(entry.ImpressionAtUtc > example.GeneratedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false, 90)]
+    [InlineData(false, 3650)]
+    [InlineData(true, 1)]
+    public void UnseenGenerationAndRecentVisibilityCannotEnterAnyOptimizerOrIndependentAcceptance(bool visible, int days)
+    {
+        var entry = ShownEntry();
+        entry.ShownAtUtc = DateTime.UtcNow.AddDays(-days);
+        entry.ImpressionAtUtc = visible ? entry.ShownAtUtc : null;
+        entry.ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true };
+        var vector = entry.ScoringFeatures.ToVector();
+        Assert.Empty(BuildFor(entry));
+        Assert.Equal(vector, entry.ScoringFeatures.ToVector());
+        Assert.Null(entry.DismissedAtUtc);
+    }
+
+    [Fact]
+    public void ManyIgnoredCardsHaveABoundedDistinctBudgetAndRealActionsRemainStrongerAndIndependent()
+    {
+        var user = Guid.NewGuid();
+        var first = new DiscoveryFeedbackResult { UserId = user };
+        foreach (var id in Enumerable.Range(1, 50))
+        {
+            var entry = ShownEntry();
+            entry.TmdbId = id;
+            entry.ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true };
+            first.Entries.Add(entry);
+        }
+
+        var action = ShownEntry();
+        action.TmdbId = 51;
+        action.DismissedAtUtc = DateTime.UtcNow;
+        first.Entries.Add(action);
+        var requested = ShownEntry();
+        requested.TmdbId = 52;
+        requested.RequestedAtUtc = DateTime.UtcNow;
+        first.Entries.Add(requested);
+        var duplicate = new DiscoveryFeedbackResult { UserId = user, Entries = first.Entries.Take(20).ToList() };
+        var built = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([first, duplicate], new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken);
+        var passive = built.Examples.Where(example => example.IsPassiveSample).ToArray();
+        Assert.Equal(8, passive.Length);
+        Assert.Equal(8, passive.Select(example => example.ObservationId).Distinct().Count());
+        Assert.InRange(passive.Sum(example => example.SampleWeight), .19, .21);
+        Assert.All(passive, example => { Assert.False(example.IsObserved); Assert.False(example.IsContrastSample); Assert.Equal(.45, example.Label); });
+        Assert.Equal(2, built.Examples.Count(example => example.IsObserved));
+        Assert.Equal(.6, Assert.Single(built.Examples, example => example.IsObserved && example.Label == 0).SampleWeight);
+        Assert.Equal(EngineConstants.DiscoveryRequestedLabel, Assert.Single(built.Examples, example => example.IsObserved && example.Label > .5).Label);
+        Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(passive, DateTime.UtcNow));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public void ActualPlaybackOrExplicitOpinionWithdrawsTheSameTypedTitlesPassiveComparison(bool complete, bool rating)
+    {
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 700, Played = complete,
+            PlaybackPositionTicks = complete || rating ? 0 : 30, RuntimeTicks = 100, UserRating = rating ? 8 : null
+        }] };
+        var feedback = WithEntry(user, ShownEntry());
+        var built = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, null, TestContext.Current.CancellationToken);
+        Assert.Empty(built.Examples);
+        feedback.Entries[0].MediaType = "tv";
+        Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, null, TestContext.Current.CancellationToken).Examples);
+        Assert.Null(feedback.Entries[0].DismissedAtUtc);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -153,6 +250,7 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
 
         var entry = ShownEntry();
         entry.KnownPeople = [sharedPerson, "Someone Else"];
+        entry.RequestedAtUtc = DateTime.UtcNow;
 
         var profileById = new Dictionary<Guid, UserWatchProfile> { [userId] = profile };
         var (examples, _) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
@@ -176,16 +274,23 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
     }
 
     [Fact]
-    public void BuildDiscoveryExamples_ShownOnlyEntry_UsesShownLabel()
+    public void BuildDiscoveryExamples_ShownOnlyEntryHasBoundedPassiveInfluenceNotAnObservedDislike()
     {
-        // An entry that was only shown (never requested/dismissed/watched) maps to the baseline shown
-        // label - the weakest signal.
+        // Confirmed visibility can weakly influence fitting after its window, but
+        // cannot supply observed negative labels or independent model admission.
         var entry = ShownEntry();
 
         var examples = BuildFor(entry);
 
         var example = Assert.Single(examples);
         Assert.Equal(EngineConstants.DiscoveryShownLabel, example.Label, 6);
+        Assert.InRange(example.Label, .4, .5);
+        Assert.Equal(EngineConstants.DiscoveryPassiveSampleWeight, example.SampleWeight);
+        Assert.True(example.IsPassiveSample);
+        Assert.False(example.IsObserved);
+        Assert.False(example.IsContrastSample);
+        Assert.True(example.Copy().IsPassiveSample);
+        Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(examples, DateTime.UtcNow));
     }
 
     [Fact]

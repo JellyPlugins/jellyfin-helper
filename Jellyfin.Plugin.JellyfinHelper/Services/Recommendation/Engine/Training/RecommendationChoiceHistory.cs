@@ -41,15 +41,17 @@ internal sealed class RecommendationChoiceHistory
         IReadOnlyList<TrainingExample> current,
         IReadOnlySet<Guid> activeUsers,
         DateTime referenceTime,
-        IReadOnlySet<(Guid User, Guid Title)>? engagedTitles = null)
+        IReadOnlySet<(Guid User, Guid Title)>? engagedTitles = null,
+        IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles = null,
+        Func<Guid, Guid, bool>? canUseLibraryItem = null)
     {
         var engaged = current.Where(row => row.IsObserved && row.HasStableObservationId).Select(Key).ToHashSet();
         engaged.UnionWith(engagedTitles ?? new HashSet<(Guid, Guid)>());
         // Withdraw comparisons from both fitting and admission. LastPlayedDate cannot
         // recover an alternative's first engagement, and a later watch must not revive
         // a prior unobserved comparison on the next publication or restart.
-        current = current.Where(row => !row.IsContrastSample || !engaged.Contains(Key(row)))
-            .Select(row => WithoutEngagedAlternatives(row, engaged, referenceTime)).ToArray();
+        current = current.Where(row => !row.IsContrastSample || (!engaged.Contains(Key(row)) && (eligibleTitles is null || eligibleTitles.Contains(Key(row)))))
+            .Select(row => WithoutEngagedAlternatives(row, engaged, referenceTime, eligibleTitles, canUseLibraryItem)).ToArray();
         var observed = current.Where(row => row.IsObserved && row.HasStableObservationId)
             .GroupBy(Key).ToDictionary(group => group.Key, group => group.OrderByDescending(row => row.GeneratedAtUtc).First());
         var result = current.ToList();
@@ -58,7 +60,7 @@ internal sealed class RecommendationChoiceHistory
         {
             foreach (var key in _entries.Keys.ToArray())
             {
-                _entries[key] = WithoutEngagedAlternatives(_entries[key], engaged, referenceTime);
+                _entries[key] = WithoutEngagedAlternatives(_entries[key], engaged, referenceTime, eligibleTitles, canUseLibraryItem);
             }
 
             foreach (var key in _entries.Keys.Where(key => !activeUsers.Contains(key.User) || !observed.TryGetValue(key, out var row)
@@ -105,14 +107,91 @@ internal sealed class RecommendationChoiceHistory
         }
     }
 
-    private static TrainingExample WithoutEngagedAlternatives(TrainingExample row, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime)
+    /// <summary>Checks only referenced replay identities against the current catalog, keeping memory bounded by the stored comparisons.</summary>
+    /// <param name="current">This run's current outcomes and choices.</param>
+    /// <param name="activeUsers">Users whose current profiles were available.</param>
+    /// <param name="allowedItems">Permitted physical library aliases.</param>
+    /// <param name="allowedTitles">Permitted typed provider identities.</param>
+    /// <param name="cancellationToken">Cooperative cancellation during catalog matching.</param>
+    /// <returns>Eligible referenced identities; missing/removed titles never become implicit engagement.</returns>
+    internal HashSet<(Guid User, Guid Title)> CaptureEligibleReplayTitles(
+        IReadOnlyList<TrainingExample> current,
+        IReadOnlySet<Guid> activeUsers,
+        IReadOnlySet<Guid> allowedItems,
+        IReadOnlySet<(int TmdbId, string MediaType)> allowedTitles,
+        CancellationToken cancellationToken)
+    {
+        var needed = new Dictionary<Guid, HashSet<Guid>>();
+        lock (_gate)
+        {
+            foreach (var row in current.Concat(_entries.Values).Where(row => activeUsers.Contains(row.UserId) && (row.Choice is not null || row.IsContrastSample)))
+            {
+                if (!needed.TryGetValue(row.UserId, out var titles))
+                {
+                    titles = [];
+                    needed[row.UserId] = titles;
+                }
+
+                titles.Add(row.ObservationId);
+                if (row.Choice?.Alternatives is { IsDefaultOrEmpty: false } alternatives)
+                {
+                    foreach (var alternative in alternatives.OfType<RecommendationChoiceAlternative>().Take(RecommendationChoiceEvidence.MaximumAlternatives))
+                    {
+                        titles.Add(alternative.ObservationId);
+                    }
+                }
+            }
+        }
+
+        var eligible = new HashSet<(Guid User, Guid Title)>();
+        foreach (var (user, titles) in needed)
+        {
+            foreach (var item in allowedItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (titles.Count == 0)
+                {
+                    break;
+                }
+
+                var key = TrainingExample.CreateLibraryObservationId(user, item);
+                if (titles.Remove(key))
+                {
+                    eligible.Add((user, key));
+                }
+            }
+
+            foreach (var title in allowedTitles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (titles.Count == 0)
+                {
+                    break;
+                }
+
+                var key = TrainingExample.CreateProviderObservationId(user, title.TmdbId, title.MediaType);
+                if (titles.Remove(key))
+                {
+                    eligible.Add((user, key));
+                }
+            }
+        }
+
+        return eligible;
+    }
+
+    private static TrainingExample WithoutEngagedAlternatives(TrainingExample row, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime, IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles, Func<Guid, Guid, bool>? canUseLibraryItem)
     {
         if (row.Choice is not { } choice || !choice.IsValid(row.ObservationId, referenceTime))
         {
             return row;
         }
 
-        var alternatives = choice.Alternatives.Where(alternative => !engaged.Contains((row.UserId, alternative.ObservationId))).ToImmutableArray();
+        var chosenEligible = (eligibleTitles is null || eligibleTitles.Contains(Key(row)))
+            && (canUseLibraryItem is null || (choice.ChosenItemId is { } chosen && canUseLibraryItem(row.UserId, chosen)));
+        var alternatives = choice.Alternatives.Where(alternative => chosenEligible && !engaged.Contains((row.UserId, alternative.ObservationId))
+            && (eligibleTitles is null || eligibleTitles.Contains((row.UserId, alternative.ObservationId)))
+            && (canUseLibraryItem is null || (alternative.LibraryItemId is { } item && canUseLibraryItem(row.UserId, item)))).ToImmutableArray();
         if (alternatives.Length == choice.Alternatives.Length)
         {
             return row;
@@ -166,6 +245,12 @@ internal sealed class RecommendationChoiceHistory
     {
         var opportunities = result.Where(row => Valid(row, referenceTime) && !row.IsPermanentHoldout)
             .GroupBy(row => (row.UserId, row.Choice!.RecommendedAtUtc)).ToArray();
+        var qualified = opportunities.SelectMany(opportunity => opportunity.SelectMany(row => row.Choice!.Alternatives)
+            .Select(alternative => (opportunity.Key.UserId, opportunity.Key.RecommendedAtUtc, alternative.ObservationId))).ToHashSet();
+        // Unshown frontier candidates and other users' recommendations do not establish
+        // an independent rejection. Only this user's actual chronological choice can
+        // authorize its bounded, explicitly unobserved relative comparisons for fitting.
+        result.RemoveAll(row => row.IsContrastSample && !qualified.Contains((row.UserId, row.GeneratedAtUtc, row.ObservationId)));
         foreach (var opportunity in opportunities)
         {
             var allowed = opportunity.SelectMany(row => row.Choice!.Alternatives).Select(alternative => alternative.ObservationId).ToHashSet();

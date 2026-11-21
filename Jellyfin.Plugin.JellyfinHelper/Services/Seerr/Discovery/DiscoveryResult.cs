@@ -11,6 +11,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryResult
 {
+    private double? _targetSeriesShare;
+
     /// <summary>
     ///     Gets or sets the Jellyfin user ID.
     /// </summary>
@@ -32,6 +34,14 @@ public sealed class DiscoveryResult
     ///     Gets or sets the UTC timestamp when these results were generated.
     /// </summary>
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Gets or sets the captured personal media-mix target; null preserves legacy or external source ranking.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TargetSeriesShare
+    {
+        get => _targetSeriesShare;
+        set => _targetSeriesShare = value is >= 0 and <= 1 && double.IsFinite(value.Value) ? value : null;
+    }
 
     /// <summary>Gets or sets the opaque identity of this API delivery, not of the cached recommendation pool.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -56,6 +66,7 @@ public sealed class DiscoveryResult
             UserId = UserId,
             UserName = UserName,
             GeneratedAt = GeneratedAt,
+            TargetSeriesShare = TargetSeriesShare,
             DeliveryId = DeliveryId,
             DeliveryExpiresAtUtc = DeliveryExpiresAtUtc,
             OwnPoolItemKeys = OwnPoolItemKeys?.ToArray(),

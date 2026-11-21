@@ -12,6 +12,33 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// <summary>Actual choice evidence survives publication and restarts without becoming fresh or leaking held-out outcomes.</summary>
 public sealed class RecommendationChoiceHistoryTests
 {
+    [Fact]
+    public void UnchosenPlaylistAlternativeKeepsItsRelativeSignalAcrossLaterRunsWithoutBecomingAPermanentBan()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var alternative = Assert.Single(original.Choice!.Alternatives);
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        foreach (var run in Enumerable.Range(1, 3))
+        {
+            var current = Observation(user, original.ObservationId, now.AddDays(run), false);
+            var merged = history.Merge([current], new HashSet<Guid> { user }, now.AddDays(run));
+            var retained = Assert.Single(merged, row => row.IsContrastSample && row.ObservationId == alternative.ObservationId);
+            Assert.False(retained.IsObserved);
+            Assert.Equal(original.GeneratedAtUtc, retained.GeneratedAtUtc);
+            Assert.Equal(alternative.Features.ToVector(), retained.Features.ToVector());
+            Assert.Equal(.25, retained.SampleWeight);
+            Assert.True(ScoringHelper.IsContentEligible(retained.Features));
+        }
+
+        var engaged = new HashSet<(Guid User, Guid Title)> { (user, alternative.ObservationId) };
+        var changed = history.Merge([Observation(user, original.ObservationId, now.AddDays(4), false)], new HashSet<Guid> { user }, now.AddDays(4), engaged);
+        Assert.DoesNotContain(changed, row => row.IsContrastSample && row.ObservationId == alternative.ObservationId);
+        Assert.True(ScoringHelper.IsContentEligible(alternative.Features));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,21 +53,22 @@ public sealed class RecommendationChoiceHistoryTests
         fs.SetupGet(value => value.File).Returns(file.Object);
         fs.SetupGet(value => value.Directory).Returns(new Mock<IDirectory>().Object);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var persisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         file.Setup(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>())).Callback(() =>
         {
             started.TrySetResult();
             release.Wait(TestContext.Current.CancellationToken);
         });
+        file.Setup(value => value.Move(It.IsAny<string>(), It.IsAny<string>(), true)).Callback(() => persisted.TrySetResult());
         var waitClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
         var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("bounded-choice-writer.json"))
         {
-            WaitTimeProvider = cancel ? waitClock : TimeProvider.System
+            WaitTimeProvider = waitClock
         };
         history.Merge([firstRow], new HashSet<Guid> { user }, now);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var first = history.SaveAsync(cancellation.Token);
-        var writer = (Task<bool>)typeof(RecommendationChoiceHistory).GetField("_pendingSave", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(history)!;
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
@@ -51,25 +79,26 @@ public sealed class RecommendationChoiceHistoryTests
             }
             else
             {
+                waitClock.ExpireDeadlines();
                 Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
 
             history.Merge([firstRow, secondRow], new HashSet<Guid> { user }, now);
             var pendingWait = history.SaveAsync(TestContext.Current.CancellationToken);
-            if (cancel) waitClock.ExpireDeadlines();
+            waitClock.ExpireDeadlines();
             Assert.False(await pendingWait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
             var joining = history.SaveAsync(TestContext.Current.CancellationToken);
             release.Set();
-            Assert.True(await writer);
             Assert.False(await joining);
+            await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.True(await history.SaveAsync(TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.Is<byte[]>(bytes => System.Text.Encoding.UTF8.GetString(bytes).Contains(secondRow.ObservationId.ToString(), StringComparison.OrdinalIgnoreCase))), Times.Once);
         }
         finally
         {
             release.Set();
-            await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
     }
 

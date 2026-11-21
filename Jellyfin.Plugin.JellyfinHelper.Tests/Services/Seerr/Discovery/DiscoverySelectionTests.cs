@@ -14,6 +14,35 @@ public sealed class DiscoverySelectionTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
 
+    [Theory]
+    [InlineData(.2, 1, 3)]
+    [InlineData(.5, 4, 6)]
+    [InlineData(.8, 7, 9)]
+    public void MediaBalanceChangesMembershipWithoutBanningTheMinorityOrChangingRecordedScores(double share, int minimumSeries, int maximumSeries)
+    {
+        var candidates = Enumerable.Range(1, 40).Select(id => Candidate(id, id <= 20 ? .81 : .8)).ToArray();
+        foreach (var item in candidates) item.MediaType = item.TmdbId <= 20 ? "tv" : "movie";
+        var original = JsonSerializer.Serialize(candidates);
+        var selected = DiscoverySelection.Select(candidates, 10, targetSeriesShare: share);
+        Assert.InRange(selected.Count(item => item.MediaType == "tv"), minimumSeries, maximumSeries);
+        Assert.Equal(10, selected.Count);
+        Assert.Equal(selected.OrderByDescending(item => item.Score), selected);
+        Assert.Equal(original, JsonSerializer.Serialize(candidates));
+        Assert.Equal(candidates.Take(10), DiscoverySelection.Select(candidates, 10, preserveSourceRank: true, targetSeriesShare: share));
+    }
+
+    [Fact]
+    public void AFormatTargetCannotMakeIrrelevantOrIncompatibleCandidatesEligible()
+    {
+        var candidates = Enumerable.Range(1, 20).Select(id => Candidate(id, .8)).ToList();
+        foreach (var item in candidates) item.MediaType = "movie";
+        candidates.Add(new DiscoveryRecommendation { TmdbId = 100, MediaType = "tv", Score = .01, IsPersonalized = true });
+        candidates.Add(new DiscoveryRecommendation { TmdbId = 101, MediaType = "tv", Score = 1, IsPersonalized = true, ScoringFeatures = new CandidateFeatures { ContentFamilyMismatch = .5 } });
+        var selected = DiscoverySelection.Select(candidates, 10, targetSeriesShare: .8);
+        Assert.Equal(10, selected.Count);
+        Assert.All(selected, item => Assert.Equal("movie", item.MediaType));
+    }
+
     [Fact]
     public void Select_DoesNotFillPersonalListsWithIrrelevantTitles()
     {

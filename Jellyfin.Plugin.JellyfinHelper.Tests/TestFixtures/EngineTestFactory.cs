@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -53,8 +55,10 @@ internal static class EngineTestFactory
     /// <param name="strategyOverride">Optional custom scoring strategy to use instead of the default heuristic strategy.</param>
     /// <param name="linkedChildren">Optional authoritative collection membership service.</param>
     /// <param name="titleMetadataCache">Optional shared cached provider metadata.</param>
+    /// <param name="virtualItems">Optional production virtual-library detector.</param>
+    /// <param name="choiceHistory">Optional observed-choice replay store.</param>
     /// <returns>A new <see cref="EngineHarness"/> containing the constructed engine instance and all its associated mock references.</returns>
-    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null, ILinkedChildrenService? linkedChildren = null, TitleMetadataCache? titleMetadataCache = null)
+    internal static EngineHarness Create(IScoringStrategy? strategyOverride = null, ILinkedChildrenService? linkedChildren = null, TitleMetadataCache? titleMetadataCache = null, VirtualItemDetector? virtualItems = null, RecommendationChoiceHistory? choiceHistory = null)
     {
         var watchHistory = new Mock<IWatchHistoryService>();
         watchHistory.Setup(w => w.GetAllUserWatchProfiles())
@@ -116,7 +120,11 @@ internal static class EngineTestFactory
             perUserRegistry.Object,
             feedbackStore.Object,
             linkedChildren,
-            titleMetadataCache);
+            titleMetadataCache)
+        {
+            VirtualItems = virtualItems,
+            ChoiceHistory = choiceHistory
+        };
 
         return new EngineHarness(
             engine,

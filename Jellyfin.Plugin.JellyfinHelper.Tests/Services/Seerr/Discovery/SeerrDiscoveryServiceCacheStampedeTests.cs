@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -69,7 +71,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     /// <summary>
     ///     Creates a SeerrDiscoveryService backed by handler. Every call to IHttpClientFactory.CreateClient returns a fresh HttpClient wrapping the same handler so that the request-count tracking in CountingHttpHandler accumulates across all calls.
     /// </summary>
-    private SeerrDiscoveryService BuildService(CountingHttpHandler handler)
+    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null)
     {
         var httpFactoryMock = new Mock<IHttpClientFactory>();
         httpFactoryMock
@@ -77,7 +79,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             .Returns(() => new HttpClient(handler, disposeHandler: false));
 
         var history = new Mock<IWatchHistoryService>();
-        var arr = new Mock<IArrIntegrationService>();
+        var arr = configuredArr ?? new Mock<IArrIntegrationService>();
         var libraryManager = TestMockFactory.CreateLibraryManager();
         libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
@@ -118,6 +120,111 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     }
 
     // Tests
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    [InlineData("disabled")]
+    public async Task RosterCacheIsBoundToTheConfiguredServerCredentialAndTransport(string change)
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson.Replace("alice", "new-account", StringComparison.Ordinal));
+        var service = BuildService(handler);
+        Assert.Equal("alice", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
+        var config = Plugin.Instance!.Configuration;
+        if (change == "url") config.SeerrUrl = "https://replacement.example.com";
+        if (change == "key") config.SeerrApiKey = "replacement-key";
+        if (change == "tls") config.SeerrSkipCertificateValidation = true;
+        if (change == "disabled") config.SeerrApiKey = string.Empty;
+        var next = await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+        if (change == "disabled") Assert.Empty(next);
+        else Assert.Equal("new-account", next[0].DisplayName);
+        Assert.Equal(change == "disabled" ? 1 : 2, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task LateOldRosterCannotServeANewSourceAndBackgroundWorkStaysSingleFlight()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new CountingHttpHandler { BeforeResponse = async (request, token) =>
+        {
+            if (request.RequestUri!.Host == "seerr.example.com") { entered.TrySetResult(); await release.Task.WaitAsync(token); }
+        } };
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson.Replace("alice", "new-account", StringComparison.Ordinal));
+        var service = BuildService(handler);
+        var old = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+        var current = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+        Assert.False(current.IsCompleted);
+        release.TrySetResult();
+        Assert.Empty(await old);
+        Assert.Equal("new-account", (await current)[0].DisplayName);
+        Assert.Equal("new-account", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
+        Assert.Equal(2, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    [InlineData("disabled")]
+    public async Task OwnershipCacheNeverCarriesTitlesAcrossArrConfigurationChanges(string change)
+    {
+        var config = Plugin.Instance!.Configuration;
+        config.RadarrInstances = [new ArrInstanceConfig { Url = "https://arr.example.com", ApiKey = "old-key" }];
+        var calls = 0;
+        var arr = new Mock<IArrIntegrationService>();
+        arr.Setup(value => value.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new List<ArrMovie> { new() { TmdbId = ++calls == 1 ? 100 : 200 } });
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, arr);
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, TestContext.Current.CancellationToken])!;
+        Assert.Contains((100, "movie"), await Read());
+        if (change == "url") config.RadarrInstances[0].Url = "https://replacement.example.com";
+        if (change == "key") config.RadarrInstances[0].ApiKey = "replacement-key";
+        if (change == "tls") config.RadarrInstances[0].SkipCertificateValidation = true;
+        if (change == "disabled") config.RadarrInstances = [];
+        var current = await Read();
+        Assert.DoesNotContain((100, "movie"), current);
+        if (change != "disabled") Assert.Contains((200, "movie"), current);
+        Assert.Equal(change == "disabled" ? 1 : 2, calls);
+    }
+
+    [Fact]
+    public async Task SourceChangesWaitForTheOwnedBuildWithoutCancellingOthersOrMixingMovieAndTvKeys()
+    {
+        var oldReply = new TaskCompletionSource<List<ArrMovie>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arr = new Mock<IArrIntegrationService>();
+        arr.Setup(value => value.GetRadarrMoviesAsync("https://old.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>())).Returns(oldReply.Task);
+        arr.Setup(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>())).ReturnsAsync([new ArrMovie { TmdbId = 200 }]);
+        arr.Setup(value => value.GetSonarrSeriesAsync(It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>())).ReturnsAsync([new ArrSeries { TmdbId = 100 }]);
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, arr);
+        var config = new PluginConfiguration { RadarrInstances = [new ArrInstanceConfig { Url = "https://old.example.com", ApiKey = "key" }], SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.com", ApiKey = "key" }] };
+        Task<HashSet<(int, string)>> Read(CancellationToken token) => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, token])!;
+        var old = Read(TestContext.Current.CancellationToken);
+        config.RadarrInstances[0].Url = "https://new.example.com";
+        var current = Read(TestContext.Current.CancellationToken);
+        using var cancel = new CancellationTokenSource();
+        var cancelled = Read(cancel.Token);
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelled);
+        Assert.False(current.IsCompleted);
+        arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Never);
+        oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
+        Assert.Contains((100, "movie"), await old);
+        var result = await current;
+        Assert.DoesNotContain((100, "movie"), result);
+        Assert.Contains((100, "tv"), result);
+        Assert.Contains((200, "movie"), result);
+        Assert.Equal(result.Order(), (await Read(TestContext.Current.CancellationToken)).Order());
+        arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
+    }
 
     [Fact]
     public async Task GetSeerrUsersAsync_WarmCache_SecondCallMakesNoHttpRequest()
@@ -275,6 +382,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 /// </summary>
 internal sealed class CountingHttpHandler : HttpMessageHandler
 {
+    internal Func<HttpRequestMessage, CancellationToken, Task>? BeforeResponse { get; init; }
     private readonly int _responseDelayMs;
     private readonly Lock _lock = new();
 
@@ -361,6 +469,7 @@ internal sealed class CountingHttpHandler : HttpMessageHandler
             }
         }
 
+        if (BeforeResponse is not null) await BeforeResponse(request, cancellationToken).ConfigureAwait(false);
         return new HttpResponseMessage(status)
         {
             Content = new StringContent(body)

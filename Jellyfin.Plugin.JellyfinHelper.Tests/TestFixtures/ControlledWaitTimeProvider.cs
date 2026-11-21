@@ -5,6 +5,7 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ControlledTimer> _timers = [];
+    private readonly SemaphoreSlim _created = new(0);
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -14,8 +15,12 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
             _timers.Add(timer);
         }
 
+        _created.Release();
         return timer;
     }
+
+    internal Task WaitForDeadlineAsync(CancellationToken cancellationToken)
+        => _created.WaitAsync(cancellationToken);
 
     internal void ExpireDeadlines()
     {

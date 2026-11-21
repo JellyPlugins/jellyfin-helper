@@ -909,7 +909,7 @@ public class TrainingFeatureComputerTests
         var preferences = new Dictionary<string, double> { ["Animation"] = 1, ["Action"] = 1 };
         var tags = new Dictionary<Guid, IReadOnlyList<string>> { [series] = ["JE Arr Tag: german"] };
         var excluded = ContentScoring.BuildSeriesExcludeSet(series, profile);
-        var prepared = ContentFitProfile.Create(profile, tags.GetValueOrDefault, excluded);
+        var prepared = ContentFitProfile.Create(profile, tags.GetValueOrDefault, excluded, metadataCutoff: episodes.Max(row => row.LastPlayedDate!.Value));
         TrainingExample Emit(ContentFitProfile? content)
         {
             var output = new List<TrainingExample>();
@@ -956,7 +956,17 @@ public class TrainingFeatureComputerTests
             preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
         var example = Assert.Single(output);
-        Assert.Equal(available ? 1 : null, example.Features.ContentFitSupport);
+        if (available)
+        {
+            // The supporting watch is two days old at prediction, independent of
+            // the later training clock or the provider's metadata refresh time.
+            Assert.Equal(Math.Pow(.5, 2.0 / EngineConstants.GenreDecayHalfLifeDays), example.Features.ContentFitSupport!.Value, precision: 12);
+            Assert.Equal(1, example.Features.ContentFitAffinity);
+        }
+        else
+        {
+            Assert.Null(example.Features.ContentFitSupport);
+        }
         Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
         Assert.Equal(prediction, example.GeneratedAtUtc);
         Assert.Equal(41, example.Features.ToVector().Length);

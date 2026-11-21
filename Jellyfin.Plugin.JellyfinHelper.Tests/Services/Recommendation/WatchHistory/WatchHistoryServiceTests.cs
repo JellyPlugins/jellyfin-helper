@@ -58,6 +58,36 @@ public sealed class WatchHistoryServiceTests
         Assert.Null(_service.GetUserWatchProfile(userId));
     }
 
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(9, false)]
+    [InlineData(2, true)]
+    [InlineData(9, true)]
+    public void AnExplicitRatingWithoutPlaybackIsAnObservedOpinionNotACompletedWatch(double rating, bool series)
+    {
+        var user = CreateTestUser("rated only");
+        BaseItem title = series ? new Series() : new Movie();
+        title.Id = Guid.NewGuid();
+        title.Path = "/media/rated";
+        title.Genres = ["Drama"];
+        title.Tags = ["courtroom", "justice"];
+        title.RunTimeTicks = 1000;
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, title)).Returns(new UserItemData { Key = "rating", Rating = rating });
+        var profile = _service.BuildProfile(user, series ? [] : [title], series ? [title] : [], collectionIds: []);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.True(row.HasMeaningfulInteraction());
+        Assert.False(row.HasPlaybackActivity());
+        Assert.Equal(0, profile.WatchedMovieCount);
+        Assert.Equal(0, profile.WatchedSeriesCount);
+        Assert.Equal(0, ContentScoring.ComputeCompletionRatio(row));
+        var example = Assert.Single(TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples);
+        Assert.True(example.IsObserved);
+        Assert.Equal(rating / 10, example.Label);
+        Assert.Null(row.LastPlayedDate);
+        Assert.Equal(rating > 5 ? 1 : 0, ContentFitProfile.Create(profile).ScoreTags(["courtroom", "justice"]), 12);
+        Assert.Equal(rating > 5, PreferenceBuilder.BuildGenrePreferenceVector(profile).ContainsKey("Drama"));
+    }
+
     [Fact]
     public void CachedProviderMetadataIsCapturedForMoviesAndParentSeriesWithoutModifyingLocalTags()
     {
@@ -989,15 +1019,15 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
-    public void BuildProfile_DuplicateItemId_DeduplicatesPeople()
+    public void BuildProfile_DuplicateItemId_DeduplicatesWatchEvidenceAndPeople()
     {
         // The same item id twice (overlapping movie/series queries) must not
-        // double-count people. Only the people profile deduplicates by id.
+        // create a second watch, genre vote, runtime contribution or people signal.
         var user = CreateTestUser("dupe");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var sharedId = Guid.NewGuid();
-        var movieA = new Movie { Id = sharedId, Name = "A", RunTimeTicks = 1 };
-        var movieB = new Movie { Id = sharedId, Name = "B", RunTimeTicks = 1 };
+        var movieA = new Movie { Id = sharedId, Name = "A", Path = "/media/movie.mkv", RunTimeTicks = 1, Genres = ["Drama"] };
+        var movieB = new Movie { Id = sharedId, Name = "B", Path = "/media/movie.mkv", RunTimeTicks = 1, Genres = ["Drama"] };
         _mockLibraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { movieA, movieB });
         _mockUserDataManager.Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
@@ -1011,6 +1041,10 @@ public sealed class WatchHistoryServiceTests
 
         Assert.NotNull(profile);
         Assert.Equal(1, profile!.PeopleProfile["Jane Smith"]);
+        Assert.Single(profile.WatchedItems);
+        Assert.Equal(1, profile.WatchedMovieCount);
+        Assert.Equal(1, profile.TotalWatchTimeTicks);
+        Assert.Equal(1, profile.GenreDistribution["Drama"]);
     }
 
     [Fact]
@@ -1471,24 +1505,22 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
-    public void GetAllUserWatchProfiles_GetUsersReturnsNull_ReturnsEmptyCollection()
+    public void GetAllUserWatchProfiles_UnavailableRosterCannotEraseCachedRecommendations()
     {
-        // A null user roster must degrade to an empty result instead of throwing.
+        // A confirmed empty roster and an unavailable roster must remain distinct.
         _mockUserManager.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
         _mockLibraryManager.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(new List<BaseItem>());
 
-        var result = _service.GetAllUserWatchProfiles();
-
-        Assert.NotNull(result);
-        Assert.Empty(result);
+        Assert.Throws<InvalidOperationException>(() => _service.GetAllUserWatchProfiles());
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Never);
     }
 
     [Fact]
-    public void GetAllUserIds_GetUsersReturnsNull_ReturnsEmpty()
+    public void GetAllUserIds_UnavailableRosterCannotPretendThatEveryAccountWasDeleted()
     {
-        // A null user roster must degrade to an empty result instead of throwing.
+        // An unavailable roster must not authorize pruning every per-user model.
         _mockUserManager.Setup(m => m.GetUsers()).Returns((IEnumerable<Jellyfin.Database.Implementations.Entities.User>)null!);
 
-        Assert.Empty(_service.GetAllUserIds());
+        Assert.Throws<InvalidOperationException>(() => _service.GetAllUserIds());
     }
 }

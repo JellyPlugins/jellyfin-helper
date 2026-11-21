@@ -89,6 +89,13 @@ public sealed class TitleMetadataCache
                 keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == "trakt" ? null : language), mediaType, tmdbId, tvdbId, imdbId));
             }
 
+            // An ambiguous current scope is not a miss that another provider may silently
+            // resolve. Exact TMDb anchors remain usable; expired alias claims do not compete.
+            if (tmdbId <= 0 && keys.Any(key => AliasIsAmbiguous(key, now)))
+            {
+                return null;
+            }
+
             var identity = new TitleMetadataSnapshot { TmdbId = tmdbId, TvdbId = tvdbId, ImdbId = imdbId, MediaType = mediaType };
             var snapshots = keys.GroupBy(key => key.Split(':')[0]).Select(group =>
             {
@@ -161,6 +168,10 @@ public sealed class TitleMetadataCache
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
 
+    private bool AliasIsAmbiguous(string key, DateTime now)
+        => _aliases.TryGetValue(key, out var matches) && ConflictingIdentities(matches.Select(primary => ReadUsableEntry(primary, now))
+            .OfType<TitleMetadataSnapshot>().Where(snapshot => IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal)));
+
     private static bool ConflictingIdentities(IEnumerable<TitleMetadataSnapshot> observations)
     {
         var snapshots = observations.ToArray();
@@ -187,6 +198,11 @@ public sealed class TitleMetadataCache
             // missing TVDB/IMDb links with their original field acquisition times;
             // copying them into the incoming observation would falsely renew them.
             var anchored = current.TmdbId > 0 || combined is null ? current : current with { TmdbId = combined.TmdbId };
+            if (combined is not null && !TitleProviderIdentity.Compatible(anchored, combined))
+            {
+                combined = null;
+            }
+
             combined = MergeFields(anchored, combined, now, preferNewerFields: true);
         }
 

@@ -11,6 +11,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class DiversityRerankerTests
 {
+    [Theory]
+    [InlineData(19, true)]
+    [InlineData(20, false)]
+    [InlineData(600, false)]
+    public void LowCurrentScoresCannotBeForcedByInterestLanesOrExplorationUnlessSuitableAlternativesAreInsufficient(int suitableCount, bool offered)
+    {
+        var unchosen = new Movie { Id = Guid.NewGuid(), Genres = ["Drama"] };
+        var candidates = Enumerable.Range(0, suitableCount).Select(index => ((BaseItem)new Movie { Id = Guid.NewGuid(), Genres = ["Drama"] }, .9, string.Empty, string.Empty, (string?)null)).ToList();
+        candidates.Add((unchosen, .01, "unchanged prediction", "unchanged key", null));
+        var supported = new HashSet<Guid> { unchosen.Id };
+        var lanes = new Dictionary<Guid, Guid> { [unchosen.Id] = Guid.NewGuid() };
+        foreach (var seed in Enumerable.Range(1, 3))
+        {
+            var selected = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed, supported, lanes, retainedInterests: supported);
+            Assert.Equal(20, selected.Count);
+            Assert.Equal(offered, selected.Any(item => item.Item.Id == unchosen.Id));
+        }
+
+        Assert.Equal(.01, candidates[^1].Item2);
+        candidates[^1] = (unchosen, .95, "new model assessment", "unchanged key", null);
+        Assert.Contains(DiversityReranker.ApplyDiversityReranking(candidates, 20, 4, supported, lanes), item => item.Item.Id == unchosen.Id);
+    }
+
     [Fact]
     public void ApplyDiversityReranking_EmptyList_ReturnsEmpty()
     {
@@ -49,6 +72,9 @@ public class DiversityRerankerTests
     public void RepeatedCandidatesForOneTasteCannotSuppressASmallerEvidencedInterest()
     {
         var candidates = BuildLinearlyDecreasingCandidates(200);
+        // The minority lane must remain represented when the current model still
+        // finds it suitable, not by forcing an almost-zero prediction into the list.
+        candidates[^1] = (candidates[^1].Item, EngineConstants.MinimumPersonalSelectionScore, candidates[^1].Reason, candidates[^1].ReasonKey, candidates[^1].RelatedItem);
         var firstInterest = Guid.NewGuid();
         var secondInterest = Guid.NewGuid();
         var lanes = candidates.ToDictionary(candidate => candidate.Item.Id, _ => firstInterest);
@@ -534,8 +560,10 @@ public class DiversityRerankerTests
         Assert.Empty(secondGenres.Intersect(firstGenres));
     }
 
-    [Fact]
-    public void FindBestMmrIndex_EmptySelection_DoesNotAllocatePerCandidate()
+    [Theory]
+    [InlineData(null)]
+    [InlineData(.2)]
+    public void FindBestMmrIndex_EmptySelection_DoesNotAllocatePerCandidate(double? targetSeriesShare)
     {
         var method = typeof(DiversityReranker).GetMethod(
             "FindBestMmrIndex", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
@@ -544,8 +572,8 @@ public class DiversityRerankerTests
         Assert.NotNull(cacheType);
         var cache = Activator.CreateInstance(cacheType!, nonPublic: true);
         var selected = BuildLinearlyDecreasingCandidates(0);
-        var small = new object?[] { BuildLinearlyDecreasingCandidates(20), selected, cache };
-        var large = new object?[] { BuildLinearlyDecreasingCandidates(500), selected, cache };
+        var small = new object?[] { BuildLinearlyDecreasingCandidates(20), selected, cache, targetSeriesShare };
+        var large = new object?[] { BuildLinearlyDecreasingCandidates(500), selected, cache, targetSeriesShare };
 
         // Warm reflection/JIT outside the measurement; only candidate-count-dependent allocation matters.
         for (var i = 0; i < 20; i++)

@@ -118,7 +118,7 @@ internal static class PreferenceBuilder
     {
         foreach (var item in profile.WatchedItems)
         {
-            // Eligibility must include PlayCount > 0 so the SAME rows contributing to watchedEpisodesPerSeries also contribute their genres here.
+            // Interaction presence is distinct from completion and repeat-watch strength.
             if (!IsEligibleForPreferenceWeighting(item))
             {
                 continue;
@@ -1018,7 +1018,8 @@ internal static class PreferenceBuilder
     /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
     internal static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
     {
-        return row.IsFavorite || row.Played || row.PlayCount > 0;
+        return row.IsFavorite || row.Played || row.PlayCount > 0 || (row.PlaybackPositionTicks > 0 && row.RuntimeTicks > 0)
+            || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
     }
 
     /// <summary>
@@ -1055,15 +1056,16 @@ internal static class PreferenceBuilder
         }
 
         var watched = new Dictionary<Guid, int>();
+        var counted = new HashSet<Guid>();
         foreach (var row in profile.WatchedItems)
         {
-            if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
+            if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row) || row.ItemId == Guid.Empty)
             {
                 continue;
             }
 
             // Skip rows for series no longer in the library (phantom data). The skip must happen BEFORE bumping the counter; ComputeProgressionMultiplier's Math.Min(1.0, rawRatio) already clamps overshoot for still-existing series, so no per-row cap is needed here.
-            if (!seriesEpisodeCounts.ContainsKey(sid))
+            if (!seriesEpisodeCounts.ContainsKey(sid) || !counted.Add(row.ItemId))
             {
                 continue;
             }

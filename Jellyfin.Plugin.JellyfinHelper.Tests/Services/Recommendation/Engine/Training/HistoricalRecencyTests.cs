@@ -18,7 +18,7 @@ public sealed class HistoricalRecencyTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void LegacyRecommendationAndCrossUserNegative_UsePredictionTimeNotLaterWatchOrTrainingTime(bool hasPremiere)
+    public void LegacyRecommendation_UsesPredictionTimeWithoutInventingAnOtherUsersNegative(bool hasPremiere)
     {
         var owner = Guid.NewGuid();
         var other = Guid.NewGuid();
@@ -30,15 +30,12 @@ public sealed class HistoricalRecencyTests
 
         var built = TrainingDataBuilder.BuildExamples([result], [ownerProfile, otherProfile], TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, built.RandomNegativeCount);
-        Assert.Equal(2, built.Examples.Count);
+        Assert.Equal(0, built.RandomNegativeCount);
+        Assert.Single(built.Examples);
         var positive = Assert.Single(built.Examples, example => example.UserId == owner);
-        var negative = Assert.Single(built.Examples, example => example.UserId == other);
         Assert.True(positive.IsObserved);
-        Assert.True(negative.IsContrastSample);
+        Assert.DoesNotContain(built.Examples, example => example.UserId == other);
         AssertRecency(positive, hasPremiere ? Release : Added, Added, Prediction);
-        AssertRecency(negative, hasPremiere ? Release : Added, Added, Prediction);
-        Assert.Equal(positive.Features.RecencyScore, negative.Features.RecencyScore);
     }
 
     [Theory]
@@ -85,8 +82,10 @@ public sealed class HistoricalRecencyTests
         var item = Guid.NewGuid();
         var stored = new CandidateFeatures { RecencyScore = 0.123, LibraryAddedRecency = 0.456, HasGenreEvidence = false };
         var recommendation = new RecommendedItem { ItemId = item, ItemType = "Movie", PremiereDate = Release, DateCreated = Added, ScoringFeatures = stored };
-        var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = contrast ? [new RecommendedItem { ItemId = Guid.NewGuid(), ItemType = "Movie", ScoringFeatures = new CandidateFeatures() }] : [recommendation], TrainingContrasts = contrast ? [recommendation] : [] };
-        var profile = new UserWatchProfile { UserId = user, WatchedItems = contrast ? [] : [new WatchedItemInfo { ItemId = item, ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(2) }] };
+        Guid chosen;
+        do { chosen = Guid.NewGuid(); } while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(user, chosen), HasStableObservationId = true }.IsPermanentHoldout);
+        var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = contrast ? [new RecommendedItem { ItemId = chosen, ItemType = "Movie", DateCreated = Added, ScoringFeatures = new CandidateFeatures() }, recommendation] : [recommendation], TrainingContrasts = [] };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = contrast ? chosen : item, ItemType = "Movie", Played = true, DateCreated = Added, LastPlayedDate = Prediction.AddDays(2) }] };
 
         var example = Assert.Single(TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples,
             candidate => candidate.ObservationId == TrainingExample.CreateLibraryObservationId(user, item));
@@ -95,6 +94,7 @@ public sealed class HistoricalRecencyTests
         Assert.False(example.Features.HasGenreEvidence);
         Assert.NotSame(stored, example.Features);
         Assert.Equal(Prediction, example.GeneratedAtUtc);
+        Assert.Equal(contrast, example.IsContrastSample);
     }
 
     [Theory]

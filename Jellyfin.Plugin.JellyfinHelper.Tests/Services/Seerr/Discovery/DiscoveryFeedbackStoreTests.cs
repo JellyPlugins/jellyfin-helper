@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public class DiscoveryFeedbackStoreTests : IDisposable
 {
     private readonly string _tempDir;
+    private readonly List<DiscoveryFeedbackStore> _ownedStores = [];
 
     public DiscoveryFeedbackStoreTests()
     {
@@ -25,6 +26,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var store in _ownedStores) store.Dispose();
         try
         {
             if (Directory.Exists(_tempDir))
@@ -50,14 +52,240 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     {
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
-        return new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+        _ownedStores.Add(store);
+        return store;
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(1)]
+    public void ExplicitDiscoveryDismissalSurvivesTrainingAgeEvictionCountPressureAndReload(int daysOld)
+    {
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-daysOld);
+        File.WriteAllText(Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json"), System.Text.Json.JsonSerializer.Serialize(new[] { new DiscoveryFeedbackResult
+        {
+            UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "tv", ShownAtUtc = at, DismissedAtUtc = at }]
+        } }));
+        var store = CreateStore();
+        Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+        store.RecordGenerated(user, "viewer", Enumerable.Range(1000, 250).Select(id => new DiscoveryRecommendation { TmdbId = id, MediaType = "movie" }).ToArray());
+        var retained = store.LoadForUser(user)!;
+        Assert.Equal(200, retained.Entries.Count);
+        Assert.DoesNotContain(retained.Entries, entry => entry.TmdbId == 700);
+        Assert.Equal(new DiscoveryDismissedItem(700, "tv"), Assert.Single(retained.DismissedItems!));
+        var reloaded = CreateStore();
+        Assert.Contains((700, "tv"), reloaded.GetDismissedItems(user));
+        Assert.DoesNotContain((700, "movie"), reloaded.GetDismissedItems(user));
+        Assert.Empty(reloaded.GetDismissedItems(Guid.NewGuid()));
+        Assert.Empty(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([retained], new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken).Examples);
+        var detached = Assert.IsType<DiscoveryDismissedItem[]>(retained.DismissedItems);
+        detached[0] = new DiscoveryDismissedItem(999, "movie");
+        Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+        Assert.DoesNotContain((999, "movie"), store.GetDismissedItems(user));
+    }
+
+    [Fact]
+    public void AUserWithOnlyPermanentDismissalIdentityIsNotRemovedAsAnEmptyTrainingHistory()
+    {
+        var user = Guid.NewGuid();
+        var at = DateTime.UtcNow.AddDays(-400);
+        File.WriteAllText(Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json"), System.Text.Json.JsonSerializer.Serialize(new[] { new DiscoveryFeedbackResult
+        {
+            UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "movie", ShownAtUtc = at, DismissedAtUtc = at }]
+        } }));
+        var store = CreateStore();
+        store.RecordGenerated(Guid.NewGuid(), "other viewer", [new DiscoveryRecommendation { TmdbId = 900 }]);
+        var retained = store.LoadForUser(user)!;
+        Assert.Empty(retained.Entries);
+        Assert.Equal(new DiscoveryDismissedItem(700, "movie"), Assert.Single(retained.DismissedItems!));
+        Assert.Contains((700, "movie"), CreateStore().GetDismissedItems(user));
+    }
+
+    [Fact]
+    public async Task AConfirmedDismissalIsExcludedDuringPersistenceWithoutPublishingIncompleteTrainingFeedback()
+    {
+        var acquired = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-1) };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var stall = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = acquired,
+            WriteFeedback = (path, contents) =>
+            {
+                if (stall) { entered.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); }
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var predicted = acquired.Now.AddMinutes(-1);
+        var card = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        store.RecordGenerated(user, "viewer", [card], predicted);
+        stall = true;
+        var dismissal = Task.Run(() => store.RecordDismissed(user, card, predicted), TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+            Assert.DoesNotContain((700, "movie"), store.GetDismissedItems(user));
+            Assert.Empty(store.GetDismissedItems(Guid.NewGuid()));
+            Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries).DismissedAtUtc);
+            Assert.Throws<IOException>(() => store.LoadAll());
+            release.Set();
+            await dismissal.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+            Assert.Equal(acquired.Now, saved.DismissedAtUtc);
+            Assert.Equal(predicted, saved.ShownAtUtc);
+            Assert.Equal(.7, saved.ScoringFeatures!.GenreSimilarity);
+            Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+        }
+        finally { release.Set(); await dismissal; }
+    }
+
+    [Fact]
+    public async Task AFailedConfirmedDismissalStaysExcludedThroughRetryAndRestartWithoutANewUserAction()
+    {
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var acquired = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-1) };
+        var fail = false;
+        var persisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            RetryTimeProvider = clock, ReceiptTimeProvider = acquired,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("temporarily unwritable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                if (contents.Contains("dismissedAtUtc", StringComparison.OrdinalIgnoreCase)) persisted.TrySetResult();
+            }
+        };
+        var user = Guid.NewGuid();
+        var predicted = acquired.Now.AddMinutes(-1);
+        var card = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        store.RecordGenerated(user, "viewer", [card], predicted);
+        fail = true;
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, card, predicted));
+        await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken);
+        Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+        Assert.DoesNotContain((700, "movie"), store.GetDismissedItems(user));
+        Assert.Empty(store.GetDismissedItems(Guid.NewGuid()));
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        clock.ExpireDeadlines();
+        await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(acquired.Now, saved.DismissedAtUtc);
+        Assert.Equal(predicted, saved.ShownAtUtc);
+        Assert.Equal(.7, saved.ScoringFeatures!.GenreSimilarity);
+        var restarted = CreateStore();
+        Assert.Contains((700, "tv"), restarted.GetDismissedItems(user));
+        Assert.DoesNotContain((700, "movie"), restarted.GetDismissedItems(user));
+        Assert.Empty(restarted.GetDismissedItems(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task ConfirmedFailedRequestRetriesAfterDiskRecoveryWithoutANewSubmission()
+    {
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var receipt = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-1) };
+        var fail = true;
+        var persisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            RetryTimeProvider = clock, ReceiptTimeProvider = receipt,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("temporarily unwritable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+                persisted.TrySetResult();
+            }
+        };
+        var user = Guid.NewGuid();
+        Assert.False(await store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken));
+        await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        clock.ExpireDeadlines();
+        await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Equal(receipt.Now, Assert.Single(Assert.Single(store.LoadAll()).Entries).RequestedAtUtc);
+        Assert.Empty(store.GetPendingRequestedItems(user));
+    }
+
+    [Fact]
+    public async Task PendingImpressionPersistenceWithholdsTrainingButNotThePublishedServingSnapshot()
+    {
+        var acquired = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-1) };
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var stall = false;
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = acquired,
+            WriteFeedback = (path, contents) =>
+            {
+                if (stall) { started.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); }
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var card = new DiscoveryRecommendation { TmdbId = 600, ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        store.RecordGenerated(user, "viewer", [card]);
+        stall = true;
+        var impression = Task.Run(() => store.RecordImpressions(user, [card], acquired.Now.AddMinutes(-1)), TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries).ImpressionAtUtc);
+            Assert.Throws<IOException>(() => store.LoadAll());
+            release.Set();
+            await impression.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+            Assert.Equal(acquired.Now, entry.ImpressionAtUtc);
+            Assert.Equal(.7, entry.ScoringFeatures!.GenreSimilarity);
+        }
+        finally { release.Set(); await impression; }
+    }
+
+    [Fact]
+    public async Task OversizeRecoveryNeverPublishesUncompactedPredictionInputsWhileTheWriteIsStalled()
+    {
+        var user = Guid.NewGuid();
+        File.WriteAllText(Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json"), System.Text.Json.JsonSerializer.Serialize(new[] { new DiscoveryFeedbackResult
+        {
+            UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = 600, ShownAtUtc = DateTime.UtcNow.AddYears(-2), ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } }]
+        } }));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var selecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir, sizeLimit: 100)
+        {
+            BeforeTrainingSnapshotSelection = () => selecting.TrySetResult(),
+            WriteFeedback = (path, contents) => { entered.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var load = Task.Run(() => store.LoadForUser(user), TestContext.Current.CancellationToken);
+        Task<IReadOnlyList<DiscoveryFeedbackResult>>? training = null;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            training = Task.Run(() => store.LoadAll(), TestContext.Current.CancellationToken);
+            await selecting.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(training.IsCompleted);
+            release.Set();
+            Assert.Null(await load);
+            Assert.Empty(await training);
+        }
+        finally { release.Set(); await load; if (training is not null) await training; }
     }
 
     [Fact]
     public async Task FullRetryQueueRestartsWithoutAdmittingOrAcknowledgingTheRejectedReceiptAndRecoversOnlyThatIdentity()
     {
         var fail = true;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
             WriteFeedback = (path, contents) =>
@@ -117,7 +345,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     public async Task WatchedReceiptWaitsForItsFailedRequestAndReplaysWithTheDurableRequestWithoutInventingMissingKeys()
     {
         var fail = true;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WriteFeedback = (path, contents) =>
             {
@@ -146,7 +374,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     {
         var fail = true;
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             ReceiptTimeProvider = clock,
             WriteFeedback = (path, contents) =>
@@ -156,7 +384,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             }
         };
         var user = Guid.NewGuid();
-        store.RecordDismissed(user, 600, "movie");
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, 600, "movie"));
         clock.Now = clock.Now.AddMinutes(1);
         fail = false;
         store.RecordDismissed(user, 600, "movie");
@@ -173,7 +401,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var pause = false;
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             BeforeTrainingSnapshotSelection = () =>
             {
@@ -183,11 +411,12 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             },
             WriteFeedback = (path, contents) =>
             {
-                if (contents.Contains("600", StringComparison.Ordinal)) throw new IOException("request A unavailable");
+                var data = System.Text.Json.JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(contents, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options)!;
+                if (data.SelectMany(user => user.Entries).Any(entry => entry.TmdbId == 600)) throw new IOException("request A unavailable");
                 Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
             }
         };
-        var user = Guid.NewGuid();
+        var user = Guid.Parse("60000000-0000-0000-0000-000000000001");
         store.RecordGenerated(user, "user", [new DiscoveryRecommendation { TmdbId = 1 }]);
         pause = true;
         var read = Task.Run(() => store.LoadAll(), CancellationToken.None);
@@ -212,12 +441,90 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         => (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
 
     [Fact]
+    public async Task OlderCardRequestRetryKeepsTheNewerRequestTimeAndItsAlreadyConfirmedPrediction()
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = clock,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, Title = "old", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .1 } }, clock.Now.AddDays(-2));
+        clock.Now = clock.Now.AddMinutes(1);
+        var requested = clock.Now;
+        var predictionAt = clock.Now.AddDays(-1);
+        fail = false;
+        store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, Title = "new", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, predictionAt);
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 701 }], clock.Now, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        clock.Now = clock.Now.AddMinutes(1);
+        Assert.True(await store.RecordRequestedAsync(user, 700, "movie", TestContext.Current.CancellationToken));
+        var saved = Assert.Single(CreateStore().LoadForUser(user)!.Entries, entry => entry.TmdbId == 700);
+        Assert.Equal(requested, saved.RequestedAtUtc);
+        Assert.Equal(predictionAt, saved.ShownAtUtc);
+        Assert.Equal("new", saved.Title);
+        Assert.Equal(.9, saved.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(64)]
+    public async Task SynchronousRequestStartsTheWorkerForPromotedRetainedWatchesEvenWhenAllSlotsBecomeRunnable(int watchCount)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var first = store.RecordRequestedAsync(user, 1, "movie", TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var queued = Enumerable.Range(2, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)).ToArray();
+            Assert.False(await store.RecordRequestedAsync(user, 9000, "movie", TestContext.Current.CancellationToken));
+            release.Set();
+            Assert.All(await Task.WhenAll(queued.Append(first)).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.True(saved));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            for (var index = 0; index < watchCount; index++)
+            {
+                Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (9000, "movie") }, TestContext.Current.CancellationToken));
+                await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            }
+
+            Assert.Throws<IOException>(() => store.LoadAll());
+            store.RecordRequested(user, 9000, "movie");
+            Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.True(Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 9000).WasWatched);
+            Assert.Empty(store.GetPendingRequestedItems(user));
+        }
+        finally
+        {
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task AnOlderDurableDismissalCannotRecoverANewerRejectedDismissal()
     {
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
         var original = clock.Now;
         var fail = true;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             ReceiptTimeProvider = clock,
             WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
@@ -228,7 +535,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             }
         };
         var user = Guid.NewGuid();
-        store.RecordDismissed(user, 1, "movie");
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, 1, "movie"));
         var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
@@ -248,7 +555,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             Assert.All(await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.False(saved));
             await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             clock.Now = original.AddMinutes(1);
-            store.RecordDismissed(user, 1, "movie");
+            Assert.Throws<IOException>(() => store.RecordDismissed(user, 1, "movie"));
             fail = false;
             Assert.False(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 999 }], clock.Now, TestContext.Current.CancellationToken));
             Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
@@ -274,7 +581,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
         var original = clock.Now;
         var fail = false;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             ReceiptTimeProvider = clock,
             WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
@@ -334,7 +641,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WaitTimeProvider = clock,
             WriteFeedback = (path, contents) =>
@@ -369,7 +676,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
             WriteFeedback = (path, contents) =>
@@ -414,6 +721,71 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         public override DateTimeOffset GetUtcNow() => new(Now);
     }
 
+    [Theory]
+    [InlineData("request")]
+    [InlineData("dismissal")]
+    [InlineData("impression")]
+    public async Task DelayedFirstReceiptRestoresOriginalPredictionInputsWithoutRenewingOutcomeOrVisibility(string action)
+    {
+        var retryClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddDays(-10) };
+        var acquired = clock.Now;
+        var predicted = acquired.AddMinutes(-2);
+        var laterPrediction = acquired.AddMinutes(-1);
+        var fail = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retryClock,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("test first receipt not yet durable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var first = new DiscoveryRecommendation
+        {
+            TmdbId = 700, MediaType = "tv", Score = .7, ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 },
+            TitleMetadata = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot { TmdbId = 700, MediaType = "tv", FetchedAtUtc = predicted, Overview = "first captured metadata" }
+        };
+        var later = first.Clone();
+        later.Score = .1;
+        later.ScoringFeatures!.GenreSimilarity = .1;
+        later.TitleMetadata = first.TitleMetadata with { FetchedAtUtc = laterPrediction, Overview = "later captured metadata" };
+        store.RecordGenerated(user, "test viewer", [first], predicted);
+        fail = true;
+        if (action == "request") store.RecordRequested(user, first, predicted);
+        else if (action == "dismissal") Assert.Throws<IOException>(() => store.RecordDismissed(user, first, predicted));
+        else Assert.Throws<IOException>(() => store.RecordImpressions(user, [first], predicted));
+        Assert.Throws<IOException>(() => store.LoadAll());
+
+        fail = false;
+        clock.Now = acquired.AddDays(1);
+        store.RecordImpressions(user, [later], laterPrediction);
+        Assert.Equal(.1, Assert.Single(store.LoadForUser(user)!.Entries).ScoringFeatures!.GenreSimilarity);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        Assert.True(await store.RecordGeneratedAsync(user, "test viewer", [new DiscoveryRecommendation { TmdbId = 999, MediaType = "movie" }], clock.Now, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var result = CreateStore().LoadForUser(user)!;
+        var saved = Assert.Single(result.Entries, entry => entry.TmdbId == 700 && entry.MediaType == "tv");
+        Assert.Equal(.7, saved.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(.7, saved.Score);
+        Assert.Equal(predicted, saved.ShownAtUtc);
+        Assert.Equal(acquired, saved.PredictionEvidenceAtUtc);
+        Assert.Equal(action == "impression" ? acquired : clock.Now, saved.ImpressionAtUtc);
+        Assert.Equal(action == "request" ? acquired : null, saved.RequestedAtUtc);
+        Assert.Equal(action == "dismissal" ? acquired : null, saved.DismissedAtUtc);
+        Assert.Equal("first captured metadata", saved.TitleMetadata!.Overview);
+        Assert.Equal(predicted, saved.TitleMetadata.FetchedAtUtc);
+        var training = Assert.Single(DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([result], new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken).Examples);
+        Assert.Equal(acquired, training.GeneratedAtUtc);
+        Assert.Equal(.7, training.Features.GenreSimilarity);
+        Assert.Equal(action != "impression", training.IsObserved);
+        Assert.Equal(action == "impression", training.IsPassiveSample);
+        Assert.Equal(.7, first.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(.1, later.ScoringFeatures.GenreSimilarity);
+    }
+
     [Fact]
     public async Task FailedCardActionRetryPreservesOriginalPredictionEvidenceAcquisitionAndSavedInputs()
     {
@@ -421,7 +793,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
         var acquired = clock.Now;
         var generated = acquired.AddDays(-1);
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             ReceiptTimeProvider = clock,
             WriteFeedback = (path, contents) =>
@@ -460,7 +832,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public async Task ConfirmedFeedbackBackpressureBoundsTheQueueAndWithholdsIncompleteTrainingEvidence()
     {
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider()
         };
@@ -511,8 +883,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         using var release = new ManualResetEventSlim();
         var stall = false;
         var writes = 0;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        var receiptClock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-1) };
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
+            ReceiptTimeProvider = receiptClock,
             WaitTimeProvider = cancel ? new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider() : TimeProvider.System,
             WriteFeedback = (path, contents) =>
             {
@@ -535,9 +909,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
-            var requestedAt = DateTime.UtcNow;
+            var requestedAt = receiptClock.Now;
             var request = store.RecordRequestedAsync(user, 600, "tv", cancellation.Token);
-            var capturedBy = DateTime.UtcNow;
             var watched = store.MarkWatchedAsync(user, new HashSet<(int, string)> { (1, "movie") }, cancellation.Token);
             if (cancel)
             {
@@ -559,7 +932,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             var entries = Assert.Single(store.LoadAll()).Entries;
             Assert.True(Assert.Single(entries, entry => entry.TmdbId == 1).WasWatched);
             var requested = Assert.Single(entries, entry => entry.TmdbId == 600);
-            Assert.InRange(requested.RequestedAtUtc!.Value, requestedAt, capturedBy);
+            Assert.Equal(requestedAt, requested.RequestedAtUtc);
             Assert.Equal("tv", requested.MediaType);
             Assert.Null(requested.ScoringFeatures);
         }
@@ -576,7 +949,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     {
         var user = Guid.NewGuid();
         var fail = true;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WriteFeedback = (path, contents) =>
             {
@@ -610,7 +983,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         using var release = new ManualResetEventSlim();
         var stall = false;
         var writes = 0;
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WaitTimeProvider = cancel ? new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider() : TimeProvider.System,
             WriteFeedback = (path, contents) =>
@@ -677,7 +1050,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     public async Task AsyncGeneratedFeedbackValidatesInputAndDoesNotClaimFailedPersistence()
     {
         var user = Guid.NewGuid();
-        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        using var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
         {
             WriteFeedback = (_, _) => throw new IOException("read only")
         };
@@ -1499,7 +1872,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
         File.WriteAllText(filePath, "{ not valid json ]]]");
 
-        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+        using var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
 
         var result = store.LoadForUser(Guid.NewGuid());
 
@@ -1653,7 +2026,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
                 It.IsAny<ILogger?>()))
             .Callback(() => warningCount++);
 
-        var store = new DiscoveryFeedbackStore(
+        using var store = new DiscoveryFeedbackStore(
             pluginLog.Object,
             new Mock<ILogger<DiscoveryFeedbackStore>>().Object,
             _tempDir);
@@ -1950,7 +2323,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
         logger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(true);
-        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
+        using var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
         var userId = Guid.NewGuid();
 
         store.RecordDismissed(userId, 800, "podcast");
@@ -1979,7 +2352,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
         var nestedDir = Path.Join(_tempDir, "not", "yet", "created");
-        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, nestedDir);
+        using var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, nestedDir);
         var userId = Guid.NewGuid();
 
         store.RecordShown(userId, "User", new List<DiscoveryRecommendation>
@@ -2003,7 +2376,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
-        var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, dataDir);
+        using var store = new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, dataDir);
         var userId = Guid.NewGuid();
 
         var ex = Record.Exception(() => store.RecordShown(userId, "User", new List<DiscoveryRecommendation>

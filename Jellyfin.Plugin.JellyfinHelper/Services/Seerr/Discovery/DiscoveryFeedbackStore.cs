@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// <summary>
 ///     File-based persistence for discovery feedback data. Stores per-user interaction history (shown, dismissed, requested, watched) in a JSON file for consumption by the training data builder.
 /// </summary>
-public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
+public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposable
 {
     private const string LogSource = "DiscoveryFeedback";
     private const string FileName = "jellyfin-helper-discovery-feedback.json";
@@ -49,6 +49,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private readonly Queue<PendingWrite> _retryWrites = new();
     private readonly Dictionary<ReceiptKey, DateTime> _rejectedReceipts = new();
     private readonly Dictionary<TitleKey, int> _pendingRequests = new();
+    private readonly Dictionary<TitleKey, int> _pendingDismissals = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
     private readonly long _sizeLimit = MaxFileSizeBytes;
@@ -57,6 +58,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private bool _writerRunning;
     private int _pendingObservedWrites;
     private bool _untrackedRejection;
+    private ITimer? _retryTimer;
+    private int _retryBackoff;
+    private bool _disposed;
 
     /// <summary>
     ///     In-memory cache of feedback data. Avoids repeated disk reads.
@@ -107,6 +111,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         Request,
         Dismissal,
         Watched,
+        Impression,
     }
 
     /// <summary>Gets the atomic filesystem writer; tests can stall precisely the actual I/O boundary.</summary>
@@ -117,6 +122,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     /// <summary>Gets the receipt acquisition clock; retries retain the original acquisition rather than execution time.</summary>
     internal TimeProvider ReceiptTimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>Gets the background retry clock; one timer uses capped exponential backoff independently of caller waits.</summary>
+    internal TimeProvider RetryTimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Gets the test synchronization hook immediately before atomic training-view selection.</summary>
     internal Action? BeforeTrainingSnapshotSelection { get; init; }
@@ -151,6 +159,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_writerGate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             var activeWriter = _writerRunning && _pendingGeneration is { IsCompleted: false };
             if (!observed && activeWriter)
             {
@@ -179,14 +188,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (observed)
             {
                 Interlocked.Increment(ref _pendingObservedWrites);
-                AddPendingRequests(receipts);
+                AddPendingActions(receipts);
             }
 
-            if (!activeWriter)
-            {
-                _writerRunning = true;
-                _pendingGeneration = Task.Run(ProcessWrites, CancellationToken.None);
-            }
+            StartWriterIfNeeded();
         }
 
         try
@@ -201,7 +206,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     private void RestartRetainedWrites(bool activeWriter)
     {
-        if (activeWriter || _retryWrites.Count == 0)
+        if (activeWriter)
         {
             return;
         }
@@ -211,8 +216,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             _writes.Enqueue(_retryWrites.Dequeue());
         }
 
-        _writerRunning = true;
-        _pendingGeneration = Task.Run(ProcessWrites, CancellationToken.None);
+        StartWriterIfNeeded();
+    }
+
+    private void StartWriterIfNeeded()
+    {
+        if (_writes.Count > 0 && !(_writerRunning && _pendingGeneration is { IsCompleted: false }))
+        {
+            _writerRunning = true;
+            _pendingGeneration = Task.Run(ProcessWrites, CancellationToken.None);
+        }
     }
 
     private void TrackRejectedReceipts(IEnumerable<Receipt> receipts)
@@ -227,17 +240,31 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 continue;
             }
 
-            _rejectedReceipts[receipt.Key] = _rejectedReceipts.TryGetValue(receipt.Key, out var previous) && previous > receipt.Acquired
-                ? previous
-                : receipt.Acquired;
+            var acquired = receipt.Acquired;
+            if (_rejectedReceipts.TryGetValue(receipt.Key, out var previous))
+            {
+                // Reconciled request intent is idempotent; preserve its first actual
+                // acquisition. Repeated dismissal/watch receipts keep their later age.
+                if (receipt.Key.Kind == ReceiptKind.Request)
+                {
+                    acquired = previous < acquired ? previous : acquired;
+                }
+                else
+                {
+                    acquired = previous > acquired ? previous : acquired;
+                }
+            }
+
+            _rejectedReceipts[receipt.Key] = acquired;
         }
     }
 
-    private void AddPendingRequests(IEnumerable<Receipt> receipts)
+    private void AddPendingActions(IEnumerable<Receipt> receipts)
     {
-        foreach (var title in receipts.Where(receipt => receipt.Key.Kind == ReceiptKind.Request).Select(receipt => receipt.Key.Title))
+        foreach (var key in receipts.Where(receipt => receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal).Select(receipt => receipt.Key))
         {
-            _pendingRequests[title] = _pendingRequests.GetValueOrDefault(title) + 1;
+            var pending = key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
+            pending[key.Title] = pending.GetValueOrDefault(key.Title) + 1;
         }
     }
 
@@ -263,6 +290,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 if (_writes.Count == 0)
                 {
                     _writerRunning = false;
+                    ScheduleRetainedRetry();
                     return successful;
                 }
 
@@ -317,6 +345,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             _writerRunning = false;
+            ScheduleRetainedRetry();
             return true;
         }
     }
@@ -338,7 +367,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             else
             {
                 // Failed requests and dependent watches retain their original receipts.
-                // Retry only when explicitly submitted again or their request becomes durable.
+                // One backoff timer restarts runnable retained work without requiring a new action.
                 if (_writes.Count + _retryWrites.Count < MaximumPendingWrites)
                 {
                     _retryWrites.Enqueue(write);
@@ -349,24 +378,78 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     RetireObservedWrite(write, recovered: false);
                 }
             }
+
+            if (!_writerRunning && _writes.Count == 0)
+            {
+                ScheduleRetainedRetry();
+            }
+        }
+    }
+
+    private void ScheduleRetainedRetry()
+    {
+        if (_disposed || _retryTimer is not null || !_retryWrites.Any(write => !HasUndurableDependency(write)))
+        {
+            return;
+        }
+
+        var delay = TimeSpan.FromSeconds(Math.Min(60, 5 * Math.Pow(2, Math.Min(4, _retryBackoff++))));
+        _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _retryTimer.Change(delay, Timeout.InfiniteTimeSpan);
+    }
+
+    private void RetryRetainedWrites()
+    {
+        lock (_writerGate)
+        {
+            _retryTimer?.Dispose();
+            _retryTimer = null;
+            if (_disposed)
+            {
+                return;
+            }
+
+            var count = _retryWrites.Count;
+            for (var index = 0; index < count; index++)
+            {
+                var write = _retryWrites.Dequeue();
+                if (HasUndurableDependency(write))
+                {
+                    _retryWrites.Enqueue(write);
+                }
+                else
+                {
+                    _writes.Enqueue(write);
+                }
+            }
+
+            StartWriterIfNeeded();
         }
     }
 
     private void RetireObservedWrite(PendingWrite write, bool recovered = true)
     {
         Interlocked.Decrement(ref _pendingObservedWrites);
+        if (_pendingObservedWrites == 0 && _retryWrites.Count == 0)
+        {
+            _retryBackoff = 0;
+            _retryTimer?.Dispose();
+            _retryTimer = null;
+        }
+
         foreach (var receipt in write.Receipts)
         {
-            if (receipt.Key.Kind == ReceiptKind.Request)
+            if (receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal)
             {
-                var count = _pendingRequests.GetValueOrDefault(receipt.Key.Title);
+                var pending = receipt.Key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
+                var count = pending.GetValueOrDefault(receipt.Key.Title);
                 if (count <= 1)
                 {
-                    _pendingRequests.Remove(receipt.Key.Title);
+                    pending.Remove(receipt.Key.Title);
                 }
                 else
                 {
-                    _pendingRequests[receipt.Key.Title] = count - 1;
+                    pending[receipt.Key.Title] = count - 1;
                 }
             }
 
@@ -396,6 +479,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             ReceiptKind.Request => entry?.RequestedAtUtc.HasValue == true,
             ReceiptKind.Watched => entry?.WasWatched == true,
             ReceiptKind.Dismissal => entry?.DismissedAtUtc >= rejectedAt,
+            ReceiptKind.Impression => entry?.ImpressionAtUtc >= rejectedAt,
             _ => false,
         };
     }
@@ -420,6 +504,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 _retryWrites.Enqueue(waiting);
             }
         }
+
+        // A synchronous request can make retained watches runnable after the async
+        // worker went idle. Promotion itself must hand them to a managed writer.
+        StartWriterIfNeeded();
     }
 
     private bool RecordGeneratedCore(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items, DateTime? generatedAtUtc)
@@ -501,6 +589,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             return;
         }
 
+        var snapshot = items.Select(item => item.Clone()).ToArray();
+        var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
+        var receipts = snapshot.Select(item => new Receipt(new ReceiptKey(new TitleKey(userId, item.TmdbId, NormalizeMediaType(item.MediaType)), ReceiptKind.Impression), acquired)).ToArray();
+        var write = new PendingWrite(() => RecordImpressionsCore(userId, snapshot, generatedAtUtc, acquired), true, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously), receipts, []);
+        if (!ExecuteSynchronousWrite(write))
+        {
+            throw new IOException("Could not persist confirmed discovery impressions.");
+        }
+    }
+
+    private bool RecordImpressionsCore(Guid userId, IReadOnlyList<DiscoveryRecommendation> items, DateTime generatedAtUtc, DateTime acquired)
+    {
         lock (_fileLock)
         {
             var data = LoadInternal();
@@ -516,22 +616,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     userResult.Entries.Add(entry);
                 }
 
-                if (entry.ImpressionAtUtc.HasValue)
+                if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value <= acquired)
                 {
                     continue;
                 }
 
                 // A verified action can establish the prediction before any viewport acknowledgement.
                 // Later impressions may record visibility but must not rewrite that action's evidence.
-                ConfirmPrediction(entry, item, generatedAtUtc);
-                entry.ImpressionAtUtc = DateTime.UtcNow;
+                ConfirmPrediction(entry, item, generatedAtUtc, acquired);
+                entry.ImpressionAtUtc = acquired;
                 modified = true;
             }
 
-            if (modified && !SaveInternal(data))
-            {
-                throw new IOException("Could not persist confirmed discovery impressions.");
-            }
+            return !modified || SaveInternal(data);
         }
     }
 
@@ -635,7 +732,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         cancellationToken.ThrowIfCancellationRequested();
         var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
         mediaType = NormalizeMediaType(mediaType);
-        var receipt = new Receipt(new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), ReceiptKind.Request), acquired);
+        var key = new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), ReceiptKind.Request);
+        lock (_writerGate)
+        {
+            if (_rejectedReceipts.TryGetValue(key, out var rejectedAt) && rejectedAt < acquired)
+            {
+                acquired = rejectedAt;
+            }
+        }
+
+        var receipt = new Receipt(key, acquired);
         return RunWriteAsync(() => RecordActionCore(userId, tmdbId, mediaType, requested: true, item: null, generatedAtUtc: null, acquired), [receipt], observed: true, cancellationToken);
     }
 
@@ -651,16 +757,29 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
             [receipt],
             []);
+        if (!ExecuteSynchronousWrite(write) && !requested)
+        {
+            // A permanent dismissal must not be acknowledged as durable while its
+            // receipt exists only in memory. Retained retry and serving exclusions
+            // still own the confirmed action, but callers must report persistence failure.
+            throw new IOException("Could not persist the discovery dismissal; its receipt remains pending.");
+        }
+    }
+
+    private bool ExecuteSynchronousWrite(PendingWrite write)
+    {
         lock (_writerGate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             Interlocked.Increment(ref _pendingObservedWrites);
-            AddPendingRequests(write.Receipts);
+            AddPendingActions(write.Receipts);
         }
 
         var saved = false;
         try
         {
             saved = write.Operation();
+            return saved;
         }
         finally
         {
@@ -698,7 +817,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             if (requested)
             {
-                entry.RequestedAtUtc = item is not null ? acquired : entry.RequestedAtUtc ?? acquired;
+                if (item is not null)
+                {
+                    entry.RequestedAtUtc = entry.RequestedAtUtc > acquired ? entry.RequestedAtUtc : acquired;
+                }
+                else
+                {
+                    entry.RequestedAtUtc ??= acquired;
+                }
             }
             else
             {
@@ -711,11 +837,17 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null)
     {
-        if (entry.HasConfirmedPrediction)
+        var acquired = acquiredAtUtc ?? DateTime.UtcNow;
+        var confirmedAt = entry.PredictionEvidenceAtUtc ?? entry.ImpressionAtUtc;
+        if (confirmedAt.HasValue && (confirmedAt.Value <= acquired || entry.RequestedAtUtc > acquired
+            || entry.DismissedAtUtc > acquired || entry.WatchedAtUtc > acquired))
         {
             return;
         }
 
+        // An older exact receipt can reach disk after a later impression. Restore
+        // the first actually confirmed inputs, never whichever write finished first.
+        // A genuinely newer observed action remains authoritative over an older retry.
         entry.Title = item.Title;
         entry.Year = item.Year;
         entry.Genres = item.Genres.ToArray();
@@ -726,7 +858,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         entry.ScoringFeatures = item.ScoringFeatures?.Copy();
         entry.TitleMetadata = item.TitleMetadata;
         entry.ShownAtUtc = DateTimeNormalization.ToUtc(generatedAtUtc);
-        entry.PredictionEvidenceAtUtc = acquiredAtUtc ?? DateTime.UtcNow;
+        entry.PredictionEvidenceAtUtc = acquired;
     }
 
     /// <inheritdoc />
@@ -827,7 +959,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     public IReadOnlySet<(int TmdbId, string MediaType)> GetDismissedItems(Guid userId)
     {
         var user = ReadSnapshot().FirstOrDefault(result => result.UserId == userId);
-        return (user?.Entries ?? []).Where(entry => entry.DismissedAtUtc.HasValue).Select(entry => (entry.TmdbId, entry.MediaType)).ToHashSet();
+        var dismissed = (user?.Entries ?? []).Where(entry => entry.DismissedAtUtc.HasValue).Select(entry => (entry.TmdbId, entry.MediaType)).ToHashSet();
+        dismissed.UnionWith((user?.DismissedItems ?? []).OfType<DiscoveryDismissedItem>().Where(item => item.TmdbId > 0)
+            .Select(item => (item.TmdbId, NormalizeMediaType(item.MediaType))));
+        lock (_writerGate)
+        {
+            // A confirmed user choice is already a serving exclusion while its exact
+            // receipt is queued, writing or retrying. LoadAll still withholds fitting
+            // until persistence succeeds; this never fabricates a durable dislike.
+            dismissed.UnionWith(_pendingDismissals.Keys.Concat(_rejectedReceipts.Keys.Where(key => key.Kind == ReceiptKind.Dismissal).Select(key => key.Title))
+                .Where(title => title.User == userId).Select(title => (title.TmdbId, title.MediaType)));
+        }
+
+        return dismissed;
     }
 
     /// <inheritdoc />
@@ -835,6 +979,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     {
         var user = ReadSnapshot().FirstOrDefault(result => result.UserId == userId);
         return (user?.Entries ?? []).Where(entry => entry.RequestedAtUtc.HasValue).Select(entry => (entry.TmdbId, entry.MediaType)).ToHashSet();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlySet<(int TmdbId, string MediaType)> GetPendingRequestedItems(Guid userId)
+    {
+        lock (_writerGate)
+        {
+            return _pendingRequests.Keys.Concat(_rejectedReceipts.Keys.Where(key => key.Kind == ReceiptKind.Request).Select(key => key.Title))
+                .Where(title => title.User == userId).Select(title => (title.TmdbId, title.MediaType)).ToHashSet();
+        }
     }
 
     private List<DiscoveryFeedbackResult> ReadSnapshot()
@@ -862,6 +1016,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         {
             UserId = source.UserId,
             UserName = source.UserName,
+            DismissedItems = source.DismissedItems?.OfType<DiscoveryDismissedItem>().Select(item => item with { }).ToArray(),
             Entries = source.Entries.Select(e => new DiscoveryFeedbackEntry
             {
                 TmdbId = e.TmdbId,
@@ -918,20 +1073,26 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 return [];
             }
 
+            List<DiscoveryFeedbackResult> recovered;
             using (var stream = File.OpenRead(_filePath))
             {
-                Volatile.Write(ref _memoryCache, JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(stream, JsonOptions) ?? []);
+                recovered = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(stream, JsonOptions) ?? [];
             }
 
             if (fileInfo.Length > _sizeLimit)
             {
                 _pluginLog.LogWarning(LogSource, $"Feedback file exceeds the size limit ({fileInfo.Length} bytes); recovering and compacting valid feedback.", null, _logger);
-                var recovered = _memoryCache;
-                SaveInternal(recovered);
-                Volatile.Write(ref _memoryCache, _memoryCache ?? recovered);
+                if (!SaveInternal(recovered))
+                {
+                    Volatile.Write(ref _memoryCache, recovered);
+                }
+            }
+            else
+            {
+                Volatile.Write(ref _memoryCache, recovered);
             }
 
-            return _memoryCache.Select(CloneResult).ToList();
+            return (_memoryCache ?? recovered).Select(CloneResult).ToList();
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
@@ -968,6 +1129,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
         foreach (var userResult in workingCopy)
         {
+            // Migrate/retain explicit dismissal identity before trimming training rows.
+            // Expiration and the 200-row training cap must never re-offer a rejected title.
+            var dismissed = (userResult.DismissedItems ?? []).OfType<DiscoveryDismissedItem>()
+                .Where(item => item.TmdbId > 0).Select(item => item with { MediaType = NormalizeMediaType(item.MediaType) })
+                .Concat(userResult.Entries.Where(entry => entry.TmdbId > 0 && entry.DismissedAtUtc.HasValue)
+                    .Select(entry => new DiscoveryDismissedItem(entry.TmdbId, NormalizeMediaType(entry.MediaType))))
+                .Distinct().OrderBy(item => item.MediaType, StringComparer.Ordinal).ThenBy(item => item.TmdbId).ToArray();
+            userResult.DismissedItems = dismissed.Length == 0 ? null : dismissed;
+
             foreach (var entry in userResult.Entries.Where(entry => !entry.HasConfirmedPrediction))
             {
                 entry.ScoringFeatures = null;
@@ -988,7 +1158,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         }
 
         // Remove users with zero entries after eviction
-        workingCopy.RemoveAll(r => r.Entries.Count == 0);
+        workingCopy.RemoveAll(r => r.Entries.Count == 0 && (r.DismissedItems?.Count ?? 0) == 0);
 
         try
         {
@@ -1047,7 +1217,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             result.Entries.RemoveAll(entry => entry.GetStatus() == DiscoveryInteractionStatus.Generated);
         }
 
-        data.RemoveAll(result => result.Entries.Count == 0);
+        data.RemoveAll(result => result.Entries.Count == 0 && (result.DismissedItems?.Count ?? 0) == 0);
         bytes = JsonSerializer.SerializeToUtf8Bytes(data, JsonOptions);
         var estimatedSize = bytes.LongLength;
         foreach (var entry in data.SelectMany(result => result.Entries)
@@ -1195,6 +1365,17 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best effort
+        }
+    }
+
+    /// <summary>Stops future retry work without blocking already-admitted atomic persistence.</summary>
+    public void Dispose()
+    {
+        lock (_writerGate)
+        {
+            _disposed = true;
+            _retryTimer?.Dispose();
+            _retryTimer = null;
         }
     }
 

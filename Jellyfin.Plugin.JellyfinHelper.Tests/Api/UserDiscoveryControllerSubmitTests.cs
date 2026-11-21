@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -58,9 +59,9 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         _memoryCache.Dispose();
     }
 
-    private UserDiscoveryController CreateController(Guid? userId = null)
+    private UserDiscoveryController CreateController(Guid? userId = null, IDiscoveryFeedbackStore? feedbackStore = null)
     {
-        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
+        var c = new UserDiscoveryController(_cache, _discoveryMock.Object, feedbackStore ?? _feedbackStoreMock.Object, _configServiceMock.Object, _memoryCache, Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.ITraktDiscoveryService>(), Moq.Mock.Of<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>(), _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {
@@ -499,7 +500,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     }
 
     [Fact]
-    public void DismissItem_FeedbackStoreThrows_StillReturnsSuccess()
+    public void DismissItem_FeedbackStoreThrows_DoesNotAcknowledgePermanentSuccess()
     {
         var userId = Guid.NewGuid();
         _feedbackStoreMock
@@ -508,9 +509,57 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = "movie" };
         var result = CreateController(userId).DismissItem(dto);
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var body = Assert.IsType<RequestResult>(ok.Value);
-        Assert.True(body.Success);
+        var error = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, error.StatusCode);
+        var body = Assert.IsType<RequestResult>(error.Value);
+        Assert.False(body.Success);
+    }
+
+    [Fact]
+    public void ActualDismissalPersistenceFailureReturnsAnErrorWhilePendingExclusionAndSuccessfulRetryRemainCorrect()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dismissal_ack_" + Guid.NewGuid().ToString("N"));
+        var fail = false;
+        var clock = new ControlledWaitTimeProvider();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path)
+        {
+            RetryTimeProvider = clock,
+            WriteFeedback = (file, contents) =>
+            {
+                if (fail) throw new IOException("test persistence unavailable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(file, contents);
+            }
+        };
+        try
+        {
+            var user = Guid.NewGuid();
+            store.RecordGenerated(user, "test viewer", [new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv" }]);
+            fail = true;
+            var controller = CreateController(user, store);
+            var dto = new DiscoveryDismissDto { TmdbId = 700, MediaType = "tv" };
+            var failed = Assert.IsType<ObjectResult>(controller.DismissItem(dto).Result);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, failed.StatusCode);
+            Assert.False(Assert.IsType<RequestResult>(failed.Value).Success);
+            Assert.Contains((700, "tv"), store.GetDismissedItems(user));
+            Assert.DoesNotContain((700, "movie"), store.GetDismissedItems(user));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            using (var beforeRecovery = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path))
+            {
+                Assert.DoesNotContain((700, "tv"), beforeRecovery.GetDismissedItems(user));
+            }
+
+            fail = false;
+            var succeeded = Assert.IsType<OkObjectResult>(controller.DismissItem(dto).Result);
+            Assert.True(Assert.IsType<RequestResult>(succeeded.Value).Success);
+            using var afterSuccess = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path);
+            Assert.Contains((700, "tv"), afterSuccess.GetDismissedItems(user));
+            Assert.Empty(afterSuccess.GetDismissedItems(Guid.NewGuid()));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
     }
 
     [Fact]

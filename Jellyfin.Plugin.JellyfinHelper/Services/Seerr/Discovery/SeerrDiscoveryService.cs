@@ -12,6 +12,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -140,6 +141,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private const string PluginInstanceUnavailableMessage = "Plugin instance is not available; skipping.";
 
     private const string MediaTypeMovie = "movie";
+    private const string SeerrMetadataSource = "seerr";
+    private const string RadarrServiceType = "radarr";
+    private const string SonarrServiceType = "sonarr";
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
@@ -185,6 +189,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly SeerrRequestCoordinator _requestCoordinator = new();
     private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
+    private string? _cachedSeerrUsersScope;
+    private string? _inflightUserScope;
 
     // Holds the in-flight roster fetch so concurrent callers coalesce onto a single Seerr request
     // instead of each launching their own. Cleared when the fetch completes so the next miss refreshes.
@@ -192,6 +198,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private HashSet<(int TmdbId, string MediaType)>? _cachedExclusions;
     private DateTime _exclusionsExpiry = DateTime.MinValue;
+    private string? _cachedExclusionsScope;
+    private string? _inflightExclusionScope;
 
     // Holds the in-flight exclusion build so concurrent cache misses coalesce onto a single library
     // scan plus Arr roster download instead of each launching their own. Cleared when the build
@@ -313,6 +321,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             SeerrApiKey = current.SeerrApiKey,
             SeerrSkipCertificateValidation = current.SeerrSkipCertificateValidation,
             RecommendationsTaskMode = current.RecommendationsTaskMode,
+            ExcludedLibraries = current.ExcludedLibraries,
             RadarrInstances = CaptureInstances(current.GetEffectiveRadarrInstances()),
             SonarrInstances = CaptureInstances(current.GetEffectiveSonarrInstances()),
             TraktSourcingEnabled = current.TraktSourcingEnabled
@@ -321,7 +330,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         budget.CancelAfter(TimeSpan.FromSeconds(45));
         try
         {
-            var supplemental = SupplementalMetadata?.WarmAsync(config, budget.Token) ?? Task.CompletedTask;
+            var supplemental = hasArr ? WarmSupplementalMetadataAsync(config, budget.Token) : Task.CompletedTask;
             var seerr = hasSeerr ? WarmSeerrTitleMetadataAsync(config, budget.Token) : Task.CompletedTask;
             await Task.WhenAll(supplemental, seerr).ConfigureAwait(false);
         }
@@ -343,16 +352,80 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static List<ArrInstanceConfig> CaptureInstances(IReadOnlyList<ArrInstanceConfig> instances)
         => instances.Select(instance => new ArrInstanceConfig { Url = instance.Url, ApiKey = instance.ApiKey, SkipCertificateValidation = instance.SkipCertificateValidation }).ToList();
 
+    private async Task WarmSupplementalMetadataAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        var eligible = CaptureMetadataEligibility(config, cancellationToken);
+        await SupplementalMetadata!.WarmAsync(config, eligible, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Func<TitleMetadataSnapshot, bool> CaptureMetadataEligibility(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(config.ExcludedLibraries);
+        var scope = excluded.Count == 0 ? null : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);
+        var index = new Dictionary<string, List<(TitleMetadataSnapshot Identity, bool Allowed)>>(StringComparer.Ordinal);
+        foreach (var item in (_libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true }) ?? [])
+            .Where(item => item is Movie or Series))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var allowed = !_virtualItemDetector.IsVirtual(item) && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope));
+            var identity = new TitleMetadataSnapshot
+            {
+                TmdbId = TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0,
+                MediaType = item is Series ? "tv" : MediaTypeMovie, TvdbId = TitleProviderIdentity.Tvdb(item), ImdbId = TitleProviderIdentity.Imdb(item)
+            };
+            foreach (var key in MetadataIdentityKeys(identity))
+            {
+                if (!index.TryGetValue(key, out var entries))
+                {
+                    entries = [];
+                    index[key] = entries;
+                }
+
+                entries.Add((identity, allowed));
+            }
+        }
+
+        return snapshot =>
+        {
+            var matches = MetadataIdentityKeys(snapshot).Where(index.ContainsKey).SelectMany(key => index[key])
+                .Where(entry => TitleProviderIdentity.Compatible(entry.Identity, snapshot) && TitleProviderIdentity.SharesIdentity(entry.Identity, snapshot)).ToArray();
+            // Non-local ARR titles still belong to the optional provider catalog. Only
+            // excluded-only local identities are blocked; a permitted copy wins.
+            return matches.Length == 0 || matches.Any(entry => entry.Allowed);
+        };
+    }
+
+    private static IEnumerable<string> MetadataIdentityKeys(TitleMetadataSnapshot snapshot)
+    {
+        if (snapshot.TmdbId > 0)
+        {
+            yield return string.Create(CultureInfo.InvariantCulture, $"{snapshot.MediaType}:tmdb:{snapshot.TmdbId}");
+        }
+
+        if (snapshot.MediaType == "tv" && snapshot.TvdbId > 0)
+        {
+            yield return string.Create(CultureInfo.InvariantCulture, $"tv:tvdb:{snapshot.TvdbId}");
+        }
+
+        if (TitleProviderIdentity.NormalizeImdb(snapshot.ImdbId) is { } imdb)
+        {
+            yield return $"{snapshot.MediaType}:imdb:{imdb}";
+        }
+    }
+
     private async Task WarmSeerrTitleMetadataAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
         var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var language = _titleMetadataCache!.MetadataLanguage;
         var history = MetadataHistoryKeys(_watchHistoryService.GetAllUserWatchProfiles());
+        var excludedLibraries = CleanupConfigHelper.ParseCommaSeparated(config.ExcludedLibraries);
+        var scope = excludedLibraries.Count == 0 ? null : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excludedLibraries);
         var library = (_libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true
-        }) ?? []).Where(item => item is Movie or Series)
+        }) ?? []).Where(item => item is Movie or Series && !_virtualItemDetector.IsVirtual(item)
+                && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope)))
             .Select(item => (TmdbId: TmdbLibraryMapper.TryGetTmdbId(item, out var id) ? id : 0, MediaType: item is Series ? "tv" : "movie"))
             .Where(key => key.TmdbId > 0).Distinct();
         var pending = _titleMetadataCache.ReserveRefreshes(config, history.Concat(library), 128, language);
@@ -444,6 +517,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return;
         }
 
+        var profiledUsers = activeProfiles.Select(profile => profile.UserId).ToHashSet();
+        var unavailableProfiles = (_watchHistoryService.GetAllUserIds() ?? []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
+
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
         var excludedTmdbIds = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
@@ -467,6 +543,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // double-counting training signal.
         var carriedForwardUsers = new HashSet<Guid>();
 
+        foreach (var user in unavailableProfiles)
+        {
+            if (previousByUser.TryGetValue(user, out var priorPool))
+            {
+                allResults.Add(FilterCarriedPool(priorPool, excludedTmdbIds));
+                carriedForwardUsers.Add(user);
+            }
+        }
+
         foreach (var profile in activeProfiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -483,7 +568,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 case UserGenerationStatus.TransientFailure
                     when previousByUser.TryGetValue(profile.UserId, out var priorPool):
                     // Preserve the user's last-known-good pool; a transient hiccup must not empty their sidebar.
-                    allResults.Add(priorPool);
+                    allResults.Add(FilterCarriedPool(priorPool, excludedTmdbIds));
                     carriedForwardUsers.Add(profile.UserId);
                     _pluginLog.LogDebug(
                         LogCategory,
@@ -511,6 +596,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             await PersistResultsAndRecordFeedbackAsync(allResults, carriedForwardUsers, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static DiscoveryResult FilterCarriedPool(DiscoveryResult prior, HashSet<(int TmdbId, string MediaType)> excluded)
+    {
+        var copy = prior.Clone();
+        copy.Recommendations.RemoveAll(item => excluded.Contains((item.TmdbId, NormalizeReconcileMediaType(item.MediaType))));
+        return copy;
     }
 
     /// <inheritdoc />
@@ -558,10 +650,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         CancellationToken cancellationToken)
     {
         var userResult = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
-        if (userResult == null || userResult.Recommendations.Count == 0)
-        {
-            return 0;
-        }
+        var candidates = (userResult?.Recommendations ?? []).Where(rec => rec.TmdbId > 0)
+            .Select(rec => (rec.TmdbId, MediaType: NormalizeReconcileMediaType(rec.MediaType))).ToHashSet();
+        // A rejected receipt remains confirmed work even after fresh generation drops
+        // its card. Retry only against this user's complete current Seerr request set.
+        var pendingRequests = _feedbackStore.GetPendingRequestedItems(jellyfinUserId) ?? new HashSet<(int, string)>();
+        candidates.UnionWith(pendingRequests);
 
         HashSet<(int TmdbId, string MediaType)> alreadyRecorded;
         try
@@ -578,11 +672,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var reconciled = 0;
-        foreach (var rec in userResult.Recommendations)
+        foreach (var key in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            (int TmdbId, string MediaType) key = (rec.TmdbId, NormalizeReconcileMediaType(rec.MediaType));
-            if (rec.TmdbId <= 0 || alreadyRecorded.Contains(key) || !requestedKeys.Contains(key))
+            if (key.TmdbId <= 0 || (alreadyRecorded.Contains(key) && !pendingRequests.Contains(key)) || !requestedKeys.Contains(key))
             {
                 continue;
             }
@@ -878,21 +971,28 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         HashSet<Guid> carriedForwardUsers,
         CancellationToken cancellationToken)
     {
-        var persisted = await _cache.SaveAsync(allResults, cancellationToken).ConfigureAwait(false);
-        if (_titleMetadataCache is not null)
-        {
-            await _titleMetadataCache.SaveAsync(cancellationToken).ConfigureAwait(false);
-        }
-
+        var retained = carriedForwardUsers.ToHashSet();
+        var persisted = await _cache.SaveWithCompletionAsync(
+            allResults,
+            snapshot => CompletePersistedResultsAsync(snapshot, retained),
+            cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (!persisted)
         {
-            _pluginLog.LogWarning(
+            _pluginLog.LogInfo(
                 LogCategory,
-                $"Failed to persist {allResults.Count} user results. Skipping feedback recording to avoid stale training data.",
-                null,
+                $"Discovery persistence/follow-up for {allResults.Count} user results was not confirmed within the wait budget. Admitted writes retain their own completion; rejected or failed writes produce no generation feedback.",
                 _logger);
-            return;
+        }
+    }
+
+    private async Task CompletePersistedResultsAsync(IReadOnlyList<DiscoveryResult> allResults, HashSet<Guid> carriedForwardUsers)
+    {
+        // Completion belongs to the admitted cache writer, not the scheduled caller.
+        // Both optional stores retain their existing bounded waits and writer limits.
+        if (_titleMetadataCache is not null)
+        {
+            await _titleMetadataCache.SaveAsync(CancellationToken.None).ConfigureAwait(false);
         }
 
         _pluginLog.LogInfo(
@@ -912,13 +1012,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 // Keep the established store contract; RecordShown is now explicitly a generation alias,
                 // never evidence of a viewport impression. The displayed response supplies the exact generation time.
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!await _feedbackStore.RecordGeneratedAsync(result.UserId, result.UserName, result.Recommendations, result.GeneratedAt, cancellationToken).ConfigureAwait(false))
+                if (!await _feedbackStore.RecordGeneratedAsync(result.UserId, result.UserName, result.Recommendations, result.GeneratedAt, CancellationToken.None).ConfigureAwait(false))
                 {
                     _pluginLog.LogDebug(LogCategory, $"Optional generation feedback for {result.UserName} was not confirmed within the persistence budget.", _logger);
                 }
             }
-            catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogDebug(
                     LogCategory,
@@ -1195,9 +1294,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Fetches the paginated Seerr user list and returns both the user roster and a flag indicating whether all pages were fetched successfully.
     /// </summary>
     private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchSeerrUsersInternalAsync(
+        PluginConfiguration? config,
         CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
             _pluginLog.LogWarning(LogCategory, PluginInstanceUnavailableMessage, null, _logger);
@@ -1351,8 +1450,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string serviceType,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(serviceType, "radarr", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(serviceType, "sonarr", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(serviceType, RadarrServiceType, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(serviceType, SonarrServiceType, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException($"Unsupported service type '{serviceType}'. Expected 'radarr' or 'sonarr'.", nameof(serviceType));
         }
@@ -1368,7 +1467,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string serviceType,
         CancellationToken cancellationToken)
     {
-        if (serviceType is not ("radarr" or "sonarr"))
+        if (serviceType is not (RadarrServiceType or SonarrServiceType))
         {
             return ([], true);
         }
@@ -1572,7 +1671,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        if (serviceType is not ("radarr" or "sonarr"))
+        if (serviceType is not (RadarrServiceType or SonarrServiceType))
         {
             return new UserRequestPermissionResult
             {
@@ -1806,73 +1905,59 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
     {
-        // Honor an already-cancelled token before any work. The shared fetch below runs on its own
-        // token so one caller cannot abort it for the others, which means the caller's cancellation
-        // would otherwise go unobserved on a cache hit or a synchronously completed fetch.
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Fast path: check if cache is still valid under lock to ensure atomicity
-        // of the (_cachedSeerrUsers, _cachedSeerrUsersExpiry) pair across threads.
-        lock (_userCacheLock)
-        {
-            if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
-            {
-                return _cachedSeerrUsers;
-            }
-        }
-
-        // Slow path: coalesce concurrent callers onto one fetch so a discovery run that fans out over
-        // many users, or a burst of frontend requests, does not stampede Seerr with N parallel roster
-        // reads. The shared fetch runs on its own token so one caller cancelling does not abort it for
-        // the others; each caller still observes its own cancellation while awaiting.
-        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch;
-        lock (_userCacheLock)
-        {
-            if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
-            {
-                return _cachedSeerrUsers;
-            }
-
-            // Reuse an in-flight fetch, but never a settled one: a completed task holds a stale result
-            // (including a failed fetch that must not be cached), so a fresh miss starts a new fetch
-            // rather than replaying the old outcome. This does not depend on the completion cleanup
-            // having run yet, which would otherwise race a caller arriving right after the fetch settles.
-            if (_inflightUserFetch is not { IsCompleted: false })
-            {
-                _inflightUserFetch = StartSeerrUserFetchAsync();
-            }
-
-            fetch = _inflightUserFetch;
-        }
-
-        (IReadOnlyList<SeerrUser> freshUsers, bool complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // The shared fetch has already written a successful, complete result to the cache before completing
-        // (see StartSeerrUserFetchAsync), so once it settles the cache is warm and the fast path above catches
-        // any later caller in this burst. Read the cached copy here so every caller returns the same instance.
-        if (freshUsers.Count > 0 && complete)
-        {
-            lock (_userCacheLock)
-            {
-                if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
-                {
-                    return _cachedSeerrUsers;
-                }
-            }
-        }
-
-        // Return empty list for incomplete fetches so callers stay on the retriable "temporarily unavailable" path instead of consuming truncated data that would incorrectly mark users on unfetched pages as "not linked to Seerr".
-        if (!complete)
+        var current = Plugin.Instance?.Configuration;
+        if (current is null || string.IsNullOrWhiteSpace(current.SeerrUrl) || string.IsNullOrWhiteSpace(current.SeerrApiKey))
         {
             return [];
         }
 
-        lock (_userCacheLock)
+        var config = new PluginConfiguration
         {
-            return _cachedSeerrUsers ?? freshUsers;
+            SeerrUrl = current.SeerrUrl, SeerrApiKey = current.SeerrApiKey, SeerrSkipCertificateValidation = current.SeerrSkipCertificateValidation
+        };
+        var scope = UserSourceScope(config);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch;
+            string? fetchScope;
+            lock (_userCacheLock)
+            {
+                if (_cachedSeerrUsers is not null && _cachedSeerrUsersScope == scope && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+                {
+                    return _cachedSeerrUsers;
+                }
+
+                // Source changes also share the one background slot. Wait for an older scope
+                // to settle, then retry this scope, rather than launching unbounded old workers.
+                if (_inflightUserFetch is not { IsCompleted: false })
+                {
+                    _inflightUserScope = scope;
+                    _inflightUserFetch = StartSeerrUserFetchAsync(config, scope);
+                }
+
+                fetch = _inflightUserFetch;
+                fetchScope = _inflightUserScope;
+            }
+
+            var (users, complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (UserSourceScope(Plugin.Instance?.Configuration) != scope)
+            {
+                return [];
+            }
+
+            if (fetchScope == scope)
+            {
+                return complete ? users : [];
+            }
         }
     }
+
+    private static string? UserSourceScope(PluginConfiguration? config)
+        => config is null ? null : TitleMetadataCache.SourceDigest(new MetadataSourceScope("seerr-roster", config.SeerrUrl, config.SeerrApiKey), config.SeerrSkipCertificateValidation.ToString());
 
     // Starts a single shared roster fetch, publishes a successful complete result to the cache before the
     // task completes, and clears the in-flight slot once it settles. Publishing inside the task closes the
@@ -1880,9 +1965,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // second fetch: by the time the task is observably complete the cache is already warm. An incomplete or
     // failed fetch writes nothing, so it stays on the retriable path and is never replayed from a settled task.
     // Runs on its own token so it is not cancelled by any one caller's token.
-    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync()
+    private Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> StartSeerrUserFetchAsync(PluginConfiguration config, string? scope)
     {
-        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchAndCacheSeerrUsersAsync();
+        Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> fetch = FetchAndCacheSeerrUsersAsync(config, scope);
         _ = fetch.ContinueWith(
             _ =>
             {
@@ -1905,9 +1990,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     // Fetches the roster and, on a successful complete read, writes it to the cache before returning, so the
     // cache is warm the instant the shared task is observably complete.
-    private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchAndCacheSeerrUsersAsync()
+    private async Task<(IReadOnlyList<SeerrUser> Users, bool Complete)> FetchAndCacheSeerrUsersAsync(PluginConfiguration config, string? scope)
     {
-        (IReadOnlyList<SeerrUser> users, bool complete) = await FetchSeerrUsersInternalAsync(CancellationToken.None).ConfigureAwait(false);
+        (IReadOnlyList<SeerrUser> users, bool complete) = await FetchSeerrUsersInternalAsync(config, CancellationToken.None).ConfigureAwait(false);
 
         // Only cache complete, non-empty results to allow retry on the next call when Seerr is temporarily
         // unavailable or returns partial data.
@@ -1915,10 +2000,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             lock (_userCacheLock)
             {
-                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                if (UserSourceScope(Plugin.Instance?.Configuration) == scope)
                 {
                     _cachedSeerrUsers = users;
                     _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+                    _cachedSeerrUsersScope = scope;
                 }
             }
         }
@@ -1935,7 +2021,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         CancellationToken cancellationToken)
     {
         // Fold in any requests the user made outside discovery before building the exclusion set, so the fresh signal both excludes those items from this run and reaches training.
-        await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
+        if (config.RecommendationsTaskMode != TaskMode.DryRun)
+        {
+            await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
+        }
 
         var genreCatalogVersion = GenreNormalizer.CatalogVersion;
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
@@ -2029,7 +2118,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             UserId = profile.UserId,
             UserName = profile.UserName,
             Recommendations = recommendations,
-            GeneratedAt = DateTime.UtcNow
+            GeneratedAt = DateTime.UtcNow,
+            TargetSeriesShare = MediaTypeBalance.TargetSeriesShare(profile)
         };
     }
 
@@ -2216,13 +2306,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new DiscoveryResult { UserId = jellyfinUserId, GeneratedAt = result.GeneratedAt };
         }
 
-        var excluded = ConsumedItemKeys(jellyfinUserId);
+        var excluded = ConsumedItemKeys(jellyfinUserId) ?? [];
+        AddCurrentLibraryOwnership(result.Recommendations, excluded);
         var filtered = new DiscoveryResult
         {
             UserId = result.UserId,
             UserName = result.UserName,
             Recommendations = result.Recommendations.Where(recommendation =>
                 IsCertifiedForPolicy(recommendation, policy.MaximumRating, certificationCountry) && !IsConsumed(recommendation, excluded)).ToList(),
+            TargetSeriesShare = result.TargetSeriesShare.HasValue ? CurrentMediaTarget(jellyfinUserId) : null,
             GeneratedAt = result.GeneratedAt
         };
         if (policy.MaximumRating.HasValue && policy.MaximumRating.Value < ParentalRatingHelper.UnrestrictedThreshold
@@ -2231,7 +2323,86 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             filtered.Recommendations = [];
         }
 
+        if (filtered.TargetSeriesShare.HasValue)
+        {
+            // Balance the visible prefix after current policy/request filtering. Pool
+            // sorting alone would lose the mix when the controllers take their first page.
+            var visible = DiscoverySelection.Select(filtered.Recommendations, MaxVisiblePerUser, targetSeriesShare: filtered.TargetSeriesShare);
+            var keys = visible.Select(item => (item.TmdbId, item.MediaType)).ToHashSet();
+            filtered.Recommendations = visible.Concat(filtered.Recommendations.Where(item => !keys.Contains((item.TmdbId, item.MediaType))
+                && ScoringHelper.IsContentEligible(item.ScoringFeatures) && (!item.IsPersonalized || item.Score >= DiscoverySelection.MinimumPersonalScore))).ToList();
+        }
+
         return filtered;
+    }
+
+    private double? CurrentMediaTarget(Guid jellyfinUserId)
+    {
+        try
+        {
+            // Reuse the authoritative current library/user boundary. A persisted
+            // generation's profile cannot certify exclusions or taste changes today.
+            var profile = _watchHistoryService.GetUserWatchProfile(jellyfinUserId);
+            return profile?.UserId == jellyfinUserId ? MediaTypeBalance.TargetSeriesShare(profile) : null;
+        }
+        catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
+        {
+            _pluginLog.LogDebug(LogCategory, "Current media preference unavailable; retaining eligible candidates without a stale format target.", _logger);
+            return null;
+        }
+    }
+
+    private void AddCurrentLibraryOwnership(List<DiscoveryRecommendation> candidates, HashSet<(int TmdbId, string MediaType)> excluded)
+    {
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var requested = candidates.Select(item => (item.TmdbId, MediaType: NormalizeReconcileMediaType(item.MediaType))).ToHashSet();
+        var providerIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        void Add(string provider, string id)
+        {
+            if (!providerIds.TryGetValue(provider, out var ids))
+            {
+                ids = [];
+                providerIds[provider] = ids;
+            }
+
+            ids.Add(id);
+        }
+
+        foreach (var (id, type) in requested)
+        {
+            Add("Tmdb", id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var metadata = _titleMetadataCache?.Get(config, id, type);
+            if (metadata?.TvdbId is > 0)
+            {
+                Add("Tvdb", metadata.TvdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            if (metadata?.ImdbId is { } imdb)
+            {
+                Add("Imdb", imdb);
+            }
+        }
+
+        try
+        {
+            // Ownership deliberately spans hidden/admin-excluded libraries, but only
+            // identity metadata is read; virtual stubs do not establish ownership.
+            var items = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true,
+                HasAnyProviderIds = providerIds.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray())
+            });
+            excluded.UnionWith(TitleProviderIdentity.ResolveTmdbKeys(items.Where(item => !_virtualItemDetector.IsVirtual(item)), _titleMetadataCache, config).Where(requested.Contains));
+        }
+        catch (Exception exception) when (!exception.IsFatal())
+        {
+            _pluginLog.LogDebug(LogCategory, "Current Discovery ownership verification unavailable; retaining known request exclusions.", _logger);
+        }
     }
 
     private HashSet<(int TmdbId, string MediaType)>? ConsumedItemKeys(Guid jellyfinUserId)
@@ -2241,7 +2412,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var dismissed = _feedbackStore.GetDismissedItems(jellyfinUserId);
             var requested = _feedbackStore.GetRequestedItems(jellyfinUserId);
-            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0)
+            var pending = _feedbackStore.GetPendingRequestedItems(jellyfinUserId);
+            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0 || (pending?.Count ?? 0) > 0)
             {
                 excluded = new HashSet<(int TmdbId, string MediaType)>();
                 if (dismissed is not null)
@@ -2252,6 +2424,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 if (requested is not null)
                 {
                     excluded.UnionWith(requested);
+                }
+
+                if (pending is not null)
+                {
+                    // The request was confirmed even if its feedback write is waiting
+                    // or retrying. Serving must not turn a disk failure into a new offer.
+                    excluded.UnionWith(pending);
                 }
             }
         }
@@ -2437,10 +2616,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var deadline = Environment.TickCount64 + MetadataEnrichmentTimeoutMs;
         budget.CancelAfter(TimeSpan.FromMilliseconds(MetadataEnrichmentTimeoutMs));
         using var semaphore = new SemaphoreSlim(MetadataEnrichmentParallelism, MetadataEnrichmentParallelism);
+        var targetSeriesShare = context.RankBasedOrdering ? null : MediaTypeBalance.TargetSeriesShare(context.Profile);
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var selected = DiscoverySelection.Select(candidates, MaxPoolPerUser, context.RankBasedOrdering);
+            var selected = DiscoverySelection.Select(candidates, MaxPoolPerUser, context.RankBasedOrdering, targetSeriesShare);
             var pending = selected.Where(item => inspected.Add((item.TmdbId, item.MediaType))).ToList();
             if (pending.Count == 0)
             {
@@ -2568,7 +2748,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (_titleMetadataCache is not null && config is not null)
             {
-                var cached = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
+                var alias = candidate.TitleMetadata;
+                var compatible = alias is not null && alias.MediaType == candidate.MediaType && (alias.TmdbId <= 0 || alias.TmdbId == candidate.Id);
+                var cached = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, compatible ? alias!.TvdbId : 0, compatible ? alias!.ImdbId : null, language);
                 ApplyCachedSnapshot(candidate, cached);
             }
 
@@ -2591,7 +2773,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(candidate.TitleMetadata is null ? [cached] : [cached, candidate.TitleMetadata], DateTime.UtcNow);
         }
 
-        if (candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
+        TitleMetadataSnapshot? seerr = null;
+        if (cached is not null)
+        {
+            seerr = TitleMetadataMerger.Observations(cached).FirstOrDefault(observation => observation.Source == SeerrMetadataSource);
+        }
+
+        var projected = seerr is not null && ProjectWinningSeerrGenres(candidate, seerr.ObservationScope);
+        if (!projected && candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
         {
             candidate.GenreIds = genreIds.ToList();
         }
@@ -2605,7 +2794,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.SourceGenres = independentSourceGenres.ToArray();
         }
 
-        if (candidate.TitleMetadata?.Keywords is { } keywords)
+        if ((seerr is null || !ProjectWinningSeerrKeywords(candidate, seerr.ObservationScope)) && candidate.TitleMetadata?.Keywords is { } keywords)
         {
             candidate.KnownKeywords ??= keywords.ToList();
         }
@@ -3002,7 +3191,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             // Custom or newly localized genres must not leave retrieval empty; metadata can resolve new aliases before scoring.
             await GatherColdStartCandidatesAsync(client, baseUri, apiKey, allCandidates, cancellationToken).ConfigureAwait(false);
-            return;
         }
 
         foreach (var genreId in tvGenreIds)
@@ -3095,10 +3283,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
             var requested = _feedbackStore.GetRequestedItems(profile.UserId);
+            var pending = _feedbackStore.GetPendingRequestedItems(profile.UserId);
             if (dismissed.Count > 0 || requested.Count > 0)
             {
                 userExcluded.UnionWith(dismissed);
                 userExcluded.UnionWith(requested);
+            }
+
+            if (pending is not null)
+            {
+                userExcluded.UnionWith(pending);
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
@@ -3239,39 +3433,50 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         PluginConfiguration config,
         CancellationToken cancellationToken)
     {
-        Task<HashSet<(int TmdbId, string MediaType)>> build;
-        lock (_exclusionCacheLock)
+        var captured = new PluginConfiguration
         {
-            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
-            {
-                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
-            }
+            RadarrInstances = CaptureInstances(config.GetEffectiveRadarrInstances()),
+            SonarrInstances = CaptureInstances(config.GetEffectiveSonarrInstances())
+        };
+        var scope = ExclusionSourceScope(captured);
 
-            // Reuse an in-flight build, but never a settled one: same pattern as the Seerr user
-            // roster, so concurrent Trakt tab loads share one rebuild instead of N parallel ones.
-            if (_inflightExclusionBuild is not { IsCompleted: false })
-            {
-                _inflightExclusionBuild = StartExclusionBuildAsync(config);
-            }
-
-            build = _inflightExclusionBuild;
-        }
-
-        var fresh = await build.WaitAsync(cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // The shared build already wrote a successful result to the cache before completing, so
-        // once it settles the cache is warm and the fast path above catches any later caller in
-        // this burst. Read the cached copy here so every caller returns the same data.
-        lock (_exclusionCacheLock)
+        while (true)
         {
-            if (_cachedExclusions is not null && DateTime.UtcNow < _exclusionsExpiry)
+            cancellationToken.ThrowIfCancellationRequested();
+            Task<HashSet<(int TmdbId, string MediaType)>> build;
+            string? buildScope;
+            lock (_exclusionCacheLock)
             {
-                return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+                if (_cachedExclusions is not null && _cachedExclusionsScope == scope && DateTime.UtcNow < _exclusionsExpiry)
+                {
+                    return new HashSet<(int TmdbId, string MediaType)>(_cachedExclusions);
+                }
+
+                if (_inflightExclusionBuild is not { IsCompleted: false })
+                {
+                    _inflightExclusionScope = scope;
+                    _inflightExclusionBuild = StartExclusionBuildAsync(captured, scope);
+                }
+
+                build = _inflightExclusionBuild;
+                buildScope = _inflightExclusionScope;
+            }
+
+            var fresh = await build.WaitAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (buildScope == scope)
+            {
+                return new HashSet<(int TmdbId, string MediaType)>(fresh);
             }
         }
+    }
 
-        return new HashSet<(int TmdbId, string MediaType)>(fresh);
+    private static string ExclusionSourceScope(PluginConfiguration config)
+    {
+        static string Scope(string source, ArrInstanceConfig instance)
+            => TitleMetadataCache.SourceDigest(new MetadataSourceScope(source, instance.Url, instance.ApiKey), instance.SkipCertificateValidation.ToString());
+        return string.Join(':', config.GetEffectiveRadarrInstances().Select(instance => Scope(RadarrServiceType, instance))
+            .Concat(config.GetEffectiveSonarrInstances().Select(instance => Scope(SonarrServiceType, instance))).OrderBy(value => value, StringComparer.Ordinal));
     }
 
     // Starts a single shared exclusion build, publishes the result to the cache before the task
@@ -3279,9 +3484,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // the window where a caller arriving after the build settled but before the cache was written
     // would start a second build. Runs on its own token so it is not cancelled by any one caller's
     // token; a failed build writes nothing, so it stays on the retriable path.
-    private Task<HashSet<(int TmdbId, string MediaType)>> StartExclusionBuildAsync(PluginConfiguration config)
+    private Task<HashSet<(int TmdbId, string MediaType)>> StartExclusionBuildAsync(PluginConfiguration config, string scope)
     {
-        Task<HashSet<(int TmdbId, string MediaType)>> build = BuildAndCacheExclusionSetAsync(config);
+        Task<HashSet<(int TmdbId, string MediaType)>> build = BuildAndCacheExclusionSetAsync(config, scope);
         _ = build.ContinueWith(
             _ =>
             {
@@ -3302,13 +3507,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return build;
     }
 
-    private async Task<HashSet<(int TmdbId, string MediaType)>> BuildAndCacheExclusionSetAsync(PluginConfiguration config)
+    private async Task<HashSet<(int TmdbId, string MediaType)>> BuildAndCacheExclusionSetAsync(PluginConfiguration config, string scope)
     {
         var fresh = await BuildExclusionSetAsync(config, CancellationToken.None).ConfigureAwait(false);
         lock (_exclusionCacheLock)
         {
             _cachedExclusions = fresh;
             _exclusionsExpiry = DateTime.UtcNow.Add(ExclusionCacheTtl);
+            _cachedExclusionsScope = scope;
         }
 
         return fresh;
@@ -3366,7 +3572,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var ownedItems = libraryItems.Where(item => !_virtualItemDetector.IsVirtual(item)).ToList();
 
             var before = excluded.Count;
-            foreach (var key in TmdbLibraryMapper.BuildTmdbKeySet(ownedItems))
+            foreach (var key in TitleProviderIdentity.ResolveTmdbKeys(ownedItems, _titleMetadataCache, Plugin.Instance?.Configuration ?? new PluginConfiguration(), cancellationToken))
             {
                 excluded.Add(key);
             }
@@ -3896,9 +4102,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             candidate.SeerrTitleMetadata = stored;
-            var complementary = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, stored.TvdbId, stored.ImdbId, requestedLanguage);
+            var alias = candidate.TitleMetadata;
+            var compatible = alias is not null && TitleProviderIdentity.Compatible(alias, stored);
+            var suppliedTvdb = compatible ? alias!.TvdbId : 0;
+            var linkedTvdb = stored.TvdbId > 0 ? stored.TvdbId : suppliedTvdb;
+            var complementary = _titleMetadataCache.GetForLanguage(
+                config,
+                candidate.Id,
+                candidate.MediaType,
+                linkedTvdb,
+                stored.ImdbId ?? (compatible ? alias!.ImdbId : null),
+                requestedLanguage);
             var local = TitleMetadataMerger.WithSeerrObservation(stored, candidate.TitleMetadata, DateTime.UtcNow);
             candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(new[] { stored, complementary, local }.OfType<TitleMetadataSnapshot>().ToArray(), DateTime.UtcNow) ?? stored;
+            ProjectWinningSeerrGenres(candidate, stored.ObservationScope);
+            ProjectWinningSeerrKeywords(candidate, stored.ObservationScope);
         }
     }
 
@@ -3952,6 +4170,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         lock (_metadataCacheLock)
         {
+            if (_metadataCache.TryGetValue(key, out var previous) && previous.ExpiresAtUtc.Subtract(SeerrUserCacheTtl) > acquiredAtUtc)
+            {
+                return;
+            }
+
             if (_metadataCache.Count >= 512 && !_metadataCache.ContainsKey(key))
             {
                 _metadataCache.Remove(_metadataCache.MinBy(pair => pair.Value.ExpiresAtUtc).Key);
@@ -3973,6 +4196,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ApplyEnrichedMetadata(candidate, detail, acquiredAtUtc >= genreTime);
         candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc) with { ObservationScope = scope };
         candidate.TitleMetadata = TitleMetadataMerger.WithSeerrObservation(candidate.SeerrTitleMetadata, previous, DateTime.UtcNow);
+        ProjectWinningSeerrGenres(candidate, scope);
         if (detail.Genres is not null)
         {
             foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())
@@ -3992,6 +4216,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
         }
+
+        ProjectWinningSeerrKeywords(candidate, scope);
 
         if (detail.ProductionCompanies is not null)
         {
@@ -4020,10 +4246,55 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return TitleMetadataMerger.Observations(metadata)
-            .Where(observation => observation.Source == "seerr" && observation.ObservationScope == scope
+            .Where(observation => observation.Source == SeerrMetadataSource && observation.ObservationScope == scope
                 && (field == nameof(TitleMetadataSnapshot.GenreIds) ? observation.GenreIds.HasValue : observation.Keywords.HasValue))
             .Select(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(field, observation.FetchedAtUtc) ?? observation.FetchedAtUtc)
             .DefaultIfEmpty(DateTime.MinValue).Max();
+    }
+
+    private static bool ProjectWinningSeerrKeywords(TmdbDiscoverItem candidate, string? scope)
+    {
+        if (candidate.TitleMetadata is not { } metadata)
+        {
+            return false;
+        }
+
+        var observations = TitleMetadataMerger.Observations(metadata)
+            .Where(observation => observation.Source == SeerrMetadataSource && observation.ObservationScope == scope
+                && observation.TmdbId == candidate.Id && observation.MediaType == candidate.MediaType).ToArray();
+        if (observations.Length == 0)
+        {
+            return false;
+        }
+
+        var selected = observations.Where(observation => observation.Keywords.HasValue)
+            .MaxBy(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(nameof(TitleMetadataSnapshot.Keywords), observation.FetchedAtUtc) ?? observation.FetchedAtUtc);
+        // Keep independent providers in TitleMetadata. This raw field belongs to
+        // Seerr; an explicit clear stays empty and expired evidence becomes unknown.
+        candidate.KnownKeywords = selected?.Keywords is { } keywords ? keywords.ToList() : null;
+        return true;
+    }
+
+    private static bool ProjectWinningSeerrGenres(TmdbDiscoverItem candidate, string? scope)
+    {
+        if (candidate.TitleMetadata is not { } metadata)
+        {
+            return false;
+        }
+
+        var selected = TitleMetadataMerger.Observations(metadata)
+            .Where(observation => observation.Source == SeerrMetadataSource && observation.ObservationScope == scope
+                && observation.TmdbId == candidate.Id && observation.MediaType == candidate.MediaType && observation.GenreIds.HasValue)
+            .MaxBy(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(nameof(TitleMetadataSnapshot.GenreIds), observation.FetchedAtUtc) ?? observation.FetchedAtUtc);
+        if (selected is null)
+        {
+            return false;
+        }
+
+        // Project the selected observation, not the discover list that happened to
+        // arrive first. A missing field preserves IDs; a winning explicit empty clears.
+        candidate.GenreIds = selected.GenreIds!.Value.ToList();
+        return true;
     }
 
     // Omitted fields retain known values. Explicit genre lists replace prior provider
@@ -4182,7 +4453,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        var matchedGenre = GenreNormalizer.BestMatch(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds), genrePreferences);
+        var matchedGenre = GenreNormalizer.BestMatch(ExternalCandidateFeatureBuilder.ResolveGenres(candidate), genrePreferences);
         if (features.GenreSimilarity > ReasonGenreThreshold && matchedGenre is not null)
         {
             return ("reasonGenre", matchedGenre);

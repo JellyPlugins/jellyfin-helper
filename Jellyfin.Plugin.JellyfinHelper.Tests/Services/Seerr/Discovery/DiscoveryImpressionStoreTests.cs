@@ -57,7 +57,7 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
     }
 
     [Fact]
-    public void RecentImpression_IsCensoredUntilItsResponseWindowCloses()
+    public void ConfirmedVisibilityOnlyAllowsWeakFittingAfterTheResponseWindowNeverAnObservedDislike()
     {
         var entry = new DiscoveryFeedbackEntry { TmdbId = 1, ImpressionAtUtc = DateTime.UtcNow, ShownAtUtc = DateTime.UtcNow.AddDays(-10), ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true } };
         var feedback = new DiscoveryFeedbackResult { UserId = Guid.NewGuid(), Entries = [entry] };
@@ -65,8 +65,14 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         entry.ImpressionAtUtc = DateTime.UtcNow.AddDays(-8);
         var examples = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([feedback], new Dictionary<Guid, UserWatchProfile>(), null, null, CancellationToken.None).Examples;
         var example = Assert.Single(examples);
-        Assert.True(example.IsObserved);
-        Assert.Equal(0.05, example.Label);
+        Assert.False(example.IsObserved);
+        Assert.True(example.IsPassiveSample);
+        Assert.False(example.IsContrastSample);
+        Assert.Equal(0.45, example.Label);
+        Assert.Equal(0.025, example.SampleWeight);
+        Assert.NotEmpty(TrainingMath.FilterEffectiveExamples(examples, DateTime.UtcNow, 0.01));
+        Assert.False(TrainingMath.HasRankingEvidence(examples, DateTime.UtcNow, 0.01));
+        Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(examples, DateTime.UtcNow));
     }
 
     [Fact]
@@ -174,12 +180,13 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
     [Fact]
     public void FailedDurableWrite_ThrowsAndDoesNotLeaveAnAcknowledgedMemoryImpression()
     {
-        var store = Store();
+        using var store = Store();
         var path = Assert.IsType<string>(typeof(DiscoveryFeedbackStore).GetField("_filePath", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(store));
         Directory.CreateDirectory(path);
         var user = Guid.NewGuid();
         Assert.Throws<IOException>(() => store.RecordImpressions(user, [Item(1)], DateTime.UtcNow));
-        Assert.Empty(store.LoadAll());
+        Assert.Throws<IOException>(() => store.LoadAll());
+        Assert.Null(store.LoadForUser(user));
     }
 
     [Fact]
@@ -246,9 +253,11 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         store.RecordRequested(user, 1, "movie");
         var file = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
         var before = File.ReadAllBytes(file);
-        var bounded = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory, sizeLimit: 1);
-        bounded.RecordDismissed(user, 2, "movie");
+        using var bounded = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory, sizeLimit: 1);
+        Assert.Throws<IOException>(() => bounded.RecordDismissed(user, 2, "movie"));
         Assert.Equal(before, File.ReadAllBytes(file));
+        Assert.Contains((2, "movie"), bounded.GetDismissedItems(user));
+        Assert.DoesNotContain((2, "movie"), Store().GetDismissedItems(user));
         Assert.Contains((1, "movie"), Store().GetRequestedItems(user));
     }
 

@@ -239,9 +239,9 @@ public sealed class WatchedItemInfo
     /// <summary>
     ///     Checks if the user meaningfully interacted with this item.
     /// </summary>
-    /// <returns>True if played, favorited or has any playback.</returns>
+    /// <returns>True if played, favorited, explicitly rated or has any playback.</returns>
     public bool HasMeaningfulInteraction()
-        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0;
+        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0 || (UserRating is > 0 && double.IsFinite(UserRating.Value));
 
     /// <summary>
     ///     Checks if the user actually played this item.

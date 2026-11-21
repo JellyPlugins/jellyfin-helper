@@ -46,12 +46,14 @@ public interface IDiscoveryFeedbackStore
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <param name="tmdbId">The TMDb ID of the dismissed item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
+    /// <exception cref="System.IO.IOException">The permanent dismissal could not be durably persisted.</exception>
     void RecordDismissed(Guid userId, int tmdbId, string mediaType);
 
     /// <summary>Records dismissal with a detached, server-validated prediction, without claiming viewport visibility.</summary>
     /// <param name="userId">The authenticated owning user.</param>
     /// <param name="item">The exact delivered candidate acted upon.</param>
     /// <param name="generatedAtUtc">Its original prediction timestamp.</param>
+    /// <exception cref="System.IO.IOException">The permanent dismissal could not be durably persisted.</exception>
     void RecordDismissed(Guid userId, DiscoveryRecommendation item, DateTime generatedAtUtc);
 
     /// <summary>
@@ -95,6 +97,7 @@ public interface IDiscoveryFeedbackStore
     ///     Used by the training data builder.
     /// </summary>
     /// <returns>All feedback results, one per user who has any feedback.</returns>
+    /// <remarks>Throws <see cref="System.IO.IOException"/> while confirmed receipts await persistence. Fitting must defer rather than infer empty feedback. <see cref="LoadForUser"/> may still return the last published serving/reconciliation snapshot.</remarks>
     IReadOnlyList<DiscoveryFeedbackResult> LoadAll();
 
     /// <summary>
@@ -118,4 +121,9 @@ public interface IDiscoveryFeedbackStore
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <returns>A set of requested composite keys, or an empty set if none.</returns>
     IReadOnlySet<(int TmdbId, string MediaType)> GetRequestedItems(Guid userId);
+
+    /// <summary>Returns retained or rejected confirmed request identities independently of the current recommendation pool.</summary>
+    /// <param name="userId">The owning user.</param>
+    /// <returns>Movie/TV keys whose confirmed request receipt has not yet completed.</returns>
+    IReadOnlySet<(int TmdbId, string MediaType)> GetPendingRequestedItems(Guid userId) => new HashSet<(int, string)>();
 }
