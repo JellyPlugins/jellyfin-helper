@@ -1,3 +1,4 @@
+using System.Reflection;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -61,6 +62,82 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         var results = _sut.Load();
         Assert.NotNull(results);
         Assert.Empty(results);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AsyncSaveBoundsTheWaitAndKeepsOneDetachedWriterWithoutReportingAnotherSnapshotsSuccess(bool cancel)
+    {
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var original = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "original" };
+        var save = _sut.SaveAsync([original], cancellation.Token);
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        try
+        {
+            original.UserName = "mutated after dispatch";
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.False(await save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+
+            Assert.False(await _sut.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
+            Assert.Same(writer, typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut));
+            Assert.False(writer.IsCompleted);
+            Assert.False(File.Exists(_cacheFilePath));
+        }
+        finally
+        {
+            gate.Release();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+
+        Assert.Equal("original", Assert.Single(_sut.Load()).UserName);
+        Assert.True(await _sut.SaveAsync([new DiscoveryResult { UserName = "later" }], TestContext.Current.CancellationToken));
+        Assert.Equal("later", Assert.Single(_sut.Load()).UserName);
+    }
+
+    [Fact]
+    public async Task DisposalDoesNotBreakAnAbandonedWriterOrWaitForIt()
+    {
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        await gate.WaitAsync(TestContext.Current.CancellationToken);
+        using var cancellation = new CancellationTokenSource();
+        var save = _sut.SaveAsync([], cancellation.Token);
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_sut)!;
+        try
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            _sut.Dispose();
+            _sut.Dispose();
+            Assert.False(writer.IsCompleted);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => _sut.SaveAsync([], TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            gate.Release();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
+    public async Task AsyncSaveValidatesInputAndReportsWriteFailuresWithoutInventingPersistedResults()
+    {
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _sut.SaveAsync(null!, TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.SaveAsync([], cancellation.Token));
+        File.WriteAllText(_cacheFilePath, "file instead of directory");
+        using var blocked = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, Path.Join(_cacheFilePath, "results.json"));
+        Assert.False(await blocked.SaveAsync([], TestContext.Current.CancellationToken));
     }
 
     [Fact]

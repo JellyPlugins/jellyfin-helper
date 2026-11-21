@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -148,7 +149,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Once);
         _feedback.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -201,13 +202,33 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";
         Plugin.Instance!.Configuration.RecommendationsTaskMode = TaskMode.DryRun;
 
-        _history.Setup(h => h.GetAllUserWatchProfiles())
-            .Returns(new Collection<UserWatchProfile>());
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = user, UserName = "active", WatchedMovieCount = 3,
+            WatchedItems = new Collection<WatchedItemInfo>(Enumerable.Range(0, 3).Select(_ => new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"]
+            }).ToList())
+        };
+        _history.Setup(h => h.GetAllUserWatchProfiles()).Returns(new Collection<UserWatchProfile> { profile });
+        _handler.RegisterResponse(HttpMethod.Get, "/genre/28?page=1", HttpStatusCode.OK,
+            """{"results":[{"id":801,"title":"Unseen action","voteAverage":8.5,"popularity":50,"genreIds":[28],"releaseDate":"2023-01-01"}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/movie/801", HttpStatusCode.OK, """{"id":801,"genres":[{"id":28}]}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/tv/801", HttpStatusCode.OK, """{"id":801,"genres":[{"id":28}]}""");
+        var prior = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new DiscoveryRecommendation { TmdbId = 77, Title = "prior pool" }] };
+        Assert.True(_cache.Save([prior]));
+        var before = System.Text.Json.JsonSerializer.Serialize(_cache.Load());
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(_cache.Load()));
 
         _feedback.Verify(
-            f => f.RecordShown(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>()),
+            f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        // Prove this same fixture reaches a persistable pool, rather than an early empty-user return.
+        Plugin.Instance.Configuration.RecommendationsTaskMode = TaskMode.Activate;
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.Contains(Assert.Single(_cache.Load()).Recommendations, item => item.TmdbId == 801);
     }
 }

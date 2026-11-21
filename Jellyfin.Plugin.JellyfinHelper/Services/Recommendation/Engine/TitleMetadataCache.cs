@@ -28,11 +28,14 @@ public sealed class TitleMetadataCache
     private readonly Dictionary<string, DateTime> _attempts = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reservations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _aliases = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string[]> _entryAliases = new(StringComparer.Ordinal);
     private readonly IServerConfigurationManager? _serverConfiguration;
     private readonly IFileSystem? _fileSystem;
     private readonly string? _cachePath;
     private readonly TimeProvider _clock;
     private Task<bool>? _pendingSave;
+    private long _generation;
+    private long _savedGeneration;
     private int _nextRefreshIndex;
 
     /// <summary>Initializes a new instance of the <see cref="TitleMetadataCache"/> class.</summary>
@@ -56,6 +59,9 @@ public sealed class TitleMetadataCache
 
     /// <summary>Gets the live optional integration check; persisted Trakt data is not proof the plugin is still active.</summary>
     internal Func<PluginConfiguration, bool> TraktMetadataAvailable { get; init; } = config => config.TraktSourcingEnabled;
+
+    /// <summary>Gets the caller-wait clock; production keeps the same two-second persistence deadline.</summary>
+    internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Returns last-known-good metadata, including bounded stale fallback during provider outages.</summary>
     /// <param name="config">The current provider configuration.</param>
@@ -87,10 +93,25 @@ public sealed class TitleMetadataCache
             var snapshots = keys.GroupBy(key => key.Split(':')[0]).Select(group =>
             {
                 var observations = group.Select(key => ReadEntry(key, now)).OfType<TitleMetadataSnapshot>().Distinct()
-                    .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot))
-                    .Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray();
-                return ReconcileSourceObservations(observations, now);
+                    .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot)).ToArray();
+                var exact = observations.FirstOrDefault(snapshot => tmdbId > 0 && snapshot.TmdbId == tmdbId);
+                if (exact is not null)
+                {
+                    observations = observations.Where(snapshot => TitleProviderIdentity.Compatible(exact, snapshot)).ToArray();
+                }
+
+                if (ConflictingIdentities(observations))
+                {
+                    return null;
+                }
+
+                return ReconcileSourceObservations(observations.Select(snapshot => LinkSuppliedIdentity(snapshot, identity)).ToArray(), now);
             }).OfType<TitleMetadataSnapshot>().ToArray();
+            if (tmdbId <= 0 && ConflictingIdentities(snapshots))
+            {
+                return null;
+            }
+
             return TitleMetadataMerger.Combine(snapshots);
         }
     }
@@ -140,6 +161,14 @@ public sealed class TitleMetadataCache
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
 
+    private static bool ConflictingIdentities(IEnumerable<TitleMetadataSnapshot> observations)
+    {
+        var snapshots = observations.ToArray();
+        return CompetingClaims(snapshots.Where(snapshot => snapshot.TmdbId > 0).Select(snapshot => snapshot.TmdbId))
+            || CompetingClaims(snapshots.Where(snapshot => snapshot.TvdbId > 0).Select(snapshot => snapshot.TvdbId))
+            || CompetingClaims(snapshots.Select(snapshot => TitleProviderIdentity.NormalizeImdb(snapshot.ImdbId)).OfType<string>());
+    }
+
     internal static TitleMetadataSnapshot? ReconcileSourceObservations(TitleMetadataSnapshot[] snapshots, DateTime now)
     {
         if (snapshots.Length == 1)
@@ -154,7 +183,11 @@ public sealed class TitleMetadataCache
         foreach (var current in snapshots.OrderBy(snapshot => snapshot.FetchedAtUtc).GroupBy(snapshot => snapshot.FetchedAtUtc)
             .Select(group => TitleMetadataMerger.Combine(group.ToArray())!))
         {
-            combined = MergeFields(combined is null ? current : LinkSuppliedIdentity(current, combined), combined, now, preferNewerFields: true);
+            // Only the primary anchor is inherited here. MergeFields already retains
+            // missing TVDB/IMDb links with their original field acquisition times;
+            // copying them into the incoming observation would falsely renew them.
+            var anchored = current.TmdbId > 0 || combined is null ? current : current with { TmdbId = combined.TmdbId };
+            combined = MergeFields(anchored, combined, now, preferNewerFields: true);
         }
 
         return combined is null ? null : combined with { SourceObservations = null, ObservationScope = snapshots[0].ObservationScope };
@@ -289,6 +322,7 @@ public sealed class TitleMetadataCache
             }
 
             _entries[key] = previous is null && snapshot.FieldFetchedAtUtc is null ? snapshot : MergeFields(snapshot, previous, Now);
+            _generation++;
             RegisterAliases(key, _entries[key]);
             return ReadUsableEntry(key, Now);
         }
@@ -302,12 +336,22 @@ public sealed class TitleMetadataCache
 
     private void RemoveAliases(string key)
     {
-        foreach (var pair in _aliases.Where(pair => pair.Value.Contains(key)).ToArray())
+        if (!_entryAliases.Remove(key, out var aliases))
         {
-            pair.Value.Remove(key);
-            if (pair.Value.Count == 0)
+            return;
+        }
+
+        foreach (var alias in aliases)
+        {
+            if (!_aliases.TryGetValue(alias, out var entries))
             {
-                _aliases.Remove(pair.Key);
+                continue;
+            }
+
+            entries.Remove(key);
+            if (entries.Count == 0)
+            {
+                _aliases.Remove(alias);
             }
         }
     }
@@ -316,7 +360,9 @@ public sealed class TitleMetadataCache
     {
         RemoveAliases(key);
         var scope = key.Split(':')[0];
-        foreach (var alias in IdentityKeys(scope, snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId))
+        var aliases = IdentityKeys(scope, snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).ToArray();
+        _entryAliases[key] = aliases;
+        foreach (var alias in aliases)
         {
             if (!_aliases.TryGetValue(alias, out var matches))
             {
@@ -364,7 +410,7 @@ public sealed class TitleMetadataCache
         }
     }
 
-    private static string SourceDigest(MetadataSourceScope source, string? language)
+    internal static string SourceDigest(MetadataSourceScope source, string? language)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', source.Source, source.Url, source.ApiKey, language))));
 
     internal (int TmdbId, string MediaType)[] ReserveRefreshes(PluginConfiguration config, IEnumerable<(int TmdbId, string MediaType)> titles, int maximum)
@@ -494,9 +540,13 @@ public sealed class TitleMetadataCache
             try
             {
                 Dictionary<string, TitleMetadataSnapshot> snapshot;
+                long generation;
                 lock (_gate)
                 {
-                    snapshot = new Dictionary<string, TitleMetadataSnapshot>(_entries, StringComparer.Ordinal);
+                    var acquired = Now;
+                    snapshot = _entries.Keys.Select(key => (Key: key, Metadata: ReadUsableEntry(key, acquired)))
+                        .Where(entry => entry.Metadata is not null).ToDictionary(entry => entry.Key, entry => entry.Metadata!, StringComparer.Ordinal);
+                    generation = _generation;
                 }
 
                 var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Options);
@@ -510,6 +560,11 @@ public sealed class TitleMetadataCache
                 _fileSystem.Directory.CreateDirectory(Path.GetDirectoryName(_cachePath)!);
                 _fileSystem.File.WriteAllText(_cachePath + ".tmp", json);
                 _fileSystem.File.Move(_cachePath + ".tmp", _cachePath, overwrite: true);
+                lock (_gate)
+                {
+                    _savedGeneration = generation;
+                }
+
                 return true;
             }
             catch (Exception ex) when (!ex.IsFatal())
@@ -531,6 +586,12 @@ public sealed class TitleMetadataCache
         }
 
         Task<bool> writer;
+        long requestedGeneration;
+        lock (_gate)
+        {
+            requestedGeneration = _generation;
+        }
+
         lock (_writerGate)
         {
             // Safe abandonment is bounded to one writer per cache. Repeated scheduled
@@ -548,7 +609,11 @@ public sealed class TitleMetadataCache
 
         try
         {
-            return await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            var saved = await writer.WaitAsync(TimeSpan.FromSeconds(2), WaitTimeProvider, cancellationToken).ConfigureAwait(false);
+            lock (_gate)
+            {
+                return saved && _savedGeneration >= requestedGeneration;
+            }
         }
         catch (TimeoutException)
         {

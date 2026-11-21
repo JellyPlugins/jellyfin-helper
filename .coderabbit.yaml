@@ -7,7 +7,6 @@ reviews:
   review_status: true
   collapse_walkthrough: false
   # Exclude generated files and documentation from review.
-  # i18n is excluded to stay within the review file limit; key/genre tests remain active.
   path_filters:
     - "!**/*.md"
     - "!**/PluginPages/configPage.html"
@@ -16,7 +15,6 @@ reviews:
     - "!**/node_modules/**"
     - "!docs/**"
     - "!manifest.json"
-    - "!Jellyfin.Plugin.JellyfinHelper/i18n/**"
   auto_review:
     enabled: true
     drafts: false

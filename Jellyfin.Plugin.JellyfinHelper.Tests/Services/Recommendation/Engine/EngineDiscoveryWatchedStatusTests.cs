@@ -24,6 +24,25 @@ public sealed class EngineDiscoveryWatchedStatusTests
     private static readonly IReadOnlyList<RecommendationResult> NoPreviousResults =
         new List<RecommendationResult>();
 
+    [Fact]
+    public void IncompleteWatchedReconciliationDefersFittingWithoutDiscardingItsFalseReceipt()
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var user = Guid.NewGuid();
+        var movie = Guid.NewGuid();
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns([MakeRequestedNotWatched(user, 550, "movie")]);
+        harness.FeedbackStore.Setup(store => store.MarkWatchedAsync(user, It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        WireLibraryItems(harness, [MakeMovieWithTmdb(movie, 550)]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
+        {
+            UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = movie, ItemType = "Movie", Played = true }]
+        }]);
+        Assert.False(engine.TrainStrategy([new RecommendationResult { UserId = user, Recommendations = [new RecommendedItem { ItemId = movie }] }], cancellationToken: TestContext.Current.CancellationToken));
+        harness.LibraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Length == 1)), Times.Never);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user, It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private static Movie MakeMovieWithTmdb(Guid id, int tmdbId)
     {
         return new Movie
@@ -33,6 +52,62 @@ public sealed class EngineDiscoveryWatchedStatusTests
             Path = $"/media/movies/{id:N}.mkv",
             ProviderIds = new Dictionary<string, string> { ["Tmdb"] = tmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture) }
         };
+    }
+
+    [Fact]
+    public void WatchedReconciliationCannotSubmitThousandsOfUnrelatedLibraryWatchesOrTheOtherMediaType()
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var user = Guid.NewGuid();
+        var movie = MakeMovieWithTmdb(Guid.NewGuid(), 550);
+        var series = MakeSeriesWithTmdb(Guid.NewGuid(), 550);
+        var unrelated = Enumerable.Range(10000, 4097).Select(id => MakeMovieWithTmdb(Guid.NewGuid(), id)).ToList();
+        var items = unrelated.Cast<BaseItem>().Prepend(series).Prepend(movie).ToList();
+        var profile = new UserWatchProfile
+        {
+            UserId = user,
+            WatchedItems = new Collection<WatchedItemInfo>(items.Select(item => new WatchedItemInfo
+            {
+                ItemId = item.Id, ItemType = item is Series ? "Series" : "Movie", Played = true
+            }).ToList())
+        };
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns([MakeRequestedNotWatched(user, 550, "movie")]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        WireLibraryItems(harness, items);
+        Assert.False(engine.TrainStrategy(NoPreviousResults, cancellationToken: TestContext.Current.CancellationToken));
+        var expected = (550, "movie");
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user,
+            It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Count == 1 && keys.Contains(expected)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WithheldTrainingFeedbackDoesNotPreventWatchedRecoveryAndUnrelatedMissingReceiptsStillDeferFitting(bool otherReceiptMissing)
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var user = Guid.NewGuid();
+        var movie = Guid.NewGuid();
+        var ready = false;
+        var feedback = MakeRequestedNotWatched(user, 550, "movie");
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns(() =>
+            ready && !otherReceiptMissing ? [feedback] : throw new IOException("confirmed receipt not durable"));
+        harness.FeedbackStore.Setup(store => store.LoadForUser(user)).Returns(feedback);
+        harness.FeedbackStore.Setup(store => store.MarkWatchedAsync(user, It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => ready = true).ReturnsAsync(true);
+        WireLibraryItems(harness, [MakeMovieWithTmdb(movie, 550)]);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
+        {
+            UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = movie, ItemType = "Movie", Played = true }]
+        }]);
+        Assert.False(engine.TrainStrategy(NoPreviousResults, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(ready);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user, It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Once);
+        harness.FeedbackStore.Verify(store => store.LoadAll(), Times.Exactly(2));
+        harness.PluginLog.Verify(log => log.LogInfo(It.IsAny<string>(), It.Is<string>(message => message.Contains("Training deferred")), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), otherReceiptMissing ? Times.Once() : Times.Never());
     }
 
     private static Series MakeSeriesWithTmdb(Guid id, int tmdbId)
@@ -106,9 +181,10 @@ public sealed class EngineDiscoveryWatchedStatusTests
 
         var expected = (tmdbId, "movie");
         harness.FeedbackStore.Verify(
-            f => f.MarkWatched(
+            f => f.MarkWatchedAsync(
                 userId,
-                It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(s => s.Contains(expected))),
+                It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(s => s.Contains(expected)),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -138,7 +214,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         harness.FeedbackStore.Verify(
-            store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+            store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -155,7 +231,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
 
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
-        harness.FeedbackStore.Verify(store => store.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()), Times.Never);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -171,7 +247,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         var expected = (1399, "tv");
-        harness.FeedbackStore.Verify(store => store.MarkWatched(user, It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Contains(expected))), Times.Once);
+        harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user, It.Is<IReadOnlySet<(int TmdbId, string MediaType)>>(keys => keys.Contains(expected)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -205,7 +281,7 @@ public sealed class EngineDiscoveryWatchedStatusTests
         harness.Engine.TrainStrategy(NoPreviousResults, incremental: false, CancellationToken.None);
 
         harness.FeedbackStore.Verify(
-            f => f.MarkWatched(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>()),
+            f => f.MarkWatchedAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 

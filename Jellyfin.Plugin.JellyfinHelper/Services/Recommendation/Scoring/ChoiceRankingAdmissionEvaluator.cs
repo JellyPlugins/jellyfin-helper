@@ -16,19 +16,15 @@ internal static class ChoiceRankingAdmissionEvaluator
     internal static AdmissionDecision? Evaluate(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime referenceTime, (double Alpha, double Neural) caps, Func<IReadOnlyCollection<Guid>, string?>? reserve)
     {
         var cal = Capture(calibration, referenceTime);
-        var test = Capture(acceptance, referenceTime);
-        var users = cal.Select(row => row.UserId).ToHashSet();
-        test = test.Where(row => users.Contains(row.UserId)).ToArray();
-        if (!Supported(cal) || !Supported(test))
+        if (!Supported(cal))
         {
             return null;
         }
 
         cal = Score(cal, models);
-        test = Score(test, models);
-        if (!ValidScores(cal) || !ValidScores(test))
+        if (!ValidScores(cal))
         {
-            return AdmissionDecision.Unknown("InvalidChoicePrediction", cal.Length, test.Length);
+            return AdmissionDecision.Unknown("InvalidChoicePrediction", cal.Length, acceptance.Count);
         }
 
         var noNeural = Calibrate(cal, caps.Alpha, 0);
@@ -36,6 +32,21 @@ internal static class ChoiceRankingAdmissionEvaluator
         if (selected.Neural > 0 && !HasNeuralIncrement(cal, selected, noNeural, LowerImprovement(cal, noNeural.Score, selected.Score)))
         {
             selected = noNeural;
+        }
+
+        // As in ordinary admission, acceptance can assess/withhold only this fixed
+        // calibration candidate. Its support and predictions cannot change selection.
+        var users = cal.Select(row => row.UserId).ToHashSet();
+        var test = Capture(acceptance, referenceTime).Where(row => users.Contains(row.UserId)).ToArray();
+        if (!Supported(test))
+        {
+            return AdmissionDecision.Unknown("InsufficientIndependentRankingEvidence", cal.Length, test.Length) with { Candidate = selected };
+        }
+
+        test = Score(test, models);
+        if (!ValidScores(test))
+        {
+            return AdmissionDecision.Unknown("InvalidChoicePrediction", cal.Length, test.Length) with { Candidate = selected };
         }
 
         var failure = reserve?.Invoke(test.Select(row => row.ObservationId).ToArray());
@@ -86,11 +97,12 @@ internal static class ChoiceRankingAdmissionEvaluator
     }
 
     private static ChoiceRow[] Capture(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
-        => examples.Where(example => example.IsObserved && example.Label > 0.5 && example.HasStableObservationId
+        => examples.Where(example => example.IsObserved && example.HasStableObservationId)
+            .GroupBy(example => (example.UserId, example.ObservationId))
+            .Select(group => EnsembleAdmissionEvaluator.SelectObservationView(group, referenceTime))
+            .Where(example => example.Label > 0.5
                 && example.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight
                 && example.Choice?.IsValid(example.ObservationId, referenceTime) == true)
-            .GroupBy(example => (example.UserId, example.ObservationId))
-            .Select(group => group.OrderByDescending(example => example.Choice!.ChosenAtUtc).First())
             .Select(example => new ChoiceRow(
                 example.UserId,
                 example.ObservationId,

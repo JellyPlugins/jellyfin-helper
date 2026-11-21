@@ -80,10 +80,16 @@ internal static class TitleMetadataMerger
             times[nameof(TitleMetadataSnapshot.AnimeHint)] = AcquiredAt(animeHint, nameof(TitleMetadataSnapshot.AnimeHint));
         }
 
+        var television = ordered.FirstOrDefault(snapshot => snapshot.TvdbId > 0);
+        if (television is not null)
+        {
+            times[nameof(TitleMetadataSnapshot.TvdbId)] = AcquiredAt(television, nameof(TitleMetadataSnapshot.TvdbId));
+        }
+
         var merged = new TitleMetadataSnapshot
         {
             TmdbId = ordered.Select(snapshot => snapshot.TmdbId).FirstOrDefault(id => id > 0),
-            TvdbId = ordered.Select(snapshot => snapshot.TvdbId).FirstOrDefault(id => id > 0),
+            TvdbId = television?.TvdbId ?? 0,
             ImdbId = Select(snapshot => snapshot.ImdbId, nameof(TitleMetadataSnapshot.ImdbId)),
             MediaType = ordered[0].MediaType,
             GenreIds = genres?.GenreIds,

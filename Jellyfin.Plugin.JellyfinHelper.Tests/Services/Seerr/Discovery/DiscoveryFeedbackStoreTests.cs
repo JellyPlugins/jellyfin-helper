@@ -54,6 +54,644 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task FullRetryQueueRestartsWithoutAdmittingOrAcknowledgingTheRejectedReceiptAndRecoversOnlyThatIdentity()
+    {
+        var fail = true;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() =>
+        {
+            lock (gate)
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+            }
+        }, CancellationToken.None);
+        var user = Guid.NewGuid();
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var writes = Enumerable.Range(1, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)).ToArray();
+            release.Set();
+            Assert.All(await Task.WhenAll(writes).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.False(saved));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            fail = false;
+            Assert.False(await store.RecordRequestedAsync(user, 9999, "movie", TestContext.Current.CancellationToken));
+            Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal(64, store.GetRequestedItems(user).Count);
+            Assert.DoesNotContain((9999, "movie"), store.GetRequestedItems(user));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            store.RecordDismissed(user, 9999, "movie");
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.True(await store.RecordRequestedAsync(user, 9999, "tv", TestContext.Current.CancellationToken));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.True(await store.RecordRequestedAsync(Guid.NewGuid(), 9999, "movie", TestContext.Current.CancellationToken));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (9999, "movie") }, TestContext.Current.CancellationToken));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.True(await store.RecordRequestedAsync(user, 9999, "movie", TestContext.Current.CancellationToken));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.NotEmpty(store.LoadAll());
+            Assert.True(Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 9999 && entry.MediaType == "movie").WasWatched);
+        }
+        finally
+        {
+            release.Set();
+            await holder.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task WatchedReceiptWaitsForItsFailedRequestAndReplaysWithTheDurableRequestWithoutInventingMissingKeys()
+    {
+        var fail = true;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        Assert.False(await store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken));
+        await CurrentWriter(store);
+        Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (600, "movie"), (99, "tv") }, TestContext.Current.CancellationToken));
+        await CurrentWriter(store);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        await CurrentWriter(store);
+        var entries = Assert.Single(store.LoadAll()).Entries;
+        Assert.True(Assert.Single(entries, entry => entry.TmdbId == 600).WasWatched);
+        Assert.DoesNotContain(entries, entry => entry.TmdbId == 99);
+        Assert.True(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (98, "tv") }, TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 98);
+    }
+
+    [Fact]
+    public async Task AnOlderDismissalRetryCannotReplaceTheTimestampOfANewerSuccessfulDismissal()
+    {
+        var fail = true;
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = clock,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordDismissed(user, 600, "movie");
+        clock.Now = clock.Now.AddMinutes(1);
+        fail = false;
+        store.RecordDismissed(user, 600, "movie");
+        var newer = Assert.Single(store.LoadForUser(user)!.Entries).DismissedAtUtc;
+        Assert.Equal(clock.Now, newer);
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        Assert.Equal(newer, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 600).DismissedAtUtc);
+        Assert.Equal(newer, Assert.Single(CreateStore().LoadForUser(user)!.Entries, entry => entry.TmdbId == 600).DismissedAtUtc);
+    }
+
+    [Fact]
+    public async Task TrainingSnapshotSelectionCannotReturnANewerPartialSnapshotAfterItsEarlierReadinessCheck()
+    {
+        var pause = false;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            BeforeTrainingSnapshotSelection = () =>
+            {
+                if (!pause) return;
+                entered.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+            },
+            WriteFeedback = (path, contents) =>
+            {
+                if (contents.Contains("600", StringComparison.Ordinal)) throw new IOException("request A unavailable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordGenerated(user, "user", [new DiscoveryRecommendation { TmdbId = 1 }]);
+        pause = true;
+        var read = Task.Run(() => store.LoadAll(), CancellationToken.None);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(await store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken));
+            await CurrentWriter(store);
+            Assert.True(await store.RecordRequestedAsync(user, 601, "movie", TestContext.Current.CancellationToken));
+            await CurrentWriter(store);
+            release.Set();
+            await Assert.ThrowsAsync<IOException>(() => read.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static Task<bool> CurrentWriter(DiscoveryFeedbackStore store)
+        => (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+
+    [Fact]
+    public async Task AnOlderDurableDismissalCannotRecoverANewerRejectedDismissal()
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var original = clock.Now;
+        var fail = true;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = clock,
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordDismissed(user, 1, "movie");
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() =>
+        {
+            lock (gate)
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+            }
+        }, CancellationToken.None);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var pending = Enumerable.Range(2, 63).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)).ToArray();
+            release.Set();
+            Assert.All(await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.False(saved));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            clock.Now = original.AddMinutes(1);
+            store.RecordDismissed(user, 1, "movie");
+            fail = false;
+            Assert.False(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 999 }], clock.Now, TestContext.Current.CancellationToken));
+            Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal(original, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 1).DismissedAtUtc);
+            Assert.Throws<IOException>(() => store.LoadAll());
+            clock.Now = original.AddMinutes(2);
+            store.RecordDismissed(user, 1, "movie");
+            Assert.Equal(clock.Now, Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 1).DismissedAtUtc);
+        }
+        finally
+        {
+            release.Set();
+            await holder.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARejectedDuplicateIsRecoveredWhenTheOlderExactRequestOrWatchBecomesDurable(bool watched)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var original = clock.Now;
+        var fail = false;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = clock,
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        if (watched) store.RecordRequested(user, 1, "movie");
+        fail = true;
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() =>
+        {
+            lock (gate)
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+            }
+        }, CancellationToken.None);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var first = watched
+                ? store.MarkWatchedAsync(user, new HashSet<(int, string)> { (1, "movie") }, TestContext.Current.CancellationToken)
+                : store.RecordRequestedAsync(user, 1, "movie", TestContext.Current.CancellationToken);
+            var pending = Enumerable.Range(2, 63).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)).Prepend(first).ToArray();
+            release.Set();
+            Assert.All(await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.False(saved));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            clock.Now = original.AddMinutes(1);
+            fail = false;
+            var duplicate = watched
+                ? store.MarkWatchedAsync(user, new HashSet<(int, string)> { (1, "movie") }, TestContext.Current.CancellationToken)
+                : store.RecordRequestedAsync(user, 1, "movie", TestContext.Current.CancellationToken);
+            Assert.False(await duplicate.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 1);
+            Assert.Equal(original, entry.RequestedAtUtc);
+            Assert.Equal(watched, entry.WasWatched);
+            Assert.Equal(watched ? original : (DateTime?)null, entry.WatchedAtUtc);
+        }
+        finally
+        {
+            release.Set();
+            await holder.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task ControlledWaitDeadlineCanExpireWithoutCancelingOrAcknowledgingTheStillPendingReceipt()
+    {
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = clock,
+            WriteFeedback = (path, contents) =>
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var receipt = store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            clock.ExpireDeadlines();
+            Assert.False(await receipt.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.False(CurrentWriter(store).IsCompleted);
+            Assert.Throws<IOException>(() => store.LoadAll());
+        }
+        finally
+        {
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        Assert.Contains((600, "movie"), store.GetRequestedItems(user));
+        Assert.NotEmpty(store.LoadAll());
+    }
+
+    [Fact]
+    public async Task SaturatedRejectionLedgerStaysBoundedAndCannotClaimRecoveryAfterLosingAnIdentity()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var pending = new List<Task<bool>> { store.RecordRequestedAsync(user, 1, "movie", cancellation.Token) };
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            for (var id = 2; id <= 65; id++) pending.Add(store.RecordRequestedAsync(user, id, "movie", cancellation.Token));
+            for (var id = 10000; id <= 14096; id++) Assert.False(await store.RecordRequestedAsync(user, id, "movie", cancellation.Token));
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var ledger = (System.Collections.IDictionary)typeof(DiscoveryFeedbackStore).GetField("_rejectedReceipts", flags)!.GetValue(store)!;
+            Assert.Equal(4096, ledger.Count);
+            Assert.True((bool)typeof(DiscoveryFeedbackStore).GetField("_untrackedRejection", flags)!.GetValue(store)!);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.True(await store.RecordRequestedAsync(user, 14096, "movie", TestContext.Current.CancellationToken));
+            Assert.Throws<IOException>(() => store.LoadAll());
+        }
+        finally
+        {
+            cancellation.Cancel();
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    private sealed class ReceiptClock : TimeProvider
+    {
+        internal DateTime Now { get; set; }
+
+        public override DateTimeOffset GetUtcNow() => new(Now);
+    }
+
+    [Fact]
+    public async Task FailedCardActionRetryPreservesOriginalPredictionEvidenceAcquisitionAndSavedInputs()
+    {
+        var fail = true;
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var acquired = clock.Now;
+        var generated = acquired.AddDays(-1);
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            ReceiptTimeProvider = clock,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var item = new DiscoveryRecommendation { TmdbId = 600, ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        store.RecordRequested(user, item, generated);
+        item.ScoringFeatures.GenreSimilarity = .1;
+        clock.Now = acquired.AddMinutes(1);
+        fail = false;
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], clock.Now, TestContext.Current.CancellationToken));
+        var saved = Assert.Single(CreateStore().LoadForUser(user)!.Entries, entry => entry.TmdbId == 600);
+        Assert.Equal(generated, saved.ShownAtUtc);
+        Assert.Equal(acquired, saved.RequestedAtUtc);
+        Assert.Equal(acquired, saved.PredictionEvidenceAtUtc);
+        Assert.Equal(.7, saved.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Fact]
+    public async Task ConsecutiveGenerationAcknowledgementsCannotStrandWorkDuringWriterIdleHandoff()
+    {
+        var store = CreateStore();
+        var user = Guid.NewGuid();
+        for (var index = 1; index <= 100; index++)
+        {
+            Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = index }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        }
+
+        Assert.Equal(100, store.LoadForUser(user)!.Entries.Count);
+    }
+
+    [Fact]
+    public async Task ConfirmedFeedbackBackpressureBoundsTheQueueAndWithholdsIncompleteTrainingEvidence()
+    {
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider()
+        };
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() =>
+        {
+            lock (gate)
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+            }
+        }, CancellationToken.None);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var user = Guid.NewGuid();
+        var pending = new List<Task<bool>>();
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            pending.Add(store.RecordRequestedAsync(user, 1, "movie", cancellation.Token));
+            // One operation may already have left the bounded queue to acquire the lock.
+            for (var index = 2; index <= 65; index++) pending.Add(store.RecordRequestedAsync(user, index, "movie", cancellation.Token));
+            Assert.False(await store.RecordRequestedAsync(user, 66, "movie", cancellation.Token));
+            await Assert.ThrowsAsync<IOException>(() => Task.Run(() => store.LoadAll(), CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            release.Set();
+            await holder.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+            await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        Assert.InRange(store.GetRequestedItems(user).Count, 64, 65);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmedRequestsAndWatchUpdatesShareOneWriterWithoutBlockingCancellationOrUsingObsoleteTrainingOutcomes(bool cancel)
+    {
+        var user = Guid.NewGuid();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var stall = false;
+        var writes = 0;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = cancel ? new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider() : TimeProvider.System,
+            WriteFeedback = (path, contents) =>
+            {
+                Interlocked.Increment(ref writes);
+                if (stall)
+                {
+                    started.TrySetResult();
+                    release.Wait(TestContext.Current.CancellationToken);
+                }
+
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        store.RecordRequested(user, 1, "movie");
+        stall = true;
+        var generation = store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        Task<bool>? writer = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+            var requestedAt = DateTime.UtcNow;
+            var request = store.RecordRequestedAsync(user, 600, "tv", cancellation.Token);
+            var capturedBy = DateTime.UtcNow;
+            var watched = store.MarkWatchedAsync(user, new HashSet<(int, string)> { (1, "movie") }, cancellation.Token);
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => watched.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.All(await Task.WhenAll(request, watched).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken), result => Assert.False(result));
+            }
+
+            Assert.Throws<IOException>(() => store.LoadAll());
+            Assert.Contains((1, "movie"), store.GetRequestedItems(user));
+            Assert.Equal(2, writes);
+            Assert.Same(writer, typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
+            release.Set();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            var entries = Assert.Single(store.LoadAll()).Entries;
+            Assert.True(Assert.Single(entries, entry => entry.TmdbId == 1).WasWatched);
+            var requested = Assert.Single(entries, entry => entry.TmdbId == 600);
+            Assert.InRange(requested.RequestedAtUtc!.Value, requestedAt, capturedBy);
+            Assert.Equal("tv", requested.MediaType);
+            Assert.Null(requested.ScoringFeatures);
+        }
+        finally
+        {
+            release.Set();
+            if (writer is not null) await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await generation;
+        }
+    }
+
+    [Fact]
+    public async Task FailedConfirmedWritesRetainTheirReceiptForABoundedLaterRetryAndWithholdObsoleteOutcomeViews()
+    {
+        var user = Guid.NewGuid();
+        var fail = true;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("storage unavailable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var acquired = DateTime.UtcNow;
+        Assert.False(await store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken));
+        var writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        Assert.False(await writer);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        var request = Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 600);
+        Assert.True(request.RequestedAtUtc >= acquired);
+        Assert.Null(request.ScoringFeatures);
+        var recorded = request.RequestedAtUtc;
+        Assert.True(await store.RecordRequestedAsync(user, 600, "movie", TestContext.Current.CancellationToken));
+        Assert.Equal(recorded, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 600).RequestedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StalledGeneratedFeedbackDoesNotBlockCancellationOrConfirmedReadsAndCannotAccumulateWriters(bool cancel)
+    {
+        var user = Guid.NewGuid();
+        var generated = DateTime.UtcNow.AddDays(-3);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var stall = false;
+        var writes = 0;
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WaitTimeProvider = cancel ? new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider() : TimeProvider.System,
+            WriteFeedback = (path, contents) =>
+            {
+                Interlocked.Increment(ref writes);
+                if (stall)
+                {
+                    started.TrySetResult();
+                    release.Wait(TestContext.Current.CancellationToken);
+                }
+
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        store.RecordRequested(user, 1, "movie");
+        store.RecordDismissed(user, 2, "tv");
+        stall = true;
+        var original = new DiscoveryRecommendation { TmdbId = 500, Title = "original", Genres = ["Animation"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var recording = store.RecordGeneratedAsync(user, "user", [original], generated, cancellation.Token);
+        var writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            original.Title = "changed after dispatch";
+            original.ScoringFeatures.GenreSimilarity = .1;
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recording.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.False(await recording.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+
+            Assert.False(await store.RecordGeneratedAsync(user, "later", [new DiscoveryRecommendation { TmdbId = 600 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+            Assert.Equal(3, writes);
+            var reads = Task.Run(() =>
+            {
+                Assert.Contains((1, "movie"), store.GetRequestedItems(user));
+                Assert.Contains((2, "tv"), store.GetDismissedItems(user));
+                Assert.Equal(2, store.LoadForUser(user)!.Entries.Count);
+                Assert.Equal(2, Assert.Single(store.LoadAll()).Entries.Count);
+            }, TestContext.Current.CancellationToken);
+            await reads.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.False(writer.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+
+        var entry = Assert.Single(CreateStore().LoadForUser(user)!.Entries, row => row.TmdbId == 500);
+        Assert.Equal("original", entry.Title);
+        Assert.Equal(generated, entry.ShownAtUtc);
+        Assert.Null(entry.ScoringFeatures);
+        Assert.False(entry.HasConfirmedPrediction);
+        Assert.True(await store.RecordGeneratedAsync(user, "later", [new DiscoveryRecommendation { TmdbId = 600 }], generated, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AsyncGeneratedFeedbackValidatesInputAndDoesNotClaimFailedPersistence()
+    {
+        var user = Guid.NewGuid();
+        var store = new DiscoveryFeedbackStore(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryFeedbackStore>>().Object, _tempDir)
+        {
+            WriteFeedback = (_, _) => throw new IOException("read only")
+        };
+        Assert.False(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        Assert.Null(store.LoadForUser(user));
+        Assert.True(await store.RecordGeneratedAsync(user, "user", [], null, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => store.RecordGeneratedAsync(user, null!, [], null, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => store.RecordGeneratedAsync(user, "user", null!, null, TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.RecordGeneratedAsync(user, "user", [], null, cancellation.Token));
+    }
+
+    [Fact]
     public void ConfirmedRequestRetainsUnderlyingMetadataAndTheExactPredictionThroughRefreshReloadAndTraining()
     {
         var store = CreateStore();

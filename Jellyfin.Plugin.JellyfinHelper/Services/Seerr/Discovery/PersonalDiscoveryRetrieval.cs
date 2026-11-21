@@ -36,8 +36,7 @@ internal static class PersonalDiscoveryRetrieval
             }
         }
 
-        foreach (var seed in FamilySeeds(titles).Where(seed => !result.Any(pair => pair.Value == seed.Id
-            && (pair.Key == seed.Type || pair.Key.StartsWith(seed.Type + ":", StringComparison.Ordinal)))).Take(2))
+        foreach (var seed in FamilySeeds(titles, result).Take(2))
         {
             result[seed.Key] = seed.Id;
         }
@@ -45,7 +44,7 @@ internal static class PersonalDiscoveryRetrieval
         return result;
     }
 
-    private static IEnumerable<(string Key, string Type, int Id)> FamilySeeds((string Type, int Id, WatchedItemInfo[] Rows)[] titles)
+    private static IEnumerable<(string Key, string Type, int Id)> FamilySeeds((string Type, int Id, WatchedItemInfo[] Rows)[] titles, Dictionary<string, int> represented)
     {
         return titles.Select(title => (Title: title, Family: Family(title.Rows)))
             .Where(item => item.Family is not null)
@@ -53,7 +52,11 @@ internal static class PersonalDiscoveryRetrieval
             // Multiple episodes/copies already share one provider title above. Two independently
             // consumed titles support a retrieval lane; this is never an age or selection permit.
             .Where(group => group.Count() >= 2)
-            .Select(group => (Key: group.Key.Type + ":" + group.Key.Family, Type: group.Key.Type, Id: group.First().Title.Id));
+            .Select(group => (Key: group.Key.Type + ":" + group.Key.Family, Type: group.Key.Type,
+                Id: group.Where(item => !represented.Any(pair => pair.Value == item.Title.Id
+                    && (pair.Key == item.Title.Type || pair.Key.StartsWith(item.Title.Type + ":", StringComparison.Ordinal))))
+                    .Select(item => item.Title.Id).FirstOrDefault()))
+            .Where(seed => seed.Id > 0);
     }
 
     private static string? Family(WatchedItemInfo[] rows)

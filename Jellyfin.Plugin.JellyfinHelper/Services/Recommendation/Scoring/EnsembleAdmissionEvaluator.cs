@@ -60,8 +60,9 @@ internal static class EnsembleAdmissionEvaluator
         if (!HasSupport(test))
         {
             var reason = testUsers.Count == 0 ? "HomogeneousObservedOutcomes" : "InsufficientIndependentRankingEvidence";
-            return ChoiceRankingAdmissionEvaluator.Evaluate(calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence)
-                ?? AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
+            // Calibration has already selected ordinary admission and its fixed mixture.
+            // Acceptance outcomes may reject/withhold it, never select another procedure.
+            return AdmissionDecision.Unknown(reason, plan.Rows.Length, availableAcceptanceTitles) with { Candidate = plan.Selected };
         }
 
         test = ScoreEvidence(test, models, neuralCap > 0);
@@ -261,17 +262,28 @@ internal static class EnsembleAdmissionEvaluator
         return selected.ToArray();
     }
 
-    private static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
+    internal static TrainingExample SelectObservationView(IEnumerable<TrainingExample> rows, DateTime referenceTime)
     {
         var ordered = rows.OrderByDescending(row => row.GeneratedAtUtc).ToArray();
+        var latestOutcome = ordered.FirstOrDefault(row => row.IsObserved) ?? ordered[0];
+        var effective = ordered.Where(row => row.ComputeEffectiveWeight(referenceTime) >= LearnedScoringStrategy.MinSampleWeight).ToArray();
+        var fallback = effective.FirstOrDefault() ?? ordered[0];
         // Fresh explicit negative outcomes supersede old positive comparisons. Otherwise
         // keep the original valid choice view instead of losing it to a newer publication.
-        if (ordered[0].IsObserved && ordered[0].Label <= .5)
+        if (latestOutcome.IsObserved && latestOutcome.Label <= .5)
         {
-            return ordered[0];
+            return latestOutcome;
         }
 
-        return ordered.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? ordered[0];
+        var selected = effective.FirstOrDefault(row => row.IsObserved && row.Label > .5 && row.Choice?.IsValid(row.ObservationId, referenceTime) == true) ?? fallback;
+        if (ReferenceEquals(selected, latestOutcome))
+        {
+            return selected;
+        }
+
+        var copy = selected.Copy();
+        copy.Label = latestOutcome.Label;
+        return copy;
     }
 
     internal static bool HasOrdinaryRankingSupport(IReadOnlyList<TrainingExample> examples, DateTime referenceTime)
@@ -279,6 +291,12 @@ internal static class EnsembleAdmissionEvaluator
         var rows = CaptureEvidence(examples, referenceTime);
         var users = MixedUsers(rows).ToHashSet();
         return HasSupport(rows.Where(row => users.Contains(row.UserId)).ToArray());
+    }
+
+    internal static TrainingExample[] SelectOrdinaryAcceptanceEvidence(IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, DateTime referenceTime)
+    {
+        var users = MixedUsers(CaptureEvidence(calibration, referenceTime)).ToHashSet();
+        return acceptance.Where(row => users.Contains(row.UserId)).ToArray();
     }
 
     private static long AdvanceEvaluationCursor(long offset, int advance, bool truncated)

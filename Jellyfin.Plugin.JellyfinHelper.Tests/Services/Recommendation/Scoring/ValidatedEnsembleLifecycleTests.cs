@@ -328,8 +328,10 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         Assert.Equal(0, ensemble.GetDiagnosticsSnapshot().EffectiveAlpha);
     }
 
-    [Fact]
-    public void AnOrdinaryCalibrationArchiveCannotVetoAcceptedChoicesWhenAcceptanceCannotAssessThatArchive()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnOrdinaryArchiveCannotVetoAcceptedChoicesUsingAnUnrelatedAcceptanceUser(bool unrelatedMixedUser)
     {
         var scope = "choice-compatible-history";
         var store = new AcceptedModelStore(Path.Join(_directory, scope + "-state.json"));
@@ -374,10 +376,22 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
             IsObserved = index % 2 == 0, IsContrastSample = index % 2 != 0, Features = Features(index % 2 == 0),
             GeneratedAtUtc = now.AddDays(-3), Label = index % 2 == 0 ? .85 : .05, SampleWeight = index % 2 == 0 ? 1 : .25
         }).ToArray();
-        var cal = Enumerable.Range(0, 48).Select(index => Held(false, index < 24)).ToArray();
-        var acceptance = Enumerable.Range(0, 24).Select(_ => Held(true, true)).ToArray();
-        Assert.True(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(cal, now));
-        Assert.False(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, now));
+        var cal = Enumerable.Range(0, 24).Select(_ => Held(false, true)).ToArray();
+        var acceptance = Enumerable.Range(0, 24).Select(_ => Held(true, true)).ToList();
+        if (unrelatedMixedUser)
+        {
+            var unrelated = Guid.NewGuid();
+            for (var index = 0; index < 48; index++)
+            {
+                var row = Held(true, index % 2 == 0);
+                row.UserId = unrelated;
+                row.Choice = null;
+                acceptance.Add(row);
+            }
+        }
+
+        Assert.False(EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(cal, now));
+        Assert.Equal(unrelatedMixedUser, EnsembleAdmissionEvaluator.HasOrdinaryRankingSupport(acceptance, now));
         Assert.NotEmpty(store.ReadHistory());
         using var ensemble = Create(scope);
         Assert.True(ensemble.TrainValidated(fit, cal.Concat(acceptance).ToArray(), false, TestContext.Current.CancellationToken));

@@ -19,6 +19,98 @@ public sealed class TitleMetadataCacheTests
     private readonly PluginConfiguration _config = new() { SeerrUrl = "https://seerr.example.test", SeerrApiKey = "encrypted-test-key" };
 
     [Fact]
+    public void SeparateAliasesCannotReconcileContradictoryTitlesWithoutAnExactTmdbAnchor()
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = _clock.Now }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, ImdbId = "tt123456", MediaType = "tv", Overview = "different title", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456, "tt123456"));
+        var anchored = Assert.IsType<TitleMetadataSnapshot>(cache.Get(_config, 123, "tv", 456, "tt123456"));
+        Assert.Equal(123, anchored.TmdbId);
+        Assert.True(anchored.AnimeHint);
+        Assert.Null(anchored.Overview);
+    }
+
+    [Theory]
+    [InlineData(456)]
+    [InlineData(789)]
+    public void SameScopeReconciliationRejectsConflictingAliasesButRetainsCompatibleFields(int aliasTvdb)
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var scope = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot
+        {
+            TmdbId = 123, TvdbId = 456, MediaType = "tv", Overview = "exact title", FetchedAtUtc = _clock.Now.AddDays(-1)
+        }, scope, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot
+        {
+            ImdbId = "tt123456", TvdbId = aliasTvdb, MediaType = "tv", AnimeHint = true, FetchedAtUtc = _clock.Now
+        }, scope, null);
+        var result = Assert.IsType<TitleMetadataSnapshot>(cache.Get(_config, 123, "tv", imdbId: "tt123456"));
+        Assert.Equal(123, result.TmdbId);
+        Assert.Equal(456, result.TvdbId);
+        Assert.Equal("exact title", result.Overview);
+        Assert.Equal(aliasTvdb == 456 ? true : null, result.AnimeHint);
+    }
+
+    [Fact]
+    public void AliasOnlyLookupCannotResolveCrossProviderIdentityConflictsBySourcePriority()
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        _config.TraktSourcingEnabled = true;
+        var cache = new TitleMetadataCache(clock: _clock) { TraktMetadataAvailable = _ => true };
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", AnimeHint = true, FetchedAtUtc = _clock.Now },
+            new("sonarr", "https://sonarr.example.test", "test-sonarr"), null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, MediaType = "tv", OriginalLanguage = "en", FetchedAtUtc = _clock.Now },
+            new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        var exact = Assert.IsType<TitleMetadataSnapshot>(cache.Get(_config, 123, "tv", 456));
+        Assert.Equal(123, exact.TmdbId);
+        Assert.True(exact.AnimeHint);
+        Assert.Null(exact.OriginalLanguage);
+        Assert.Null(cache.Get(_config, 123, "movie", 456));
+    }
+
+    [Fact]
+    public async Task JoiningAnOlderWriterCannotReportSuccessForANewerMetadataGeneration()
+    {
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        fs.SetupGet(value => value.File).Returns(file.Object);
+        fs.SetupGet(value => value.Directory).Returns(new Mock<IDirectory>().Object);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        file.Setup(value => value.WriteAllText(It.IsAny<string>(), It.IsAny<string>())).Callback(() =>
+        {
+            started.TrySetResult();
+            release.Wait(TestContext.Current.CancellationToken);
+        });
+        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("metadata-generation.json"), clock: _clock);
+        cache.Store(_config, Snapshot());
+        var first = cache.SaveAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            cache.Store(_config, Snapshot() with { TmdbId = 999 });
+            var second = cache.SaveAsync(TestContext.Current.CancellationToken);
+            release.Set();
+            Assert.True(await first);
+            Assert.False(await second);
+            Assert.True(await cache.SaveAsync(TestContext.Current.CancellationToken));
+            file.Verify(value => value.WriteAllText(It.IsAny<string>(), It.Is<string>(json => json.Contains("999", StringComparison.Ordinal))), Times.Once);
+            file.Verify(value => value.WriteAllText(It.IsAny<string>(), It.IsAny<string>()), Times.Exactly(2));
+        }
+        finally
+        {
+            release.Set();
+            await first;
+        }
+    }
+
+    [Fact]
     public void TypedIdsDoNotCollideAndReadsDoNotFetchOrRefresh()
     {
         var cache = new TitleMetadataCache(clock: _clock);
@@ -410,8 +502,10 @@ public sealed class TitleMetadataCacheTests
         Assert.Null(cache.Get(_config, 123, "movie")!.Keywords);
     }
 
-    [Fact]
-    public async Task StalledPersistenceHasABoundedCancelableWaitAndCannotAccumulateWriters()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StalledPersistenceHasABoundedCancelableWaitAndCannotAccumulateWriters(bool cancel)
     {
         var fs = new Mock<IFileSystem>();
         var file = new Mock<IFile>();
@@ -424,16 +518,30 @@ public sealed class TitleMetadataCacheTests
             started.TrySetResult();
             release.Wait(TestContext.Current.CancellationToken);
         });
-        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("cancelable-titles.json"), clock: _clock);
+        var waitClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("cancelable-titles.json"), clock: _clock)
+        {
+            WaitTimeProvider = cancel ? waitClock : TimeProvider.System
+        };
         cache.Store(_config, Snapshot());
         using var cancellation = new CancellationTokenSource();
         var save = cache.SaveAsync(cancellation.Token);
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-            cancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save);
-            Assert.False(await cache.SaveAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.False(await save.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+
+            var joining = cache.SaveAsync(TestContext.Current.CancellationToken);
+            if (cancel) waitClock.ExpireDeadlines();
+            Assert.False(await joining.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllText(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
             file.Verify(value => value.Move(It.IsAny<string>(), It.IsAny<string>(), true), Times.Never);
             Assert.NotNull(cache.Get(_config, 123, "movie"));
@@ -441,7 +549,7 @@ public sealed class TitleMetadataCacheTests
         finally
         {
             release.Set();
-            Assert.True(await cache.SaveAsync(TestContext.Current.CancellationToken));
+            Assert.True(await cache.SaveAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         }
     }
 
@@ -532,6 +640,74 @@ public sealed class TitleMetadataCacheTests
     }
 
     private TitleMetadataSnapshot Snapshot() => new() { TmdbId = 123, Keywords = ["anime"], FetchedAtUtc = _clock.Now };
+
+    [Fact]
+    public void ReplacingAnEntryRemovesOnlyItsAliasesAndPreservesOtherEntriesClaimingTheSameAlias()
+    {
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("reverse-aliases.json");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        cache.Store(_config, Snapshot() with { MediaType = "tv", TvdbId = 456, ImdbId = "tt123456", Overview = "first" });
+        cache.Store(_config, Snapshot() with { TmdbId = 999, MediaType = "tv", TvdbId = 456, ImdbId = "tt123456", Overview = "second" });
+        Assert.True(cache.Save());
+        // The reverse index must also be complete after loading an existing file.
+        cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Null(cache.Get(_config, 0, "tv", imdbId: "tt123456"));
+        _clock.Now = _clock.Now.AddMinutes(1);
+        cache.Store(_config, Snapshot() with { MediaType = "tv", TvdbId = 789, ImdbId = "tt654321", Overview = "corrected" });
+        Assert.Equal(999, cache.Get(_config, 0, "tv", 456)!.TmdbId);
+        Assert.Equal(999, cache.Get(_config, 0, "tv", imdbId: "tt123456")!.TmdbId);
+        Assert.Equal(123, cache.Get(_config, 0, "tv", 789)!.TmdbId);
+        Assert.Equal("corrected", cache.Get(_config, 0, "tv", imdbId: "tt654321")!.Overview);
+        Assert.True(cache.Save());
+        Assert.Equal(999, new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock).Get(_config, 0, "tv", 456)!.TmdbId);
+    }
+
+    [Fact]
+    public void ExpiredOversizedMetadataDoesNotPreventSavingOneRefreshedTitle()
+    {
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("expired-oversized-titles.json");
+        var cache = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        var acquired = _clock.Now;
+        var overview = new string('x', 4096);
+        for (var id = 1; id <= 4096; id++) cache.Store(_config, Snapshot() with { TmdbId = id, Overview = overview });
+        Assert.False(cache.Save());
+        _clock.Now = acquired.AddDays(31);
+        cache.Store(_config, Snapshot() with { TmdbId = 4096, Overview = "fresh" });
+        Assert.True(cache.Save());
+        var stored = Assert.Single(JsonSerializer.Deserialize<Dictionary<string, TitleMetadataSnapshot>>(fs.File.ReadAllText(path), JsonDefaults.Options)!);
+        Assert.Equal(4096, stored.Value.TmdbId);
+        Assert.Equal("fresh", stored.Value.Overview);
+        Assert.Equal(_clock.Now, stored.Value.FetchedAtUtc);
+        var restored = new TitleMetadataCache(fileSystem: fs, cachePath: path, clock: _clock);
+        Assert.Null(restored.Get(_config, 1, "movie"));
+        Assert.Equal("fresh", restored.Get(_config, 4096, "movie")!.Overview);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void SourceReconciliationPreservesOrRenewsTheSelectedTvdbFieldsAcquisition(bool renewed, bool newerImdbObservation)
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-sonarr");
+        var cache = new TitleMetadataCache(clock: _clock);
+        var acquired = _clock.Now;
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = acquired }, source, null);
+        _clock.Now = acquired.AddDays(20);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = renewed ? 456 : 0, MediaType = "tv", Overview = "partial", FetchedAtUtc = _clock.Now }, source, null);
+        if (newerImdbObservation) _clock.Now = _clock.Now.AddDays(1);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { ImdbId = "tt123456", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        var result = cache.Get(_config, 123, "tv", imdbId: "tt123456")!;
+        Assert.Equal(456, result.TvdbId);
+        Assert.Equal(renewed ? acquired.AddDays(20) : acquired, result.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.TvdbId)]);
+        _clock.Now = acquired.AddDays(31);
+        Assert.Equal(renewed ? 456 : 0, cache.Get(_config, 123, "tv", imdbId: "tt123456")!.TvdbId);
+    }
 
     private sealed class Clock : TimeProvider
     {

@@ -203,6 +203,25 @@ public sealed class PersonalDiscoveryRetrievalTests
     }
 
     private static TmdbDiscoverItem Candidate(int id, string type, int genre) => new() { Id = id, MediaType = type, GenreIds = [genre] };
+
+    [Theory]
+    [InlineData("Movie", "movie")]
+    [InlineData("Series", "tv")]
+    public void FamilyLaneSelectsItsUnusedRepresentativeWhenTheFirstTitleIsAlreadyAThemeSeed(string type, string mediaType)
+    {
+        var newest = Watch(20, type, Now);
+        newest.Tags = ["anime", "pirate", "friendship"];
+        var second = Watch(21, type, Now.AddDays(-1));
+        second.Tags = newest.Tags;
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [newest, second] };
+        var seeds = PersonalDiscoveryRetrieval.Seeds(profile);
+        Assert.Equal(20, seeds[mediaType]);
+        Assert.Equal(21, seeds[mediaType + ":anime"]);
+        Assert.InRange(seeds.Count, 2, 4);
+        Assert.Equal(seeds.Count, seeds.Values.Distinct().Count());
+        profile.WatchedItems.Remove(second);
+        Assert.DoesNotContain(mediaType + ":anime", PersonalDiscoveryRetrieval.Seeds(profile).Keys);
+    }
     private static WatchedItemInfo Watch(int id, string type, DateTime date) => new()
     {
         ItemId = Guid.NewGuid(), TmdbId = id, ItemType = type, Played = true, LastPlayedDate = date,

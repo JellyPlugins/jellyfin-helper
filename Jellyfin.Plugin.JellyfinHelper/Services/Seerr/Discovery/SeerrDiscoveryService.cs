@@ -509,7 +509,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            PersistResultsAndRecordFeedback(allResults, carriedForwardUsers);
+            await PersistResultsAndRecordFeedbackAsync(allResults, carriedForwardUsers, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -542,7 +542,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return 0;
         }
 
-        return await ApplyReconciliationAsync(jellyfinUserId, requestedKeys).ConfigureAwait(false);
+        return await ApplyReconciliationAsync(jellyfinUserId, requestedKeys, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -550,12 +550,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <param name="jellyfinUserId">The Jellyfin user whose cache and feedback are updated.</param>
     /// <param name="requestedKeys">The user's requested (TmdbId, MediaType) keys fetched from Seerr.</param>
+    /// <param name="cancellationToken">Scheduled-task cancellation, including cache-lock waits.</param>
     /// <returns>The number of cached recommendations newly reconciled.</returns>
     private async Task<int> ApplyReconciliationAsync(
         Guid jellyfinUserId,
-        HashSet<(int TmdbId, string MediaType)> requestedKeys)
+        HashSet<(int TmdbId, string MediaType)> requestedKeys,
+        CancellationToken cancellationToken)
     {
-        var userResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+        var userResult = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
         if (userResult == null || userResult.Recommendations.Count == 0)
         {
             return 0;
@@ -578,13 +580,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var reconciled = 0;
         foreach (var rec in userResult.Recommendations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             (int TmdbId, string MediaType) key = (rec.TmdbId, NormalizeReconcileMediaType(rec.MediaType));
             if (rec.TmdbId <= 0 || alreadyRecorded.Contains(key) || !requestedKeys.Contains(key))
             {
                 continue;
             }
 
-            if (await ReconcileSingleItemAsync(jellyfinUserId, key.TmdbId, key.MediaType).ConfigureAwait(false))
+            if (await ReconcileSingleItemAsync(jellyfinUserId, key.TmdbId, key.MediaType, cancellationToken).ConfigureAwait(false))
             {
                 reconciled++;
             }
@@ -602,13 +605,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <summary>
-    ///     Records a single reconciled item as requested and marks it in the cache. Side effects use CancellationToken.None so a disconnected caller cannot leave the feedback and cache stores inconsistent.
+    ///     Records durable feedback before marking the cache. Cancellation between the two
+    ///     leaves the authoritative requested set intact; later delivery filters still exclude it.
     /// </summary>
     /// <param name="jellyfinUserId">The owning Jellyfin user.</param>
     /// <param name="tmdbId">The TMDb ID of the item.</param>
     /// <param name="mediaType">The normalized media type.</param>
+    /// <param name="cancellationToken">Scheduled-task cancellation honored by both persistence waits.</param>
     /// <returns><see langword="true"/> when the item was recorded without a fatal failure.</returns>
-    private async Task<bool> ReconcileSingleItemAsync(Guid jellyfinUserId, int tmdbId, string mediaType)
+    private async Task<bool> ReconcileSingleItemAsync(Guid jellyfinUserId, int tmdbId, string mediaType, CancellationToken cancellationToken)
     {
         try
         {
@@ -616,11 +621,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             // the point of reconciliation, and GetRequestedItems reads only the feedback store, so a
             // later cache failure still leaves the item excluded from the view and from regeneration.
             // The reverse order would risk stamping the cache while the durable signal is lost.
-            _feedbackStore.RecordRequested(jellyfinUserId, tmdbId, mediaType);
-            await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, CancellationToken.None).ConfigureAwait(false);
+            if (!await _feedbackStore.RecordRequestedAsync(jellyfinUserId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            await _cache.MarkAsRequestedAsync(tmdbId, mediaType, jellyfinUserId, cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (Exception ex) when (!ex.IsFatal())
+        catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
         {
             _pluginLog.LogDebug(
                 LogCategory,
@@ -863,12 +872,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <param name="allResults">All pools to persist: freshly generated plus any carried-forward.</param>
     /// <param name="carriedForwardUsers">Users whose pool is a carried-forward snapshot, not fresh this run.</param>
-    private void PersistResultsAndRecordFeedback(
+    /// <param name="cancellationToken">Scheduled-task cancellation, honored by both bounded persistence waits.</param>
+    private async Task PersistResultsAndRecordFeedbackAsync(
         List<DiscoveryResult> allResults,
-        HashSet<Guid> carriedForwardUsers)
+        HashSet<Guid> carriedForwardUsers,
+        CancellationToken cancellationToken)
     {
-        var persisted = _cache.Save(allResults);
-        _titleMetadataCache?.Save();
+        var persisted = await _cache.SaveAsync(allResults, cancellationToken).ConfigureAwait(false);
+        if (_titleMetadataCache is not null)
+        {
+            await _titleMetadataCache.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         if (!persisted)
         {
             _pluginLog.LogWarning(
@@ -896,9 +912,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 // Keep the established store contract; RecordShown is now explicitly a generation alias,
                 // never evidence of a viewport impression. The displayed response supplies the exact generation time.
-                _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!await _feedbackStore.RecordGeneratedAsync(result.UserId, result.UserName, result.Recommendations, result.GeneratedAt, cancellationToken).ConfigureAwait(false))
+                {
+                    _pluginLog.LogDebug(LogCategory, $"Optional generation feedback for {result.UserName} was not confirmed within the persistence budget.", _logger);
+                }
             }
-            catch (Exception ex) when (!ex.IsFatal())
+            catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
             {
                 _pluginLog.LogDebug(
                     LogCategory,
@@ -2118,7 +2138,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Drop anything our own local discovery already recommends to this user, so the Trakt tab never
         // duplicates a title the "For you" tab is already showing. Best-effort: a cache miss or read failure
         // must not break Trakt scoring.
-        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded).ConfigureAwait(false);
+        await AddOwnRecommendationExclusionsAsync(jellyfinUserId, userExcluded, cancellationToken).ConfigureAwait(false);
 
         // The Trakt tab preserves Trakt's own ranking, so our soft quality floors (minimum rating, minimum
         // year) must not silently prune what Trakt deliberately surfaced. Disable both for this path by passing
@@ -2541,25 +2561,31 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private void ApplyCachedCandidateMetadata(CandidateScoringContext context)
     {
         var config = _titleMetadataCache is null ? null : CurrentMetadataConfiguration(context.BaseUri, context.ApiKey);
+        var language = _serverConfiguration?.Configuration?.PreferredMetadataLanguage;
+        var scopeConfig = config ?? CurrentMetadataConfiguration(context.BaseUri, context.ApiKey);
+        var scope = scopeConfig is null ? null : TitleMetadataCache.SeerrScope(scopeConfig, language);
         foreach (var candidate in context.Candidates)
         {
             if (_titleMetadataCache is not null && config is not null)
             {
-                var cached = _titleMetadataCache.Get(config, candidate.Id, candidate.MediaType);
+                var cached = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
                 ApplyCachedSnapshot(candidate, cached);
             }
 
-            var detail = candidate.MetadataFetchAttempted ? null : CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate)));
+            var detail = candidate.MetadataFetchAttempted ? null : CachedDetail(MetadataCacheKey(context.BaseUri, context.ApiKey, MetadataPath(candidate, language)));
             if (detail is not null)
             {
                 candidate.MetadataFetchAttempted = true;
-                candidate.MetadataFetchSucceeded = ApplyCachedDetail(candidate, detail);
+                candidate.MetadataFetchSucceeded = ApplyCachedDetail(candidate, detail, scope);
             }
         }
     }
 
     private static void ApplyCachedSnapshot(TmdbDiscoverItem candidate, TitleMetadataSnapshot? cached)
     {
+        var priorSourceGenres = candidate.TitleMetadata?.SourceGenres;
+        var independentSourceGenres = GenreNormalizer.Set(candidate.SourceGenres);
+        independentSourceGenres.ExceptWith(GenreNormalizer.Set(priorSourceGenres));
         if (cached is not null)
         {
             candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(candidate.TitleMetadata is null ? [cached] : [cached, candidate.TitleMetadata], DateTime.UtcNow);
@@ -2570,9 +2596,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.GenreIds = genreIds.ToList();
         }
 
-        if (candidate.TitleMetadata?.SourceGenres is { } sourceGenres)
+        if (priorSourceGenres.HasValue || candidate.TitleMetadata?.SourceGenres is not null)
         {
-            candidate.SourceGenres = GenreNormalizer.Set((candidate.SourceGenres ?? []).Concat(sourceGenres)).ToArray();
+            // Replace represented provider labels from the reconciled observations.
+            // Unrepresented input labels remain separate instead of being erased or
+            // used to resurrect a superseded same-source value.
+            independentSourceGenres.UnionWith(GenreNormalizer.Set(candidate.TitleMetadata?.SourceGenres));
+            candidate.SourceGenres = independentSourceGenres.ToArray();
         }
 
         if (candidate.TitleMetadata?.Keywords is { } keywords)
@@ -3086,11 +3116,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // external source (Trakt) never surfaces a title the "For you" tab already shows. Keyed on
     // (TmdbId, lowercased MediaType) to match DeduplicateAndFilter's exclusion lookup. Best-effort: any read
     // failure leaves the set untouched rather than aborting external scoring.
-    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded)
+    private async Task AddOwnRecommendationExclusionsAsync(Guid jellyfinUserId, HashSet<(int TmdbId, string MediaType)> userExcluded, CancellationToken cancellationToken)
     {
         try
         {
-            var ownResult = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false))
+            var ownResult = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false))
                 .FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
             if (ownResult is null)
             {
@@ -3103,7 +3133,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 userExcluded.Add((rec.TmdbId, mediaType));
             }
         }
-        catch (Exception ex) when (!ex.IsFatal())
+        catch (Exception ex) when (!ex.IsFatal() && !cancellationToken.IsCancellationRequested)
         {
             _pluginLog.LogDebug(
                 LogCategory,
@@ -3899,9 +3929,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private string MetadataPath(TmdbDiscoverItem candidate)
-        => MetadataPath(candidate, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
-
     private static string MetadataPath(TmdbDiscoverItem candidate, string? language)
     {
         var path = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
@@ -3941,8 +3968,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return false;
         }
 
-        ApplyEnrichedMetadata(candidate, detail);
         var previous = candidate.TitleMetadata;
+        var genreTime = LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.GenreIds));
+        ApplyEnrichedMetadata(candidate, detail, acquiredAtUtc >= genreTime);
         candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc) with { ObservationScope = scope };
         candidate.TitleMetadata = TitleMetadataMerger.WithSeerrObservation(candidate.SeerrTitleMetadata, previous, DateTime.UtcNow);
         if (detail.Genres is not null)
@@ -3960,7 +3988,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.CollectionName = detail.Collection?.Name;
         }
 
-        if (detail.Keywords is not null)
+        if (detail.Keywords is not null && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
         {
             candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
         }
@@ -3981,16 +4009,30 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return true;
     }
 
-    private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached)
-        => ApplyDetail(candidate, cached.Detail, cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl));
+    private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached, string? scope)
+        => ApplyDetail(candidate, cached.Detail, cached.ExpiresAtUtc.Subtract(SeerrUserCacheTtl), scope);
 
-    // Fills a candidate's missing fields from a fetched detail payload. Every rule is latch-only or
-    // fill-if-empty: enrichment must never clear what is already known.
-    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    private static DateTime LatestSeerrFieldAcquisition(TitleMetadataSnapshot? metadata, string? scope, string field)
     {
-        if (detail.Genres is { Count: > 0 })
+        if (metadata is null)
         {
-            candidate.GenreIds = detail.Genres.Select(g => g.Id).ToList();
+            return DateTime.MinValue;
+        }
+
+        return TitleMetadataMerger.Observations(metadata)
+            .Where(observation => observation.Source == "seerr" && observation.ObservationScope == scope
+                && (field == nameof(TitleMetadataSnapshot.GenreIds) ? observation.GenreIds.HasValue : observation.Keywords.HasValue))
+            .Select(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(field, observation.FetchedAtUtc) ?? observation.FetchedAtUtc)
+            .DefaultIfEmpty(DateTime.MinValue).Max();
+    }
+
+    // Omitted fields retain known values. Explicit genre lists replace prior provider
+    // IDs, including an authoritative empty list; independent source labels remain separate.
+    private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, bool currentGenres)
+    {
+        if (currentGenres && detail.Genres is not null)
+        {
+            candidate.GenreIds = detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>().Where(genre => genre.Id > 0).Select(genre => genre.Id).ToList();
         }
 
         // Latch-only: a missing flag must never clear what is already known.

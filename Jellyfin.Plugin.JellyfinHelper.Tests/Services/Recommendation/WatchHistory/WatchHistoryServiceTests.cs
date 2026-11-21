@@ -83,20 +83,26 @@ public sealed class WatchHistoryServiceTests
         Assert.Same(published, row.CopyPlaybackHistory().TitleMetadata);
     }
 
-    [Fact]
-    public void CachedProviderGenresFillMissingHistoryGenresWithoutChangingLibraryMetadata()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CachedProviderGenresFillMissingHistoryGenresWithoutChangingLibraryMetadata(bool local)
     {
         var cache = new TitleMetadataCache();
         cache.Store(_mockConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = 123, GenreIds = [16], Keywords = ["anime"], FetchedAtUtc = DateTime.UtcNow });
         var user = CreateTestUser("missing genres");
-        var movie = new Movie { Id = Guid.NewGuid(), Name = "Watched", ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "Watched", Genres = local ? ["Drama"] : [], ProviderIds = new Dictionary<string, string> { ["Tmdb"] = "123" } };
         _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "movie", Played = true, PlayCount = 1 });
         var service = new WatchHistoryService(_mockLibraryManager.Object, _mockConfigService.Object, _mockUserManager.Object, _mockUserDataManager.Object,
             _mockPluginLog.Object, _mockLogger.Object) { TitleMetadataCache = cache };
         var profile = service.BuildProfile(user, [movie], [], collectionIds: []);
-        Assert.Contains("Animation", Assert.Single(profile.WatchedItems).Genres);
-        Assert.Equal(1, profile.GenreDistribution["Animation"]);
-        Assert.Empty(movie.Genres);
+        var row = Assert.Single(profile.WatchedItems);
+        Assert.Equal(local ? new[] { "Drama" } : ["Animation"], row.Genres);
+        Assert.Equal(local ? new[] { "Drama" } : [], row.LocalGenres);
+        Assert.Equal(row.LocalGenres, row.CopyPlaybackHistory().LocalGenres);
+        if (local) Assert.NotSame(row.LocalGenres, row.CopyPlaybackHistory().LocalGenres);
+        Assert.Equal(1, profile.GenreDistribution[local ? "Drama" : "Animation"]);
+        Assert.Equal(local ? new[] { "Drama" } : [], movie.Genres);
         Assert.Empty(movie.Tags);
     }
 
@@ -114,6 +120,7 @@ public sealed class WatchHistoryServiceTests
         var row = Assert.Single(service.BuildProfile(user, [movie], [], collectionIds: []).WatchedItems);
         Assert.Contains("Animation", row.Genres);
         Assert.Contains("Kids", row.Genres);
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(row.LocalGenres, exactMatch: false));
         Assert.Empty(movie.Genres);
         Assert.Empty(movie.Tags);
     }
@@ -146,6 +153,7 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal("tv", row.TitleMetadata!.MediaType);
         Assert.Contains("Animation", row.Genres);
         Assert.Equal(1, profile.GenreDistribution["Animation"]);
+        Assert.Empty(Assert.IsType<IReadOnlyList<string>>(row.LocalGenres, exactMatch: false));
         Assert.Equal(originalGenres, series.Genres);
         Assert.Equal(missingLocalMetadata ? string.Empty : "Favorite series", row.Name);
     }

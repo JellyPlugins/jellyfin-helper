@@ -15,6 +15,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Trakt;
 /// </summary>
 internal static class TraktMapper
 {
+    private static readonly string ObservationScope = TitleMetadataCache.SourceDigest(new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+
     /// <summary>
     ///     Maps a list of plain Trakt media items for a known media type, dropping any without a TMDb id.
     /// </summary>
@@ -22,12 +24,14 @@ internal static class TraktMapper
     /// <param name="mediaType">"movie" or "tv".</param>
     /// <param name="dropped">Receives the number of items dropped for a missing TMDb id.</param>
     /// <param name="rankOffset">Base rank for the first item, so a second list (e.g. shows after movies) continues the ordering.</param>
+    /// <param name="acquiredAtUtc">Response-body acquisition time, shared with metadata publication.</param>
     /// <returns>The mapped candidates.</returns>
     internal static List<ExternalDiscoveryCandidate> MapMediaItems(
         IEnumerable<TraktMediaItem>? items,
         string mediaType,
         out int dropped,
-        int rankOffset = 0)
+        int rankOffset = 0,
+        DateTime? acquiredAtUtc = null)
     {
         dropped = 0;
         if (items is null)
@@ -37,7 +41,8 @@ internal static class TraktMapper
 
         // The incoming list order is Trakt's own ranking; carry it as SourceRank so a rank-based pipeline
         // can preserve it. The index spans dropped items too, so a drop never shifts a kept item's rank.
-        var mapped = items.Select((item, i) => MapOne(item, mediaType, rankOffset + i)).ToList();
+        var acquired = acquiredAtUtc ?? DateTime.UtcNow;
+        var mapped = items.Select((item, i) => MapOne(item, mediaType, rankOffset + i, acquired)).ToList();
         dropped = mapped.Count(m => m is null);
         return [.. mapped.OfType<ExternalDiscoveryCandidate>()];
     }
@@ -49,12 +54,14 @@ internal static class TraktMapper
     /// <param name="mediaType">"movie" or "tv" (selects which nested member to read).</param>
     /// <param name="dropped">Receives the number of items dropped for a missing TMDb id.</param>
     /// <param name="rankOffset">Base rank for the first item, so a second list (e.g. shows after movies) continues the ordering.</param>
+    /// <param name="acquiredAtUtc">Response-body acquisition time, shared with metadata publication.</param>
     /// <returns>The mapped candidates.</returns>
     internal static List<ExternalDiscoveryCandidate> MapTrendingItems(
         IEnumerable<TraktTrendingItem>? items,
         string mediaType,
         out int dropped,
-        int rankOffset = 0)
+        int rankOffset = 0,
+        DateTime? acquiredAtUtc = null)
     {
         dropped = 0;
         if (items is null)
@@ -63,12 +70,13 @@ internal static class TraktMapper
         }
 
         var isTv = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase);
-        var mapped = items.Select((entry, i) => MapOne(isTv ? entry.Show : entry.Movie, mediaType, rankOffset + i)).ToList();
+        var acquired = acquiredAtUtc ?? DateTime.UtcNow;
+        var mapped = items.Select((entry, i) => MapOne(isTv ? entry.Show : entry.Movie, mediaType, rankOffset + i, acquired)).ToList();
         dropped = mapped.Count(m => m is null);
         return [.. mapped.OfType<ExternalDiscoveryCandidate>()];
     }
 
-    private static ExternalDiscoveryCandidate? MapOne(TraktMediaItem? item, string mediaType, int rank)
+    private static ExternalDiscoveryCandidate? MapOne(TraktMediaItem? item, string mediaType, int rank, DateTime acquiredAtUtc)
     {
         var tmdbId = item?.Ids?.Tmdb ?? 0;
         if (item is null || tmdbId <= 0)
@@ -90,7 +98,7 @@ internal static class TraktMapper
             Popularity = 0,
             GenreIds = [],
             SourceGenres = item.Genres?.ToArray(),
-            TitleMetadata = Metadata(item, mediaType),
+            TitleMetadata = Metadata(item, mediaType, acquiredAtUtc),
             PosterPath = null,
             Adult = false,
             TraktSlug = SanitizeSlug(item.Ids?.Slug),
@@ -98,7 +106,7 @@ internal static class TraktMapper
         };
     }
 
-    internal static TitleMetadataSnapshot Metadata(TraktMediaItem item, string mediaType)
+    internal static TitleMetadataSnapshot Metadata(TraktMediaItem item, string mediaType, DateTime acquiredAtUtc)
         => new()
         {
             TmdbId = item.Ids?.Tmdb ?? 0,
@@ -110,7 +118,8 @@ internal static class TraktMapper
             ProductionCountries = item.Country is null ? null : [item.Country],
             Overview = item.Overview,
             Source = "trakt",
-            FetchedAtUtc = DateTime.UtcNow
+            ObservationScope = ObservationScope,
+            FetchedAtUtc = acquiredAtUtc
         };
 
     // Trakt slugs are lowercase alphanumerics joined by hyphens. Whitelist that shape so a crafted slug

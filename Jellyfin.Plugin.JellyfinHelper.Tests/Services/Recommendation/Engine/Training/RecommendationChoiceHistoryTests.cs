@@ -3,6 +3,7 @@ using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Moq;
 using Xunit;
 
@@ -11,6 +12,177 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// <summary>Actual choice evidence survives publication and restarts without becoming fresh or leaking held-out outcomes.</summary>
 public sealed class RecommendationChoiceHistoryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptionalChoicePersistenceBoundsItsWaitKeepsOneWriterAndDoesNotLoseNewerGenerations(bool cancel)
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var firstRow = Observation(user, Identity(false), now, true);
+        var secondRow = Observation(user, Identity(false), now, true);
+        var fs = new Mock<IFileSystem>();
+        var file = new Mock<IFile>();
+        fs.SetupGet(value => value.File).Returns(file.Object);
+        fs.SetupGet(value => value.Directory).Returns(new Mock<IDirectory>().Object);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        file.Setup(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>())).Callback(() =>
+        {
+            started.TrySetResult();
+            release.Wait(TestContext.Current.CancellationToken);
+        });
+        var waitClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("bounded-choice-writer.json"))
+        {
+            WaitTimeProvider = cancel ? waitClock : TimeProvider.System
+        };
+        history.Merge([firstRow], new HashSet<Guid> { user }, now);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var first = history.SaveAsync(cancellation.Token);
+        var writer = (Task<bool>)typeof(RecommendationChoiceHistory).GetField("_pendingSave", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(history)!;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (cancel)
+            {
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+            else
+            {
+                Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            }
+
+            history.Merge([firstRow, secondRow], new HashSet<Guid> { user }, now);
+            var pendingWait = history.SaveAsync(TestContext.Current.CancellationToken);
+            if (cancel) waitClock.ExpireDeadlines();
+            Assert.False(await pendingWait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
+            var joining = history.SaveAsync(TestContext.Current.CancellationToken);
+            release.Set();
+            Assert.True(await writer);
+            Assert.False(await joining);
+            Assert.True(await history.SaveAsync(TestContext.Current.CancellationToken));
+            file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.Is<byte[]>(bytes => System.Text.Encoding.UTF8.GetString(bytes).Contains(secondRow.ObservationId.ToString(), StringComparison.OrdinalIgnoreCase))), Times.Once);
+        }
+        finally
+        {
+            release.Set();
+            await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task OptionalChoiceAsyncPersistenceHonorsPreCancellationAndAbsentStorage()
+    {
+        var history = new RecommendationChoiceHistory();
+        Assert.False(await history.SaveAsync(TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => history.SaveAsync(cancellation.Token));
+    }
+    [Fact]
+    public void SplittingAnAgedChoiceCannotRemoveAnOtherwiseEligibleOrganicObservation()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var id = Identity(false);
+        var original = Observation(user, id, now.AddDays(-538), true);
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now.AddDays(-537));
+        var current = Observation(user, id, now.AddDays(-537), false);
+        current.SampleWeight = .7;
+        Assert.True(original.ComputeEffectiveWeight(now) >= LearnedScoringStrategy.MinSampleWeight);
+        Assert.True(current.ComputeEffectiveWeight(now) >= LearnedScoringStrategy.MinSampleWeight);
+        var result = history.Merge([current], new HashSet<Guid> { user }, now);
+        Assert.Same(current, Assert.Single(result));
+        Assert.Equal(.7, current.SampleWeight);
+        Assert.Single(TrainingMath.FilterEffectiveExamples(result, now, LearnedScoringStrategy.MinSampleWeight));
+    }
+
+    [Theory]
+    [InlineData(0, false, 8)]
+    [InlineData(0, true, 8)]
+    [InlineData(180, true, 6)]
+    public void ReplayedChoicesShareOneOpportunityContrastLimitAndBudgetEvenWithFreshOverlap(int age, bool fresh, int limit)
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var alternatives = Enumerable.Range(0, 20).Select(_ => new RecommendationChoiceAlternative(Identity(false), new CandidateFeatures { GenreSimilarity = .9 })).ToImmutableArray();
+        var originals = Enumerable.Range(0, 7).Select(_ => Observation(user, Identity(false), now, true)).ToArray();
+        foreach (var row in originals) row.Choice = row.Choice! with { Alternatives = alternatives };
+        var history = new RecommendationChoiceHistory();
+        history.Merge(originals, new HashSet<Guid> { user }, now);
+        var current = originals.Select(row => Observation(user, row.ObservationId, now.AddDays(age), false)).ToList();
+        if (fresh)
+        {
+            current[0] = originals[0].Copy();
+            current.AddRange(alternatives.Take(8).Select(alternative => new TrainingExample
+            {
+                UserId = user, ObservationId = alternative.ObservationId, HasStableObservationId = true, IsObserved = false, IsContrastSample = true,
+                GeneratedAtUtc = originals[0].GeneratedAtUtc, SampleWeight = .25 / 8, Label = .05, Features = alternative.Features.Copy()
+            }));
+        }
+
+        var reference = now.AddDays(age);
+        var result = history.Merge(current, new HashSet<Guid> { user }, reference);
+        var contrasts = result.Where(row => row.IsContrastSample).ToArray();
+        Assert.Equal(limit, contrasts.Length);
+        Assert.Equal(limit, contrasts.Select(row => row.ObservationId).Distinct().Count());
+        Assert.Equal(.25, contrasts.Sum(row => row.SampleWeight), 12);
+        Assert.Equal(7, result.Count(row => row.Choice is not null));
+        Assert.All(contrasts, row => Assert.Equal(originals[0].GeneratedAtUtc, row.GeneratedAtUtc));
+        Assert.Equal(limit, TrainingMath.FilterEffectiveExamples(contrasts, reference, LearnedScoringStrategy.MinSampleWeight).Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EngagedLibraryAliasesAreWithdrawnAfterProviderIdentityAcquisitionWithoutConflatingMovieAndTv(bool series)
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var library = Guid.NewGuid();
+        var libraryAlias = TrainingExample.CreateLibraryObservationId(user, library);
+        var opposite = TrainingExample.CreateTitleObservationId(user, library, 123, !series);
+        var original = Observation(user, Identity(false), now, true);
+        original.Choice = original.Choice! with { Alternatives = [new(libraryAlias, new CandidateFeatures()), new(opposite, new CandidateFeatures())] };
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        var row = new WatchedItemInfo { ItemId = series ? Guid.NewGuid() : library, SeriesId = series ? library : null,
+            ItemType = series ? "Episode" : "Movie", TmdbId = series ? 999 : 123, SeriesTmdbId = series ? 123 : 0, PlaybackPositionTicks = 10 };
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [row] };
+        var aliases = RecommendationChoiceBuilder.EngagedTitles(profile, new Dictionary<Guid, int> { [library] = 123 });
+        Assert.Contains(libraryAlias, aliases);
+        Assert.DoesNotContain(opposite, aliases);
+        var result = history.Merge([Observation(user, original.ObservationId, now, false)], new HashSet<Guid> { user }, now,
+            aliases.Select(alias => (user, alias)).ToHashSet());
+        var choice = Assert.Single(result, item => item.Choice is not null).Choice!;
+        Assert.Equal(opposite, Assert.Single(choice.Alternatives).ObservationId);
+        Assert.DoesNotContain(result, item => item.IsContrastSample && item.ObservationId == libraryAlias);
+    }
+
+    [Fact]
+    public void ReplayKeepsHistoricalFeaturesAndAgeButUsesTheLatestPositiveOutcome()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        var current = Observation(user, original.ObservationId, now.AddDays(1), false);
+        current.Label = .6;
+        current.Features.GenreSimilarity = .9;
+        var result = history.Merge([current], new HashSet<Guid> { user }, now.AddDays(1));
+        var replay = Assert.Single(result, row => row.Choice is not null);
+        Assert.Equal(.6, replay.Label);
+        Assert.Equal(original.Features.ToVector(), replay.Features.ToVector());
+        Assert.Equal(original.GeneratedAtUtc, replay.GeneratedAtUtc);
+        Assert.Equal(.85, original.Label);
+        Assert.Equal(.6, current.Label);
+    }
+
     [Fact]
     public void ChoiceSurvivesTheNextPlaylistAndRestartWithoutChangingCurrentPredictionsOrItsAge()
     {
