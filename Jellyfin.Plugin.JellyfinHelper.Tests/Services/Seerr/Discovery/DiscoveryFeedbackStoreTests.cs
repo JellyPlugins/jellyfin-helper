@@ -152,6 +152,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
 
         Assert.Throws<IOException>(() => store.RecordImpressions(user, [first], generated));
+        Assert.InRange(RetainedReplayBytes(store), 0, store.ReplayPayloadBudget);
+        Assert.Equal(!replayOnly, RetainedReplayBytes(store) > 0);
         clock.Now = firstAt.AddMinutes(1);
         fail = false;
         store.RecordImpressions(user, [new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "later", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .8 } }], clock.Now.AddSeconds(-1));
@@ -168,6 +170,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(generated, entry.ShownAtUtc);
         Assert.Equal("original", entry.Title);
         Assert.Equal(.2, entry.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(0, RetainedReplayBytes(store));
     }
 
     [Theory]
@@ -199,8 +202,11 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
 
         Record(.2);
+        var originalBytes = RetainedReplayBytes(store);
+        Assert.InRange(originalBytes, 1, store.ReplayPayloadBudget);
         clock.Now = firstAt.AddMinutes(1);
         Record(.7);
+        Assert.Equal(originalBytes, RetainedReplayBytes(store));
         Assert.Throws<IOException>(() => store.LoadAll());
         fail = false;
         // An unrelated success cannot certify either rejected card payload.
@@ -212,7 +218,11 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(requested ? .7 : .2, saved.ScoringFeatures!.GenreSimilarity);
         Assert.Equal(requested ? clock.Now : firstAt, saved.PredictionEvidenceAtUtc);
         Assert.Equal(requested ? clock.Now : (DateTime?)null, saved.CardRequestedAtUtc);
+        Assert.Equal(0, RetainedReplayBytes(store));
     }
+
+    private static long RetainedReplayBytes(DiscoveryFeedbackStore store)
+        => (long)typeof(DiscoveryFeedbackStore).GetField("_replayPayloadBytes", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
 
     [Fact]
     public async Task ARequestFinishingAfterDisposeCannotPromoteRetainedDependentWatches()

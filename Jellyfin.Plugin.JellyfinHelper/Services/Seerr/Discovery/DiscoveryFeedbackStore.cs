@@ -278,9 +278,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             _replayPayloadBytes -= prior.Payload?.LongLength ?? 0;
         }
 
-        var payload = _replayPayloadBytes + bytes.LongLength <= ReplayPayloadBudget ? bytes : null;
+        byte[]? payload = null;
+        if (_replayPayloadBytes + bytes.LongLength <= ReplayPayloadBudget)
+        {
+            payload = bytes;
+            _replayPayloadBytes += bytes.LongLength;
+        }
+
         _predictionReplays[receipt.Key] = new(receipt.PredictionHash!, receipt.Acquired, payload);
-        _replayPayloadBytes += payload?.LongLength ?? 0;
         // If the bounded byte budget is exhausted, the proof remains an explicit
         // replay requirement. Only that original validated delivery can resolve it;
         // a later impression never substitutes a discarded prediction payload.
