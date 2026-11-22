@@ -26,6 +26,25 @@ public class RecommendationPlaylistServiceTests
     private readonly Mock<IPluginLogService> _pluginLogMock = new();
     private readonly Mock<ILogger<RecommendationPlaylistService>> _loggerMock = new();
 
+    [Fact]
+    public async Task AmbiguityResolutionRequiresAnOwnerAndLegacyProvidersRemainConservative()
+    {
+        var service = CreateSut();
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveDeferredCreationAsync(Guid.Empty, TestContext.Current.CancellationToken));
+        Assert.False(await service.ResolveDeferredCreationAsync(Guid.NewGuid(), TestContext.Current.CancellationToken));
+        IRecommendationPlaylistService legacy = new LegacyPlaylistProvider();
+        Assert.False(await legacy.ResolveDeferredCreationAsync(Guid.NewGuid(), TestContext.Current.CancellationToken));
+        _playlistManagerMock.VerifyNoOtherCalls();
+        _libraryManagerMock.VerifyNoOtherCalls();
+    }
+
+    private sealed class LegacyPlaylistProvider : IRecommendationPlaylistService
+    {
+        public Task<PlaylistSyncResult> UpdatePlaylistsForAllUsersAsync(IReadOnlyList<RecommendationResult> results, CancellationToken cancellationToken = default) => Task.FromResult(new PlaylistSyncResult());
+
+        public Task<int> RemoveAllRecommendationPlaylistsAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
     public RecommendationPlaylistServiceTests()
     {
         _playlistManagerMock.Setup(manager => manager.GetPlaylistsFolder(It.IsAny<Guid>())).Returns(new Folder { Id = Guid.NewGuid(), Path = "/data/playlists" });
@@ -72,6 +91,137 @@ public class RecommendationPlaylistServiceTests
         fail = false;
         Assert.Equal(1, (await service.UpdatePlaylistsForAllUsersAsync([input], TestContext.Current.CancellationToken)).PlaylistsCreated);
         Assert.Equal(next.Id, Assert.Single(store.Values).Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdministratorCanResolveAnIdLessFailureWithoutRemovingANewManualPlaylist(bool reservedName)
+    {
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        _userManagerMock.Setup(manager => manager.GetUsers()).Returns([user]);
+        _userManagerMock.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var old = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = user.Id, Name = RecommendationPlaylistService.BuildPlaylistName(user.Username) };
+        var manual = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = user.Id, Name = reservedName ? old.Name : "manual personal playlist" };
+        if (reservedName) manual.Path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".m3u");
+        var replacement = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = user.Id };
+        var store = new Dictionary<Guid, MediaBrowser.Controller.Playlists.Playlist> { [old.Id] = old };
+        _playlistManagerMock.Setup(manager => manager.GetPlaylists(user.Id)).Returns(() => store.Values.ToArray());
+        _libraryManagerMock.Setup(manager => manager.GetItemById(It.IsAny<Guid>())).Returns((Guid id) => store.GetValueOrDefault(id));
+        _libraryManagerMock.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(() => store.Values.Cast<BaseItem>().ToArray());
+        _libraryManagerMock.Setup(manager => manager.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>())).Callback<BaseItem, DeleteOptions>((item, _) => store.Remove(item.Id));
+        _libraryManagerMock.Setup(manager => manager.UpdateItemAsync(It.IsAny<BaseItem>(), It.IsAny<BaseItem>(), It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>())).Callback<BaseItem, BaseItem, ItemUpdateType, CancellationToken>((item, _, _, _) =>
+        {
+            if (item.Id == manual.Id) store[manual.Id] = new MediaBrowser.Controller.Playlists.Playlist
+            {
+                Id = manual.Id, OwnerUserId = user.Id, Name = manual.Name, Path = manual.Path,
+                ProviderIds = new Dictionary<string, string>(manual.ProviderIds)
+            };
+        }).Returns(Task.CompletedTask);
+        var fail = true;
+        _playlistManagerMock.Setup(manager => manager.CreatePlaylist(It.IsAny<PlaylistCreationRequest>())).Returns(() =>
+        {
+            if (fail) return Task.FromException<PlaylistCreationResult>(new IOException("host failed before registration"));
+            store[replacement.Id] = replacement;
+            return Task.FromResult(new PlaylistCreationResult(replacement.Id.ToString()));
+        });
+        var service = CreateSut();
+        var input = CreateResult(user.Id, user.Username, 1);
+        Assert.Equal(1, (await service.UpdatePlaylistsForAllUsersAsync([input], TestContext.Current.CancellationToken)).PlaylistsFailed);
+        store[manual.Id] = manual;
+        fail = false;
+        Assert.Equal(1, (await service.UpdatePlaylistsForAllUsersAsync([input], TestContext.Current.CancellationToken)).PlaylistsFailed);
+        Assert.True(await service.ResolveDeferredCreationAsync(user.Id, TestContext.Current.CancellationToken));
+        Assert.Equal(1, (await service.UpdatePlaylistsForAllUsersAsync([input], TestContext.Current.CancellationToken)).PlaylistsCreated);
+        Assert.Equal(2, store.Count);
+        Assert.Contains(manual.Id, store.Keys);
+        Assert.Contains(replacement.Id, store.Keys);
+        Assert.Equal(manual.Id.ToString("N"), manual.ProviderIds[RecommendationPlaylistService.PreservedPlaylistProviderKey]);
+        _libraryManagerMock.Verify(manager => manager.UpdateItemAsync(manual, It.IsAny<BaseItem>(), ItemUpdateType.MetadataEdit, TestContext.Current.CancellationToken), Times.Once);
+        _playlistManagerMock.Verify(manager => manager.SavePlaylistFile(manual), reservedName ? Times.Once() : Times.Never());
+        replacement.ProviderIds[RecommendationPlaylistService.PreservedPlaylistProviderKey] = manual.Id.ToString("N");
+        // Reconstruct the registered lifecycle to prove the no-delete decision is
+        // carried by durable playlist identity, not an in-process exception list.
+        var restarted = CreateSut();
+        await restarted.RemoveAllRecommendationPlaylistsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(manual.Id, Assert.Single(store.Values).Id);
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(manual, It.IsAny<DeleteOptions>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("owner")]
+    [InlineData("folder")]
+    [InlineData("write")]
+    [InlineData("read")]
+    [InlineData("cancel")]
+    public async Task AdministratorResolutionCannotReleaseAmbiguityBeforeDurableIdentityPreservation(string failure)
+    {
+        var owner = Guid.NewGuid();
+        var manual = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner };
+        _playlistManagerMock.Setup(manager => manager.GetPlaylists(owner)).Returns([manual]);
+        _libraryManagerMock.Setup(manager => manager.GetItemById(manual.Id)).Returns(manual);
+        if (failure == "missing") _libraryManagerMock.Setup(manager => manager.GetItemById(manual.Id)).Returns((BaseItem?)null);
+        if (failure == "owner") _libraryManagerMock.Setup(manager => manager.GetItemById(manual.Id)).Returns(new MediaBrowser.Controller.Playlists.Playlist { Id = manual.Id, OwnerUserId = Guid.NewGuid() });
+        if (failure == "folder") _playlistManagerMock.Setup(manager => manager.GetPlaylistsFolder(owner)).Returns(() => null!);
+        if (failure == "read") _playlistManagerMock.Setup(manager => manager.GetPlaylists(owner)).Throws(new IOException("ownership unavailable"));
+        if (failure is "write" or "cancel") _libraryManagerMock.Setup(manager => manager.UpdateItemAsync(It.IsAny<BaseItem>(), It.IsAny<BaseItem>(), It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>())).ThrowsAsync(failure == "write" ? new IOException("metadata unavailable") : new OperationCanceledException());
+        var service = CreateSut();
+        var attempts = (System.Collections.Concurrent.ConcurrentDictionary<Guid, HashSet<Guid>>)typeof(RecommendationPlaylistService).GetField("_uncertainCreations", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(service)!;
+        attempts[owner] = [];
+        if (failure == "cancel") await Assert.ThrowsAsync<OperationCanceledException>(() => service.ResolveDeferredCreationAsync(owner, TestContext.Current.CancellationToken));
+        else Assert.False(await service.ResolveDeferredCreationAsync(owner, TestContext.Current.CancellationToken));
+        Assert.Contains(owner, attempts.Keys);
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreationResolutionLeavesKnownRollbackReceiptsIndependentAndScopesThemToTheirActualOwner(bool sameOwner)
+    {
+        var owner = Guid.NewGuid();
+        var playlist = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner };
+        _playlistManagerMock.Setup(manager => manager.GetPlaylists(owner)).Returns([playlist]);
+        _libraryManagerMock.Setup(manager => manager.GetItemById(playlist.Id)).Returns(playlist);
+        var service = CreateSut();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var attempts = (System.Collections.Concurrent.ConcurrentDictionary<Guid, HashSet<Guid>>)typeof(RecommendationPlaylistService).GetField("_uncertainCreations", flags)!.GetValue(service)!;
+        var rollbacks = (System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>)typeof(RecommendationPlaylistService).GetField("_unmarkedReplacements", flags)!.GetValue(service)!;
+        attempts[owner] = [];
+        var receiptOwner = sameOwner ? owner : Guid.NewGuid();
+        rollbacks[playlist.Id] = receiptOwner;
+        Assert.True(await service.ResolveDeferredCreationAsync(owner, TestContext.Current.CancellationToken));
+        Assert.Equal(receiptOwner, rollbacks[playlist.Id]);
+        Assert.Equal(!sameOwner, playlist.ProviderIds.ContainsKey(RecommendationPlaylistService.PreservedPlaylistProviderKey));
+        _libraryManagerMock.Verify(manager => manager.UpdateItemAsync(playlist, It.IsAny<BaseItem>(), ItemUpdateType.MetadataEdit, TestContext.Current.CancellationToken), sameOwner ? Times.Never() : Times.Once());
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FinalMovieResolutionReturnsTheOriginalSequelWhenItsPrerequisiteCompletes(bool completes)
+    {
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        _userManagerMock.Setup(manager => manager.GetUsers()).Returns([user]);
+        _userManagerMock.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var first = new Movie { Id = Guid.NewGuid(), Path = "/media/first.mkv", ProviderIds = new() { ["Tmdb"] = "9737", ["TmdbCollection"] = "14890" } };
+        var sequel = new Movie { Id = Guid.NewGuid(), Path = "/media/sequel.mkv", ProviderIds = new() { ["Tmdb"] = "8961", ["TmdbCollection"] = "14890" } };
+        _libraryManagerMock.Setup(manager => manager.GetItemById(first.Id)).Returns(first);
+        _libraryManagerMock.Setup(manager => manager.GetItemById(sequel.Id)).Returns(sequel);
+        _libraryManagerMock.Setup(manager => manager.GetItemIds(It.IsAny<InternalItemsQuery>())).Returns([first.Id, sequel.Id]);
+        _libraryManagerMock.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? [first, sequel] : []);
+        var reads = 0;
+        var data = new Mock<IUserDataManager>();
+        data.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns((Jellyfin.Database.Implementations.Entities.User _, BaseItem item) => new UserItemData { Key = "playback", Played = item.Id == first.Id && ++reads > 1 && completes });
+        Guid[]? delivered = null;
+        _playlistManagerMock.Setup(manager => manager.CreatePlaylist(It.IsAny<PlaylistCreationRequest>())).Callback<PlaylistCreationRequest>(request => delivered = request.ItemIdList.ToArray()).ReturnsAsync(new PlaylistCreationResult(Guid.NewGuid().ToString()));
+        var service = new RecommendationPlaylistService(_playlistManagerMock.Object, _userManagerMock.Object, _libraryManagerMock.Object, _pluginLogMock.Object, _loggerMock.Object, data.Object);
+        var result = await service.UpdatePlaylistsForAllUsersAsync([new RecommendationResult { UserId = user.Id, Recommendations = [new() { ItemId = sequel.Id, ItemType = "Movie" }] }], TestContext.Current.CancellationToken);
+        Assert.Equal(completes ? sequel.Id : first.Id, Assert.Single(delivered!));
+        Assert.Equal(1, result.PlaylistsCreated);
+        Assert.Equal(0, result.PlaylistsFailed);
     }
 
     [Fact]

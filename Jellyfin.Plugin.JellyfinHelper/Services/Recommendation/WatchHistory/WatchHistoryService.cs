@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Data.Events;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -23,7 +26,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 /// <summary>
 ///     Collects watch history and user profiles from Jellyfin's user data manager.
 /// </summary>
-public sealed class WatchHistoryService : IWatchHistoryService
+public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
 {
     /// <summary>The plugin-log category used for all watch-history log entries.</summary>
     private const string LogCategory = "WatchHistory";
@@ -35,6 +38,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
     private readonly IUserDataManager _userDataManager;
     private readonly IUserManager _userManager;
     private readonly ILinkedChildrenService? _linkedChildren;
+    private readonly ConcurrentDictionary<Guid, MediaTargetSnapshot> _mediaTargets = new();
+    private long _mediaTargetEpoch;
+    private bool _disposed;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="WatchHistoryService" /> class.
@@ -62,6 +68,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         _pluginLog = pluginLog;
         _logger = logger;
         _linkedChildren = linkedChildren;
+        _userDataManager.UserDataSaved += OnUserDataSaved;
+        _userManager.OnUserUpdated += OnUserUpdated;
+        _libraryManager.ItemAdded += OnLibraryChanged;
+        _libraryManager.ItemUpdated += OnLibraryChanged;
+        _libraryManager.ItemRemoved += OnLibraryChanged;
     }
 
     /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
@@ -76,13 +87,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <inheritdoc />
     public UserWatchProfile? GetUserWatchProfile(Guid userId)
     {
+        var epoch = Volatile.Read(ref _mediaTargetEpoch);
+        var excluded = _configService.GetConfiguration().ExcludedLibraries;
         var user = _userManager.GetUserById(userId);
         if (user is null || IsDisabled(user))
         {
             return null;
         }
 
-        return BuildProfile(user);
+        return BuildProfile(user, librarySnapshot: new(excluded, epoch));
     }
 
     /// <inheritdoc />
@@ -93,8 +106,56 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <inheritdoc />
+    public double? GetCurrentMediaTarget(Guid userId)
+    {
+        var epoch = Volatile.Read(ref _mediaTargetEpoch);
+        if (_disposed || !_mediaTargets.TryGetValue(userId, out var snapshot) || snapshot.Epoch != epoch || snapshot.Day != DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return null;
+        }
+
+        var policy = GetUserParentalPolicy(userId);
+        return policy.Available && policy.MaximumRating == snapshot.MaximumRating
+            && _configService.GetConfiguration().ExcludedLibraries == snapshot.ExcludedLibraries
+            && Volatile.Read(ref _mediaTargetEpoch) == epoch
+                ? snapshot.Share
+                : null;
+    }
+
+    private void OnUserDataSaved(object? sender, UserDataSaveEventArgs args) => InvalidateMediaTargets();
+
+    private void OnUserUpdated(object? sender, GenericEventArgs<Jellyfin.Database.Implementations.Entities.User> args) => InvalidateMediaTargets();
+
+    private void OnLibraryChanged(object? sender, ItemChangeEventArgs args)
+    {
+        if (args.Item is not MediaBrowser.Controller.Playlists.Playlist && args.Item is Movie or Episode or Series or Folder)
+        {
+            InvalidateMediaTargets();
+        }
+    }
+
+    private void InvalidateMediaTargets()
+    {
+        Interlocked.Increment(ref _mediaTargetEpoch);
+        _mediaTargets.Clear();
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _disposed = true;
+        _userDataManager.UserDataSaved -= OnUserDataSaved;
+        _userManager.OnUserUpdated -= OnUserUpdated;
+        _libraryManager.ItemAdded -= OnLibraryChanged;
+        _libraryManager.ItemUpdated -= OnLibraryChanged;
+        _libraryManager.ItemRemoved -= OnLibraryChanged;
+        InvalidateMediaTargets();
+    }
+
+    /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
+        var mediaEpochAtLoad = Volatile.Read(ref _mediaTargetEpoch);
         var roster = _userManager.GetUsers() ?? throw new InvalidOperationException("The live user roster is unavailable; empty recommendation history cannot be inferred.");
         var users = roster.Where(static user => !IsDisabled(user)).ToList();
 
@@ -106,6 +167,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // Load library items once for all users (performance: avoids redundant DB queries).
         // The library scope is resolved a single time here and threaded into each loader so the
         // excluded-library filter never re-reads virtual folders per query.
+        var excludedAtLoad = _configService.GetConfiguration().ExcludedLibraries;
         var scope = ResolveLibraryScope();
         var allItems = LoadAllVideoItems(scope);
         var allSeries = LoadAllSeriesItems(scope);
@@ -121,7 +183,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             try
             {
-                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds));
+                profiles.Add(BuildProfile(user, allItems, allSeries, seriesGenresById, seriesTmdbById, collectionIds, new(excludedAtLoad, mediaEpochAtLoad)));
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
@@ -320,6 +382,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="seriesGenresById">Pre-built seriesId to genres map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="seriesTmdbById">Pre-built seriesId to TMDb-id map (null to build on demand). Shared across users in the batch path so it is built once, not per user.</param>
     /// <param name="collectionIds">Pre-resolved collection identities shared by the batch; null performs the single-profile lookup on demand.</param>
+    /// <param name="librarySnapshot">The configuration and invalidation epoch of supplied library data, for safe aggregate publication.</param>
     /// <returns>A populated watch profile for the user.</returns>
     internal UserWatchProfile BuildProfile(
         Jellyfin.Database.Implementations.Entities.User user,
@@ -327,8 +390,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IReadOnlyList<BaseItem>? allSeries = null,
         Dictionary<Guid, IReadOnlyList<string>>? seriesGenresById = null,
         Dictionary<Guid, int>? seriesTmdbById = null,
-        Dictionary<Guid, int>? collectionIds = null)
+        Dictionary<Guid, int>? collectionIds = null,
+        ProfileLibrarySnapshot? librarySnapshot = null)
     {
+        var mediaEpoch = librarySnapshot?.Epoch ?? Volatile.Read(ref _mediaTargetEpoch);
+        var mediaExcluded = librarySnapshot?.ExcludedLibraries ?? _configService.GetConfiguration().ExcludedLibraries;
         var profile = new UserWatchProfile
         {
             UserId = user.Id,
@@ -440,7 +506,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
             $"{profile.FavoriteCount} favorites",
             _logger);
 
+        CaptureMediaTarget(profile, mediaEpoch, mediaExcluded);
+
         return profile;
+    }
+
+    private void CaptureMediaTarget(UserWatchProfile profile, long epoch, string excluded)
+    {
+        if (!_disposed && epoch == Volatile.Read(ref _mediaTargetEpoch) && excluded == _configService.GetConfiguration().ExcludedLibraries)
+        {
+            _mediaTargets[profile.UserId] = new(MediaTypeBalance.TargetSeriesShare(profile), epoch, DateOnly.FromDateTime(DateTime.UtcNow), profile.MaxParentalRating, excluded);
+        }
     }
 
     private static bool IsIncludedInHistory(UserItemData data)
@@ -1187,6 +1263,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
         return _userDataManager.GetUserData(user, item);
     }
 
+    /// <summary>Captures the library configuration and invalidation epoch before loading profile sources.</summary>
+    /// <param name="ExcludedLibraries">The library exclusions at acquisition.</param>
+    /// <param name="Epoch">The source-invalidation epoch at acquisition.</param>
+    internal readonly record struct ProfileLibrarySnapshot(string ExcludedLibraries, long Epoch);
+
     /// <summary>Detached metadata shared by all watched items in one profile build.</summary>
     /// <param name="Genres">Parent-series genres.</param>
     /// <param name="TmdbIds">Parent-series provider title identities.</param>
@@ -1211,4 +1292,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
         /// <summary>Gets optional IMDb links detached from each parent series.</summary>
         public Dictionary<Guid, string?> ImdbIds { get; init; } = [];
     }
+
+    private sealed record MediaTargetSnapshot(double? Share, long Epoch, DateOnly Day, int? MaximumRating, string ExcludedLibraries);
 }

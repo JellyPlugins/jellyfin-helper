@@ -243,11 +243,13 @@ public class TrainingServiceTests
         var history = new RecommendationChoiceHistory();
         history.Merge([saved], new HashSet<Guid> { missing }, now);
         _watchHistoryMock.Setup(value => value.GetAllUserIds()).Returns([missing, available]);
-        _watchHistoryMock.Setup(value => value.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = available }]);
+        _watchHistoryMock.Setup(value => value.GetAllUserWatchProfiles()).Returns([CreateGuaranteedFittingProfile(available)]);
         _feedbackStoreMock.Setup(value => value.LoadAll()).Returns([]);
         using var service = CreateSut();
         service.ChoiceHistory = history;
-        Assert.False(service.Train(new HeuristicScoringStrategy(), [new RecommendationResult { UserId = available }], cancellationToken: TestContext.Current.CancellationToken));
+        var recording = new RecordingStrategy();
+        Assert.False(service.Train(recording, [new RecommendationResult { UserId = available }], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(0, recording.TrainInvocationCount);
         var recovered = saved.Copy();
         recovered.Choice = null;
         var replayed = history.Merge([recovered], new HashSet<Guid> { missing, available }, now);

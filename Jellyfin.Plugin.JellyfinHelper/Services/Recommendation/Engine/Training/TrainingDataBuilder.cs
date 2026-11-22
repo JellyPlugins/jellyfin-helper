@@ -103,6 +103,30 @@ internal static class TrainingDataBuilder
         IReadOnlyList<double>? featureMeans,
         CancellationToken cancellationToken)
     {
+        return BuildExamplesCore(new(previousResults, allProfiles, discoveryFeedback), new(seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans), DateTime.UtcNow, cancellationToken);
+    }
+
+    /// <summary>Builds deterministic historical choice admission and contrast budgets against one supplied clock.</summary>
+    /// <param name="previousResults">Original prediction snapshots.</param>
+    /// <param name="allProfiles">Captured source outcomes.</param>
+    /// <param name="referenceTime">One fixed fitting boundary, never a replacement for prediction timestamps.</param>
+    /// <param name="cancellationToken">Cooperative cancellation.</param>
+    /// <returns>Examples and phase counts.</returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Collection<UserWatchProfile> allProfiles,
+        DateTime referenceTime,
+        CancellationToken cancellationToken)
+        => BuildExamplesCore(new(previousResults, allProfiles, null), new(null, null, null, null), DateTimeNormalization.ToUtc(referenceTime), cancellationToken);
+
+    private static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamplesCore(
+        TrainingSources sources,
+        TrainingFeatureInputs featureInputs,
+        DateTime referenceTime,
+        CancellationToken cancellationToken)
+    {
+        var (previousResults, allProfiles, discoveryFeedback) = sources;
+        var (seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans) = featureInputs;
         cancellationToken.ThrowIfCancellationRequested();
 
         var profileLookup = BuildProfileLookup(allProfiles);
@@ -166,6 +190,7 @@ internal static class TrainingDataBuilder
             RecommendedItemIdsByUser = recommendedItemIdsByUser,
             Lookups = lookups,
             OrganicFallbackTimestamp = organicFallbackTimestamp,
+            ReferenceTime = referenceTime,
             Examples = examples,
             CancellationToken = cancellationToken,
             HistoryCache = new TrainingHistoryCache(allProfiles, cancellationToken),
@@ -223,7 +248,7 @@ internal static class TrainingDataBuilder
 
         var engaged = ctx.ProfileById.Values.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, ctx.Lookups.TmdbIds)
             .Select(title => (profile.UserId, title))).ToHashSet();
-        RecommendationChoiceHistory.ApplyOpportunityContrasts(ctx.Examples, DateTime.UtcNow, engaged);
+        RecommendationChoiceHistory.ApplyOpportunityContrasts(ctx.Examples, ctx.ReferenceTime, engaged);
     }
 
     /// <summary>Uses the earliest known source instant, never the training clock, for undated organic outcomes.</summary>
@@ -531,7 +556,7 @@ internal static class TrainingDataBuilder
             return BuildRecommendationFeedbackExample(item, result, historical, ctx.Lookups);
         }
 
-        return RecommendationChoiceBuilder.Build(new(result, userCtx.UserProfile, ctx.Lookups.TmdbIds, DateTime.UtcNow), Capture);
+        return RecommendationChoiceBuilder.Build(new(result, userCtx.UserProfile, ctx.Lookups.TmdbIds, ctx.ReferenceTime), Capture);
     }
 
     private static RecommendedItem ProjectHistoricalChoice(WatchedItemInfo row, DateTime predictionAt)
@@ -574,7 +599,7 @@ internal static class TrainingDataBuilder
             pair.Example.Choice = pair.Choice!.Copy();
         }
 
-        var referenceTime = DateTime.UtcNow;
+        var referenceTime = ctx.ReferenceTime;
         foreach (var (key, choice) in ctx.Choices)
         {
             if (ctx.Examples.Any(row => row.UserId == key.User && row.ObservationId == key.Observation && row.Choice?.RecommendedAtUtc == key.Prediction))
@@ -1678,6 +1703,9 @@ internal static class TrainingDataBuilder
     /// </summary>
     private readonly record struct TrainingContext
     {
+        /// <summary>Gets the common choice-admission and normalization clock.</summary>
+        public DateTime ReferenceTime { get; init; }
+
         /// <summary>Gets the recommendation results from previous runs.</summary>
         public IReadOnlyList<RecommendationResult> PreviousResults { get; init; }
 
@@ -1717,6 +1745,10 @@ internal static class TrainingDataBuilder
         /// <summary>Gets captured revealed choices keyed by the same stable user/title identities as outcomes.</summary>
         public Dictionary<(Guid User, Guid Observation, DateTime Prediction), RecommendationChoiceEvidence> Choices { get; init; }
     }
+
+    private readonly record struct TrainingSources(IReadOnlyList<RecommendationResult> Previous, Collection<UserWatchProfile> Profiles, IReadOnlyList<DiscoveryFeedbackResult>? Discovery);
+
+    private readonly record struct TrainingFeatureInputs(IReadOnlyDictionary<Guid, int>? EpisodeCounts, IReadOnlyDictionary<string, double>? GenreIdf, LibraryItemMetadata? Metadata, IReadOnlyList<double>? FeatureMeans);
 
     /// <summary>
     ///     Per-user context for Phase 1 example building. Behaviour-neutral parameter aggregate.

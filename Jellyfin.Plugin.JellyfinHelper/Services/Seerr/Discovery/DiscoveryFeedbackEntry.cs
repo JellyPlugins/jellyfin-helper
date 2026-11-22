@@ -30,6 +30,10 @@ public sealed class DiscoveryFeedbackEntry
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? PredictionActionAtUtc { get; set; }
 
+    /// <summary>Gets or sets the latest explicitly card-backed request that may supersede earlier dismissal or impression inputs.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CardRequestedAtUtc { get; set; }
+
     /// <summary>Gets or sets a value indicating whether size compaction erased prediction inputs; outcomes remain exclusion history, not training evidence.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool PredictionInputsCompacted { get; set; }

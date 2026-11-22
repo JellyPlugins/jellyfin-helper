@@ -360,24 +360,33 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         using var handler = new CountingHttpHandler();
         var service = BuildService(handler, arr);
         var config = new PluginConfiguration { RadarrInstances = [new ArrInstanceConfig { Url = "https://old.example.com", ApiKey = "key" }], SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.com", ApiKey = "key" }] };
+        typeof(Plugin).GetProperty(nameof(Plugin.Configuration))!.SetValue(Plugin.Instance, config);
         Task<HashSet<(int, string)>> Read(CancellationToken token) => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, token])!;
         var old = Read(TestContext.Current.CancellationToken);
         config.RadarrInstances[0].Url = "https://new.example.com";
         var current = Read(TestContext.Current.CancellationToken);
         using var cancel = new CancellationTokenSource();
         var cancelled = Read(cancel.Token);
-        await cancel.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelled);
-        Assert.False(current.IsCompleted);
-        arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Never);
-        oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
-        Assert.Contains((100, "movie"), await old);
-        var result = await current;
-        Assert.DoesNotContain((100, "movie"), result);
-        Assert.Contains((100, "tv"), result);
-        Assert.Contains((200, "movie"), result);
-        Assert.Equal(result.Order(), (await Read(TestContext.Current.CancellationToken)).Order());
-        arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
+        try
+        {
+            await cancel.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await cancelled.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+            Assert.False(current.IsCompleted);
+            arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Never);
+            oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
+            Assert.Contains((200, "movie"), await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            var result = await current.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.DoesNotContain((100, "movie"), result);
+            Assert.Contains((100, "tv"), result);
+            Assert.Contains((200, "movie"), result);
+            Assert.Equal(result.Order(), (await Read(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)).Order());
+            arr.Verify(value => value.GetRadarrMoviesAsync("https://new.example.com", It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            oldReply.TrySetResult([new ArrMovie { TmdbId = 100 }]);
+            await Task.WhenAll(old, current).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     [Fact]

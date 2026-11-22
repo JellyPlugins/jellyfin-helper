@@ -175,13 +175,72 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Empty(withheld.Recommendations);
         Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
         Assert.Equal(3, cached.Recommendations.Count);
-        await Assert.ThrowsAsync<IOException>(() => service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
+        Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
         Assert.Equal(0, _detailCalls);
         fail = false;
         clock.ExpireDeadlines();
         await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
         Assert.Equal(3, cached.Recommendations.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SuccessfulTraktFetchWithLocalFeedbackFailureRetriesImmediatelyButActualProviderFailureBacksOff(bool providerFailure)
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-trakt-feedback-" + Guid.NewGuid().ToString("N"));
+        using (var durable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) durable.RecordDismissed(user, 77, "movie");
+        var failedRead = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            OpenFeedbackRead = path => failedRead ? throw new IOException("local evidence unavailable") : File.OpenRead(path)
+        };
+        SetupProfile(user);
+        var discovery = CreateService(feedbackStoreOverride: store);
+        using var handler = new CountingHttpHandler();
+        const string movies = """[{"title":"Dismissed","rating":8,"ids":{"tmdb":77}},{"title":"Eligible","rating":8,"ids":{"tmdb":78}}]""";
+        handler.EnqueueResponse("/recommendations/movies", providerFailure ? HttpStatusCode.Unauthorized : HttpStatusCode.OK, movies);
+        if (!providerFailure) handler.EnqueueResponse("/recommendations/shows", HttpStatusCode.OK, "[]");
+        using var client = new System.Net.Http.HttpClient(handler, disposeHandler: false);
+        var factory = new Mock<System.Net.Http.IHttpClientFactory>();
+        factory.Setup(value => value.CreateClient("Trakt")).Returns(client);
+        var official = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.IOfficialTraktPluginReader>();
+        official.Setup(value => value.IsPresent()).Returns(true);
+        official.Setup(value => value.TryGetToken(user, It.IsAny<DateTimeOffset>())).Returns(new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.External.OfficialTraktToken("test-token", DateTimeOffset.UtcNow.AddDays(1)));
+        Plugin.Instance!.Configuration.TraktSourcingEnabled = true;
+        var now = DateTime.UtcNow;
+        var cache = new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.TraktCacheService(() => now);
+        var trakt = new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.TraktDiscoveryService(factory.Object,
+            new Jellyfin.Plugin.JellyfinHelper.Services.Trakt.TraktPersonalSourceService(official.Object), discovery, cache, Mock.Of<IPluginLogService>(), Mock.Of<IUserManager>(), Mock.Of<ILogger<Jellyfin.Plugin.JellyfinHelper.Services.Trakt.TraktDiscoveryService>>());
+        try
+        {
+            Assert.Null(await trakt.GetPersonalAsync(user, TestContext.Current.CancellationToken));
+            Assert.Equal(providerFailure, cache.IsPersonalBackoffActive(user));
+            Assert.Null(cache.GetPersonal(user, TimeSpan.FromHours(1)));
+            Assert.Equal(0, _detailCalls);
+            failedRead = false;
+            if (providerFailure)
+            {
+                Assert.Null(await trakt.GetPersonalAsync(user, TestContext.Current.CancellationToken));
+                Assert.Equal(1, handler.RequestCount("/recommendations/movies"));
+                now = now.AddHours(1);
+            }
+
+            handler.EnqueueResponse("/recommendations/movies", HttpStatusCode.OK, movies);
+            handler.EnqueueResponse("/recommendations/shows", HttpStatusCode.OK, "[]");
+            var recovered = await trakt.GetPersonalAsync(user, TestContext.Current.CancellationToken);
+            Assert.Equal(78, Assert.Single(recovered!.Recommendations).TmdbId);
+            Assert.False(cache.IsPersonalBackoffActive(user));
+            Assert.Equal(2, handler.RequestCount("/recommendations/movies"));
+            Assert.Equal(providerFailure ? 1 : 2, handler.RequestCount("/recommendations/shows"));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -226,6 +285,52 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(saved.GeneratedAt, delivered.GeneratedAt);
         Assert.Equal(40, saved.Recommendations.Count);
         Assert.Equal(0, _detailCalls);
+    }
+
+    [Fact]
+    public void WarmOwnPoolDeliveryUsesTheLightweightAggregateAndNeverBuildsAFullWatchProfile()
+    {
+        var user = Guid.NewGuid();
+        var service = CreateService();
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns((true, (int?)null));
+        _history.Setup(history => history.GetCurrentMediaTarget(user)).Returns(.8);
+        _history.Setup(history => history.GetUserWatchProfile(user)).Throws(new InvalidOperationException("full profile must not be rebuilt on cached delivery"));
+        var cached = MediaPool(user, .2);
+        var delivered = service.FilterConsumedItems(user, cached);
+        Assert.Equal(.8, delivered.TargetSeriesShare);
+        Assert.NotEmpty(delivered.Recommendations);
+        _history.Verify(history => history.GetUserWatchProfile(user), Times.Never);
+        _history.Verify(history => history.GetCurrentMediaTarget(user), Times.Once);
+    }
+
+    [Fact]
+    public void ParentPolicyLoweredDuringOwnershipLookupIsAuthoritativeForTheReturnedCards()
+    {
+        var user = Guid.NewGuid();
+        var service = CreateService();
+        var maximum = 18;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (true, (int?)maximum));
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(() => { maximum = 6; return []; });
+        var country = (string)typeof(SeerrDiscoveryService).GetMethod("CurrentCertificationCountry", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [])!;
+        var card = new DiscoveryRecommendation { TmdbId = 700, MediaType = "movie", CertificationPolicyCountry = country, CertificationScore = 12 };
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [card] };
+        Assert.Empty(service.FilterConsumedItems(user, cached).Recommendations);
+        Assert.Single(cached.Recommendations);
+        _history.Verify(history => history.GetUserParentalPolicy(user), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void AnAccountUnavailableAfterOwnershipLookupCannotReceiveTheRetainedPool()
+    {
+        var user = Guid.NewGuid();
+        var service = CreateService();
+        _history.SetupSequence(history => history.GetUserParentalPolicy(user)).Returns((true, (int?)null)).Returns((false, (int?)null));
+        var saved = new DiscoveryResult { UserId = user, UserName = "owner", GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 700, MediaType = "movie" }] };
+        var withheld = service.FilterConsumedItems(user, saved);
+        Assert.Empty(withheld.Recommendations);
+        Assert.Equal(saved.GeneratedAt, withheld.GeneratedAt);
+        Assert.Equal(saved.UserName, withheld.UserName);
+        Assert.Single(saved.Recommendations);
     }
 
     [Theory]
@@ -322,6 +427,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             });
         factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new System.Net.Http.HttpClient(handler.Object));
         var arr = new Mock<IArrIntegrationService>();
+        _history.Setup(history => history.GetCurrentMediaTarget(It.IsAny<Guid>())).Returns((Guid owner) =>
+        {
+            var current = _history.Object.GetUserWatchProfile(owner);
+            return current?.UserId == owner ? MediaTypeBalance.TargetSeriesShare(current) : null;
+        });
         configureArr?.Invoke(arr);
         _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
@@ -740,7 +850,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             {
                 if (fail) throw new IOException("test card-update persistence failure");
                 Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
-            }
+            },
+            RetryTimeProvider = new ControlledWaitTimeProvider()
         };
         var user = Guid.NewGuid();
         store.RecordRequested(user, 9000, "movie");

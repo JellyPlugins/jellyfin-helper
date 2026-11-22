@@ -87,7 +87,7 @@ public sealed class HistoricalRecencyTests
         var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = contrast ? [new RecommendedItem { ItemId = chosen, ItemType = "Movie", DateCreated = Added, ScoringFeatures = new CandidateFeatures() }, recommendation] : [recommendation], TrainingContrasts = [] };
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = contrast ? chosen : item, ItemType = "Movie", Played = true, DateCreated = Added, LastPlayedDate = Prediction.AddDays(2) }] };
 
-        var example = Assert.Single(TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken).Examples,
+        var example = Assert.Single(TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken).Examples,
             candidate => candidate.ObservationId == TrainingExample.CreateLibraryObservationId(user, item));
 
         Assert.Equal(stored.ToVector(), example.Features.ToVector());
@@ -118,6 +118,25 @@ public sealed class HistoricalRecencyTests
             Assert.Equal(stored.ToVector(), example.Features.ToVector());
             Assert.NotSame(stored, example.Features);
         }
+    }
+
+    [Theory]
+    [InlineData("tv")]
+    [InlineData("TV")]
+    [InlineData(" TV ")]
+    public void LegacyTvTypeEngagementSuppressesPassiveShownSamplesInsteadOfTreatingTheEpisodeAsAMovie(string type)
+    {
+        var user = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var entry = new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "tv", ShownAtUtc = now.AddDays(-40), ImpressionAtUtc = now.AddDays(-30), Genres = ["Drama"], ScoringFeatures = new CandidateFeatures { IsExternalCandidate = true, IsSeries = true, HasGenreEvidence = true, GenreSimilarity = .8 } };
+        // A dormant legacy row can predate setter normalization; physical TV
+        // engagement must still match its typed title rather than an episode ID.
+        typeof(DiscoveryFeedbackEntry).GetField("_mediaType", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(entry, type);
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new() { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = Guid.NewGuid(), SeriesTmdbId = 700, TmdbId = 9000, Played = true, LastPlayedDate = now.AddDays(-20) }] };
+        var examples = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new() { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile> { [user] = profile }, null, null, TestContext.Current.CancellationToken);
+        Assert.Empty(examples.Examples);
+        var control = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([new() { UserId = user, Entries = [entry] }], new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken);
+        Assert.NotEmpty(control.Examples);
     }
 
     private static void AssertRecency(TrainingExample example, DateTime release, DateTime added, DateTime reference)

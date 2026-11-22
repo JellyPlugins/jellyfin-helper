@@ -76,15 +76,11 @@ internal static class MovieSequencePolicy
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!selected.Any(row => IsKnownMovie(MovieId(row.Item), ContentAffinityResolver.ResolveTmdbCollectionId(row.Item))))
-        {
-            return selected;
-        }
-
         var completed = (profile?.WatchedItems ?? []).Where(row => row.Played && row.TmdbId > 0 && profile?.AccessibleItemIds?.Contains(row.ItemId) != false
             && string.Equals(row.ItemType, "Movie", StringComparison.OrdinalIgnoreCase)).Select(row => row.TmdbId).ToHashSet();
         var suitable = eligible.Where(row => row.Score >= EngineConstants.MinimumPersonalSelectionScore).DistinctBy(row => row.Item.Id).ToList();
-        if (HasEnoughSuitableAlternatives(suitable.Select(row => row.Item).ToArray(), completed, count))
+        if (selected.Any(row => IsKnownMovie(MovieId(row.Item), ContentAffinityResolver.ResolveTmdbCollectionId(row.Item)))
+            && HasEnoughSuitableAlternatives(suitable.Select(row => row.Item).ToArray(), completed, count))
         {
             eligible = suitable;
             var suitableIds = suitable.Select(row => row.Item.Id).ToHashSet();

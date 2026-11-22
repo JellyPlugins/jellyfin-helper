@@ -12,6 +12,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 public sealed class MovieSequencePolicyTests
 {
+    [Fact]
+    public void StandaloneMovieCopiesUseOneTitleSlotAndBackfillWithoutDiscardingTheFirstSelectedCopy()
+    {
+        var first = Movie(999001, 0, 8);
+        var secondCopy = Movie(999001, 0, 9);
+        var other = Movie(999002, 0, 7);
+        var pool = new[] { first, secondCopy, other }.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var selected = MovieSequencePolicy.Apply([pool[0], pool[1]], pool, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { first.Id, other.Id }, selected.Select(row => row.Item.Id));
+        Assert.Equal(.8, selected[0].Score);
+    }
+
+    [Fact]
+    public void StandaloneDeduplicationDoesNotApplyTheSequelSuitabilityRuleToAnAlreadySelectedExplorationSlot()
+    {
+        var exploration = Movie(999001, 0, 1);
+        var suitable = Movie(999002, 0, 9);
+        var rows = new[] { exploration, suitable }.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var result = MovieSequencePolicy.Apply([rows[0]], rows, null, 1, TestContext.Current.CancellationToken);
+        Assert.Equal(exploration.Id, Assert.Single(result).Item.Id);
+        Assert.Equal(.1, result[0].Score);
+    }
+
     [Theory]
     [InlineData(2, false)]
     [InlineData(1, true)]

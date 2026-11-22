@@ -25,6 +25,11 @@ public interface IWatchHistoryService
         return (profile is not null, profile?.MaxParentalRating);
     }
 
+    /// <summary>Reads a current media-mix aggregate without rebuilding a watch profile; unavailable or invalidated evidence stays neutral.</summary>
+    /// <param name="userId">The authenticated owner.</param>
+    /// <returns>A current bounded series-share target, or null until current evidence is available.</returns>
+    double? GetCurrentMediaTarget(Guid userId) => null;
+
     /// <summary>
     ///     Builds watch profiles for all enabled Jellyfin users. Disabled users are skipped.
     /// </summary>

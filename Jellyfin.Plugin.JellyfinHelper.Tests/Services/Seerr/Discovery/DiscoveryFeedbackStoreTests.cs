@@ -64,6 +64,196 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(.2, first.ScoringFeatures!.GenreSimilarity);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RepeatedDismissalsKeepTheFirstExactInputsUnlessANewerCardRequestOwnsThem(bool requested)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var firstAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        var first = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "first dismissal", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } };
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, first, firstAt.AddMinutes(-1)));
+        clock.Now = firstAt.AddMinutes(1);
+        fail = false;
+        store.RecordDismissed(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "second dismissal", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } }, clock.Now.AddSeconds(-1));
+        if (requested)
+        {
+            clock.Now = firstAt.AddMinutes(2);
+            store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "requested", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, clock.Now.AddSeconds(-1));
+        }
+
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(firstAt.AddMinutes(1), entry.DismissedAtUtc);
+        Assert.Equal(requested ? .9 : .2, entry.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(requested ? "requested" : "first dismissal", entry.Title);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ADelayedIdentityRequestKeepsItsFirstTimeUnlessACardBackedRequestOwnsTheNewerTime(bool card)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var firstAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        Assert.False(await store.RecordRequestedAsync(user, 700, "tv", TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        clock.Now = firstAt.AddMinutes(1);
+        fail = false;
+        store.RecordRequested(user, 700, "tv");
+        if (card) store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, clock.Now.AddSeconds(-1));
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(card ? firstAt.AddMinutes(1) : firstAt, entry.RequestedAtUtc);
+        Assert.Equal(card ? .9 : (double?)null, entry.ScoringFeatures?.GenreSimilarity);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SaturatedImpressionsRecoverOnlyTheOriginalPayloadOrItsExplicitExactReplay(bool replayOnly)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var firstAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry, ReplayPayloadBudget = replayOnly ? 1 : 64 * 1024 * 1024,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        var first = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "original", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } };
+        var generated = firstAt.AddMinutes(-1);
+        store.RecordGenerated(user, "viewer", [first], generated);
+        fail = true;
+        foreach (var id in Enumerable.Range(1000, 64))
+        {
+            Assert.False(await store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        Assert.Throws<IOException>(() => store.RecordImpressions(user, [first], generated));
+        clock.Now = firstAt.AddMinutes(1);
+        fail = false;
+        store.RecordImpressions(user, [new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "later", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .8 } }], clock.Now.AddSeconds(-1));
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        if (replayOnly)
+        {
+            Assert.Throws<IOException>(() => store.LoadAll());
+            store.RecordImpressions(user, [first], generated);
+        }
+
+        var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 700);
+        Assert.Equal(firstAt, entry.ImpressionAtUtc);
+        Assert.Equal(generated, entry.ShownAtUtc);
+        Assert.Equal("original", entry.Title);
+        Assert.Equal(.2, entry.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RejectedCardActionsReplayTheFirstDismissalButTheNewestExplicitRequest(bool requested)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var firstAt = clock.Now;
+        var fail = true;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        foreach (var id in Enumerable.Range(1000, 64))
+        {
+            Assert.False(await store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        void Record(double feature)
+        {
+            var card = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = feature } };
+            if (requested) store.RecordRequested(user, card, clock.Now.AddSeconds(-1));
+            else Assert.Throws<IOException>(() => store.RecordDismissed(user, card, clock.Now.AddSeconds(-1)));
+        }
+
+        Record(.2);
+        clock.Now = firstAt.AddMinutes(1);
+        Record(.7);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        // An unrelated success cannot certify either rejected card payload.
+        store.RecordImpressions(user, [new DiscoveryRecommendation { TmdbId = 701, MediaType = "tv" }], firstAt);
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 700);
+        Assert.Equal(requested ? .7 : .2, saved.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(requested ? clock.Now : firstAt, saved.PredictionEvidenceAtUtc);
+        Assert.Equal(requested ? clock.Now : (DateTime?)null, saved.CardRequestedAtUtc);
+    }
+
+    [Fact]
+    public async Task ARequestFinishingAfterDisposeCannotPromoteRetainedDependentWatches()
+    {
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = true;
+        var stall = false;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) =>
+            {
+                if (fail) throw new IOException("offline");
+                if (stall) { entered.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); }
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        Assert.False(await store.RecordRequestedAsync(user, 700, "tv", TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        fail = false;
+        stall = true;
+        var request = Task.Run(() => store.RecordRequested(user, 700, "tv"), CancellationToken.None);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            store.Dispose();
+            release.Set();
+            await request.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(Assert.Single(store.LoadForUser(user)!.Entries).WasWatched);
+            retry.ExpireDeadlines();
+            Assert.True(CurrentWriter(store).IsCompleted);
+            Assert.False(Assert.Single(CreateStore().LoadForUser(user)!.Entries).WasWatched);
+        }
+        finally { release.Set(); await request.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
+    }
+
     [Fact]
     public async Task ADisposedOldRetryCallbackCannotTakeOwnershipOfANewRetryTimer()
     {
@@ -558,7 +748,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task OnlyAnActuallyDurableImpressionCoversARejectedLaterDuplicate(bool earlierImpression)
+    public async Task RetainedExactImpressionPayloadOrDurableEarlierDuplicateRestoresReadiness(bool earlierImpression)
     {
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
         var firstAt = clock.Now;
@@ -589,17 +779,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         fail = false;
         Assert.False(await store.RecordGeneratedAsync(user, "viewer", [new DiscoveryRecommendation { TmdbId = 900 }], clock.Now, TestContext.Current.CancellationToken));
         await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-        if (earlierImpression)
-        {
-            var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 700);
-            Assert.Equal(firstAt, entry.ImpressionAtUtc);
-            Assert.Equal(.7, entry.ScoringFeatures!.GenreSimilarity);
-        }
-        else
-        {
-            Assert.Throws<IOException>(() => store.LoadAll());
-            Assert.Null(Assert.Single(store.LoadForUser(user)!.Entries, row => row.TmdbId == 700).ImpressionAtUtc);
-        }
+        var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 700);
+        Assert.Equal(earlierImpression ? firstAt : clock.Now, entry.ImpressionAtUtc);
+        Assert.Equal(.7, entry.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(firstAt.AddMinutes(-1), entry.ShownAtUtc);
     }
 
     [Fact]

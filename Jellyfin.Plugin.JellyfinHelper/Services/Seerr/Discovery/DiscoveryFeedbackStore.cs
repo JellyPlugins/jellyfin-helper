@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -40,6 +41,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private const int MaxEntryAgeDays = 365;
     private const int MaximumPendingWrites = 64;
     private const int MaximumRejectedReceipts = 4096;
+    private const long MaximumReplayPayloadBytes = 64 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _filePath;
@@ -48,11 +50,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private readonly Queue<PendingWrite> _writes = new();
     private readonly Queue<PendingWrite> _retryWrites = new();
     private readonly Dictionary<ReceiptKey, DateTime> _rejectedReceipts = new();
+    private readonly Dictionary<ReceiptKey, PredictionReplay> _predictionReplays = new();
+    private readonly Dictionary<ReceiptKey, string> _enqueuedPredictionReplays = new();
     private readonly Dictionary<TitleKey, int> _pendingRequests = new();
     private readonly Dictionary<TitleKey, int> _pendingDismissals = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
     private readonly long _sizeLimit = MaxFileSizeBytes;
+    private long _replayPayloadBytes;
     private bool _recoveryBlocked;
     private Task<bool>? _pendingGeneration;
     private bool _writerRunning;
@@ -129,6 +134,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     /// <summary>Gets the background retry clock; one timer uses capped exponential backoff independently of caller waits.</summary>
     internal TimeProvider RetryTimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>Gets the bounded serialized overflow-payload budget; identity/hash proofs remain replay requirements if bytes cannot fit.</summary>
+    internal long ReplayPayloadBudget { get; init; } = MaximumReplayPayloadBytes;
 
     /// <summary>Gets the test synchronization hook immediately before atomic training-view selection.</summary>
     internal Action? BeforeTrainingSnapshotSelection { get; init; }
@@ -248,7 +256,85 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             }
 
             _rejectedReceipts[receipt.Key] = RetainedReceiptTime(receipt);
+            RetainRejectedPrediction(receipt);
         }
+    }
+
+    private void RetainRejectedPrediction(Receipt receipt)
+    {
+        if (receipt.Prediction is not { } bytes)
+        {
+            return;
+        }
+
+        if (_predictionReplays.TryGetValue(receipt.Key, out var prior))
+        {
+            var keepPrior = receipt.Key.Kind == ReceiptKind.Request ? prior.Acquired >= receipt.Acquired : prior.Acquired <= receipt.Acquired;
+            if (keepPrior)
+            {
+                return;
+            }
+
+            _replayPayloadBytes -= prior.Payload?.LongLength ?? 0;
+        }
+
+        var payload = _replayPayloadBytes + bytes.LongLength <= ReplayPayloadBudget ? bytes : null;
+        _predictionReplays[receipt.Key] = new(receipt.PredictionHash!, receipt.Acquired, payload);
+        _replayPayloadBytes += payload?.LongLength ?? 0;
+        // If the bounded byte budget is exhausted, the proof remains an explicit
+        // replay requirement. Only that original validated delivery can resolve it;
+        // a later impression never substitutes a discarded prediction payload.
+    }
+
+    private Receipt CapturePredictionReceipt(ReceiptKey key, DateTime acquired, DiscoveryRecommendation item, DateTime generatedAt)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new PredictionPayload(item, generatedAt), JsonOptions);
+        var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        lock (_writerGate)
+        {
+            if (_predictionReplays.TryGetValue(key, out var replay) && replay.Hash == hash)
+            {
+                acquired = replay.Acquired;
+            }
+        }
+
+        return new(key, acquired, bytes, hash);
+    }
+
+    private void PromoteRetainedPredictions()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        foreach (var pair in _predictionReplays.Where(pair => pair.Value.Payload is not null && !_enqueuedPredictionReplays.ContainsKey(pair.Key)).ToArray())
+        {
+            if (_writes.Count + _retryWrites.Count >= MaximumPendingWrites)
+            {
+                break;
+            }
+
+            var receipt = new Receipt(pair.Key, pair.Value.Acquired, pair.Value.Payload, pair.Value.Hash);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = completion.Task.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            _writes.Enqueue(new PendingWrite(() => ReplayPrediction(receipt), true, completion, [receipt], []));
+            _enqueuedPredictionReplays.Add(pair.Key, pair.Value.Hash);
+            Interlocked.Increment(ref _pendingObservedWrites);
+            AddPendingActions([receipt]);
+        }
+
+        StartWriterIfNeeded();
+    }
+
+    private bool ReplayPrediction(Receipt receipt)
+    {
+        // Deserialization and file I/O run on the managed worker, never while the
+        // serving/readiness gate is held.
+        var payload = JsonSerializer.Deserialize<PredictionPayload>(receipt.Prediction!, JsonOptions)!;
+        return receipt.Key.Kind == ReceiptKind.Impression
+            ? RecordImpressionsCore(receipt.Key.Title.User, [payload.Item], payload.GeneratedAt, receipt.Acquired)
+            : RecordActionCore(receipt.Key.Title.User, receipt.Key.Title.TmdbId, receipt.Key.Title.MediaType, receipt.Key.Kind == ReceiptKind.Request, payload.Item, payload.GeneratedAt, receipt.Acquired);
     }
 
     private DateTime RetainedReceiptTime(Receipt receipt)
@@ -259,7 +345,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
 
         // Request intent is idempotent; repeated observed actions retain their later age.
-        if (receipt.Key.Kind == ReceiptKind.Request)
+        if (receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Impression)
         {
             return previous < receipt.Acquired ? previous : receipt.Acquired;
         }
@@ -370,6 +456,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (saved)
             {
                 RetireObservedWrite(write);
+                PromoteRetainedPredictions();
                 PromoteDependentWatches(write);
             }
             else
@@ -396,7 +483,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void ScheduleRetainedRetry()
     {
-        if (_disposed || _retryTimer is not null || !_retryWrites.Any(write => !HasUndurableDependency(write)))
+        if (_disposed || _retryTimer is not null || !HasRunnableRetainedWrites())
         {
             return;
         }
@@ -406,6 +493,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(generation), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _retryTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
+
+    private bool HasRunnableRetainedWrites()
+        => _retryWrites.Any(write => !HasUndurableDependency(write))
+            || _predictionReplays.Any(pair => pair.Value.Payload is not null && !_enqueuedPredictionReplays.ContainsKey(pair.Key));
 
     private void RetryRetainedWrites(long generation)
     {
@@ -437,6 +528,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 }
             }
 
+            PromoteRetainedPredictions();
             StartWriterIfNeeded();
         }
     }
@@ -458,6 +550,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (recovered && _rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
             {
                 _rejectedReceipts.Remove(receipt.Key);
+                if (_predictionReplays.Remove(receipt.Key, out var replay))
+                {
+                    _replayPayloadBytes -= replay.Payload?.LongLength ?? 0;
+                }
+            }
+
+            if (_enqueuedPredictionReplays.TryGetValue(receipt.Key, out var enqueuedHash) && enqueuedHash == receipt.PredictionHash)
+            {
+                _enqueuedPredictionReplays.Remove(receipt.Key);
             }
         }
     }
@@ -483,6 +584,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private bool CoversRejectedReceipt(Receipt receipt, DateTime rejectedAt)
     {
+        if (_predictionReplays.TryGetValue(receipt.Key, out var prediction))
+        {
+            return receipt.PredictionHash == prediction.Hash;
+        }
+
         if (receipt.Acquired >= rejectedAt)
         {
             return true;
@@ -509,7 +615,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void PromoteDependentWatches(PendingWrite completed)
     {
-        if (!completed.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request))
+        if (_disposed || !completed.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request))
         {
             return;
         }
@@ -614,23 +720,25 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         var snapshot = items.Select(item => item.Clone()).ToArray();
         var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
-        var receipts = snapshot.Select(item => new Receipt(new ReceiptKey(new TitleKey(userId, item.TmdbId, NormalizeMediaType(item.MediaType)), ReceiptKind.Impression), acquired)).ToArray();
-        var write = new PendingWrite(() => RecordImpressionsCore(userId, snapshot, generatedAtUtc, acquired), true, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously), receipts, []);
+        var receipts = snapshot.Select(item => CapturePredictionReceipt(new ReceiptKey(new TitleKey(userId, item.TmdbId, NormalizeMediaType(item.MediaType)), ReceiptKind.Impression), acquired, item, generatedAtUtc)).ToArray();
+        var write = new PendingWrite(() => RecordImpressionsCore(userId, snapshot, generatedAtUtc, acquired, receipts), true, new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously), receipts, []);
         if (!ExecuteSynchronousWrite(write))
         {
             throw new IOException("Could not persist confirmed discovery impressions.");
         }
     }
 
-    private bool RecordImpressionsCore(Guid userId, IReadOnlyList<DiscoveryRecommendation> items, DateTime generatedAtUtc, DateTime acquired)
+    private bool RecordImpressionsCore(Guid userId, DiscoveryRecommendation[] items, DateTime generatedAtUtc, DateTime acquired, IReadOnlyList<Receipt>? receipts = null)
     {
         lock (_fileLock)
         {
             var data = LoadInternal();
             var userResult = GetOrCreateUserResult(data, userId, string.Empty);
             var modified = false;
-            foreach (var item in items)
+            for (var index = 0; index < items.Length; index++)
             {
+                var item = items[index];
+                var itemAcquired = receipts?[index].Acquired ?? acquired;
                 var mediaType = NormalizeMediaType(item.MediaType);
                 var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == item.TmdbId && e.MediaType == mediaType);
                 if (entry is null)
@@ -639,15 +747,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     userResult.Entries.Add(entry);
                 }
 
-                if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value <= acquired)
+                if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value <= itemAcquired)
                 {
                     continue;
                 }
 
                 // A verified action can establish the prediction before any viewport acknowledgement.
                 // Later impressions may record visibility but must not rewrite that action's evidence.
-                ConfirmPrediction(entry, item, generatedAtUtc, acquired);
-                entry.ImpressionAtUtc = acquired;
+                ConfirmPrediction(entry, item, generatedAtUtc, itemAcquired);
+                entry.ImpressionAtUtc = itemAcquired;
                 modified = true;
             }
 
@@ -773,9 +881,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         var snapshot = item?.Clone();
         var acquired = ReceiptTimeProvider.GetUtcNow().UtcDateTime;
         mediaType = NormalizeMediaType(mediaType);
-        var receipt = new Receipt(new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), requested ? ReceiptKind.Request : ReceiptKind.Dismissal), acquired);
+        var key = new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), requested ? ReceiptKind.Request : ReceiptKind.Dismissal);
+        var receipt = snapshot is not null && generatedAtUtc.HasValue ? CapturePredictionReceipt(key, acquired, snapshot, generatedAtUtc.Value) : new Receipt(key, acquired);
         var write = new PendingWrite(
-            () => RecordActionCore(userId, tmdbId, mediaType, requested, snapshot, generatedAtUtc, acquired),
+            () => RecordActionCore(userId, tmdbId, mediaType, requested, snapshot, generatedAtUtc, receipt.Acquired),
             true,
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
             [receipt],
@@ -823,18 +932,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            UpdateActionPrediction(entry, item, generatedAtUtc, acquired);
+            UpdateActionPrediction(entry, item, generatedAtUtc, acquired, requested);
             RecordActionTimestamp(entry, requested, item is not null, acquired);
 
             return SaveInternal(data);
         }
     }
 
-    private static void UpdateActionPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation? item, DateTime? generatedAtUtc, DateTime acquired)
+    private static void UpdateActionPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation? item, DateTime? generatedAtUtc, DateTime acquired, bool requested)
     {
         if (item is not null && generatedAtUtc.HasValue)
         {
-            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired, action: true);
+            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired, action: true, requested: requested);
         }
         else if (!entry.HasConfirmedPrediction)
         {
@@ -857,17 +966,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         {
             entry.RequestedAtUtc = entry.RequestedAtUtc > acquired ? entry.RequestedAtUtc : acquired;
         }
-        else
+        else if (!entry.CardRequestedAtUtc.HasValue)
         {
-            entry.RequestedAtUtc ??= acquired;
+            entry.RequestedAtUtc = entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value < acquired ? entry.RequestedAtUtc : acquired;
         }
     }
 
-    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null, bool action = false)
+    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null, bool action = false, bool requested = false)
     {
         var acquired = acquiredAtUtc ?? DateTime.UtcNow;
         var confirmedAt = entry.PredictionEvidenceAtUtc ?? entry.ImpressionAtUtc;
-        if (entry.PredictionActionAtUtc > acquired || (!action && confirmedAt.HasValue && confirmedAt.Value <= acquired))
+        if (entry.CardRequestedAtUtc > acquired
+            || (!action && (entry.PredictionActionAtUtc.HasValue || (confirmedAt.HasValue && confirmedAt.Value <= acquired)))
+            || (action && !requested && entry.PredictionActionAtUtc.HasValue && entry.PredictionActionAtUtc.Value <= acquired))
         {
             return;
         }
@@ -879,6 +990,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         if (action)
         {
             entry.PredictionActionAtUtc = acquired;
+            if (requested)
+            {
+                entry.CardRequestedAtUtc = acquired;
+            }
         }
 
         entry.Year = item.Year;
@@ -1073,6 +1188,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
                 PredictionActionAtUtc = e.PredictionActionAtUtc,
+                CardRequestedAtUtc = e.CardRequestedAtUtc,
                 PredictionInputsCompacted = e.PredictionInputsCompacted,
                 KnownPeople = e.KnownPeople?.ToList(),
                 ShownAtUtc = e.ShownAtUtc,
@@ -1432,7 +1548,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private readonly record struct ReceiptKey(TitleKey Title, ReceiptKind Kind);
 
-    private readonly record struct Receipt(ReceiptKey Key, DateTime Acquired);
+    private readonly record struct Receipt(ReceiptKey Key, DateTime Acquired, byte[]? Prediction = null, string? PredictionHash = null);
+
+    private sealed record PredictionPayload(DiscoveryRecommendation Item, DateTime GeneratedAt);
+
+    private sealed record PredictionReplay(string Hash, DateTime Acquired, byte[]? Payload);
 
     private sealed record PendingWrite(Func<bool> Operation, bool Observed, TaskCompletionSource<bool> Completion, Receipt[] Receipts, TitleKey[] Dependencies);
 }

@@ -111,7 +111,17 @@ public class RecommendationsTask
         cancellationToken.ThrowIfCancellationRequested();
 
         var maxPerUser = config.MaxRecommendationsPerUser;
-        var results = _recsEngine.GetAllRecommendations(maxPerUser, cancellationToken);
+        IReadOnlyList<RecommendationResult> results;
+        try
+        {
+            results = _recsEngine.GetAllRecommendations(maxPerUser, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning(LogSource, "Recommendation batch deferred; preserving the previous complete cache and playlists instead of publishing a partial batch.", ex, _logger);
+            progress.Report(100);
+            return;
+        }
 
         progress.Report(80);
         cancellationToken.ThrowIfCancellationRequested();

@@ -657,6 +657,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ModelBindingLogFilter.cs        # IAsyncActionFilter (Order = int.MinValue) attached to endpoints via [ServiceFilter]. Surfaces model-binding failures (invalid field types, null request body) into IPluginLogService BEFORE [ApiController]'s auto-400 short-circuits the request - without this filter, the auto-400 makes it out but no plugin-log entry is written, leaving admins with a bare HTTP 400 and no server-side trace to debug against. Registered as Scoped in PluginServiceRegistrator; do NOT register globally (would rewrite responses of other Jellyfin controllers that have their own error contracts).
 │   ├── PingController.cs               # /JellyfinHelper/Ping liveness endpoint - no dependencies, returns { ok, plugin, version }. The Settings save flow probes this after a failed save to distinguish "backend unreachable" (Ping also fails) from "backend reachable, request rejected" (Ping succeeds). Uses the same [Authorize(RequiresElevation)] policy as the other admin endpoints so a successful ping proves the entire auth + routing + reverse-proxy chain is intact for admins.
 │   ├── RecommendationController.cs      # ML recommendations API
+│   ├── RecommendationPlaylistRecoveryController.cs # Administrator-only ambiguous creation recovery
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
@@ -1285,6 +1286,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `PingController.cs`
 - `PingResponse.cs`
 - `RecommendationController.cs`
+- `RecommendationPlaylistRecoveryController.cs`
 - `RequestResult.cs`
 - `SeerrController.cs`
 - `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection

@@ -220,7 +220,7 @@ public sealed class UserDiscoveryController : ControllerBase
         catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "Could not persist discovery impressions for user {UserId}", userId.Value);
-            return StatusCode(503, new RequestResult { Success = false, Message = "Feedback persistence is temporarily unavailable." });
+            return StatusCode(503, new RequestResult { Success = false, Message = "Feedback persistence is temporarily unavailable. Retry this original delivery; a later delivery cannot replace its prediction evidence." });
         }
 
         return NoContent();

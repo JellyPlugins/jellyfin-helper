@@ -29,12 +29,14 @@ public sealed class EngineInstanceTests
         var cache = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.IRecommendationCacheService>();
         var playlists = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist.IRecommendationPlaylistService>();
         var task = new Jellyfin.Plugin.JellyfinHelper.ScheduledTasks.RecommendationsTask(engine, cache.Object, harness.PluginLog.Object, playlists.Object, harness.Logger.Object);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => task.ExecuteAsync(
+        Assert.Throws<InvalidOperationException>(() => engine.GetAllRecommendations(20, TestContext.Current.CancellationToken));
+        await task.ExecuteAsync(
             new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.Activate, SyncRecommendationsToPlaylist = true },
-            new Progress<double>(), TestContext.Current.CancellationToken));
+            new Progress<double>(), TestContext.Current.CancellationToken);
         cache.Verify(value => value.SaveResults(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>()), Times.Never);
         playlists.Verify(value => value.UpdatePlaylistsForAllUsersAsync(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>(), It.IsAny<CancellationToken>()), Times.Never);
         harness.PerUserRegistry.Verify(registry => registry.PruneOrphans(It.Is<IReadOnlyCollection<Guid>>(users => users.Contains(missing))), Times.Once);
+        harness.PluginLog.Verify(log => log.LogWarning(It.IsAny<string>(), It.Is<string>(message => message.Contains("batch deferred", StringComparison.Ordinal)), It.IsAny<Exception>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
     }
 
     // GetRecommendations - outer contract
@@ -335,9 +337,9 @@ public sealed class EngineInstanceTests
         var cache = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.IRecommendationCacheService>();
         var playlists = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist.IRecommendationPlaylistService>();
         var task = new Jellyfin.Plugin.JellyfinHelper.ScheduledTasks.RecommendationsTask(engine, cache.Object, harness.PluginLog.Object, playlists.Object, harness.Logger.Object);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => task.ExecuteAsync(
+        await task.ExecuteAsync(
             new Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration { RecommendationsTaskMode = Jellyfin.Plugin.JellyfinHelper.Configuration.TaskMode.Activate, SyncRecommendationsToPlaylist = true },
-            new Progress<double>(), TestContext.Current.CancellationToken));
+            new Progress<double>(), TestContext.Current.CancellationToken);
         cache.Verify(value => value.SaveResults(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>()), Times.Never);
         playlists.Verify(value => value.UpdatePlaylistsForAllUsersAsync(It.IsAny<IReadOnlyList<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.RecommendationResult>>(), It.IsAny<CancellationToken>()), Times.Never);
 
@@ -349,6 +351,7 @@ public sealed class EngineInstanceTests
                 It.IsAny<Exception>(),
                 It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
             Times.Once);
+        harness.PluginLog.Verify(log => log.LogWarning(It.IsAny<string>(), It.Is<string>(message => message.Contains("batch deferred", StringComparison.Ordinal)), It.IsAny<Exception>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
     }
 
     // GetOrBuildCommunityPopularity - concurrent callers compute only once

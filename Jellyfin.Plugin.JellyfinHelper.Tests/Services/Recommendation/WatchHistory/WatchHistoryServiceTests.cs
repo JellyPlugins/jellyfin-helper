@@ -248,6 +248,7 @@ public sealed class WatchHistoryServiceTests
     {
         IWatchHistoryService legacy = new LegacyHistoryProvider(available ? new UserWatchProfile { MaxParentalRating = maximum } : null);
         Assert.Equal((available, available ? maximum : null), legacy.GetUserParentalPolicy(Guid.NewGuid()));
+        Assert.Null(legacy.GetCurrentMediaTarget(Guid.NewGuid()));
     }
 
     private sealed class LegacyHistoryProvider(UserWatchProfile? profile) : IWatchHistoryService
@@ -307,6 +308,127 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(TimeSpan.FromMinutes(135).Ticks, profile.TotalWatchTimeTicks);
         Assert.Equal(1, profile.WatchedEpisodeCount);
         Assert.Equal(1, profile.WatchedMovieCount);
+    }
+
+    [Theory]
+    [InlineData("playback")]
+    [InlineData("access")]
+    [InlineData("library")]
+    [InlineData("config")]
+    public void CurrentMediaAggregateIsReadWithoutProfileQueriesAndInvalidatedByCurrentEvidenceChanges(string change)
+    {
+        var user = CreateTestUser("aggregate");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var series = new Series { Id = Guid.NewGuid(), Path = "/media/show" };
+        var episode = new Episode { Id = Guid.NewGuid(), SeriesId = series.Id, Path = "/media/show/1.mkv", RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv", RunTimeTicks = TimeSpan.FromMinutes(90).Ticks };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [series] : [episode, movie]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "played", Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1) });
+        var profile = _service.GetUserWatchProfile(user.Id)!;
+        var expected = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.MediaTypeBalance.TargetSeriesShare(profile);
+        Assert.NotNull(expected);
+        _mockLibraryManager.Invocations.Clear();
+        _mockUserDataManager.Invocations.Clear();
+        Assert.Equal(expected!.Value, _service.GetCurrentMediaTarget(user.Id)!.Value, precision: 10);
+        _mockLibraryManager.VerifyNoOtherCalls();
+        _mockUserDataManager.VerifyNoOtherCalls();
+        switch (change)
+        {
+            case "playback":
+                _mockUserDataManager.Raise(manager => manager.UserDataSaved += null, new UserDataSaveEventArgs { UserId = user.Id, Item = episode });
+                break;
+            case "access":
+                _mockUserManager.Raise(manager => manager.OnUserUpdated += null, new Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>(user));
+                break;
+            case "library":
+                _mockLibraryManager.Raise(manager => manager.ItemUpdated += null, _mockLibraryManager.Object, new ItemChangeEventArgs { Item = movie });
+                break;
+            case "config":
+                _mockConfigService.Object.GetConfiguration().ExcludedLibraries = "changed library";
+                break;
+        }
+
+        Assert.Null(_service.GetCurrentMediaTarget(user.Id));
+        _mockLibraryManager.VerifyNoOtherCalls();
+        _mockUserDataManager.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LibraryDataLoadedBeforeAnInvalidationCannotBePublishedUnderTheNewAggregateEpoch(bool configChange)
+    {
+        var user = CreateTestUser("batch aggregate");
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns([user]);
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv", RunTimeTicks = TimeSpan.FromMinutes(90).Ticks };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "played", Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1) });
+        var changed = false;
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (!changed)
+            {
+                changed = true;
+                if (configChange) _mockConfigService.Object.GetConfiguration().ExcludedLibraries = "new exclusion";
+                else _mockLibraryManager.Raise(manager => manager.ItemRemoved += null, _mockLibraryManager.Object, new ItemChangeEventArgs { Item = movie });
+            }
+
+            return query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [] : [movie];
+        });
+        Assert.NotEmpty(Assert.Single(_service.GetAllUserWatchProfiles()).WatchedItems);
+        Assert.Null(_service.GetCurrentMediaTarget(user.Id));
+        _mockConfigService.Object.GetConfiguration().ExcludedLibraries = "";
+        Assert.NotNull(_service.GetUserWatchProfile(user.Id));
+        Assert.NotNull(_service.GetCurrentMediaTarget(user.Id));
+        _service.Dispose();
+        Assert.Null(_service.GetCurrentMediaTarget(user.Id));
+        _mockUserDataManager.VerifyRemove(manager => manager.UserDataSaved -= It.IsAny<EventHandler<UserDataSaveEventArgs>>(), Times.Once);
+        _mockLibraryManager.VerifyRemove(manager => manager.ItemAdded -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
+        _mockLibraryManager.VerifyRemove(manager => manager.ItemUpdated -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
+        _mockLibraryManager.VerifyRemove(manager => manager.ItemRemoved -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AccessInvalidatedDuringAccountLookupCannotCertifyANewMediaAggregate(bool batch)
+    {
+        var user = CreateTestUser("account snapshot");
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv" };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [] : [movie]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "played", Played = true });
+        void Invalidate() => _mockUserManager.Raise(manager => manager.OnUserUpdated += null, new Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>(user));
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns(() => { Invalidate(); return [user]; });
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(() => { Invalidate(); return user; });
+        if (batch) Assert.NotEmpty(Assert.Single(_service.GetAllUserWatchProfiles()).WatchedItems);
+        else Assert.NotEmpty(_service.GetUserWatchProfile(user.Id)!.WatchedItems);
+        Assert.Null(_service.GetCurrentMediaTarget(user.Id));
+    }
+
+    [Theory]
+    [InlineData("deleted")]
+    [InlineData("disabled")]
+    [InlineData("rating")]
+    [InlineData("playlist")]
+    public void ACurrentPolicyMismatchWithholdsTheAggregateButPlaylistMetadataDoesNotInvalidatePlaybackEvidence(string change)
+    {
+        var user = CreateTestUser("aggregate policy");
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv" };
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [] : [movie]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "played", Played = true });
+        _service.GetUserWatchProfile(user.Id);
+        var before = _service.GetCurrentMediaTarget(user.Id);
+        Assert.NotNull(before);
+        _mockLibraryManager.Invocations.Clear();
+        _mockUserDataManager.Invocations.Clear();
+        if (change == "deleted") _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns((User?)null);
+        if (change == "disabled") user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        if (change == "rating") user.MaxParentalRatingScore = 6;
+        if (change == "playlist") _mockLibraryManager.Raise(manager => manager.ItemUpdated += null, _mockLibraryManager.Object, new ItemChangeEventArgs { Item = new MediaBrowser.Controller.Playlists.Playlist() });
+        Assert.Equal(change == "playlist" ? before : null, _service.GetCurrentMediaTarget(user.Id));
+        _mockLibraryManager.VerifyNoOtherCalls();
+        _mockUserDataManager.VerifyNoOtherCalls();
     }
 
     [Fact]

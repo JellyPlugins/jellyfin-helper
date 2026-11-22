@@ -196,7 +196,9 @@ public sealed class EngineContentFitTests
         var user = Guid.NewGuid();
         Guid chosen;
         do { chosen = Guid.NewGuid(); } while (new TrainingExample { Features = new CandidateFeatures(), HasStableObservationId = true, ObservationId = TrainingExample.CreateLibraryObservationId(user, chosen) }.IsPermanentHoldout);
-        var ignored = new Movie { Id = Guid.NewGuid(), Path = "/media/ignored.mkv", Genres = ["Drama"], Tags = ["pirate", "friendship"], CommunityRating = .1f };
+        Guid ignoredId;
+        do { ignoredId = Guid.NewGuid(); } while (new TrainingExample { Features = new CandidateFeatures(), HasStableObservationId = true, ObservationId = TrainingExample.CreateLibraryObservationId(user, ignoredId) }.IsPermanentHoldout);
+        var ignored = new Movie { Id = ignoredId, Path = "/media/ignored.mkv", Genres = ["Drama"], Tags = ["pirate", "friendship"], CommunityRating = .1f };
         var profile = new UserWatchProfile { UserId = user, WatchedItems =
         [
             new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-200), Genres = ["Drama"], Tags = ["pirate", "friendship"] },
@@ -207,22 +209,42 @@ public sealed class EngineContentFitTests
             new() { ItemId = ignored.Id, ItemType = "Movie", Score = .9, ScoringFeatures = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .9 } },
             new() { ItemId = chosen, ItemType = "Movie", Score = .8, ScoringFeatures = new CandidateFeatures { HasGenreEvidence = true, GenreSimilarity = .8 } }
         ] };
-        var comparison = Assert.Single(TrainingDataBuilder.BuildExamples([previous], [profile], TestContext.Current.CancellationToken).Examples,
+        var comparison = Assert.Single(TrainingDataBuilder.BuildExamples([previous], [profile], now, TestContext.Current.CancellationToken).Examples,
             row => row.ObservationId == TrainingExample.CreateLibraryObservationId(user, ignored.Id));
         Assert.True(comparison.IsContrastSample);
         Assert.False(comparison.IsObserved);
 
         var renewedSuitability = false;
-        double Score(CandidateFeatures features) => renewedSuitability && features.CombinedCriticScore < .02 ? .95 : features.CombinedCriticScore;
+        var qualifiedContrastFitted = false;
+        double Score(CandidateFeatures features) => features.CombinedCriticScore < .02
+            ? (renewedSuitability || !qualifiedContrastFitted ? .95 : features.CombinedCriticScore)
+            : features.CombinedCriticScore;
         var model = new Mock<IScoringStrategy>();
+        var fitter = model.As<ITrainableStrategy>();
+        fitter.Setup(strategy => strategy.Train(It.IsAny<IReadOnlyList<TrainingExample>>(), It.IsAny<IReadOnlyList<TrainingExample>?>())).Returns((IReadOnlyList<TrainingExample> rows, IReadOnlyList<TrainingExample>? _) =>
+        {
+            qualifiedContrastFitted = rows.Any(row => row.IsContrastSample && row.ObservationId == comparison.ObservationId);
+            return true;
+        });
         model.Setup(strategy => strategy.Score(It.IsAny<CandidateFeatures>())).Returns((CandidateFeatures features) => Score(features));
         model.Setup(strategy => strategy.ScoreWithExplanation(It.IsAny<CandidateFeatures>())).Returns((CandidateFeatures features) => new ScoreExplanation { FinalScore = Score(features) });
-        var harness = EngineTestFactory.Create(model.Object);
+        var history = new RecommendationChoiceHistory();
+        var harness = EngineTestFactory.Create(model.Object, choiceHistory: history);
         using var engine = harness.Engine;
         var alternatives = Enumerable.Range(0, 600).Select(index => (BaseItem)new Movie { Id = Guid.NewGuid(), Path = $"/media/current-{index}.mkv", Genres = ["Drama"], Tags = ["courtroom", "justice"], CommunityRating = 9 }).ToArray();
         harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
         harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
         harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? [.. alternatives, ignored] : []);
+        // No qualified evidence: this same scoring instance has not consumed a
+        // fitting comparison, so ordinary critic-based low-score filtering cannot
+        // explain the later difference. The actual history/training input sets it.
+        using var training = new TrainingService(harness.WatchHistory.Object, harness.FeedbackStore.Object, harness.PluginLog.Object, harness.Logger.Object) { ChoiceHistory = history };
+        Assert.True(training.Train(model.Object, [new RecommendationResult { UserId = user, GeneratedAt = previous.GeneratedAt }], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(qualifiedContrastFitted);
+        Assert.Contains(engine.GetRecommendations(user, 20, TestContext.Current.CancellationToken)!.Recommendations, item => item.ItemId == ignored.Id);
+        Assert.True(training.Train(model.Object, [previous], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.True(qualifiedContrastFitted);
+        fitter.Verify(strategy => strategy.Train(It.IsAny<IReadOnlyList<TrainingExample>>(), It.IsAny<IReadOnlyList<TrainingExample>?>()), Times.Exactly(2));
         foreach (var run in Enumerable.Range(1, 3))
         {
             var result = Assert.Single(engine.GetAllRecommendations(20, TestContext.Current.CancellationToken));

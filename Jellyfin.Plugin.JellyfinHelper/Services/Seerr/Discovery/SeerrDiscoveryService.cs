@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -2277,7 +2278,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var sharedExclusions = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
-        var userExcluded = BuildUserExclusionSet(profile, sharedExclusions);
+        var userExcluded = TryBuildExternalExclusionSet(profile, sharedExclusions);
+        if (userExcluded is null)
+        {
+            return null;
+        }
 
         // Drop anything our own local discovery already recommends to this user, so the Trakt tab never
         // duplicates a title the "For you" tab is already showing. Best-effort: a cache miss or read failure
@@ -2369,13 +2374,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         AddCurrentLibraryOwnership(result.Recommendations, excluded);
+        var targetSeriesShare = result.TargetSeriesShare.HasValue ? CurrentMediaTarget(jellyfinUserId) : null;
+        policy = CurrentParentalPolicy(jellyfinUserId);
+        if (!policy.Available)
+        {
+            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
+        }
+
         var filtered = new DiscoveryResult
         {
             UserId = result.UserId,
             UserName = result.UserName,
             Recommendations = result.Recommendations.Where(recommendation =>
                 IsCertifiedForPolicy(recommendation, policy.MaximumRating, certificationCountry) && !IsConsumed(recommendation, excluded)).ToList(),
-            TargetSeriesShare = result.TargetSeriesShare.HasValue ? CurrentMediaTarget(jellyfinUserId) : null,
+            TargetSeriesShare = targetSeriesShare,
             GeneratedAt = result.GeneratedAt
         };
         if (policy.MaximumRating.HasValue && policy.MaximumRating.Value < ParentalRatingHelper.UnrestrictedThreshold
@@ -2403,8 +2415,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             // Reuse the authoritative current library/user boundary. A persisted
             // generation's profile cannot certify exclusions or taste changes today.
-            var profile = _watchHistoryService.GetUserWatchProfile(jellyfinUserId);
-            return profile?.UserId == jellyfinUserId ? MediaTypeBalance.TargetSeriesShare(profile) : null;
+            return _watchHistoryService.GetCurrentMediaTarget(jellyfinUserId);
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
         {
@@ -3383,6 +3394,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return userExcluded;
     }
 
+    private HashSet<(int TmdbId, string MediaType)>? TryBuildExternalExclusionSet(UserWatchProfile profile, HashSet<(int TmdbId, string MediaType)> shared)
+    {
+        try
+        {
+            return BuildUserExclusionSet(profile, shared);
+        }
+        catch (IOException ex) when (_feedbackStore is DiscoveryFeedbackStore)
+        {
+            // Provider fetches succeeded. Local evidence unavailability is retryable
+            // here and must not poison Trakt's shared provider-failure backoff.
+            _pluginLog.LogWarning(LogCategory, "External scoring deferred: local feedback evidence is unavailable.", ex, _logger);
+            return null;
+        }
+    }
+
     // Folds the user's own currently-cached local discovery recommendations into an exclusion set, so an
     // external source (Trakt) never surfaces a title the "For you" tab already shows. Keyed on
     // (TmdbId, lowercased MediaType) to match DeduplicateAndFilter's exclusion lookup. Best-effort: any read
@@ -3510,16 +3536,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         PluginConfiguration config,
         CancellationToken cancellationToken)
     {
-        var captured = new PluginConfiguration
-        {
-            RadarrInstances = CaptureInstances(config.GetEffectiveRadarrInstances()),
-            SonarrInstances = CaptureInstances(config.GetEffectiveSonarrInstances())
-        };
-        var scope = ExclusionSourceScope(captured);
-
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var live = Plugin.Instance?.Configuration ?? config;
+            var captured = new PluginConfiguration
+            {
+                RadarrInstances = CaptureInstances(live.GetEffectiveRadarrInstances()),
+                SonarrInstances = CaptureInstances(live.GetEffectiveSonarrInstances())
+            };
+            var scope = ExclusionSourceScope(captured);
             Task<HashSet<(int TmdbId, string MediaType)>>? build;
             HashSet<(int TmdbId, string MediaType)>? cached = null;
             string? buildScope;
@@ -3540,19 +3566,22 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 buildScope = _inflightExclusionScope;
             }
 
-            if (cached is not null)
+            if (cached is null)
             {
-                AddLibraryExclusions(cached, cancellationToken);
-                return cached;
+                var fresh = await build!.WaitAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (buildScope != scope)
+                {
+                    continue;
+                }
+
+                cached = new HashSet<(int TmdbId, string MediaType)>(fresh);
             }
 
-            var fresh = await build!.WaitAsync(cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (buildScope == scope)
+            AddLibraryExclusions(cached, cancellationToken);
+            if (ExclusionSourceScope(Plugin.Instance?.Configuration ?? config) == scope)
             {
-                var result = new HashSet<(int TmdbId, string MediaType)>(fresh);
-                AddLibraryExclusions(result, cancellationToken);
-                return result;
+                return cached;
             }
         }
     }

@@ -155,6 +155,51 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnArrRosterRemovedDuringLoadingCannotEraseAStillEnabledUsersRetainedMovie(bool removed)
+    {
+        var user = Guid.NewGuid();
+        var config = Plugin.Instance!.Configuration;
+        config.RadarrInstances = [new ArrInstanceConfig { Url = "https://arr.example.test", ApiKey = "test-key" }];
+        var available = new UserWatchProfile { UserId = Guid.NewGuid() };
+        _history.Setup(history => history.GetAllUserIds()).Returns([user, available.UserId]);
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(available));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reply = new TaskCompletionSource<List<ArrMovie>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _arr.Setup(arr => arr.GetRadarrMoviesAsync("https://arr.example.test", "test-key", false, It.IsAny<CancellationToken>())).Returns(() => { entered.TrySetResult(); return reply.Task; });
+        var generated = DateTime.UtcNow.AddDays(-1);
+        var original = new DiscoveryResult { UserId = user, GeneratedAt = generated, Recommendations = [new() { TmdbId = 77, MediaType = "movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } }, new() { TmdbId = 77, MediaType = "tv" }] };
+        Assert.True(_cache.Save([original]));
+        var generation = _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (removed) config.RadarrInstances = [];
+            reply.TrySetResult([new ArrMovie { TmdbId = 77 }]);
+            await generation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var retained = Assert.Single(_cache.Load());
+            Assert.Equal(generated, retained.GeneratedAt);
+            Assert.Contains(retained.Recommendations, item => item.TmdbId == 77 && item.MediaType == "tv");
+            Assert.Equal(removed, retained.Recommendations.Any(item => item.TmdbId == 77 && item.MediaType == "movie"));
+            if (removed)
+            {
+                Assert.Equal(.7, Assert.Single(retained.Recommendations, item => item.MediaType == "movie").ScoringFeatures!.GenreSimilarity);
+                await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+                Assert.Equal(2, Assert.Single(_cache.Load()).Recommendations.Count);
+            }
+
+            _arr.Verify(arr => arr.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+            _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        finally
+        {
+            reply.TrySetResult([]);
+            await generation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Theory]
     [InlineData(1, 1, 3)]
     [InlineData(5, 4, 6)]
     [InlineData(9, 7, 9)]
@@ -170,6 +215,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
         _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        _history.Setup(history => history.GetCurrentMediaTarget(profile.UserId)).Returns(() => MediaTypeBalance.TargetSeriesShare(profile));
         _handler.ResponseOverride = (request, _) =>
         {
             var path = request.RequestUri!.AbsolutePath;

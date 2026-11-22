@@ -15,9 +15,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 public sealed class DiscoveryImpressionStoreTests : IDisposable
 {
     private readonly string _directory = Path.Join(Path.GetTempPath(), "jfh-impressions-" + Guid.NewGuid().ToString("N"));
+    private readonly List<DiscoveryFeedbackStore> _stores = [];
 
     public void Dispose()
     {
+        foreach (var store in _stores) store.Dispose();
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 
@@ -238,7 +240,7 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         Directory.CreateDirectory(_directory);
         var file = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
         using (var stream = File.Create(file)) stream.SetLength(121L * 1024 * 1024);
-        var store = Store();
+        using var store = Store();
         Assert.Empty(store.LoadAll());
         store.RecordRequested(Guid.NewGuid(), 1, "movie");
         Assert.True(File.Exists(file));
@@ -261,7 +263,12 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         Assert.Contains((1, "movie"), Store().GetRequestedItems(user));
     }
 
-    private DiscoveryFeedbackStore Store() => new(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory);
+    private DiscoveryFeedbackStore Store()
+    {
+        var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), NullLogger<DiscoveryFeedbackStore>.Instance, _directory);
+        _stores.Add(store);
+        return store;
+    }
 
     private static DiscoveryRecommendation Item(int id) => new() { TmdbId = id, MediaType = "movie", Title = "title", Genres = ["Drama"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = 0.3, IsExternalCandidate = true } };
 }

@@ -118,7 +118,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
     private static bool MatchesTitle(DiscoveryFeedbackEntry entry, WatchedItemInfo row)
     {
-        if (entry.MediaType != "tv")
+        if (!string.Equals(entry.MediaType?.Trim(), "tv", StringComparison.OrdinalIgnoreCase))
         {
             return string.Equals(row.ItemType, "Movie", StringComparison.OrdinalIgnoreCase) && row.TmdbId == entry.TmdbId;
         }

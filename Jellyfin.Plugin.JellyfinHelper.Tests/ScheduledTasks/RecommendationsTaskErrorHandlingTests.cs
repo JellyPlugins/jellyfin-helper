@@ -28,6 +28,21 @@ public class RecommendationsTaskErrorHandlingTests
         new(_recsEngineMock.Object, _recsCacheMock.Object, _pluginLogMock.Object, _loggerMock.Object);
 
     [Fact]
+    public async Task ADeferredGenerationBatchLogsWarningAndNeverPublishesOrSyncsPartialResults()
+    {
+        var config = new PluginConfiguration { RecommendationsTaskMode = TaskMode.Activate, SyncRecommendationsToPlaylist = true };
+        var progress = new Mock<IProgress<double>>();
+        var playlists = new Mock<IRecommendationPlaylistService>(MockBehavior.Strict);
+        _recsEngineMock.Setup(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>())).Throws(new InvalidOperationException("enabled profile unavailable"));
+        var task = new RecommendationsTask(_recsEngineMock.Object, _recsCacheMock.Object, _pluginLogMock.Object, playlists.Object, _loggerMock.Object);
+        await task.ExecuteAsync(config, progress.Object, TestContext.Current.CancellationToken);
+        _recsCacheMock.Verify(cache => cache.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
+        playlists.VerifyNoOtherCalls();
+        progress.Verify(value => value.Report(100), Times.Once);
+        _pluginLogMock.Verify(log => log.LogWarning(It.IsAny<string>(), It.Is<string>(message => message.Contains("batch deferred", StringComparison.Ordinal)), It.IsAny<Exception>(), It.IsAny<ILogger>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Execute_TrainingCancelled_PropagatesOperationCanceled()
     {
         // Cancellation is a control-flow signal, not a training failure: it must surface

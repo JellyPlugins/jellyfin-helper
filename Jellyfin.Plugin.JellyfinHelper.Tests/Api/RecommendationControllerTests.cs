@@ -57,6 +57,41 @@ public class RecommendationControllerTests
     }
 
     [Fact]
+    public async Task DeferredCacheMissReturnsRetryable503WithoutPublicationOrImmediateRepeatedGeneration()
+    {
+        _mockCache.Setup(cache => cache.LoadResults()).Returns((Collection<RecommendationResult>?)null);
+        _mockEngine.Setup(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>())).Throws(new InvalidOperationException("enabled profile unavailable"));
+        var log = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var controller = new RecommendationController(_mockEngine.Object, _mockCache.Object, _mockWatchHistory.Object, _mockConfigService.Object, log.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() }
+        };
+        var first = Assert.IsType<ObjectResult>((await controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
+        Assert.Equal(503, first.StatusCode);
+        Assert.Equal("30", controller.Response.Headers.RetryAfter.ToString());
+        var second = Assert.IsType<ObjectResult>((await controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
+        Assert.Equal(503, second.StatusCode);
+        _mockEngine.Verify(engine => engine.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+        _mockCache.Verify(cache => cache.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
+        log.Verify(value => value.LogWarning("Recommendations", It.Is<string>(message => message.Contains("batch deferred", StringComparison.Ordinal)), It.IsAny<Exception>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+        _mockCache.Setup(cache => cache.LoadResults()).Returns([new RecommendationResult { UserId = Guid.NewGuid() }]);
+        Assert.IsType<OkObjectResult>((await controller.GetAllRecommendations(cancellationToken: TestContext.Current.CancellationToken)).Result);
+    }
+
+    [Fact]
+    public async Task AdminCreationResolutionDoesNotRemoveAnyPlaylist()
+    {
+        var owner = Guid.NewGuid();
+        var playlists = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist.IRecommendationPlaylistService>(MockBehavior.Strict);
+        playlists.Setup(service => service.ResolveDeferredCreationAsync(owner, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        var controller = new RecommendationPlaylistRecoveryController(playlists.Object);
+        Assert.IsType<BadRequestResult>(await controller.ResolvePlaylistCreation(Guid.Empty, TestContext.Current.CancellationToken));
+        Assert.IsType<OkObjectResult>(await controller.ResolvePlaylistCreation(owner, TestContext.Current.CancellationToken));
+        playlists.Verify(service => service.ResolveDeferredCreationAsync(owner, TestContext.Current.CancellationToken), Times.Once);
+        playlists.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task GetAllRecommendations_CacheMiss_GeneratesOnDemandAndPersists()
     {
         _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
