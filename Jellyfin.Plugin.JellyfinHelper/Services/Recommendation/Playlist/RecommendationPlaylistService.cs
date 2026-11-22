@@ -40,6 +40,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     internal const string PreservedPlaylistProviderKey = "JellyfinHelperPreservedPlaylist";
 
     private const string LogCategory = "PlaylistSync";
+    private const int MaximumCreationRecoveryPasses = 4;
 
     private readonly IPlaylistManager _playlistManager;
     private readonly IUserManager _userManager;
@@ -155,22 +156,49 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
         try
         {
-            foreach (var id in GetOwnedPlaylistIds(userId).Except(before).Where(id => !_unmarkedReplacements.TryGetValue(id, out var receiptOwner) || receiptOwner != userId))
+            var inspected = before.ToHashSet();
+            for (var pass = 0; pass < MaximumCreationRecoveryPasses; pass++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!await PreserveAmbiguousPlaylistAsync(id, userId, cancellationToken).ConfigureAwait(false))
+                var current = GetOwnedPlaylistIds(userId);
+                if (current.IsSubsetOf(inspected))
+                {
+                    // The final ownership read has no asynchronous handoff before
+                    // conditional release. Newly registered IDs force another pass.
+                    return ((ICollection<KeyValuePair<Guid, HashSet<Guid>>>)_uncertainCreations).Remove(new(userId, before));
+                }
+
+                if (!await PreserveNewOwnedPlaylistsAsync(userId, current, inspected, cancellationToken).ConfigureAwait(false))
                 {
                     return false;
                 }
             }
 
-            return ((ICollection<KeyValuePair<Guid, HashSet<Guid>>>)_uncertainCreations).Remove(new(userId, before));
+            _pluginLog.LogWarning(LogCategory, "Playlist ownership did not stabilize within the recovery budget; retaining the ambiguous creation gate.", logger: _logger);
+            return false;
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
         {
             _pluginLog.LogWarning(LogCategory, "Ambiguous playlist creation could not be released safely; existing playlists remain preserved.", ex, _logger);
             return false;
         }
+    }
+
+    private async Task<bool> PreserveNewOwnedPlaylistsAsync(Guid userId, HashSet<Guid> current, HashSet<Guid> inspected, CancellationToken cancellationToken)
+    {
+        foreach (var id in current.Except(inspected))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if ((!_unmarkedReplacements.TryGetValue(id, out var receiptOwner) || receiptOwner != userId)
+                && !await PreserveAmbiguousPlaylistAsync(id, userId, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            inspected.Add(id);
+        }
+
+        return true;
     }
 
     private async Task<bool> PreserveAmbiguousPlaylistAsync(Guid id, Guid userId, CancellationToken cancellationToken)
@@ -253,6 +281,12 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     {
         try
         {
+            if (!CanCreateReplacement(result.UserId))
+            {
+                syncResult.PlaylistsFailed++;
+                return;
+            }
+
             // Skip playlist creation if there are no recommendations
             if (result.Recommendations.Count == 0)
             {
@@ -264,12 +298,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     LogCategory,
                     $"No recommendations for user '{result.UserName}' - skipping playlist creation.",
                     _logger);
-                return;
-            }
-
-            if (!CanCreateReplacement(result.UserId))
-            {
-                syncResult.PlaylistsFailed++;
                 return;
             }
 
@@ -319,6 +347,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // Create the new playlist BEFORE removing old ones so the user is never left
             // without a recommendation playlist if creation fails.
             cancellationToken.ThrowIfCancellationRequested();
+            var beforeCreation = GetOwnedPlaylistIds(result.UserId);
             var ownerAtCreation = GetEnabledOwner(result.UserId);
             if (ownerAtCreation is null)
             {
@@ -337,7 +366,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             request.ItemIdList = itemIds;
-            var playlistResult = await CreateReplacementAsync(request, cancellationToken).ConfigureAwait(false);
+            var playlistResult = await CreateReplacementAsync(request, beforeCreation, cancellationToken).ConfigureAwait(false);
 
             if (!string.IsNullOrEmpty(playlistResult.Id))
             {
@@ -770,13 +799,12 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             return true;
         }
 
-        if (user.MaxParentalRatingScore is { } maximum
-            && (!item.InheritedParentalRatingValue.HasValue || item.InheritedParentalRatingValue.Value > maximum))
+        if (user.MaxParentalRatingScore is { } maximum && item.InheritedParentalRatingValue > maximum)
         {
             return false;
         }
 
-        return true;
+        return item.InheritedParentalRatingValue.HasValue || item.IsParentalAllowed(user, skipAllowedTagsCheck: false);
     }
 
     private (Dictionary<int, Movie> Unseen, HashSet<int> Completed) LoadSequenceMovies(
@@ -845,6 +873,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         bool onlyIfDisabled = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (_uncertainCreations.ContainsKey(userId))
+        {
+            return 0;
+        }
 
         var user = _userManager.GetUserById(userId);
         if (user is null || (onlyIfDisabled && !IsDisabled(user)))
@@ -1050,10 +1082,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         }
     }
 
-    private async Task<PlaylistCreationResult> CreateReplacementAsync(PlaylistCreationRequest request, CancellationToken cancellationToken)
+    private async Task<PlaylistCreationResult> CreateReplacementAsync(PlaylistCreationRequest request, HashSet<Guid> before, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var before = GetOwnedPlaylistIds(request.UserId);
         try
         {
             var created = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
@@ -1075,11 +1106,23 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
     private HashSet<Guid> GetOwnedPlaylistIds(Guid userId)
     {
-        var playlists = _playlistManager.GetPlaylists(userId) ?? throw new IOException("Playlist ownership is unavailable.");
-        var ids = new HashSet<Guid>();
-        foreach (var playlist in playlists.Where(playlist => playlist.OwnerUserId == userId && playlist.Id != Guid.Empty))
+        // GetPlaylists(userId) is a viewer-policy query in Jellyfin12.4, not an
+        // ownership inventory. Hidden owned playlists must remain in both snapshots.
+        var playlists = _libraryManager.GetItemList(new InternalItemsQuery
         {
-            ids.Add(playlist.Id);
+            IncludeItemTypes = [BaseItemKind.Playlist],
+            Recursive = true,
+            GroupByPresentationUniqueKey = false
+        }) ?? throw new IOException("Playlist ownership is unavailable.");
+        var ids = new HashSet<Guid>();
+        foreach (var id in playlists.OfType<MediaBrowser.Controller.Playlists.Playlist>().Where(playlist => playlist.OwnerUserId == userId).Select(playlist => playlist.Id))
+        {
+            if (id == Guid.Empty)
+            {
+                throw new IOException("Playlist ownership contains an unresolved identity.");
+            }
+
+            ids.Add(id);
             if (ids.Count > 4096)
             {
                 throw new IOException("The bounded playlist creation snapshot is full.");
@@ -1099,7 +1142,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var owner = playlist.OwnerUserId;
-                if (HasManagedOwner(playlist, owner) && (removeAll || !liveUsers.Contains(owner) || disabledUsers.Contains(owner))
+                if (!_uncertainCreations.ContainsKey(owner) && HasManagedOwner(playlist, owner) && (removeAll || !liveUsers.Contains(owner) || disabledUsers.Contains(owner))
                     && (removeAll || IsVerifiedInactiveOwner(owner))
                     && TryRemovePlaylist(playlist, owner))
                 {

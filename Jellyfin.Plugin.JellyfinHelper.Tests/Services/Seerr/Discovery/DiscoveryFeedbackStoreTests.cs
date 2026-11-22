@@ -127,9 +127,13 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SaturatedImpressionsRecoverOnlyTheOriginalPayloadOrItsExplicitExactReplay(bool replayOnly)
+    [InlineData(false, "known")]
+    [InlineData(true, "known")]
+    [InlineData(false, "unknown")]
+    [InlineData(true, "unknown")]
+    [InlineData(false, "empty")]
+    [InlineData(true, "empty")]
+    public async Task SaturatedImpressionsRecoverOnlyTheOriginalPayloadOrItsExplicitExactReplay(bool replayOnly, string credits)
     {
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
         var firstAt = clock.Now;
@@ -141,7 +145,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
         };
         var user = Guid.NewGuid();
-        var first = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "original", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } };
+        var first = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "original", KnownPeople = credits == "unknown" ? null : credits == "empty" ? [] : ["first actor", "first director"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } };
+        Assert.DoesNotContain("KnownPeople", System.Text.Json.JsonSerializer.Serialize(first), StringComparison.OrdinalIgnoreCase);
         var generated = firstAt.AddMinutes(-1);
         store.RecordGenerated(user, "viewer", [first], generated);
         fail = true;
@@ -156,7 +161,9 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(!replayOnly, RetainedReplayBytes(store) > 0);
         clock.Now = firstAt.AddMinutes(1);
         fail = false;
-        store.RecordImpressions(user, [new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "later", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .8 } }], clock.Now.AddSeconds(-1));
+        var later = first.Clone();
+        later.KnownPeople = ["different later credits"];
+        store.RecordImpressions(user, [later], generated);
         retry.ExpireDeadlines();
         await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         if (replayOnly)
@@ -169,6 +176,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(firstAt, entry.ImpressionAtUtc);
         Assert.Equal(generated, entry.ShownAtUtc);
         Assert.Equal("original", entry.Title);
+        Assert.Equal(first.KnownPeople, entry.KnownPeople);
         Assert.Equal(.2, entry.ScoringFeatures!.GenreSimilarity);
         Assert.Equal(0, RetainedReplayBytes(store));
     }
@@ -218,11 +226,40 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(requested ? .7 : .2, saved.ScoringFeatures!.GenreSimilarity);
         Assert.Equal(requested ? clock.Now : firstAt, saved.PredictionEvidenceAtUtc);
         Assert.Equal(requested ? clock.Now : (DateTime?)null, saved.CardRequestedAtUtc);
+        Assert.Equal(requested ? (DateTime?)null : clock.Now, saved.DismissedAtUtc);
         Assert.Equal(0, RetainedReplayBytes(store));
     }
 
     private static long RetainedReplayBytes(DiscoveryFeedbackStore store)
         => (long)typeof(DiscoveryFeedbackStore).GetField("_replayPayloadBytes", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ADelayedCardRequestOwnsTheOutcomeTimeDespiteALaterIdentityConfirmation(bool newerCard)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var firstAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", KnownPeople = ["original actor"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, firstAt.AddMinutes(-1));
+        clock.Now = firstAt.AddMinutes(1);
+        fail = false;
+        store.RecordRequested(user, 700, "tv");
+        if (newerCard) store.RecordRequested(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, clock.Now.AddSeconds(-1));
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(newerCard ? clock.Now : firstAt, entry.RequestedAtUtc);
+        Assert.Equal(entry.CardRequestedAtUtc, entry.RequestedAtUtc);
+        Assert.Equal(newerCard ? .9 : .2, entry.ScoringFeatures!.GenreSimilarity);
+    }
 
     [Fact]
     public async Task ARequestFinishingAfterDisposeCannotPromoteRetainedDependentWatches()
@@ -948,7 +985,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task AnOlderDurableDismissalCannotRecoverANewerRejectedDismissal()
+    public async Task AReplayWithTheRetainedLaterDismissalTimeCanRecoverBothIdentityOnlyActions()
     {
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
         var original = clock.Now;
@@ -988,8 +1025,10 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             fail = false;
             Assert.False(await store.RecordGeneratedAsync(user, "user", [new DiscoveryRecommendation { TmdbId = 999 }], clock.Now, TestContext.Current.CancellationToken));
             Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
-            Assert.Equal(original, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 1).DismissedAtUtc);
-            Assert.Throws<IOException>(() => store.LoadAll());
+            var recovered = Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 1);
+            Assert.Equal(clock.Now, recovered.DismissedAtUtc);
+            Assert.Equal(original, recovered.ShownAtUtc);
+            Assert.Null(recovered.ScoringFeatures);
             clock.Now = original.AddMinutes(2);
             store.RecordDismissed(user, 1, "movie");
             Assert.Equal(clock.Now, Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 1).DismissedAtUtc);

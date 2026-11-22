@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -12,6 +13,69 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// <summary>Actual choice evidence survives publication and restarts without becoming fresh or leaking held-out outcomes.</summary>
 public sealed class RecommendationChoiceHistoryTests
 {
+    [Fact]
+    public void ReplayEligibilityChecksReferencedCopiesRatherThanHashingEveryUsersEntireCatalog()
+    {
+        var catalog = Enumerable.Range(0, 100_000).Select(_ => Guid.NewGuid()).ToHashSet();
+        var chosenItem = catalog.First();
+        var alternativeItem = catalog.Last();
+        var now = DateTime.UtcNow;
+        var users = Enumerable.Range(0, 50).Select(_ => Guid.NewGuid()).ToHashSet();
+        var rows = users.Select(user => new TrainingExample
+        {
+            UserId = user, ObservationId = TrainingExample.CreateProviderObservationId(user, 77, "tv"), IsObserved = true, HasStableObservationId = true, Label = .8,
+            Features = new CandidateFeatures(), GeneratedAtUtc = now.AddDays(-2),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = TrainingExample.CreateProviderObservationId(user, 77, "tv"), ChosenItemId = chosenItem,
+                AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1), ChosenFeatures = new CandidateFeatures(),
+                Alternatives = [new(TrainingExample.CreateProviderObservationId(user, 88, "movie"), new CandidateFeatures()) { LibraryItemId = alternativeItem }]
+            }
+        }).ToArray();
+        var identities = new Dictionary<Guid, (int Id, string Type)> { [chosenItem] = (77, "tv"), [alternativeItem] = (88, "movie") };
+        var physicalChecks = 0;
+        var identityChecks = 0;
+        var history = new RecommendationChoiceHistory();
+        var eligible = history.CaptureEligibleReplayTitles(rows, users,
+            (_, item) => { physicalChecks++; return catalog.Contains(item); },
+            (user, item, observation) => { identityChecks++; return identities.TryGetValue(item, out var key) && observation == TrainingExample.CreateProviderObservationId(user, key.Id, key.Type); },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(100, eligible.Count);
+        Assert.Equal(100, physicalChecks);
+        Assert.Equal(100, identityChecks);
+    }
+
+    [Fact]
+    public void AnAllowedProviderDuplicateCannotCertifyTheCapturedPhysicalCopy()
+    {
+        var user = Guid.NewGuid();
+        var original = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+        var alternative = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var chosen = TrainingExample.CreateProviderObservationId(user, 77, "tv");
+        var ignored = TrainingExample.CreateProviderObservationId(user, 88, "movie");
+        var row = new TrainingExample
+        {
+            UserId = user, ObservationId = chosen, Features = new CandidateFeatures(), IsObserved = true, HasStableObservationId = true, Label = .8, GeneratedAtUtc = now.AddDays(-2),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = chosen, ChosenItemId = original, ChosenFeatures = new CandidateFeatures(), AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1),
+                Alternatives = [new(ignored, new CandidateFeatures()) { LibraryItemId = alternative }]
+            }
+        };
+        var allowed = new HashSet<Guid> { duplicate, alternative };
+        var identities = new Dictionary<Guid, (int Id, string Type)> { [original] = (77, "tv"), [duplicate] = (77, "tv"), [alternative] = (88, "movie") };
+        bool Physical(Guid _, Guid item) => allowed.Contains(item);
+        bool Identity(Guid owner, Guid item, Guid observation) => identities.TryGetValue(item, out var key) && observation == TrainingExample.CreateProviderObservationId(owner, key.Id, key.Type);
+        var history = new RecommendationChoiceHistory();
+        var eligible = history.CaptureEligibleReplayTitles([row], new HashSet<Guid> { user }, Physical, Identity, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain((user, chosen), eligible);
+        Assert.Contains((user, ignored), eligible);
+        Assert.DoesNotContain(history.Merge([row], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: Physical, canUseCapturedItem: Identity), example => example.Choice is not null || example.IsContrastSample);
+        Assert.Equal(original, row.Choice!.ChosenItemId);
+    }
+
     [Fact]
     public void RemovedOwnersArePrunedBeforeAnyActiveProfilePermissionLookup()
     {

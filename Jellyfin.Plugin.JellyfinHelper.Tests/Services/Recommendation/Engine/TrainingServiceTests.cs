@@ -223,6 +223,58 @@ public class TrainingServiceTests
     }
 
     [Fact]
+    public void AConflictingLegacyMovieTvNamespaceCannotCertifyAProviderAlias()
+    {
+        var ambiguous = Guid.NewGuid();
+        var unambiguous = Guid.NewGuid();
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>(), new Dictionary<Guid, int> { [ambiguous] = 77, [unambiguous] = 78 })
+        {
+            AllowedTitleKeys = new HashSet<(int, string)> { (77, "movie"), (77, "tv"), (78, "movie") }
+        };
+        var method = typeof(TrainingService).GetMethod("ReplayTitleKeys", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var resolved = (IReadOnlyDictionary<Guid, (int TmdbId, string MediaType)>)method.Invoke(null, [metadata, TestContext.Current.CancellationToken])!;
+        Assert.DoesNotContain(ambiguous, resolved.Keys);
+        Assert.Equal((78, "movie"), resolved[unambiguous]);
+        Assert.Equal(3, metadata.AllowedTitleKeys.Count);
+        Assert.Equal(2, metadata.TmdbIds!.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReplayWithoutTypedProviderMetadataAcceptsOnlyCapturedLibraryIdentities(bool providerKey)
+    {
+        var user = Guid.NewGuid();
+        var chosen = Guid.NewGuid();
+        var alternative = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        Guid Key(Guid item, int tmdb) => providerKey ? TrainingExample.CreateProviderObservationId(user, tmdb, "movie") : TrainingExample.CreateLibraryObservationId(user, item);
+        var row = new TrainingExample
+        {
+            UserId = user, ObservationId = Key(chosen, 77), Features = new CandidateFeatures { GenreSimilarity = .7 }, Label = .8,
+            IsObserved = true, HasStableObservationId = true, GeneratedAtUtc = now.AddDays(-2),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = Key(chosen, 77), ChosenItemId = chosen, ChosenFeatures = new CandidateFeatures { GenreSimilarity = .7 },
+                AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1),
+                Alternatives = [new(Key(alternative, 88), new CandidateFeatures { GenreSimilarity = .4 }) { LibraryItemId = alternative }]
+            }
+        };
+        var profile = new UserWatchProfile { UserId = user, AccessibleItemIds = new HashSet<Guid> { chosen, alternative } };
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            AllowedItemIds = new HashSet<Guid> { chosen, alternative }, AllowedTitleKeys = new HashSet<(int, string)>()
+        };
+        using var service = CreateSut();
+        service.ChoiceHistory = new RecommendationChoiceHistory();
+        var method = typeof(TrainingService).GetMethod("MergeChoiceHistory", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var rows = (List<TrainingExample>)method.Invoke(service, [new List<TrainingExample> { row }, Array.Empty<RecommendationResult>(), new Collection<UserWatchProfile> { profile }, metadata, TestContext.Current.CancellationToken])!;
+        Assert.Equal(!providerKey, rows.Any(example => example.Choice is not null));
+        Assert.Equal(now.AddDays(-2), row.Choice!.RecommendedAtUtc);
+        Assert.Equal(.7, row.Features.GenreSimilarity);
+    }
+
+    [Fact]
     public void AFailedLiveProfileDefersFittingWithoutErasingItsOriginalChoiceReplay()
     {
         var missing = Guid.NewGuid();

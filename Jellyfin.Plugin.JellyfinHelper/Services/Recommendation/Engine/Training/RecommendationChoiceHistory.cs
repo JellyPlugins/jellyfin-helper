@@ -124,89 +124,51 @@ internal sealed class RecommendationChoiceHistory
     /// <summary>Checks only referenced replay identities against the current catalog, keeping memory bounded by the stored comparisons.</summary>
     /// <param name="current">This run's current outcomes and choices.</param>
     /// <param name="activeUsers">Users whose current profiles were available.</param>
-    /// <param name="allowedItems">Permitted physical library aliases.</param>
-    /// <param name="allowedTitles">Permitted typed provider identities.</param>
+    /// <param name="canUseLibraryItem">The separate current physical-copy permission check.</param>
+    /// <param name="canUseCapturedItem">Current typed identity validation for this referenced copy.</param>
     /// <param name="cancellationToken">Cooperative cancellation during catalog matching.</param>
     /// <returns>Eligible referenced identities; missing/removed titles never become implicit engagement.</returns>
     internal HashSet<(Guid User, Guid Title)> CaptureEligibleReplayTitles(
         IReadOnlyList<TrainingExample> current,
         IReadOnlySet<Guid> activeUsers,
-        IReadOnlySet<Guid> allowedItems,
-        IReadOnlySet<(int TmdbId, string MediaType)> allowedTitles,
+        Func<Guid, Guid, bool> canUseLibraryItem,
+        Func<Guid, Guid, Guid, bool> canUseCapturedItem,
         CancellationToken cancellationToken)
     {
-        var needed = CaptureNeededReplayTitles(current, activeUsers);
+        var needed = CaptureNeededReplayReferences(current, activeUsers);
         var eligible = new HashSet<(Guid User, Guid Title)>();
-        foreach (var (user, titles) in needed)
+        foreach (var reference in needed)
         {
-            MatchPermittedItems(user, titles, allowedItems, eligible, cancellationToken);
-            MatchPermittedTitles(user, titles, allowedTitles, eligible, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (reference.Item is { } item && item != Guid.Empty && reference.Title != Guid.Empty
+                && canUseLibraryItem(reference.User, item) && canUseCapturedItem(reference.User, item, reference.Title))
+            {
+                eligible.Add((reference.User, reference.Title));
+            }
         }
 
         return eligible;
     }
 
-    private Dictionary<Guid, HashSet<Guid>> CaptureNeededReplayTitles(IReadOnlyList<TrainingExample> current, IReadOnlySet<Guid> activeUsers)
+    private HashSet<(Guid User, Guid Title, Guid? Item)> CaptureNeededReplayReferences(IReadOnlyList<TrainingExample> current, IReadOnlySet<Guid> activeUsers)
     {
-        var needed = new Dictionary<Guid, HashSet<Guid>>();
+        var needed = new HashSet<(Guid User, Guid Title, Guid? Item)>();
         lock (_gate)
         {
             foreach (var row in current.Concat(_entries.Values).Where(row => activeUsers.Contains(row.UserId) && (row.Choice is not null || row.IsContrastSample)))
             {
-                if (!needed.TryGetValue(row.UserId, out var titles))
-                {
-                    titles = [];
-                    needed[row.UserId] = titles;
-                }
-
-                titles.Add(row.ObservationId);
+                needed.Add((row.UserId, row.ObservationId, row.Choice?.ChosenItemId));
                 if (row.Choice?.Alternatives is { IsDefaultOrEmpty: false } alternatives)
                 {
                     foreach (var alternative in alternatives.OfType<RecommendationChoiceAlternative>().Take(RecommendationChoiceEvidence.MaximumAlternatives))
                     {
-                        titles.Add(alternative.ObservationId);
+                        needed.Add((row.UserId, alternative.ObservationId, alternative.LibraryItemId));
                     }
                 }
             }
         }
 
         return needed;
-    }
-
-    private static void MatchPermittedItems(Guid user, HashSet<Guid> titles, IReadOnlySet<Guid> allowedItems, HashSet<(Guid User, Guid Title)> eligible, CancellationToken cancellationToken)
-    {
-        foreach (var item in allowedItems)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (titles.Count == 0)
-            {
-                break;
-            }
-
-            AddEligibleKey(user, TrainingExample.CreateLibraryObservationId(user, item), titles, eligible);
-        }
-    }
-
-    private static void MatchPermittedTitles(Guid user, HashSet<Guid> titles, IReadOnlySet<(int TmdbId, string MediaType)> allowedTitles, HashSet<(Guid User, Guid Title)> eligible, CancellationToken cancellationToken)
-    {
-        foreach (var title in allowedTitles)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (titles.Count == 0)
-            {
-                break;
-            }
-
-            AddEligibleKey(user, TrainingExample.CreateProviderObservationId(user, title.TmdbId, title.MediaType), titles, eligible);
-        }
-    }
-
-    private static void AddEligibleKey(Guid user, Guid key, HashSet<Guid> titles, HashSet<(Guid User, Guid Title)> eligible)
-    {
-        if (titles.Remove(key))
-        {
-            eligible.Add((user, key));
-        }
     }
 
     private static bool HasPhysicalProvenance(RecommendationChoiceEvidence? choice)

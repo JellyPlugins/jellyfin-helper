@@ -293,7 +293,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private Receipt CapturePredictionReceipt(ReceiptKey key, DateTime acquired, DiscoveryRecommendation item, DateTime generatedAt)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new PredictionPayload(item, generatedAt), JsonOptions);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new PredictionPayload(item, generatedAt, item.KnownPeople?.ToArray()), JsonOptions);
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
         lock (_writerGate)
         {
@@ -337,9 +337,25 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         // Deserialization and file I/O run on the managed worker, never while the
         // serving/readiness gate is held.
         var payload = JsonSerializer.Deserialize<PredictionPayload>(receipt.Prediction!, JsonOptions)!;
+        payload.Item.KnownPeople = payload.KnownPeople?.ToArray();
         return receipt.Key.Kind == ReceiptKind.Impression
             ? RecordImpressionsCore(receipt.Key.Title.User, [payload.Item], payload.GeneratedAt, receipt.Acquired)
-            : RecordActionCore(receipt.Key.Title.User, receipt.Key.Title.TmdbId, receipt.Key.Title.MediaType, receipt.Key.Kind == ReceiptKind.Request, payload.Item, payload.GeneratedAt, receipt.Acquired);
+            : RecordReceiptActionCore(receipt, payload.Item, payload.GeneratedAt);
+    }
+
+    private bool RecordReceiptActionCore(Receipt receipt, DiscoveryRecommendation? item, DateTime? generatedAt)
+    {
+        var outcomeAt = receipt.Acquired;
+        if (receipt.Key.Kind == ReceiptKind.Dismissal)
+        {
+            lock (_writerGate)
+            {
+                var rejectedAt = _rejectedReceipts.GetValueOrDefault(receipt.Key, outcomeAt);
+                outcomeAt = rejectedAt > outcomeAt ? rejectedAt : outcomeAt;
+            }
+        }
+
+        return RecordActionCore(receipt.Key.Title.User, receipt.Key.Title.TmdbId, receipt.Key.Title.MediaType, receipt.Key.Kind == ReceiptKind.Request, item, generatedAt, new ActionTiming(receipt.Acquired, outcomeAt));
     }
 
     private DateTime RetainedReceiptTime(Receipt receipt)
@@ -591,10 +607,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     {
         if (_predictionReplays.TryGetValue(receipt.Key, out var prediction))
         {
-            return receipt.PredictionHash == prediction.Hash;
-        }
+            if (receipt.PredictionHash != prediction.Hash)
+            {
+                return false;
+            }
 
-        if (receipt.Acquired >= rejectedAt)
+            // Exact prediction provenance alone cannot acknowledge a later outcome.
+            if (receipt.Key.Kind != ReceiptKind.Dismissal)
+            {
+                return true;
+            }
+        }
+        else if (receipt.Acquired >= rejectedAt)
         {
             return true;
         }
@@ -889,7 +913,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         var key = new ReceiptKey(new TitleKey(userId, tmdbId, mediaType), requested ? ReceiptKind.Request : ReceiptKind.Dismissal);
         var receipt = snapshot is not null && generatedAtUtc.HasValue ? CapturePredictionReceipt(key, acquired, snapshot, generatedAtUtc.Value) : new Receipt(key, acquired);
         var write = new PendingWrite(
-            () => RecordActionCore(userId, tmdbId, mediaType, requested, snapshot, generatedAtUtc, receipt.Acquired),
+            () => RecordReceiptActionCore(receipt, snapshot, generatedAtUtc),
             true,
             new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
             [receipt],
@@ -925,6 +949,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     }
 
     private bool RecordActionCore(Guid userId, int tmdbId, string mediaType, bool requested, DiscoveryRecommendation? item, DateTime? generatedAtUtc, DateTime acquired)
+        => RecordActionCore(userId, tmdbId, mediaType, requested, item, generatedAtUtc, new ActionTiming(acquired, acquired));
+
+    private bool RecordActionCore(Guid userId, int tmdbId, string mediaType, bool requested, DiscoveryRecommendation? item, DateTime? generatedAtUtc, ActionTiming timing)
     {
         if (tmdbId <= 0)
         {
@@ -937,8 +964,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            UpdateActionPrediction(entry, item, generatedAtUtc, acquired, requested);
-            RecordActionTimestamp(entry, requested, item is not null, acquired);
+            UpdateActionPrediction(entry, item, generatedAtUtc, timing.PredictionAt, requested);
+            RecordActionTimestamp(entry, requested, timing.OutcomeAt);
 
             return SaveInternal(data);
         }
@@ -961,17 +988,17 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private static void RecordActionTimestamp(DiscoveryFeedbackEntry entry, bool requested, bool card, DateTime acquired)
+    private static void RecordActionTimestamp(DiscoveryFeedbackEntry entry, bool requested, DateTime acquired)
     {
         if (!requested)
         {
             entry.DismissedAtUtc = entry.DismissedAtUtc > acquired ? entry.DismissedAtUtc : acquired;
         }
-        else if (card)
+        else if (entry.CardRequestedAtUtc is { } cardAt)
         {
-            entry.RequestedAtUtc = entry.RequestedAtUtc > acquired ? entry.RequestedAtUtc : acquired;
+            entry.RequestedAtUtc = cardAt;
         }
-        else if (!entry.CardRequestedAtUtc.HasValue)
+        else
         {
             entry.RequestedAtUtc = entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value < acquired ? entry.RequestedAtUtc : acquired;
         }
@@ -1226,8 +1253,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     null,
                     _logger);
                 _recoveryBlocked = true;
-                Volatile.Write(ref _memoryCache, []);
-                return [];
+                throw new IOException("Discovery feedback exceeds the bounded recovery limit; its durable state is unavailable.");
             }
 
             List<DiscoveryFeedbackResult> recovered;
@@ -1555,7 +1581,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private readonly record struct Receipt(ReceiptKey Key, DateTime Acquired, byte[]? Prediction = null, string? PredictionHash = null);
 
-    private sealed record PredictionPayload(DiscoveryRecommendation Item, DateTime GeneratedAt);
+    private readonly record struct ActionTiming(DateTime PredictionAt, DateTime OutcomeAt);
+
+    private sealed record PredictionPayload(DiscoveryRecommendation Item, DateTime GeneratedAt, IReadOnlyList<string>? KnownPeople);
 
     private sealed record PredictionReplay(string Hash, DateTime Acquired, byte[]? Payload);
 

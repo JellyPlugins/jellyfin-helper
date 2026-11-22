@@ -397,11 +397,18 @@ public sealed class WatchHistoryServiceTests
         var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv" };
         _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [] : [movie]);
         _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "played", Played = true });
-        void Invalidate() => _mockUserManager.Raise(manager => manager.OnUserUpdated += null, new Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>(user));
+        var invalidated = false;
+        void Invalidate()
+        {
+            if (invalidated) return;
+            invalidated = true;
+            _mockUserManager.Raise(manager => manager.OnUserUpdated += null, new Jellyfin.Data.Events.GenericEventArgs<Jellyfin.Database.Implementations.Entities.User>(user));
+        }
         _mockUserManager.Setup(manager => manager.GetUsers()).Returns(() => { Invalidate(); return [user]; });
         _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(() => { Invalidate(); return user; });
         if (batch) Assert.NotEmpty(Assert.Single(_service.GetAllUserWatchProfiles()).WatchedItems);
         else Assert.NotEmpty(_service.GetUserWatchProfile(user.Id)!.WatchedItems);
+        Assert.True(invalidated);
         Assert.Null(_service.GetCurrentMediaTarget(user.Id));
     }
 

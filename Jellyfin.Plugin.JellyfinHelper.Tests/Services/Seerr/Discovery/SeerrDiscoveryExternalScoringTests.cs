@@ -184,6 +184,38 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(3, cached.Recommendations.Count);
     }
 
+    [Fact]
+    public void AFeedbackFileBeyondRecoveryBudgetCannotReofferItsPermanentlyDismissedCachedTitle()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-oversized-evidence-" + Guid.NewGuid().ToString("N"));
+        var file = Path.Join(directory, "jellyfin-helper-discovery-feedback.json");
+        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+        var originalLength = new FileInfo(file).Length;
+        using (var stream = File.OpenWrite(file)) stream.SetLength(121L * 1024 * 1024);
+        using var unavailable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
+        try
+        {
+            SetupProfile(user);
+            var service = CreateService(feedbackStoreOverride: unavailable);
+            var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+            Assert.Throws<IOException>(() => unavailable.GetDismissedItems(user));
+            var withheld = service.FilterConsumedItems(user, cached);
+            Assert.Empty(withheld.Recommendations);
+            Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
+            Assert.Equal(2, cached.Recommendations.Count);
+            Assert.Equal(121L * 1024 * 1024, new FileInfo(file).Length);
+            using (var stream = File.OpenWrite(file)) stream.SetLength(originalLength);
+            using var recovered = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
+            Assert.Contains((700, "tv"), recovered.GetDismissedItems(user));
+        }
+        finally
+        {
+            unavailable.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1240,6 +1272,79 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Null(candidate.TitleMetadata!.Keywords);
         Assert.Equal(new[] { 16 }, candidate.GenreIds);
         Assert.Null(candidate.KnownKeywords);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExactTypedTmdbMetadataSurvivesAConflictingCandidateAlias(bool conflicts)
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        cache.Store(config, new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-2) });
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 77, MediaType = "tv", SourceGenres = ["Drama", "Kids"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = conflicts ? 23 : 22, Keywords = ["friendship"], SourceGenres = ["Kids"], Source = "trakt", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }
+        };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Equal(22, candidate.TitleMetadata!.TvdbId);
+        Assert.Contains("pirate", candidate.TitleMetadata.Keywords!.Value);
+        Assert.Equal(!conflicts, candidate.TitleMetadata.Keywords.Value.Contains("friendship"));
+        Assert.Contains("Drama", candidate.SourceGenres!);
+        Assert.Equal(!conflicts, candidate.SourceGenres!.Contains("Kids"));
+        Assert.Contains(16, candidate.GenreIds);
+    }
+
+    [Fact]
+    public void ACompatibleAliasStillSuppliesMetadataWithoutAnExactTmdbObservation()
+    {
+        var cache = new TitleMetadataCache();
+        var service = CreateService(titleMetadataCache: cache);
+        var config = Plugin.Instance!.Configuration;
+        config.SonarrInstances = [new Jellyfin.Plugin.JellyfinHelper.Configuration.ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-key" }];
+        Assert.NotNull(cache.StoreSupplemental(config, new TitleMetadataSnapshot { TmdbId = 0, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, new MetadataSourceScope("sonarr", "https://sonarr.example.test", "test-key"), null));
+        Assert.Null(cache.GetForLanguage(config, 77, "tv", 0, null, null));
+        var candidate = new TmdbDiscoverItem { Id = 77, MediaType = "tv", TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, FetchedAtUtc = DateTime.UtcNow } };
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
+        Assert.Contains("pirate", candidate.TitleMetadata!.Keywords!.Value);
+        Assert.Contains(16, candidate.GenreIds);
+    }
+
+    [Theory]
+    [InlineData("omitted", false)]
+    [InlineData("clear", false)]
+    [InlineData("expired", false)]
+    [InlineData("omitted", true)]
+    [InlineData("clear", true)]
+    [InlineData("expired", true)]
+    public void OmittedSeerrKeywordsUseCurrentIndependentEvidenceButAnExplicitClearRemainsAuthoritative(string field, bool detailPath)
+    {
+        var service = CreateService();
+        var now = DateTime.UtcNow;
+        var scope = TitleMetadataCache.SeerrScope(Plugin.Instance!.Configuration, null);
+        var independent = new TitleMetadataSnapshot { TmdbId = 101, Keywords = ["pirate"], Source = "trakt", FetchedAtUtc = now.AddMinutes(-1) };
+        var seerr = new TitleMetadataSnapshot
+        {
+            TmdbId = 101, GenreIds = [16], Source = "seerr", ObservationScope = scope, FetchedAtUtc = now.AddMinutes(-1),
+            Keywords = field == "clear" ? [] : field == "expired" ? ["expired Seerr term"] : null,
+            FieldFetchedAtUtc = field == "expired" ? System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.Keywords), now.AddDays(-31)) : null
+        };
+        var combined = TitleMetadataMerger.Combine([independent, seerr]);
+        var candidate = new TmdbDiscoverItem { Id = 101, TitleMetadata = combined, KnownKeywords = ["expired Seerr term"] };
+        if (detailPath)
+        {
+            var detail = new SeerrMediaDetailResponse { Id = 101, Genres = [new() { Id = 16, Name = "Animation" }], Keywords = field == "clear" ? [] : null };
+            Assert.True((bool)typeof(SeerrDiscoveryService).GetMethod("ApplyDetail", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, detail, now, scope])!);
+        }
+        else
+        {
+            typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [candidate, combined]);
+        }
+
+        Assert.Equal(field == "clear" ? [] : new[] { "pirate" }, candidate.KnownKeywords);
+        Assert.Contains("pirate", candidate.TitleMetadata!.Keywords!.Value);
+        Assert.DoesNotContain("expired Seerr term", candidate.KnownKeywords!);
     }
 
     [Theory]

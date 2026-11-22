@@ -2839,8 +2839,26 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private void ApplySharedCandidateMetadata(TmdbDiscoverItem candidate, PluginConfiguration config, string? language)
     {
         var alias = candidate.TitleMetadata;
-        var compatible = alias is not null && alias.MediaType == candidate.MediaType && (alias.TmdbId <= 0 || alias.TmdbId == candidate.Id);
-        var cached = _titleMetadataCache!.GetForLanguage(config, candidate.Id, candidate.MediaType, compatible ? alias!.TvdbId : 0, compatible ? alias!.ImdbId : null, language);
+        var cached = _titleMetadataCache!.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
+        var compatible = alias is not null && alias.MediaType == candidate.MediaType && (alias.TmdbId <= 0 || alias.TmdbId == candidate.Id)
+            && (cached is null || TitleProviderIdentity.Compatible(cached, alias));
+        if (alias is not null && !compatible)
+        {
+            var independentGenres = GenreNormalizer.Set(candidate.SourceGenres);
+            independentGenres.ExceptWith(GenreNormalizer.Set(alias.SourceGenres));
+            candidate.SourceGenres = independentGenres.ToArray();
+            candidate.TitleMetadata = null;
+        }
+
+        if (compatible)
+        {
+            var supplement = _titleMetadataCache.GetForLanguage(config, candidate.Id, candidate.MediaType, alias!.TvdbId, alias.ImdbId, language);
+            if (supplement is not null)
+            {
+                cached = TitleMetadataMerger.CombineCurrentObservations(cached is null ? [supplement] : [cached, supplement], DateTime.UtcNow);
+            }
+        }
+
         ApplyCachedSnapshot(candidate, cached);
     }
 
@@ -2875,9 +2893,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.SourceGenres = independentSourceGenres.ToArray();
         }
 
-        if ((seerr is null || !ProjectWinningSeerrKeywords(candidate, seerr.ObservationScope)) && candidate.TitleMetadata?.Keywords is { } keywords)
+        if (seerr is null || !ProjectWinningSeerrKeywords(candidate, seerr.ObservationScope))
         {
-            candidate.KnownKeywords ??= keywords.ToList();
+            candidate.KnownKeywords = candidate.TitleMetadata?.Keywords?.ToList();
         }
     }
 
@@ -4322,7 +4340,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
         }
 
-        ProjectWinningSeerrKeywords(candidate, scope);
+        if (!ProjectWinningSeerrKeywords(candidate, scope))
+        {
+            candidate.KnownKeywords = candidate.TitleMetadata?.Keywords?.ToList();
+        }
 
         if (detail.ProductionCompanies is not null)
         {
@@ -4374,9 +4395,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var selected = observations.Where(observation => observation.Keywords.HasValue)
             .MaxBy(observation => observation.FieldFetchedAtUtc?.GetValueOrDefault(nameof(TitleMetadataSnapshot.Keywords), observation.FetchedAtUtc) ?? observation.FetchedAtUtc);
+        if (selected is null)
+        {
+            candidate.KnownKeywords = null;
+            return false;
+        }
+
         // Keep independent providers in TitleMetadata. This raw field belongs to
         // Seerr; an explicit clear stays empty and expired evidence becomes unknown.
-        candidate.KnownKeywords = selected?.Keywords is { } keywords ? keywords.ToList() : null;
+        candidate.KnownKeywords = selected.Keywords!.Value.ToList();
         return true;
     }
 

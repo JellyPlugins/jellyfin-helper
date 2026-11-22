@@ -473,11 +473,11 @@ internal sealed class TrainingService : IDisposable
         var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
             .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
 
-        var eligible = libraryItemMetadata?.AllowedItemIds is { } permittedItems && libraryItemMetadata.Value.AllowedTitleKeys is { } permittedTitles
-            ? ChoiceHistory.CaptureEligibleReplayTitles(examples, activeUserIds, permittedItems, permittedTitles, cancellationToken)
-            : null;
         var canUseLibraryItem = ReplayItemPermission(profilesByUser, libraryItemMetadata);
         var canUseCapturedItem = CapturedItemPermission(profilesByUser, libraryItemMetadata, cancellationToken);
+        var eligible = libraryItemMetadata?.AllowedItemIds is not null && libraryItemMetadata.Value.AllowedTitleKeys is not null
+            ? ChoiceHistory.CaptureEligibleReplayTitles(examples, activeUserIds, canUseLibraryItem!, canUseCapturedItem ?? ((user, item, observation) => observation == TrainingExample.CreateLibraryObservationId(user, item)), cancellationToken)
+            : null;
         examples = ChoiceHistory.Merge(examples, activeUserIds, DateTime.UtcNow, engaged, eligible, canUseLibraryItem, canUseCapturedItem);
         // Only the bounded caller wait belongs to fitting; atomic I/O remains managed.
         if (!ChoiceHistory.SaveAsync(cancellationToken).GetAwaiter().GetResult())
@@ -503,7 +503,7 @@ internal sealed class TrainingService : IDisposable
 
     private static Func<Guid, Guid, Guid, bool>? CapturedItemPermission(Dictionary<Guid, UserWatchProfile> profiles, LibraryItemMetadata? metadata, CancellationToken cancellationToken)
     {
-        if (metadata?.TitleKeysByItemId is not { } titles)
+        if (ReplayTitleKeys(metadata, cancellationToken) is not { } titles)
         {
             return null;
         }
@@ -513,6 +513,47 @@ internal sealed class TrainingService : IDisposable
         // build-local and lazy, never guessed from another user's history or a title.
         var parents = profiles.ToDictionary(pair => pair.Key, pair => new Lazy<Dictionary<Guid, Guid>>(() => CaptureParentAliases(pair.Value, cancellationToken)));
         return (user, item, observation) => CapturedIdentityMatches(user, item, observation, titles, metadata?.ExcludedTitleKeys, parents);
+    }
+
+    private static IReadOnlyDictionary<Guid, (int TmdbId, string MediaType)>? ReplayTitleKeys(LibraryItemMetadata? metadata, CancellationToken cancellationToken)
+    {
+        if (metadata?.TitleKeysByItemId is { } typed)
+        {
+            return typed;
+        }
+
+        if (metadata?.TmdbIds is not { } ids || metadata.Value.AllowedTitleKeys is not { } allowed)
+        {
+            return null;
+        }
+
+        // Legacy metadata can certify a type only when its captured typed catalog
+        // has one unambiguous namespace. Construct this once, never per user.
+        var types = new Dictionary<int, string?>();
+        foreach (var title in allowed)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (types.TryGetValue(title.TmdbId, out var previous) && previous != title.MediaType)
+            {
+                types[title.TmdbId] = null;
+            }
+            else
+            {
+                types.TryAdd(title.TmdbId, title.MediaType);
+            }
+        }
+
+        var result = new Dictionary<Guid, (int, string)>();
+        foreach (var pair in ids)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (pair.Value > 0 && types.GetValueOrDefault(pair.Value) is { } type)
+            {
+                result[pair.Key] = (pair.Value, type);
+            }
+        }
+
+        return result;
     }
 
     private static Dictionary<Guid, Guid> CaptureParentAliases(UserWatchProfile profile, CancellationToken cancellationToken)

@@ -241,8 +241,9 @@ public sealed class DiscoveryImpressionStoreTests : IDisposable
         var file = Path.Join(_directory, "jellyfin-helper-discovery-feedback.json");
         using (var stream = File.Create(file)) stream.SetLength(121L * 1024 * 1024);
         using var store = Store();
-        Assert.Empty(store.LoadAll());
-        store.RecordRequested(Guid.NewGuid(), 1, "movie");
+        Assert.Throws<IOException>(() => store.LoadAll());
+        Assert.Throws<IOException>(() => store.GetDismissedItems(Guid.NewGuid()));
+        Assert.Throws<IOException>(() => store.RecordRequested(Guid.NewGuid(), 1, "movie"));
         Assert.True(File.Exists(file));
         Assert.Equal(121L * 1024 * 1024, new FileInfo(file).Length);
     }
