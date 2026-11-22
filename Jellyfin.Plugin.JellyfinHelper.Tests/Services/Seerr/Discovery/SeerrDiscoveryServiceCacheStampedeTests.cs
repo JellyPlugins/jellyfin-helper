@@ -71,7 +71,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     /// <summary>
     ///     Creates a SeerrDiscoveryService backed by handler. Every call to IHttpClientFactory.CreateClient returns a fresh HttpClient wrapping the same handler so that the request-count tracking in CountingHttpHandler accumulates across all calls.
     /// </summary>
-    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null, Mock<ILibraryManager>? configuredLibrary = null, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache? metadata = null)
+    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null, Mock<ILibraryManager>? configuredLibrary = null, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache? metadata = null, Action? beforeRosterSelection = null, Mock<IDiscoveryFeedbackStore>? configuredFeedback = null)
     {
         var httpFactoryMock = new Mock<IHttpClientFactory>();
         httpFactoryMock
@@ -92,7 +92,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
-        var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
+        var feedbackStore = configuredFeedback ?? new Mock<IDiscoveryFeedbackStore>();
 
         var perUserRegistry = new PerUserEnsembleRegistry(
             ensemble,
@@ -117,10 +117,99 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             TestFixtures.TestMockFactory.CreateSecretProtector(),
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
             new Mock<ILogger<SeerrDiscoveryService>>().Object,
-            titleMetadataCache: metadata);
+            titleMetadataCache: metadata) { BeforeRosterCacheSelection = beforeRosterSelection };
     }
 
     // Tests
+
+    [Fact]
+    public async Task ASourceChangeBetweenCaptureAndWarmRosterSelectionCannotReturnTheOldAccounts()
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        var change = false;
+        var hookCalls = 0;
+        var service = BuildService(handler, beforeRosterSelection: () =>
+        {
+            if (change) { hookCalls++; Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com"; }
+        });
+        Assert.NotEmpty(await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken));
+        change = true;
+        Assert.Empty(await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, hookCalls);
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task TheFinalReceiptAdmissionGuardRejectsAWithdrawnCapturedSource()
+    {
+        using var handler = new CountingHttpHandler();
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        var service = BuildService(handler, configuredFeedback: feedback);
+        var scope = (string?)typeof(SeerrDiscoveryService).GetMethod("UserSourceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [Plugin.Instance?.Configuration]);
+        Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+        var receipt = (Task<bool>)typeof(SeerrDiscoveryService).GetMethod("ReconcileSingleItemAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [Guid.NewGuid(), 77, "movie", scope, TestContext.Current.CancellationToken])!;
+        Assert.False(await receipt.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        feedback.VerifyNoOtherCalls();
+        Assert.Equal(0, handler.RequestCount("/api/v1/request"));
+        Assert.Equal(0, handler.RequestCount("/api/v1/user"));
+    }
+
+    [Fact]
+    public async Task ReconciliationRechecksItsCapturedSourceAfterWaitingForTheCache()
+    {
+        var requestReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new CountingHttpHandler { BeforeResponse = (request, _) => { if (request.RequestUri!.AbsolutePath == "/api/v1/request") requestReached.TrySetResult(); return Task.CompletedTask; } };
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/request", HttpStatusCode.OK, """{"pageInfo":{"results":1},"results":[{"media":{"tmdbId":77,"mediaType":"movie"}}]}""");
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }] }]));
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        var service = BuildService(handler, configuredFeedback: feedback);
+        var cacheGate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+        await cacheGate.WaitAsync(TestContext.Current.CancellationToken);
+        Task<int>? reconciliation = null;
+        try
+        {
+            reconciliation = service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
+            await requestReached.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(reconciliation.IsCompleted);
+            Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+        }
+        finally { cacheGate.Release(); }
+        Assert.Equal(0, await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
+        Assert.Equal(1, handler.RequestCount("/api/v1/request"));
+        feedback.VerifyNoOtherCalls();
+        Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task SourceWithdrawalDuringTheFirstReceiptWaitCannotAdmitAnotherOldSourceReceipt()
+    {
+        using var handler = new CountingHttpHandler();
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        handler.EnqueueResponse("/api/v1/request", HttpStatusCode.OK, """{"pageInfo":{"results":2},"results":[{"media":{"tmdbId":77,"mediaType":"movie"}},{"media":{"tmdbId":78,"mediaType":"movie"}}]}""");
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }, new() { TmdbId = 78 }] }]));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var feedback = new Mock<IDiscoveryFeedbackStore>(MockBehavior.Strict);
+        feedback.Setup(store => store.GetPendingRequestedItems(user)).Returns(new HashSet<(int, string)>());
+        feedback.Setup(store => store.GetRequestedItems(user)).Returns(new HashSet<(int, string)>());
+        feedback.Setup(store => store.RecordRequestedAsync(user, It.IsAny<int>(), "movie", It.IsAny<CancellationToken>())).Returns(() => { entered.TrySetResult(); return release.Task; });
+        var reconciliation = BuildService(handler, configuredFeedback: feedback).ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Plugin.Instance!.Configuration.SeerrApiKey = "replacement-key";
+            release.TrySetResult(true);
+            Assert.Equal(0, await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            feedback.Verify(store => store.RecordRequestedAsync(user, It.IsAny<int>(), "movie", It.IsAny<CancellationToken>()), Times.Once);
+            Assert.All(Assert.Single(_cache.Load()).Recommendations, card => Assert.False(card.AlreadyRequested));
+        }
+        finally { release.TrySetResult(true); await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
+    }
 
     [Theory]
     [InlineData("url")]
@@ -146,6 +235,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }] }]));
         Assert.Equal(0, await BuildService(handler).ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+        Assert.Equal(1, handler.RequestCount("/api/v1/user"));
         Assert.Equal(0, handler.RequestCount("/api/v1/request"));
         Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
     }

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 
@@ -297,21 +299,20 @@ internal static class DiversityReranker
             return;
         }
 
-        // Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter) for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so exploration picks are reproducible per user/context and unit tests can pin behaviour.
-        var rng = context.Seed.HasValue ? new Random(context.Seed.Value) : Random.Shared;
+        // Seeded selection uses stable cryptographic identity priorities, not a
+        // predictable random generator. Unseeded requests use the platform CSPRNG.
+        if (context.Seed.HasValue)
+        {
+            var seed = context.Seed.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            explorationPool = explorationPool.OrderBy(entry => TrainingExample.CreateObservationId(Guid.Empty, $"exploration:{seed}:{entry.Item.Id:N}")).ToList();
+        }
+
         var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
         for (var e = 0; e < explorationCount; e++)
         {
-            var randIdx = rng.Next(explorationPool.Count);
+            var randIdx = context.Seed.HasValue ? 0 : RandomNumberGenerator.GetInt32(explorationPool.Count);
             selected.Add(explorationPool[randIdx]);
-
-            var lastIdx = explorationPool.Count - 1;
-            if (randIdx < lastIdx)
-            {
-                explorationPool[randIdx] = explorationPool[lastIdx];
-            }
-
-            explorationPool.RemoveAt(lastIdx);
+            explorationPool.RemoveAt(randIdx);
         }
     }
 

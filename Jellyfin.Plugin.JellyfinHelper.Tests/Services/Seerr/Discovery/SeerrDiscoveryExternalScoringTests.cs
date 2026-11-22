@@ -154,6 +154,65 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
+    public async Task UnknownInitialFeedbackReadWithholdsDeliveryAndGenerationButPreservesTheCachedPoolForRecovery()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-unknown-feedback-" + Guid.NewGuid().ToString("N"));
+        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+        var clock = new ControlledWaitTimeProvider();
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            RetryTimeProvider = clock,
+            OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
+        };
+        Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
+        Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
+        SetupProfile(user);
+        var service = CreateService(feedbackStoreOverride: store);
+        var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+        var withheld = service.FilterConsumedItems(user, cached);
+        Assert.Empty(withheld.Recommendations);
+        Assert.Equal(cached.GeneratedAt, withheld.GeneratedAt);
+        Assert.Equal(3, cached.Recommendations.Count);
+        await Assert.ThrowsAsync<IOException>(() => service.ScoreExternalCandidatesAsync(user, [Candidate(78)], TestContext.Current.CancellationToken));
+        Assert.Equal(0, _detailCalls);
+        fail = false;
+        clock.ExpireDeadlines();
+        await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
+        Assert.Equal(3, cached.Recommendations.Count);
+    }
+
+    [Fact]
+    public void RecoveryPublishingBeforeAnInitialReadFailureReturnsCannotAuthorizeAnUnfilteredDelivery()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-feedback-read-handoff-" + Guid.NewGuid().ToString("N"));
+        using var durable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
+        durable.RecordDismissed(user, 700, "tv");
+        var recoveredSnapshot = durable.LoadAll().ToList();
+        DiscoveryFeedbackStore? store = null;
+        using var recovering = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            OpenFeedbackRead = _ =>
+            {
+                // Model another reader publishing the actual durable snapshot in the
+                // handoff before this already-failed read reaches the serving caller.
+                typeof(DiscoveryFeedbackStore).GetField("_memoryCache", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(store, recoveredSnapshot);
+                throw new IOException("initial read failed before concurrent recovery");
+            }
+        };
+        store = recovering;
+        SetupProfile(user);
+        var service = CreateService(feedbackStoreOverride: recovering);
+        var cached = new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+        Assert.Empty(service.FilterConsumedItems(user, cached).Recommendations);
+        Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, cached).Recommendations).TmdbId);
+        Assert.Equal(2, cached.Recommendations.Count);
+    }
+
+    [Fact]
     public void CurrentEligibleHistoryOverridesTheStoredMediaTargetWithoutChangingTheSavedGeneration()
     {
         var user = Guid.NewGuid();
@@ -632,7 +691,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var cache = _lastCache!;
         var method = typeof(SeerrDiscoveryService).GetMethod("ApplyReconciliationAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         Task<int> Reconcile(Guid owner, params (int TmdbId, string MediaType)[] confirmed)
-            => (Task<int>)method.Invoke(service, [owner, confirmed.ToHashSet(), TestContext.Current.CancellationToken])!;
+            => (Task<int>)method.Invoke(service, [owner, confirmed.ToHashSet(), typeof(SeerrDiscoveryService).GetMethod("UserSourceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [Plugin.Instance?.Configuration]), TestContext.Current.CancellationToken])!;
         var first = store.RecordRequestedAsync(user, 1, "movie", TestContext.Current.CancellationToken);
         try
         {
@@ -705,7 +764,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var method = typeof(SeerrDiscoveryService).GetMethod("ApplyReconciliationAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         try
         {
-            var retry = (Task<int>)method.Invoke(service, [user, new HashSet<(int, string)> { (9000, "movie") }, TestContext.Current.CancellationToken])!;
+            var retry = (Task<int>)method.Invoke(service, [user, new HashSet<(int, string)> { (9000, "movie") }, typeof(SeerrDiscoveryService).GetMethod("UserSourceScope", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [Plugin.Instance?.Configuration]), TestContext.Current.CancellationToken])!;
             Assert.Equal(1, await retry.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
             await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries);

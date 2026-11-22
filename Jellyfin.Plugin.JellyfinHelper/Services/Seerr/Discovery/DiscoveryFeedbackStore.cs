@@ -59,12 +59,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private int _pendingObservedWrites;
     private bool _untrackedRejection;
     private ITimer? _retryTimer;
+    private long _retryTimerGeneration;
     private int _retryBackoff;
     private bool _disposed;
 
     /// <summary>
-    ///     In-memory cache of feedback data. Avoids repeated disk reads.
-    ///     Invalidated on mutation operations.
+    ///     Last complete recovered or committed snapshot. Failed reads remain unpublished;
+    ///     failed writes cannot discard known durable exclusions.
     /// </summary>
     private List<DiscoveryFeedbackResult>? _memoryCache;
 
@@ -116,6 +117,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     /// <summary>Gets the atomic filesystem writer; tests can stall precisely the actual I/O boundary.</summary>
     internal Action<string, string> WriteFeedback { get; init; } = (path, contents) => AtomicFile.WriteAllText(path, contents);
+
+    /// <summary>Gets the bounded recovery stream opener; unavailable initial reads cannot become an empty durable store.</summary>
+    internal Func<string, Stream> OpenFeedbackRead { get; init; } = path => File.OpenRead(path);
 
     /// <summary>Gets the wait clock; the production deadline stays two seconds while tests control timer ordering.</summary>
     internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
@@ -398,14 +402,20 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
 
         var delay = TimeSpan.FromSeconds(Math.Min(60, 5 * Math.Pow(2, Math.Min(4, _retryBackoff++))));
-        _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        var generation = ++_retryTimerGeneration;
+        _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(generation), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _retryTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
 
-    private void RetryRetainedWrites()
+    private void RetryRetainedWrites(long generation)
     {
         lock (_writerGate)
         {
+            if (_retryTimer is null || generation != _retryTimerGeneration)
+            {
+                return;
+            }
+
             _retryTimer?.Dispose();
             _retryTimer = null;
             if (_disposed)
@@ -824,7 +834,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     {
         if (item is not null && generatedAtUtc.HasValue)
         {
-            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired);
+            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired, action: true);
         }
         else if (!entry.HasConfirmedPrediction)
         {
@@ -853,12 +863,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null)
+    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null, bool action = false)
     {
         var acquired = acquiredAtUtc ?? DateTime.UtcNow;
         var confirmedAt = entry.PredictionEvidenceAtUtc ?? entry.ImpressionAtUtc;
-        if (confirmedAt.HasValue && (confirmedAt.Value <= acquired || entry.RequestedAtUtc > acquired
-            || entry.DismissedAtUtc > acquired || entry.WatchedAtUtc > acquired))
+        if (entry.PredictionActionAtUtc > acquired || (!action && confirmedAt.HasValue && confirmedAt.Value <= acquired))
         {
             return;
         }
@@ -867,6 +876,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         // the first actually confirmed inputs, never whichever write finished first.
         // A genuinely newer observed action remains authoritative over an older retry.
         entry.Title = item.Title;
+        if (action)
+        {
+            entry.PredictionActionAtUtc = acquired;
+        }
+
         entry.Year = item.Year;
         entry.Genres = item.Genres.ToArray();
         entry.KnownPeople = item.KnownPeople?.ToList();
@@ -1058,6 +1072,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 TitleMetadata = e.TitleMetadata,
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
+                PredictionActionAtUtc = e.PredictionActionAtUtc,
                 PredictionInputsCompacted = e.PredictionInputsCompacted,
                 KnownPeople = e.KnownPeople?.ToList(),
                 ShownAtUtc = e.ShownAtUtc,
@@ -1081,12 +1096,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         try
         {
-            if (!File.Exists(_filePath))
-            {
-                Volatile.Write(ref _memoryCache, []);
-                return [];
-            }
-
             var fileInfo = new FileInfo(_filePath);
             if (fileInfo.Length > MaxRecoveryFileSizeBytes)
             {
@@ -1101,7 +1110,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             }
 
             List<DiscoveryFeedbackResult> recovered;
-            using (var stream = File.OpenRead(_filePath))
+            using (var stream = OpenFeedbackRead(_filePath))
             {
                 recovered = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(stream, JsonOptions) ?? [];
             }
@@ -1121,6 +1130,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
             return (_memoryCache ?? recovered).Select(CloneResult).ToList();
         }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // A confirmed absent file is an empty store, unlike an unavailable read.
+            Volatile.Write(ref _memoryCache, []);
+            return [];
+        }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             _pluginLog.LogWarning(
@@ -1131,6 +1146,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (ex is JsonException)
             {
                 TryDeleteFile();
+            }
+            else
+            {
+                // Unknown is not empty. Leave the cache unpublished so retained
+                // writes retry the existing file rather than overwrite other users.
+                throw new IOException("Discovery feedback could not be loaded; its durable state remains unknown.", ex);
             }
 
             Volatile.Write(ref _memoryCache, []);

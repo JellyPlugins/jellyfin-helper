@@ -294,6 +294,22 @@ public sealed class WatchHistoryServiceTests
     }
 
     [Fact]
+    public void PlayedRatedSeriesContainersDoNotDuplicateMovieOrEpisodePlaybackRuntime()
+    {
+        var user = CreateTestUser("runtime");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var series = new Series { Id = Guid.NewGuid(), Path = "/media/show", RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var episode = new Episode { Id = Guid.NewGuid(), SeriesId = series.Id, Path = "/media/show/1.mkv", RunTimeTicks = TimeSpan.FromMinutes(45).Ticks };
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/media/movie.mkv", RunTimeTicks = TimeSpan.FromMinutes(90).Ticks };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [series] : [episode, movie]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns((Jellyfin.Database.Implementations.Entities.User _, BaseItem item) => new UserItemData { Key = item.Id.ToString(), Played = true, Rating = item.Id == series.Id ? 8 : 0 });
+        var profile = _service.GetUserWatchProfile(user.Id)!;
+        Assert.Equal(TimeSpan.FromMinutes(135).Ticks, profile.TotalWatchTimeTicks);
+        Assert.Equal(1, profile.WatchedEpisodeCount);
+        Assert.Equal(1, profile.WatchedMovieCount);
+    }
+
+    [Fact]
     public void GetAllUserIds_ReturnsEveryLiveUser_EvenWhenProfileBuildWouldFail()
     {
         // GetAllUserIds must reflect the live user roster directly, not the profiles, so a user whose profile

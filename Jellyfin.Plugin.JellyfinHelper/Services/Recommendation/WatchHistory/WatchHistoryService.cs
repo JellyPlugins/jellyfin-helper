@@ -730,7 +730,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
 
             // Add runtime to total watch time
-            if (item.RunTimeTicks.HasValue)
+            if (item is Movie or Episode && item.RunTimeTicks.HasValue)
             {
                 profile.TotalWatchTimeTicks += item.RunTimeTicks.Value;
             }

@@ -33,6 +33,15 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
         foreach (var timer in timers) timer.Fire();
     }
 
+    /// <summary>Captures a callback already dispatched before disposal, independent of the timer's later disposed state.</summary>
+    internal Action CaptureLatestCallback()
+    {
+        lock (_gate)
+        {
+            return _timers[^1].CaptureCallback();
+        }
+    }
+
     private sealed class ControlledTimer(TimerCallback callback, object? state) : ITimer
     {
         private int _disposed;
@@ -51,5 +60,7 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0) callback(state);
         }
+
+        internal Action CaptureCallback() => () => callback(state);
     }
 }

@@ -118,19 +118,16 @@ public class DiversityRerankerTests
     {
         var candidates = BuildLinearlyDecreasingCandidates(40);
         var best = candidates[1];
-        candidates[10].Item.Id = best.Item.Id;
-        var observed = false;
-        for (var seed = 0; seed < 80; seed++)
+        // Force the sole exploration identity to have both a best MMR-pool row
+        // and lower-ranked wide-band duplicates. No probabilistic seed search can
+        // pass without actually exercising the duplicate's selection.
+        for (var index = 2; index < candidates.Count; index++)
         {
-            var selected = DiversityReranker.ApplyDiversityReranking(candidates, 2, seed, new HashSet<Guid> { candidates[0].Item.Id });
-            if (selected.Any(candidate => candidate.Item.Id == best.Item.Id))
-            {
-                observed = true;
-                Assert.Equal(best.Score, Assert.Single(selected, candidate => candidate.Item.Id == best.Item.Id).Score);
-            }
+            candidates[index].Item.Id = best.Item.Id;
         }
 
-        Assert.True(observed);
+        var selected = DiversityReranker.ApplyDiversityReranking(candidates, 2, 42, new HashSet<Guid> { candidates[0].Item.Id });
+        Assert.Equal(best.Score, Assert.Single(selected, candidate => candidate.Item.Id == best.Item.Id).Score);
     }
 
     [Fact]

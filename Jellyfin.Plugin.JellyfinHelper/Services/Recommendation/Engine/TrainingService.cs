@@ -473,7 +473,7 @@ internal sealed class TrainingService : IDisposable
         var engaged = allProfiles.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, titleIds)
             .Select(title => (User: profile.UserId, Title: title))).ToHashSet();
 
-        var eligible = libraryItemMetadata?.AllowedItemIds is { } permittedItems && libraryItemMetadata?.AllowedTitleKeys is { } permittedTitles
+        var eligible = libraryItemMetadata?.AllowedItemIds is { } permittedItems && libraryItemMetadata.Value.AllowedTitleKeys is { } permittedTitles
             ? ChoiceHistory.CaptureEligibleReplayTitles(examples, activeUserIds, permittedItems, permittedTitles, cancellationToken)
             : null;
         var canUseLibraryItem = ReplayItemPermission(profilesByUser, libraryItemMetadata);

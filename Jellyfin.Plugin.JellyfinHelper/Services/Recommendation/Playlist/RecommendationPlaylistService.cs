@@ -47,6 +47,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     private readonly IPluginConfigurationService? _configService;
     private readonly VirtualItemDetector? _virtualItems;
     private readonly ConcurrentDictionary<Guid, Guid> _unmarkedReplacements = new();
+    private readonly ConcurrentDictionary<Guid, HashSet<Guid>> _uncertainCreations = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="RecommendationPlaylistService"/> class.
@@ -204,7 +205,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 return;
             }
 
-            if (!ClearUnmarkedReplacements(result.UserId))
+            if (!CanCreateReplacement(result.UserId))
             {
                 syncResult.PlaylistsFailed++;
                 return;
@@ -220,7 +221,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService?.GetConfiguration().ExcludedLibraries ?? string.Empty);
             var scope = excluded.Count > 0 ? LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded) : null;
-            var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count, user, scope, cancellationToken);
+            var originatingSeries = new Dictionary<Guid, Guid>();
+            var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count, user, scope, originatingSeries, cancellationToken);
 
             if (itemIds.Length == 0)
             {
@@ -263,7 +265,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             if (VerifyLiveDelivery)
             {
-                itemIds = RecheckResolvedItemsAtCreation(itemIds, ownerAtCreation, cancellationToken);
+                itemIds = RecheckResolvedItemsAtCreation(itemIds, ownerAtCreation, originatingSeries, cancellationToken);
             }
 
             if (itemIds.Length == 0)
@@ -273,7 +275,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             request.ItemIdList = itemIds;
-            var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+            var playlistResult = await CreateReplacementAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (!string.IsNullOrEmpty(playlistResult.Id))
             {
@@ -374,7 +376,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         foreach (var receipt in _unmarkedReplacements.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ClearUnmarkedReplacement(receipt);
+            if (ClearUnmarkedReplacement(receipt).Deleted)
+            {
+                totalRemoved++;
+            }
         }
 
         _pluginLog.LogInfo(
@@ -530,13 +535,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <param name="maxItems">Maximum number of playable items to collect.</param>
     /// <returns>An array of playable item IDs suitable for playlist creation.</returns>
     internal Guid[] ResolvePlaylistItemIds(IEnumerable<RecommendedItem> recommendations, int maxItems)
-        => ResolvePlaylistItemIds(recommendations, maxItems, null, null, CancellationToken.None);
+        => ResolvePlaylistItemIds(recommendations, maxItems, null, null, null, CancellationToken.None);
 
     private Guid[] ResolvePlaylistItemIds(
         IEnumerable<RecommendedItem> recommendations,
         int maxItems,
         Jellyfin.Database.Implementations.Entities.User? user,
         LibraryRootScope? scope,
+        Dictionary<Guid, Guid>? originatingSeries,
         CancellationToken cancellationToken)
     {
         var resolvedIds = new List<Guid>();
@@ -566,6 +572,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             var resolved = ResolvePlaylistItem(rec, new DeliveryContext(user, scope, verifyLive, sequenceMovies), cancellationToken);
             if (resolved.HasValue && uniqueIds.Add(resolved.Value))
             {
+                if (string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase))
+                {
+                    originatingSeries?.TryAdd(resolved.Value, rec.ItemId);
+                }
+
                 resolvedIds.Add(resolved.Value);
             }
             else
@@ -656,7 +667,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         => data is { Played: false, PlayCount: <= 0, PlaybackPositionTicks: <= 0, IsFavorite: false }
             && !(data.Rating is > 0 && double.IsFinite(data.Rating.Value));
 
-    private Guid[] RecheckResolvedItemsAtCreation(Guid[] itemIds, Jellyfin.Database.Implementations.Entities.User owner, CancellationToken cancellationToken)
+    private Guid[] RecheckResolvedItemsAtCreation(Guid[] itemIds, Jellyfin.Database.Implementations.Entities.User owner, Dictionary<Guid, Guid> originatingSeries, CancellationToken cancellationToken)
     {
         var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService?.GetConfiguration().ExcludedLibraries ?? string.Empty);
         var scope = excluded.Count > 0 ? LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded) : null;
@@ -668,7 +679,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             cancellationToken.ThrowIfCancellationRequested();
             if (!permitted.Contains(id) || _libraryManager.GetItemById(id) is not { } item || !IsEligibleAtDelivery(item, owner, scope))
             {
-                return (Guid?)null;
+                return originatingSeries.TryGetValue(id, out var series) && LibraryUserAccess.GetAllowedIds(_libraryManager, owner, [series]).Contains(series)
+                    ? ResolveFirstEpisodeForSeries(series, owner, scope, cancellationToken)
+                    : (Guid?)null;
             }
 
             return item is Movie movie ? ResolveMovieAtDelivery(movie, context) : id;
@@ -848,7 +861,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             playlist.ProviderIds[ManagedOwnerProviderKey] = userId.ToString("N");
             await _libraryManager.UpdateItemAsync(playlist, parent, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-            _playlistManager.SavePlaylistFile(playlist);
+            if (playlist.IsFile)
+            {
+                _playlistManager.SavePlaylistFile(playlist);
+            }
+
             return true;
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
@@ -892,31 +909,32 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var cleared = true;
         foreach (var receipt in _unmarkedReplacements.Where(pair => pair.Value == userId).ToArray())
         {
-            cleared &= ClearUnmarkedReplacement(receipt);
+            cleared &= ClearUnmarkedReplacement(receipt).Cleared;
         }
 
         return cleared;
     }
 
-    private bool ClearUnmarkedReplacement(KeyValuePair<Guid, Guid> receipt)
+    private (bool Cleared, bool Deleted) ClearUnmarkedReplacement(KeyValuePair<Guid, Guid> receipt)
     {
         try
         {
             var item = _libraryManager.GetItemById(receipt.Key);
-            if (item is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == receipt.Value && !TryRemovePlaylist(playlist, receipt.Value))
+            var owned = item is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == receipt.Value;
+            if (owned && !TryRemovePlaylist(item!, receipt.Value))
             {
-                return false;
+                return (false, false);
             }
 
             // Absent or differently owned IDs never authorize deletion. Conditional
             // removal cannot discard a concurrent receipt for another owner.
             ((ICollection<KeyValuePair<Guid, Guid>>)_unmarkedReplacements).Remove(receipt);
-            return true;
+            return (true, owned);
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
         {
             _pluginLog.LogWarning(LogCategory, "Unmarked replacement cleanup is unavailable; its receipt and the incumbent remain retained.", ex, _logger);
-            return false;
+            return (false, false);
         }
     }
 
@@ -927,6 +945,79 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             cancellationToken.ThrowIfCancellationRequested();
             ClearUnmarkedReplacement(receipt);
         }
+    }
+
+    private bool CanCreateReplacement(Guid userId)
+    {
+        if (!ClearUnmarkedReplacements(userId))
+        {
+            return false;
+        }
+
+        if (!_uncertainCreations.TryGetValue(userId, out var before))
+        {
+            return true;
+        }
+
+        try
+        {
+            if (GetOwnedPlaylistIds(userId).Any(id => !before.Contains(id)))
+            {
+                // The host threw before returning an ID. A newly observed owned item
+                // may also be a concurrent manual playlist; a name is not provenance.
+                // Preserve both it and the incumbent, and bound further creates until
+                // reconciliation confirms that no unknown new owned item remains.
+                _pluginLog.LogWarning(LogCategory, "A failed playlist creation left unresolved owned items; preserving them and deferring another replacement.", logger: _logger);
+                return false;
+            }
+
+            ((ICollection<KeyValuePair<Guid, HashSet<Guid>>>)_uncertainCreations).Remove(new(userId, before));
+            return true;
+        }
+        catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
+        {
+            _pluginLog.LogWarning(LogCategory, "Failed playlist creation cannot yet be reconciled; preserving the incumbent.", ex, _logger);
+            return false;
+        }
+    }
+
+    private async Task<PlaylistCreationResult> CreateReplacementAsync(PlaylistCreationRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var before = GetOwnedPlaylistIds(request.UserId);
+        try
+        {
+            var created = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+            if (!Guid.TryParse(created.Id, out var id) || id == Guid.Empty || before.Contains(id))
+            {
+                throw new IOException("The host did not return a new playlist identity; the failed attempt must be reconciled.");
+            }
+
+            return created;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // Registration precedes metadata/entry persistence in Jellyfin. Never
+            // retry an ID-less failed call without reconciling its ownership snapshot.
+            _uncertainCreations.TryAdd(request.UserId, before);
+            throw;
+        }
+    }
+
+    private HashSet<Guid> GetOwnedPlaylistIds(Guid userId)
+    {
+        var playlists = _playlistManager.GetPlaylists(userId) ?? throw new IOException("Playlist ownership is unavailable.");
+        var ids = new HashSet<Guid>();
+        foreach (var playlist in playlists.Where(playlist => playlist.OwnerUserId == userId && playlist.Id != Guid.Empty))
+        {
+            ids.Add(playlist.Id);
+            if (ids.Count > 4096)
+            {
+                throw new IOException("The bounded playlist creation snapshot is full.");
+            }
+        }
+
+        return ids;
     }
 
     private int RemoveIdentifiedInactivePlaylists(HashSet<Guid> liveUsers, HashSet<Guid> disabledUsers, CancellationToken cancellationToken, bool removeAll = false)

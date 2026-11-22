@@ -299,6 +299,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>Gets the optional configured-provider background metadata collector.</summary>
     internal SupplementaryTitleMetadataService? SupplementalMetadata { get; init; }
 
+    /// <summary>Gets the test handoff hook between source capture and coherent roster-cache selection.</summary>
+    internal Action? BeforeRosterCacheSelection { get; init; }
+
     /// <inheritdoc />
     public async Task WarmTitleMetadataAsync(CancellationToken cancellationToken)
     {
@@ -643,7 +646,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return 0;
         }
 
-        return await ApplyReconciliationAsync(jellyfinUserId, requestedKeys, cancellationToken).ConfigureAwait(false);
+        return await ApplyReconciliationAsync(jellyfinUserId, requestedKeys, UserSourceScope(config), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -651,14 +654,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     /// <param name="jellyfinUserId">The Jellyfin user whose cache and feedback are updated.</param>
     /// <param name="requestedKeys">The user's requested (TmdbId, MediaType) keys fetched from Seerr.</param>
+    /// <param name="sourceScope">The captured Seerr source whose feedback may be admitted.</param>
     /// <param name="cancellationToken">Scheduled-task cancellation, including cache-lock waits.</param>
     /// <returns>The number of cached recommendations newly reconciled.</returns>
     private async Task<int> ApplyReconciliationAsync(
         Guid jellyfinUserId,
         HashSet<(int TmdbId, string MediaType)> requestedKeys,
+        string? sourceScope,
         CancellationToken cancellationToken)
     {
         var userResult = (await _cache.LoadAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault(r => r.UserId.Equals(jellyfinUserId));
+        if (UserSourceScope(Plugin.Instance?.Configuration) != sourceScope)
+        {
+            return 0;
+        }
+
         var candidates = (userResult?.Recommendations ?? []).Where(rec => rec.TmdbId > 0)
             .Select(rec => (rec.TmdbId, MediaType: NormalizeReconcileMediaType(rec.MediaType))).ToHashSet();
         // A rejected receipt remains confirmed work even after fresh generation drops
@@ -684,12 +694,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var key in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (UserSourceScope(Plugin.Instance?.Configuration) != sourceScope)
+            {
+                break;
+            }
+
             if (key.TmdbId <= 0 || (alreadyRecorded.Contains(key) && !pendingRequests.Contains(key)) || !requestedKeys.Contains(key))
             {
                 continue;
             }
 
-            if (await ReconcileSingleItemAsync(jellyfinUserId, key.TmdbId, key.MediaType, cancellationToken).ConfigureAwait(false))
+            if (await ReconcileSingleItemAsync(jellyfinUserId, key.TmdbId, key.MediaType, sourceScope, cancellationToken).ConfigureAwait(false))
             {
                 reconciled++;
             }
@@ -713,17 +728,28 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="jellyfinUserId">The owning Jellyfin user.</param>
     /// <param name="tmdbId">The TMDb ID of the item.</param>
     /// <param name="mediaType">The normalized media type.</param>
+    /// <param name="sourceScope">Captured Seerr provenance, rechecked before admitting a receipt.</param>
     /// <param name="cancellationToken">Scheduled-task cancellation honored by both persistence waits.</param>
     /// <returns><see langword="true"/> when the item was recorded without a fatal failure.</returns>
-    private async Task<bool> ReconcileSingleItemAsync(Guid jellyfinUserId, int tmdbId, string mediaType, CancellationToken cancellationToken)
+    private async Task<bool> ReconcileSingleItemAsync(Guid jellyfinUserId, int tmdbId, string mediaType, string? sourceScope, CancellationToken cancellationToken)
     {
         try
         {
+            if (UserSourceScope(Plugin.Instance?.Configuration) != sourceScope)
+            {
+                return false;
+            }
+
             // Record the durable feedback signal before touching the cache. The training signal is
             // the point of reconciliation, and GetRequestedItems reads only the feedback store, so a
             // later cache failure still leaves the item excluded from the view and from regeneration.
             // The reverse order would risk stamping the cache while the durable signal is lost.
             if (!await _feedbackStore.RecordRequestedAsync(jellyfinUserId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (UserSourceScope(Plugin.Instance?.Configuration) != sourceScope)
             {
                 return false;
             }
@@ -1928,6 +1954,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var scope = UserSourceScope(config);
+        BeforeRosterCacheSelection?.Invoke();
 
         while (true)
         {
@@ -1936,6 +1963,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             string? fetchScope;
             lock (_userCacheLock)
             {
+                if (UserSourceScope(Plugin.Instance?.Configuration) != scope)
+                {
+                    return [];
+                }
+
                 if (_cachedSeerrUsers is not null && _cachedSeerrUsersScope == scope && DateTime.UtcNow < _cachedSeerrUsersExpiry)
                 {
                     return _cachedSeerrUsers;
@@ -1955,20 +1987,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             var (users, complete) = await fetch.WaitAsync(cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            if (UserSourceScope(Plugin.Instance?.Configuration) != scope)
-            {
-                return [];
-            }
-
             if (fetchScope == scope)
             {
-                return complete ? users : [];
+                return SelectCurrentRoster(scope, users, complete);
             }
         }
     }
 
     private static string? UserSourceScope(PluginConfiguration? config)
         => config is null ? null : TitleMetadataCache.SourceDigest(new MetadataSourceScope("seerr-roster", config.SeerrUrl, config.SeerrApiKey), config.SeerrSkipCertificateValidation.ToString());
+
+    private static IReadOnlyList<SeerrUser> SelectCurrentRoster(string? scope, IReadOnlyList<SeerrUser> users, bool complete)
+        => complete && UserSourceScope(Plugin.Instance?.Configuration) == scope ? users : [];
 
     private static PluginConfiguration? CaptureSeerrConfiguration(PluginConfiguration? config)
     {
@@ -2330,7 +2360,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new DiscoveryResult { UserId = jellyfinUserId, GeneratedAt = result.GeneratedAt };
         }
 
-        var excluded = ConsumedItemKeys(jellyfinUserId) ?? [];
+        var excluded = ConsumedItemKeys(jellyfinUserId, out var feedbackAvailable) ?? [];
+        if (!feedbackAvailable)
+        {
+            // Keep the persisted pool intact, but unknown durable exclusions cannot
+            // authorize an unfiltered delivery while the initial read is unavailable.
+            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
+        }
+
         AddCurrentLibraryOwnership(result.Recommendations, excluded);
         var filtered = new DiscoveryResult
         {
@@ -2429,18 +2466,24 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private HashSet<(int TmdbId, string MediaType)>? ConsumedItemKeys(Guid jellyfinUserId)
+    private HashSet<(int TmdbId, string MediaType)>? ConsumedItemKeys(Guid jellyfinUserId, out bool available)
     {
+        available = true;
         HashSet<(int TmdbId, string MediaType)>? excluded = null;
         try
         {
             // Pending first preserves a receipt across its later durable handoff.
             var pending = _feedbackStore.GetPendingRequestedItems(jellyfinUserId);
+            if (pending is { Count: > 0 })
+            {
+                excluded = new HashSet<(int TmdbId, string MediaType)>(pending);
+            }
+
             var dismissed = _feedbackStore.GetDismissedItems(jellyfinUserId);
             var requested = _feedbackStore.GetRequestedItems(jellyfinUserId);
-            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0 || (pending?.Count ?? 0) > 0)
+            if ((dismissed?.Count ?? 0) > 0 || (requested?.Count ?? 0) > 0)
             {
-                excluded = new HashSet<(int TmdbId, string MediaType)>();
+                excluded ??= new HashSet<(int TmdbId, string MediaType)>();
                 if (dismissed is not null)
                 {
                     excluded.UnionWith(dismissed);
@@ -2450,20 +2493,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     excluded.UnionWith(requested);
                 }
-
-                if (pending is not null)
-                {
-                    // The request was confirmed even if its feedback write is waiting
-                    // or retrying. Serving must not turn a disk failure into a new offer.
-                    excluded.UnionWith(pending);
-                }
             }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
+            // This read failed even if another reader recovered the snapshot before
+            // this catch runs. Never reinterpret that failure as a completed read.
+            available = _feedbackStore is not DiscoveryFeedbackStore;
+            var response = available ? "using already collected exclusions" : "withholding this delivery";
             _pluginLog.LogDebug(
                 LogCategory,
-                $"Consumed-item filter unavailable for user {jellyfinUserId}; serving unfiltered: {ex.Message}",
+                $"Consumed-item snapshot unavailable for user {jellyfinUserId}; {response}: {ex.Message}",
                 _logger);
         }
 
@@ -3312,6 +3352,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         try
         {
             var pending = _feedbackStore.GetPendingRequestedItems(profile.UserId);
+            if (pending is not null)
+            {
+                userExcluded.UnionWith(pending);
+            }
+
             var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
             var requested = _feedbackStore.GetRequestedItems(profile.UserId);
             if (dismissed.Count > 0 || requested.Count > 0)
@@ -3319,14 +3364,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 userExcluded.UnionWith(dismissed);
                 userExcluded.UnionWith(requested);
             }
-
-            if (pending is not null)
-            {
-                userExcluded.UnionWith(pending);
-            }
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
+            if (_feedbackStore is DiscoveryFeedbackStore)
+            {
+                // The outer generation boundary retains the previous pool. Never
+                // publish fresh candidates against an unknown existing feedback file.
+                throw;
+            }
+
             _pluginLog.LogDebug(
                 LogCategory,
                 $"Could not load dismissed/requested items for user {profile.UserName}: {ex.Message}",

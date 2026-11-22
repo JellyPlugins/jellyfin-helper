@@ -107,6 +107,7 @@ public class TrainingServiceTests
     [InlineData("movie")]
     public void LegacyDiscoveryTypesUseTheSameTypedAccessBoundary(string type)
     {
+        ArgumentNullException.ThrowIfNull(type);
         var user = Guid.NewGuid();
         var hidden = Guid.NewGuid();
         _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, AccessibleItemIds = new HashSet<Guid>() }]);

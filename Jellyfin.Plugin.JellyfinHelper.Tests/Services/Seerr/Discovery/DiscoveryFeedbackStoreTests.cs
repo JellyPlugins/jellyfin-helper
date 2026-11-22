@@ -24,6 +24,115 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Directory.CreateDirectory(_tempDir);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnlyANewerCardBackedRequestCanSupersedeTheFirstExactDismissalPrediction(bool cardBackedRequest)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };
+        var firstAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        var first = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "first card", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } };
+        var later = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "later impression", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7 } };
+        store.RecordGenerated(user, "viewer", [first], firstAt.AddMinutes(-1));
+        fail = true;
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, first, firstAt.AddMinutes(-1)));
+        clock.Now = firstAt.AddMinutes(1);
+        fail = false;
+        store.RecordImpressions(user, [later], clock.Now.AddSeconds(-1));
+        clock.Now = firstAt.AddMinutes(2);
+        var requestedAt = clock.Now;
+        var requestedCard = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Title = "requested card", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } };
+        if (cardBackedRequest) store.RecordRequested(user, requestedCard, requestedAt.AddSeconds(-1));
+        else store.RecordRequested(user, 700, "tv");
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(requestedAt, saved.RequestedAtUtc);
+        Assert.Equal(firstAt, saved.DismissedAtUtc);
+        Assert.Equal(cardBackedRequest ? .9 : .2, saved.ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(cardBackedRequest ? "requested card" : "first card", saved.Title);
+        Assert.Equal(cardBackedRequest ? requestedAt : firstAt, saved.PredictionActionAtUtc);
+        Assert.Equal(saved.PredictionActionAtUtc, Assert.Single(CreateStore().LoadForUser(user)!.Entries).PredictionActionAtUtc);
+        Assert.Equal(.2, first.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Fact]
+    public async Task ADisposedOldRetryCallbackCannotTakeOwnershipOfANewRetryTimer()
+    {
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var fail = true;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            RetryTimeProvider = clock,
+            WriteFeedback = (path, contents) => { if (fail) throw new IOException("offline"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents); }
+        };
+        var user = Guid.NewGuid();
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, 1, "movie"));
+        var dispatchedOldCallback = clock.CaptureLatestCallback();
+        fail = false;
+        Assert.True(await store.RecordGeneratedAsync(user, "viewer", [new() { TmdbId = 500 }], DateTime.UtcNow, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        fail = true;
+        Assert.Throws<IOException>(() => store.RecordDismissed(user, 2, "tv"));
+        var timerField = typeof(DiscoveryFeedbackStore).GetField("_retryTimer", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var newTimer = timerField.GetValue(store);
+        Assert.NotNull(newTimer);
+        dispatchedOldCallback();
+        Assert.Same(newTimer, timerField.GetValue(store));
+        Assert.Throws<IOException>(() => store.LoadAll());
+        fail = false;
+        clock.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Contains((2, "tv"), store.GetDismissedItems(user));
+        Assert.NotEmpty(store.LoadAll());
+    }
+
+    [Fact]
+    public async Task UnknownInitialReadIsRetriedBeforeAWriteAndCannotEraseOtherUsersDurableDismissals()
+    {
+        var originalUser = Guid.NewGuid();
+        using (var original = CreateStore()) original.RecordDismissed(originalUser, 700, "tv");
+        var path = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        var before = File.ReadAllText(path);
+        var clock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var unavailableRead = true;
+        var unavailableWrite = true;
+        var reads = 0;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            RetryTimeProvider = clock,
+            OpenFeedbackRead = file => { reads++; if (unavailableRead) throw new IOException("unavailable read"); return File.OpenRead(file); },
+            WriteFeedback = (file, contents) => { if (unavailableWrite) throw new IOException("unavailable write"); Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(file, contents); }
+        };
+        var other = Guid.NewGuid();
+        Assert.Throws<IOException>(() => store.RecordDismissed(other, 800, "movie"));
+        Assert.Equal(before, File.ReadAllText(path));
+        await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        unavailableRead = false;
+        clock.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Equal(2, reads);
+        Assert.Contains((700, "tv"), store.GetDismissedItems(originalUser));
+        Assert.Equal(before, File.ReadAllText(path));
+        Assert.Throws<IOException>(() => store.LoadAll());
+        await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        unavailableWrite = false;
+        clock.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        using var restarted = CreateStore();
+        Assert.Contains((700, "tv"), restarted.GetDismissedItems(originalUser));
+        Assert.Contains((800, "movie"), restarted.GetDismissedItems(other));
+        Assert.Equal(2, store.LoadAll().Count);
+    }
+
     public void Dispose()
     {
         foreach (var store in _ownedStores) store.Dispose();
