@@ -416,7 +416,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 return;
             }
 
-            _retryTimer?.Dispose();
+            _retryTimer.Dispose();
             _retryTimer = null;
             if (_disposed)
             {
