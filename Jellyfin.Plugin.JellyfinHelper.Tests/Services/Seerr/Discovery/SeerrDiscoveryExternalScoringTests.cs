@@ -124,6 +124,35 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(0, _detailCalls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PendingRequestRetirementBetweenStoreCallsCannotReofferTheConfirmedTitle(bool generation)
+    {
+        var user = Guid.NewGuid();
+        var durable = new HashSet<(int, string)>();
+        SetupProfile(user);
+        var service = CreateService(configureFeedback: store =>
+        {
+            store.Setup(value => value.GetRequestedItems(user)).Returns(() => durable.ToHashSet());
+            store.Setup(value => value.GetPendingRequestedItems(user)).Returns(() => { durable.Add((77, "movie")); return new HashSet<(int, string)>(); });
+        });
+        if (generation)
+        {
+            var excluded = (HashSet<(int, string)>)typeof(SeerrDiscoveryService).GetMethod("BuildUserExclusionSet", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [new UserWatchProfile { UserId = user }, new HashSet<(int, string)>()])!;
+            Assert.Contains((77, "movie"), excluded);
+            Assert.DoesNotContain((77, "tv"), excluded);
+        }
+        else
+        {
+            var saved = new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 77, MediaType = "tv" }] };
+            Assert.Equal("tv", Assert.Single(service.FilterConsumedItems(user, saved).Recommendations).MediaType);
+            Assert.Equal(2, saved.Recommendations.Count);
+        }
+
+        Assert.Equal(0, _detailCalls);
+    }
+
     [Fact]
     public void CurrentEligibleHistoryOverridesTheStoredMediaTargetWithoutChangingTheSavedGeneration()
     {
@@ -176,7 +205,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             }).ToList()
         };
 
-    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null, TitleMetadataCache? titleMetadataCache = null, IDiscoveryFeedbackStore? feedbackStoreOverride = null, TimeProvider? cacheWaitClock = null)
+    private SeerrDiscoveryService CreateService(Action<Mock<IDiscoveryFeedbackStore>>? configureFeedback = null, IServerConfigurationManager? serverConfiguration = null, Action<Mock<ILocalizationManager>>? configureLocalization = null, TitleMetadataCache? titleMetadataCache = null, IDiscoveryFeedbackStore? feedbackStoreOverride = null, TimeProvider? cacheWaitClock = null, Action<Mock<IArrIntegrationService>>? configureArr = null)
     {
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         // Valid minimal details are the default. Failure scenarios explicitly select their HTTP status
@@ -234,6 +263,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             });
         factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new System.Net.Http.HttpClient(handler.Object));
         var arr = new Mock<IArrIntegrationService>();
+        configureArr?.Invoke(arr);
         _libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
@@ -1881,17 +1911,24 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     }
 
     [Fact]
-    public async Task SecondScoring_ReusesCachedExclusionSet()
+    public async Task SecondScoring_ReusesArrOwnershipButRechecksCurrentLibraryIdentities()
     {
         var userId = Guid.NewGuid();
         SetupProfile(userId);
-        var service = CreateService();
+        Plugin.Instance!.Configuration.RadarrInstances = [new Jellyfin.Plugin.JellyfinHelper.Configuration.ArrInstanceConfig { Url = "https://radarr.example.test", ApiKey = "test" }];
+        Mock<IArrIntegrationService>? arr = null;
+        var service = CreateService(configureArr: mock =>
+        {
+            arr = mock;
+            mock.Setup(value => value.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        });
 
         await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
         await service.ScoreExternalCandidatesAsync(userId, [Candidate(101)], CancellationToken.None);
 
-        // The library scan backing the shared exclusion set runs once; the second scoring reuses the cache.
-        _libraryManager.Verify(lm => lm.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Movie) && query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Series))), Times.Once);
+        // Only ARR ownership is cached. Each pass resolves current physical aliases.
+        arr!.Verify(value => value.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _libraryManager.Verify(lm => lm.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Movie) && query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.Series))), Times.Exactly(2));
     }
 
     [Fact]
@@ -1963,7 +2000,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(3, saved.Recommendations.Count);
         Assert.Equal(saved.GeneratedAt, delivered.GeneratedAt);
         Assert.Equal(0, _detailCalls);
-        _libraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.HasAnyProviderIds != null && query.HasAnyProviderIds.ContainsKey("Tmdb"))), Times.AtLeastOnce);
+        _libraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.HasAnyProviderIds != null && query.HasAnyProviderIds.ContainsKey("Tmdb")
+            && (!aliasOnly || (query.HasAnyProviderIds.ContainsKey("Tvdb") && query.HasAnyProviderIds["Tvdb"].Contains("800"))))), Times.AtLeastOnce);
     }
 
     [Fact]

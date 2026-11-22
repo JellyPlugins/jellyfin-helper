@@ -206,7 +206,7 @@ internal sealed class ContentFitProfile
         var referenceTime = metadataCutoff ?? DateTime.UtcNow;
         foreach (var row in profile.WatchedItems.Where(PreferenceBuilder.IsEligibleForPreferenceWeighting))
         {
-            if (excluded is not null && (excluded.Contains(row.ItemId) || (row.SeriesId is { } parent && excluded.Contains(parent))))
+            if (IsExcludedTitle(row, excluded))
             {
                 continue;
             }
@@ -225,13 +225,7 @@ internal sealed class ContentFitProfile
 
             var historicalRow = metadataCutoff.HasValue ? row.AtMetadataCutoff(metadataCutoff.Value) : row;
             title.Genres.UnionWith(GenreNormalizer.Set(historicalRow.Genres));
-            title.HasPositiveInteraction |= row.Played || row.IsFavorite || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
-            title.HasFavorite |= row.IsFavorite;
-            if ((row.Played || row.IsFavorite) && row.LastPlayedDate is { } playedAt
-                && (!title.LatestPositiveAtUtc.HasValue || playedAt > title.LatestPositiveAtUtc.Value))
-            {
-                title.LatestPositiveAtUtc = playedAt;
-            }
+            CapturePositiveInteraction(title, row);
 
             CaptureRating(title, row.UserRating);
 
@@ -251,6 +245,20 @@ internal sealed class ContentFitProfile
         }
 
         return titles;
+    }
+
+    private static bool IsExcludedTitle(WatchedItemInfo row, IReadOnlySet<Guid>? excluded)
+        => excluded is not null && (excluded.Contains(row.ItemId) || (row.SeriesId is { } parent && excluded.Contains(parent)));
+
+    private static void CapturePositiveInteraction(TitleKeywords title, WatchedItemInfo row)
+    {
+        title.HasPositiveInteraction |= row.Played || row.IsFavorite || (row.UserRating is > 5 && double.IsFinite(row.UserRating.Value));
+        title.HasFavorite |= row.IsFavorite;
+        if ((row.Played || row.IsFavorite) && row.LastPlayedDate is { } playedAt
+            && (!title.LatestPositiveAtUtc.HasValue || playedAt > title.LatestPositiveAtUtc.Value))
+        {
+            title.LatestPositiveAtUtc = playedAt;
+        }
     }
 
     private static void CaptureLatestMetadata(TitleKeywords title, TitleMetadataSnapshot? metadata)

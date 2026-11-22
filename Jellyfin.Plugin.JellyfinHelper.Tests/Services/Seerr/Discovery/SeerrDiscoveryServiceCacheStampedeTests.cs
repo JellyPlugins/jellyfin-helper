@@ -71,7 +71,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     /// <summary>
     ///     Creates a SeerrDiscoveryService backed by handler. Every call to IHttpClientFactory.CreateClient returns a fresh HttpClient wrapping the same handler so that the request-count tracking in CountingHttpHandler accumulates across all calls.
     /// </summary>
-    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null)
+    private SeerrDiscoveryService BuildService(CountingHttpHandler handler, Mock<IArrIntegrationService>? configuredArr = null, Mock<ILibraryManager>? configuredLibrary = null, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache? metadata = null)
     {
         var httpFactoryMock = new Mock<IHttpClientFactory>();
         httpFactoryMock
@@ -80,8 +80,8 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
 
         var history = new Mock<IWatchHistoryService>();
         var arr = configuredArr ?? new Mock<IArrIntegrationService>();
-        var libraryManager = TestMockFactory.CreateLibraryManager();
-        libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+        var libraryManager = configuredLibrary ?? TestMockFactory.CreateLibraryManager();
+        if (configuredLibrary is null) libraryManager.Setup(lm => lm.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
@@ -116,10 +116,66 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             pluginLog.Object,
             TestFixtures.TestMockFactory.CreateSecretProtector(),
             TestFixtures.TestMockFactory.CreateVirtualItemDetector(),
-            new Mock<ILogger<SeerrDiscoveryService>>().Object);
+            new Mock<ILogger<SeerrDiscoveryService>>().Object,
+            titleMetadataCache: metadata);
     }
 
     // Tests
+
+    [Theory]
+    [InlineData("url")]
+    [InlineData("key")]
+    [InlineData("tls")]
+    public async Task ReconciliationCannotApplyAnOldRosterAccountAfterItsSourceChanges(string change)
+    {
+        using var handler = new CountingHttpHandler
+        {
+            BeforeResponse = (_, _) =>
+            {
+                var current = Plugin.Instance!.Configuration;
+                typeof(Plugin).GetProperty(nameof(Plugin.Configuration))!.SetValue(Plugin.Instance, new PluginConfiguration
+                {
+                    SeerrUrl = change == "url" ? "https://replacement.example.com" : current.SeerrUrl,
+                    SeerrApiKey = change == "key" ? "replacement-key" : current.SeerrApiKey,
+                    SeerrSkipCertificateValidation = change == "tls"
+                });
+                return Task.CompletedTask;
+            }
+        };
+        handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
+        var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        Assert.True(_cache.Save([new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77 }] }]));
+        Assert.Equal(0, await BuildService(handler).ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+        Assert.Equal(0, handler.RequestCount("/api/v1/request"));
+        Assert.False(Assert.Single(Assert.Single(_cache.Load()).Recommendations).AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task ArrCacheCannotRetainWithdrawnLibraryAliasesButDirectLibraryOwnershipRemainsExcluded()
+    {
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = true;
+        var metadata = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataCache();
+        metadata.StoreSupplemental(config, new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot
+        {
+            TmdbId = 700, TvdbId = 800, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow
+        }, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        var library = new Mock<ILibraryManager>();
+        library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(
+        [
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/alias", ProviderIds = new() { ["Tvdb"] = "800" } },
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/direct", ProviderIds = new() { ["Tmdb"] = "701" } }
+        ]);
+        using var handler = new CountingHttpHandler();
+        var service = BuildService(handler, configuredLibrary: library, metadata: metadata);
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [config, TestContext.Current.CancellationToken])!;
+        Assert.Contains((700, "tv"), await Read());
+        config.TraktSourcingEnabled = false;
+        var changed = await Read();
+        Assert.DoesNotContain((700, "tv"), changed);
+        Assert.Contains((701, "tv"), changed);
+        Assert.Equal(0, handler.RequestCount("/api/v1/user"));
+    }
 
     [Theory]
     [InlineData("url")]
@@ -157,15 +213,23 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson.Replace("alice", "new-account", StringComparison.Ordinal));
         var service = BuildService(handler);
         var old = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
-        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
-        Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
-        var current = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
-        Assert.False(current.IsCompleted);
-        release.TrySetResult();
-        Assert.Empty(await old);
-        Assert.Equal("new-account", (await current)[0].DisplayName);
-        Assert.Equal("new-account", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
-        Assert.Equal(2, handler.RequestCount("/api/v1/user"));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
+            var current = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
+            Assert.False(current.IsCompleted);
+            release.TrySetResult();
+            Assert.Empty(await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal("new-account", (await current.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))[0].DisplayName);
+            Assert.Equal("new-account", (await service.GetSeerrUsersAsync(TestContext.Current.CancellationToken))[0].DisplayName);
+            Assert.Equal(2, handler.RequestCount("/api/v1/user"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     [Theory]

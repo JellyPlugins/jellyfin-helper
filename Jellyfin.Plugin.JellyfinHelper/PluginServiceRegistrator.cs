@@ -286,6 +286,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
+        serviceCollection.AddSingleton(sp => new PlaylistLibraryServices(sp.GetRequiredService<IPluginConfigurationService>(), sp.GetRequiredService<VirtualItemDetector>()));
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();

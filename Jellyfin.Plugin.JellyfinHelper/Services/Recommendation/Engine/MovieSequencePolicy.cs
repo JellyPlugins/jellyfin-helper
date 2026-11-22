@@ -83,6 +83,14 @@ internal static class MovieSequencePolicy
 
         var completed = (profile?.WatchedItems ?? []).Where(row => row.Played && row.TmdbId > 0 && profile?.AccessibleItemIds?.Contains(row.ItemId) != false
             && string.Equals(row.ItemType, "Movie", StringComparison.OrdinalIgnoreCase)).Select(row => row.TmdbId).ToHashSet();
+        var suitable = eligible.Where(row => row.Score >= EngineConstants.MinimumPersonalSelectionScore).DistinctBy(row => row.Item.Id).ToList();
+        if (HasEnoughSuitableAlternatives(suitable.Select(row => row.Item).ToArray(), completed, count))
+        {
+            eligible = suitable;
+            var suitableIds = suitable.Select(row => row.Item.Id).ToHashSet();
+            selected = selected.Where(row => suitableIds.Contains(row.Item.Id)).ToList();
+        }
+
         var movies = eligible.Where(row => row.Item is Movie && MovieId(row.Item) > 0)
             .GroupBy(row => MovieId(row.Item)).ToDictionary(group => group.Key, group => group.OrderByDescending(row => row.Score).ThenBy(row => row.Item.Id).First());
         var result = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
@@ -112,6 +120,25 @@ internal static class MovieSequencePolicy
         }
 
         return result;
+    }
+
+    private static bool HasEnoughSuitableAlternatives(BaseItem[] suitable, HashSet<int> completed, int count)
+    {
+        var available = suitable.Select(MovieId).Where(id => id > 0).ToHashSet();
+        var deliverable = new HashSet<(int Movie, Guid Item)>();
+        foreach (var item in suitable)
+        {
+            var movie = MovieId(item);
+            var required = RequiredMovie(movie, ContentAffinityResolver.ResolveTmdbCollectionId(item), completed);
+            if (required != movie && !available.Contains(required))
+            {
+                continue;
+            }
+
+            deliverable.Add((required, required > 0 ? Guid.Empty : item.Id));
+        }
+
+        return deliverable.Count >= count;
     }
 
     private static int MovieId(BaseItem item)

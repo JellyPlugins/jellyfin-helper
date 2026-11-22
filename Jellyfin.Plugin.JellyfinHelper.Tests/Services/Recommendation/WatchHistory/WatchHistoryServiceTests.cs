@@ -312,6 +312,39 @@ public sealed class WatchHistoryServiceTests
         Assert.Contains(charlie.Id, ids);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RealLoadersKeepTheLastSeriesMetadataWithoutDuplicatingWatchStatistics(bool latestVirtual)
+    {
+        var user = CreateTestUser("last metadata");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns([user]);
+        var series = Guid.NewGuid();
+        var first = new Series { Id = series, Path = "/media/show", Genres = ["Drama"], Tags = ["old"], OfficialRating = "FSK 6" };
+        var latest = new Series { Id = series, Path = "/media/show", Genres = ["Action"], Tags = ["new"], OfficialRating = "FSK 16", IsVirtualItem = latestVirtual };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Series) ? [first, latest] : []);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "favorite", IsFavorite = true });
+        var single = _service.GetUserWatchProfile(user.Id)!;
+        var batch = Assert.Single(_service.GetAllUserWatchProfiles());
+        foreach (var profile in new[] { single, batch })
+        {
+            if (latestVirtual)
+            {
+                Assert.Empty(profile.WatchedItems);
+                Assert.Empty(profile.FavoriteSeriesIds);
+            }
+            else
+            {
+                var favorite = Assert.Single(profile.WatchedItems);
+                Assert.Equal(new[] { "new" }, favorite.Tags);
+                Assert.Equal(new[] { "Action" }, favorite.Genres);
+                Assert.Equal("FSK 16", favorite.OfficialRating);
+                Assert.Equal(1, profile.FavoriteCount);
+            }
+        }
+    }
+
     [Fact]
     public void GetAllUserIds_NoUsers_ReturnsEmpty()
     {

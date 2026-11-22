@@ -91,15 +91,15 @@ public sealed class TitleMetadataCache
 
             // An ambiguous current scope is not a miss that another provider may silently
             // resolve. Exact TMDb anchors remain usable; expired alias claims do not compete.
-            if (tmdbId <= 0 && keys.Any(key => AliasIsAmbiguous(key, now)))
+            var identity = new TitleMetadataSnapshot { TmdbId = tmdbId, TvdbId = tvdbId, ImdbId = imdbId, MediaType = mediaType };
+            if (tmdbId <= 0 && keys.Any(key => AliasIsAmbiguous(key, identity, now)))
             {
                 return null;
             }
 
-            var identity = new TitleMetadataSnapshot { TmdbId = tmdbId, TvdbId = tvdbId, ImdbId = imdbId, MediaType = mediaType };
             var snapshots = keys.GroupBy(key => key.Split(':')[0]).Select(group =>
             {
-                var observations = group.Select(key => ReadEntry(key, now)).OfType<TitleMetadataSnapshot>().Distinct()
+                var observations = group.Select(key => ReadEntry(key, now, identity)).OfType<TitleMetadataSnapshot>().Distinct()
                     .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot) && TitleProviderIdentity.SharesIdentity(identity, snapshot)).ToArray();
                 var exact = observations.FirstOrDefault(snapshot => tmdbId > 0 && snapshot.TmdbId == tmdbId);
                 if (exact is not null)
@@ -139,7 +139,7 @@ public sealed class TitleMetadataCache
         return snapshot;
     }
 
-    private TitleMetadataSnapshot? ReadEntry(string key, DateTime now)
+    private TitleMetadataSnapshot? ReadEntry(string key, DateTime now, TitleMetadataSnapshot identity)
     {
         if (ReadUsableEntry(key, now) is { } exact && key.Split(':').Length == 3)
         {
@@ -154,7 +154,8 @@ public sealed class TitleMetadataCache
         // Expired observations and expired identity fields are not competing claims.
         // Never select whichever of two current, conflicting links published last.
         var current = matches.Select(primary => ReadUsableEntry(primary, now)).OfType<TitleMetadataSnapshot>()
-            .Where(snapshot => IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal))
+            .Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot)
+                && IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal))
             .ToArray();
         if (CompetingClaims(current.Where(snapshot => snapshot.TmdbId > 0).Select(snapshot => snapshot.TmdbId))
             || CompetingClaims(current.Where(snapshot => snapshot.TvdbId > 0).Select(snapshot => snapshot.TvdbId))
@@ -168,9 +169,10 @@ public sealed class TitleMetadataCache
 
     private static bool CompetingClaims<T>(IEnumerable<T> claims) => claims.Distinct().Skip(1).Any();
 
-    private bool AliasIsAmbiguous(string key, DateTime now)
+    private bool AliasIsAmbiguous(string key, TitleMetadataSnapshot identity, DateTime now)
         => _aliases.TryGetValue(key, out var matches) && ConflictingIdentities(matches.Select(primary => ReadUsableEntry(primary, now))
-            .OfType<TitleMetadataSnapshot>().Where(snapshot => IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal)));
+            .OfType<TitleMetadataSnapshot>().Where(snapshot => TitleProviderIdentity.Compatible(identity, snapshot)
+                && IdentityKeys(key.Split(':')[0], snapshot.MediaType, snapshot.TmdbId, snapshot.TvdbId, snapshot.ImdbId).Contains(key, StringComparer.Ordinal)));
 
     private static bool ConflictingIdentities(IEnumerable<TitleMetadataSnapshot> observations)
     {
@@ -197,7 +199,9 @@ public sealed class TitleMetadataCache
             // Only the primary anchor is inherited here. MergeFields already retains
             // missing TVDB/IMDb links with their original field acquisition times;
             // copying them into the incoming observation would falsely renew them.
-            var anchored = current.TmdbId > 0 || combined is null ? current : current with { TmdbId = combined.TmdbId };
+            var anchored = current.TmdbId > 0 || combined is null || !TitleProviderIdentity.Compatible(current, combined)
+                ? current
+                : current with { TmdbId = combined.TmdbId };
             if (combined is not null && !TitleProviderIdentity.Compatible(anchored, combined))
             {
                 combined = null;

@@ -129,6 +129,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     /// <summary>Gets the test synchronization hook immediately before atomic training-view selection.</summary>
     internal Action? BeforeTrainingSnapshotSelection { get; init; }
 
+    /// <summary>Gets the test handoff hook before coherent serving snapshot selection.</summary>
+    internal Action? BeforeDismissalSnapshotSelection { get; init; }
+
     /// <inheritdoc />
     public void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items)
         => RecordGenerated(userId, userName, items);
@@ -240,23 +243,24 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 continue;
             }
 
-            var acquired = receipt.Acquired;
-            if (_rejectedReceipts.TryGetValue(receipt.Key, out var previous))
-            {
-                // Reconciled request intent is idempotent; preserve its first actual
-                // acquisition. Repeated dismissal/watch receipts keep their later age.
-                if (receipt.Key.Kind == ReceiptKind.Request)
-                {
-                    acquired = previous < acquired ? previous : acquired;
-                }
-                else
-                {
-                    acquired = previous > acquired ? previous : acquired;
-                }
-            }
-
-            _rejectedReceipts[receipt.Key] = acquired;
+            _rejectedReceipts[receipt.Key] = RetainedReceiptTime(receipt);
         }
+    }
+
+    private DateTime RetainedReceiptTime(Receipt receipt)
+    {
+        if (!_rejectedReceipts.TryGetValue(receipt.Key, out var previous))
+        {
+            return receipt.Acquired;
+        }
+
+        // Request intent is idempotent; repeated observed actions retain their later age.
+        if (receipt.Key.Kind == ReceiptKind.Request)
+        {
+            return previous < receipt.Acquired ? previous : receipt.Acquired;
+        }
+
+        return previous > receipt.Acquired ? previous : receipt.Acquired;
     }
 
     private void AddPendingActions(IEnumerable<Receipt> receipts)
@@ -439,24 +443,31 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         foreach (var receipt in write.Receipts)
         {
-            if (receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal)
-            {
-                var pending = receipt.Key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
-                var count = pending.GetValueOrDefault(receipt.Key.Title);
-                if (count <= 1)
-                {
-                    pending.Remove(receipt.Key.Title);
-                }
-                else
-                {
-                    pending[receipt.Key.Title] = count - 1;
-                }
-            }
+            RetirePendingAction(receipt.Key);
 
             if (recovered && _rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
             {
                 _rejectedReceipts.Remove(receipt.Key);
             }
+        }
+    }
+
+    private void RetirePendingAction(ReceiptKey key)
+    {
+        if (key.Kind is not (ReceiptKind.Request or ReceiptKind.Dismissal))
+        {
+            return;
+        }
+
+        var pending = key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
+        var count = pending.GetValueOrDefault(key.Title);
+        if (count <= 1)
+        {
+            pending.Remove(key.Title);
+        }
+        else
+        {
+            pending[key.Title] = count - 1;
         }
     }
 
@@ -479,7 +490,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             ReceiptKind.Request => entry?.RequestedAtUtc.HasValue == true,
             ReceiptKind.Watched => entry?.WasWatched == true,
             ReceiptKind.Dismissal => entry?.DismissedAtUtc >= rejectedAt,
-            ReceiptKind.Impression => entry?.ImpressionAtUtc >= rejectedAt,
+            // The store preserves first visibility. Its durable earlier receipt also
+            // covers a later duplicate, but an absent impression never proves recovery.
+            ReceiptKind.Impression => entry?.ImpressionAtUtc.HasValue == true,
             _ => false,
         };
     }
@@ -800,38 +813,43 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            if (item is not null && generatedAtUtc.HasValue)
-            {
-                ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired);
-            }
-            else if (!entry.HasConfirmedPrediction)
-            {
-                // Legacy/non-card actions have no delivery proof. Do not attribute them to an unseen generation.
-                entry.ScoringFeatures = null;
-                entry.TitleMetadata = null;
-                if (!entry.RequestedAtUtc.HasValue && !entry.DismissedAtUtc.HasValue)
-                {
-                    entry.ShownAtUtc = acquired;
-                }
-            }
-
-            if (requested)
-            {
-                if (item is not null)
-                {
-                    entry.RequestedAtUtc = entry.RequestedAtUtc > acquired ? entry.RequestedAtUtc : acquired;
-                }
-                else
-                {
-                    entry.RequestedAtUtc ??= acquired;
-                }
-            }
-            else
-            {
-                entry.DismissedAtUtc = entry.DismissedAtUtc > acquired ? entry.DismissedAtUtc : acquired;
-            }
+            UpdateActionPrediction(entry, item, generatedAtUtc, acquired);
+            RecordActionTimestamp(entry, requested, item is not null, acquired);
 
             return SaveInternal(data);
+        }
+    }
+
+    private static void UpdateActionPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation? item, DateTime? generatedAtUtc, DateTime acquired)
+    {
+        if (item is not null && generatedAtUtc.HasValue)
+        {
+            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired);
+        }
+        else if (!entry.HasConfirmedPrediction)
+        {
+            entry.ScoringFeatures = null;
+            entry.TitleMetadata = null;
+            if (!entry.RequestedAtUtc.HasValue && !entry.DismissedAtUtc.HasValue)
+            {
+                entry.ShownAtUtc = acquired;
+            }
+        }
+    }
+
+    private static void RecordActionTimestamp(DiscoveryFeedbackEntry entry, bool requested, bool card, DateTime acquired)
+    {
+        if (!requested)
+        {
+            entry.DismissedAtUtc = entry.DismissedAtUtc > acquired ? entry.DismissedAtUtc : acquired;
+        }
+        else if (card)
+        {
+            entry.RequestedAtUtc = entry.RequestedAtUtc > acquired ? entry.RequestedAtUtc : acquired;
+        }
+        else
+        {
+            entry.RequestedAtUtc ??= acquired;
         }
     }
 
@@ -958,20 +976,29 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     /// <inheritdoc />
     public IReadOnlySet<(int TmdbId, string MediaType)> GetDismissedItems(Guid userId)
     {
-        var user = ReadSnapshot().FirstOrDefault(result => result.UserId == userId);
-        var dismissed = (user?.Entries ?? []).Where(entry => entry.DismissedAtUtc.HasValue).Select(entry => (entry.TmdbId, entry.MediaType)).ToHashSet();
-        dismissed.UnionWith((user?.DismissedItems ?? []).OfType<DiscoveryDismissedItem>().Where(item => item.TmdbId > 0)
-            .Select(item => (item.TmdbId, NormalizeMediaType(item.MediaType))));
-        lock (_writerGate)
+        while (true)
         {
-            // A confirmed user choice is already a serving exclusion while its exact
-            // receipt is queued, writing or retrying. LoadAll still withholds fitting
-            // until persistence succeeds; this never fabricates a durable dislike.
-            dismissed.UnionWith(_pendingDismissals.Keys.Concat(_rejectedReceipts.Keys.Where(key => key.Kind == ReceiptKind.Dismissal).Select(key => key.Title))
-                .Where(title => title.User == userId).Select(title => (title.TmdbId, title.MediaType)));
-        }
+            // Cold disk I/O must not run under the receipt gate. The subsequent
+            // published/pending selection is one atomic handoff with retirement.
+            ReadSnapshot();
+            BeforeDismissalSnapshotSelection?.Invoke();
+            lock (_writerGate)
+            {
+                var snapshot = Volatile.Read(ref _memoryCache);
+                if (snapshot is null)
+                {
+                    continue;
+                }
 
-        return dismissed;
+                var user = snapshot.FirstOrDefault(result => result.UserId == userId);
+                var dismissed = (user?.Entries ?? []).Where(entry => entry.DismissedAtUtc.HasValue).Select(entry => (entry.TmdbId, NormalizeMediaType(entry.MediaType))).ToHashSet();
+                dismissed.UnionWith((user?.DismissedItems ?? []).OfType<DiscoveryDismissedItem>().Where(item => item.TmdbId > 0)
+                    .Select(item => (item.TmdbId, NormalizeMediaType(item.MediaType))));
+                dismissed.UnionWith(_pendingDismissals.Keys.Concat(_rejectedReceipts.Keys.Where(key => key.Kind == ReceiptKind.Dismissal).Select(key => key.Title))
+                    .Where(title => title.User == userId).Select(title => (title.TmdbId, title.MediaType)));
+                return dismissed;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -1191,8 +1218,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                                     or NotSupportedException
                                     or ArgumentException)
         {
-            // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
-            Volatile.Write(ref _memoryCache, null);
+            // The published view is the last durable, immutable snapshot. A failed
+            // atomic write must not discard known exclusions during a storage outage.
+            // Pending receipts separately withhold fitting and retain their retry inputs.
             _pluginLog.LogWarning(
                 LogSource,
                 $"Could not save discovery feedback to {_filePath}: {ex.Message}",

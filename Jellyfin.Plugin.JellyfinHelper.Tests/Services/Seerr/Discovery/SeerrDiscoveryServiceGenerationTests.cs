@@ -410,7 +410,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/202", ProviderIds = new() { ["Tvdb"] = "202" } },
             new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/excluded/202", ProviderIds = new() { ["Tvdb"] = "202" } },
             new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/203", ProviderIds = new() { ["Tmdb"] = "203", ["Tvdb"] = "203" } },
-            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/excluded/203", ProviderIds = new() { ["Tmdb"] = "999", ["Tvdb"] = "203" } }
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/excluded/203", ProviderIds = new() { ["Tmdb"] = "999", ["Tvdb"] = "203" } },
+            new MediaBrowser.Controller.Entities.TV.Series { Id = Guid.NewGuid(), Path = "/media/excluded/204", ProviderIds = new() { ["Tmdb"] = "204", ["Tvdb"] = "204" } }
         ]);
         _arr.Setup(arr => arr.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>())).ReturnsAsync(
         [
@@ -425,7 +426,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             new ArrSeries { TvdbId = 201, Overview = "excluded TVDB alias" },
             new ArrSeries { TvdbId = 202, Overview = "allowed TVDB copy" },
             new ArrSeries { TmdbId = 999, TvdbId = 203, Overview = "conflicting allowed mapping" },
-            new ArrSeries { TmdbId = 101, Overview = "movie and TV are distinct" }
+            new ArrSeries { TmdbId = 101, Overview = "movie and TV are distinct" },
+            new ArrSeries { TmdbId = 204, TvdbId = 9999, Overview = "exact excluded title despite a corrected alias" }
         ]);
         await _sut.WarmTitleMetadataAsync(TestContext.Current.CancellationToken);
         Assert.Null(_titleMetadata.Get(config, 101, "movie"));
@@ -437,6 +439,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         Assert.NotNull(_titleMetadata.Get(config, 0, "tv", 202));
         Assert.Null(_titleMetadata.Get(config, 999, "tv", 203));
         Assert.NotNull(_titleMetadata.Get(config, 101, "tv"));
+        Assert.Null(_titleMetadata.Get(config, 204, "tv"));
         _arr.Verify(arr => arr.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
         _arr.Verify(arr => arr.GetSonarrSeriesAsync(It.IsAny<string>(), It.IsAny<string>(), false, It.IsAny<CancellationToken>()), Times.Once);
         Assert.Empty(_handler.Requests);

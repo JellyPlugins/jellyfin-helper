@@ -24,7 +24,11 @@ public class TrainingServiceTests
     private readonly Mock<IPluginLogService> _pluginLogMock = new();
     private readonly Mock<ILogger> _loggerMock = new();
 
-    public TrainingServiceTests() => _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([]);
+    public TrainingServiceTests()
+    {
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([]);
+        _watchHistoryMock.Setup(history => history.GetAllUserIds()).Returns(() => _watchHistoryMock.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
+    }
 
     [Fact]
     public void UnseenPlaylistCandidatesCannotBecomeFittingNegativesWithoutAChronologicalObservedChoice()
@@ -59,6 +63,88 @@ public class TrainingServiceTests
         => new(_watchHistoryMock.Object, _feedbackStoreMock.Object, _pluginLogMock.Object, _loggerMock.Object);
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AHoldoutOnlyPartitionNeverCallsTheFitterButOneFittingObservationStillDoes(bool holdout)
+    {
+        var user = Guid.NewGuid();
+        Guid item;
+        do { item = Guid.NewGuid(); } while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(user, item), HasStableObservationId = true }.IsPermanentHoldout != holdout);
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
+        {
+            UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = item, ItemType = "Movie", Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-1), Genres = ["Drama"] }]
+        }]);
+        using var service = CreateSut();
+        var recorder = new RecordingStrategy();
+        Assert.Equal(!holdout, service.Train(recorder, [new RecommendationResult { UserId = user }], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(holdout ? 0 : 1, recorder.TrainInvocationCount);
+        if (!holdout) Assert.False(Assert.Single(recorder.LastReceivedTrainSet!).IsPermanentHoldout);
+    }
+
+    [Fact]
+    public void AUserLeavingTheLaterRosterCannotReachFittingFeedbackOrReplay()
+    {
+        var active = Guid.NewGuid();
+        var removed = Guid.NewGuid();
+        var current = CreateGuaranteedFittingProfile(active);
+        var old = CreateGuaranteedFittingProfile(removed);
+        var profiles = new Collection<UserWatchProfile> { current, old };
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns(profiles);
+        _watchHistoryMock.Setup(history => history.GetAllUserIds()).Returns([active]);
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([new DiscoveryFeedbackResult { UserId = removed, Entries = [new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = "tv", RequestedAtUtc = DateTime.UtcNow }] }]);
+        using var service = CreateSut();
+        service.ChoiceHistory = new RecommendationChoiceHistory();
+        var recorder = new RecordingStrategy();
+        Assert.True(service.Train(recorder, [new RecommendationResult { UserId = active }, new RecommendationResult { UserId = removed }], cancellationToken: TestContext.Current.CancellationToken));
+        Assert.All(recorder.LastReceivedTrainSet!.Concat(recorder.LastReceivedHeldOutSet ?? []), row => Assert.Equal(active, row.UserId));
+        Assert.Equal(2, profiles.Count);
+    }
+
+    [Theory]
+    [InlineData("tv")]
+    [InlineData("TV")]
+    [InlineData(" TV ")]
+    [InlineData("movie")]
+    public void LegacyDiscoveryTypesUseTheSameTypedAccessBoundary(string type)
+    {
+        var user = Guid.NewGuid();
+        var hidden = Guid.NewGuid();
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, AccessibleItemIds = new HashSet<Guid>() }]);
+        _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([new DiscoveryFeedbackResult
+        {
+            UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = type, RequestedAtUtc = DateTime.UtcNow, ShownAtUtc = DateTime.UtcNow.AddDays(-1) }]
+        }]);
+        var canonical = type.Trim().Equals("tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            AllowedItemIds = new HashSet<Guid> { hidden }, TitleKeysByItemId = new Dictionary<Guid, (int, string)> { [hidden] = (700, canonical) }
+        };
+        using var service = CreateSut();
+        var recorder = new RecordingStrategy();
+        Assert.False(service.Train(recorder, [new RecommendationResult { UserId = user }], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(0, recorder.TrainInvocationCount);
+    }
+
+    [Fact]
+    public void UnreferencedExcludedCatalogsCannotAllocateMillionsOfUserSpecificReplayIdentities()
+    {
+        var profiles = new Collection<UserWatchProfile>(Enumerable.Range(0, 50).Select(_ => CreateGuaranteedFittingProfile(Guid.NewGuid())).ToList());
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns(profiles);
+        var excluded = Enumerable.Range(0, 100000).Select(_ => Guid.NewGuid()).ToHashSet();
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            AllowedItemIds = profiles.SelectMany(profile => profile.WatchedItems).Select(row => row.ItemId).ToHashSet(), ExcludedItemIds = excluded
+        };
+        using var service = CreateSut();
+        service.ChoiceHistory = new RecommendationChoiceHistory();
+        var recorder = new RecordingStrategy();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.True(service.Train(recorder, profiles.Select(profile => new RecommendationResult { UserId = profile.UserId }).ToArray(), libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.InRange(GC.GetAllocatedBytesForCurrentThread() - before, 0, 50_000_000);
+        Assert.DoesNotContain(recorder.LastReceivedTrainSet!, row => row.IsContrastSample);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void WithheldDiscoveryFeedbackDefersBothTrainingEntrypointsWithoutMutatingReplay(bool personalPipeline)
@@ -71,9 +157,12 @@ public class TrainingServiceTests
         if (personalPipeline)
         {
             using var global = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1));
-            using var registry = new PerUserEnsembleRegistry(global, null, null, new EnsembleBlendBounds(.25, .75, .1), _pluginLogMock.Object);
-            Assert.False(service.TrainPerUser(registry, [previous], cancellationToken: TestContext.Current.CancellationToken));
+            var registry = new Mock<IPerUserEnsembleRegistry>(MockBehavior.Strict);
+            registry.SetupGet(value => value.GlobalEnsemble).Returns(global);
+            Assert.False(service.TrainPerUser(registry.Object, [previous], cancellationToken: TestContext.Current.CancellationToken));
             Assert.Equal(0, global.GetDiagnosticsSnapshot().TrainingExampleCount);
+            registry.VerifyGet(value => value.GlobalEnsemble, Times.Once);
+            registry.VerifyNoOtherCalls();
         }
         else
         {
@@ -201,9 +290,9 @@ public class TrainingServiceTests
         var excludedProviderId = TrainingExample.CreateTitleObservationId(user, excluded, 700, false);
         Assert.NotEmpty(examples);
         Assert.DoesNotContain(examples, example => example.ObservationId == excludedProviderId || example.ObservationId == TrainingExample.CreateLibraryObservationId(user, excluded));
-        Assert.Single(prior.Recommendations);
+        var retainedPrediction = Assert.Single(prior.Recommendations);
         Assert.Single(prior.TrainingContrasts!);
-        Assert.Equal(.9, prior.Recommendations[0].ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(.9, retainedPrediction.ScoringFeatures!.GenreSimilarity);
         Assert.Equal(predictionAt, prior.GeneratedAt);
     }
 
@@ -221,6 +310,7 @@ public class TrainingServiceTests
         var movieId = TrainingExample.CreateProviderObservationId(user, 700, "movie");
         var tvId = TrainingExample.CreateProviderObservationId(user, 700, "tv");
         var tvItem = Guid.NewGuid();
+        var allowedMovie = Guid.NewGuid();
         var features = new CandidateFeatures { GenreSimilarity = .9 };
         var original = new TrainingExample
         {
@@ -237,7 +327,8 @@ public class TrainingServiceTests
         history.Merge([original], new HashSet<Guid> { user }, now);
         _watchHistoryMock.Setup(value => value.GetAllUserWatchProfiles()).Returns([new UserWatchProfile
         {
-            UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = chosen, ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-2), Genres = ["Drama"] }]
+            UserId = user, AccessibleItemIds = new HashSet<Guid> { chosen, tvItem, allowedMovie },
+            WatchedItems = [new WatchedItemInfo { ItemId = chosen, ItemType = "Movie", Played = true, LastPlayedDate = now.AddDays(-2), Genres = ["Drama"] }]
         }]);
         _feedbackStoreMock.Setup(value => value.LoadAll()).Returns([new DiscoveryFeedbackResult
         {
@@ -245,8 +336,12 @@ public class TrainingServiceTests
         }]);
         var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
         {
-            AllowedItemIds = new HashSet<Guid> { chosen, tvItem }, ExcludedItemIds = new HashSet<Guid> { excluded },
-            ExcludedTitleKeys = allowedDuplicate ? new HashSet<(int, string)>() : new HashSet<(int, string)> { (700, "movie") }
+            AllowedItemIds = allowedDuplicate ? new HashSet<Guid> { chosen, tvItem, allowedMovie } : new HashSet<Guid> { chosen, tvItem },
+            ExcludedItemIds = new HashSet<Guid> { excluded },
+            ExcludedTitleKeys = allowedDuplicate ? new HashSet<(int, string)>() : new HashSet<(int, string)> { (700, "movie") },
+            TitleKeysByItemId = allowedDuplicate
+                ? new Dictionary<Guid, (int, string)> { [excluded] = (700, "movie"), [allowedMovie] = (700, "movie"), [tvItem] = (700, "tv") }
+                : new Dictionary<Guid, (int, string)> { [excluded] = (700, "movie"), [tvItem] = (700, "tv") }
         };
         using var service = CreateSut();
         service.ChoiceHistory = history;
@@ -854,6 +949,18 @@ public class TrainingServiceTests
     ///     Builds a small but realistic watch profile so that TrainingDataBuilder actually
     ///     produces training examples (at least one positive + a negative).
     /// </summary>
+    private static UserWatchProfile CreateGuaranteedFittingProfile(Guid userId)
+    {
+        var profile = CreatePopulatedProfile(userId);
+        var item = profile.WatchedItems[0];
+        while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(userId, item.ItemId), HasStableObservationId = true }.IsPermanentHoldout)
+        {
+            item.ItemId = Guid.NewGuid();
+        }
+
+        return profile;
+    }
+
     private static UserWatchProfile CreatePopulatedProfile(Guid userId)
     {
         return new UserWatchProfile
@@ -1042,7 +1149,7 @@ public class TrainingServiceTests
     {
         // The legacy two-arg constructor (no feedback store) was previously dead code - no test exercised it.
         var user = Guid.NewGuid();
-        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreatePopulatedProfile(user)]);
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreateGuaranteedFittingProfile(user)]);
 
         var sut = new TrainingService(
             _watchHistoryMock.Object,
@@ -1409,7 +1516,7 @@ public class TrainingServiceTests
         disposed.Dispose();
 
         var user = Guid.NewGuid();
-        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreatePopulatedProfile(user)]);
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreateGuaranteedFittingProfile(user)]);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         using var sut = CreateSut();
@@ -1427,7 +1534,7 @@ public class TrainingServiceTests
     {
         // The gate is per-instance and non-blocking (Wait(0)). A reentrant Train on the same instance, issued while the outer call still holds the gate, must be rejected and return false without building examples or invoking the strategy a second time.
         var user = Guid.NewGuid();
-        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreatePopulatedProfile(user)]);
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns([CreateGuaranteedFittingProfile(user)]);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         using var sut = CreateSut();

@@ -64,7 +64,7 @@ internal static class EngineTestFactory
         watchHistory.Setup(w => w.GetAllUserWatchProfiles())
                     .Returns(new Collection<UserWatchProfile>());
         watchHistory.Setup(w => w.GetAllUserIds())
-                    .Returns(Array.Empty<Guid>());
+                    .Returns(() => watchHistory.Object.GetAllUserWatchProfiles().Select(profile => profile.UserId).ToArray());
         watchHistory.Setup(w => w.GetUserWatchProfile(It.IsAny<Guid>()))
                     .Returns((UserWatchProfile?)null);
 

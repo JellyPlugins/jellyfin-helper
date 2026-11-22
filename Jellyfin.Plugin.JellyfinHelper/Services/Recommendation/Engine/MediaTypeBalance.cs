@@ -23,17 +23,7 @@ internal static class MediaTypeBalance
     internal static double? TargetSeriesShare(UserWatchProfile? profile, DateTime? referenceTime = null)
     {
         var now = referenceTime ?? DateTime.UtcNow;
-        var units = (profile?.WatchedItems ?? []).Where(row => row.Played && row.ItemId != Guid.Empty
-                && (!row.LastPlayedDate.HasValue || row.LastPlayedDate.Value <= now)
-                && !(row.UserRating is > 0 and <= 5)
-                && (IsType(row, MovieType) || IsType(row, SeriesType) || (IsType(row, EpisodeType) && (row.SeriesId.GetValueOrDefault() != Guid.Empty || row.SeriesTmdbId > 0))))
-            .GroupBy(UnitKey).Select(group => group.OrderByDescending(row => row.LastPlayedDate).First()).ToArray();
-        var titles = units.GroupBy(TitleKey).Select(group =>
-        {
-            // A played container is not extra material on top of its completed episodes.
-            var material = group.Any(row => IsType(row, EpisodeType)) ? group.Where(row => IsType(row, EpisodeType)).ToArray() : group.ToArray();
-            return (Series: !IsType(material[0], MovieType), Material: material);
-        }).ToArray();
+        var titles = CompletedTitles(profile, now);
         if (titles.Length == 0)
         {
             return null;
@@ -63,6 +53,21 @@ internal static class MediaTypeBalance
         var total = movies + series;
         return total > 0 ? Math.Clamp(0.5 + (((series / total) - 0.5) * evidence / (evidence + PriorTitleCount)), MinimumShare, 1 - MinimumShare) : null;
     }
+
+    private static (bool Series, WatchedItemInfo[] Material)[] CompletedTitles(UserWatchProfile? profile, DateTime now)
+        => (profile?.WatchedItems ?? []).Where(row => IsEligibleConsumption(row, now))
+            .GroupBy(UnitKey).Select(group => group.OrderByDescending(row => row.LastPlayedDate).First())
+            .GroupBy(TitleKey).Select(group =>
+            {
+                // A played container is not extra material on top of its completed episodes.
+                var material = group.Any(row => IsType(row, EpisodeType)) ? group.Where(row => IsType(row, EpisodeType)).ToArray() : group.ToArray();
+                return (Series: !IsType(material[0], MovieType), Material: material);
+            }).ToArray();
+
+    private static bool IsEligibleConsumption(WatchedItemInfo row, DateTime now)
+        => row.Played && row.ItemId != Guid.Empty && (!row.LastPlayedDate.HasValue || row.LastPlayedDate.Value <= now)
+            && !(row.UserRating is > 0 and <= 5)
+            && (IsType(row, MovieType) || IsType(row, SeriesType) || (IsType(row, EpisodeType) && (row.SeriesId.GetValueOrDefault() != Guid.Empty || row.SeriesTmdbId > 0)));
 
     /// <summary>Adds only bounded selection pressure toward the user's mix; it never changes saved scores or eligibility.</summary>
     /// <param name="isSeries">The candidate's media type.</param>

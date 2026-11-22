@@ -24,23 +24,36 @@ internal static class LibraryUserAccess
             return [];
         }
 
-        var query = new InternalItemsQuery { User = user, Recursive = true };
+        var query = CreateQuery(library, user);
         if (itemIds is not null)
         {
             query.ItemIds = itemIds.ToArray();
-            return Query(library, user, query);
+            return Query(library, query);
         }
 
         query.MediaTypes = [MediaType.Video];
         query.IsFolder = false;
-        var allowed = Query(library, user, query);
-        allowed.UnionWith(Query(library, user, new InternalItemsQuery { User = user, Recursive = true, IncludeItemTypes = [BaseItemKind.Series], IsFolder = true }));
+        var allowed = Query(library, query);
+        var series = CreateQuery(library, user);
+        series.IncludeItemTypes = [BaseItemKind.Series];
+        series.IsFolder = true;
+        allowed.UnionWith(Query(library, series));
         return allowed;
     }
 
-    private static HashSet<Guid> Query(ILibraryManager library, User user, InternalItemsQuery query)
+    /// <summary>Captures host tag and library restrictions before IDs or ancestors can bypass their population.</summary>
+    /// <param name="library">The host library manager.</param>
+    /// <param name="user">The current account and content policy.</param>
+    /// <returns>A configured query with no ID or ancestor predicate yet.</returns>
+    internal static InternalItemsQuery CreateQuery(ILibraryManager library, User user)
     {
+        var query = new InternalItemsQuery(user) { Recursive = true };
         library.ConfigureUserAccess(query, user);
+        return query;
+    }
+
+    private static HashSet<Guid> Query(ILibraryManager library, InternalItemsQuery query)
+    {
         var ids = library.GetItemIds(query) ?? throw new IOException("Jellyfin user-access query is unavailable.");
         return ids.ToHashSet();
     }

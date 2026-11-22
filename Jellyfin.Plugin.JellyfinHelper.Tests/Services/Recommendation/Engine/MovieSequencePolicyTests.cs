@@ -13,6 +13,23 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class MovieSequencePolicyTests
 {
     [Theory]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    public void LowScoringPrerequisitesCannotOverrideEnoughSuitableDeliverableAlternatives(int alternativeCount, bool expectedPrerequisite)
+    {
+        var first = Movie(9737, 14890, 1);
+        var sequel = Movie(8961, 14890, 9);
+        var alternatives = Enumerable.Range(0, alternativeCount).Select(index => Movie(900000 + index, 0, 8 - index)).ToArray();
+        var eligible = new[] { sequel, first }.Concat(alternatives).Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own reason", "own key", (string?)null)).ToList();
+        var ranked = DiversityReranker.ApplyDiversityReranking(eligible, 2, 1);
+        var selected = MovieSequencePolicy.Apply(ranked, eligible, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(2, selected.Count);
+        Assert.Equal(expectedPrerequisite, selected.Any(row => row.Item.Id == first.Id));
+        Assert.DoesNotContain(selected, row => row.Item.Id == sequel.Id);
+        Assert.All(selected, row => Assert.Equal(eligible.Single(original => original.Item1.Id == row.Item.Id).Item2, row.Score));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]

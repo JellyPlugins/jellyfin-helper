@@ -230,6 +230,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             Interlocked.Increment(ref calls);
             return Task.CompletedTask;
         }, TestContext.Current.CancellationToken));
+        var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(cache)!;
+        Assert.False(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         Assert.Equal(0, calls);
         Assert.False(File.Exists(Path.Join(_cacheFilePath, "results.json")));
     }

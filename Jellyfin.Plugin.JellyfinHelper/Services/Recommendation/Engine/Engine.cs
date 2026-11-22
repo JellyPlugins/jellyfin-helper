@@ -297,6 +297,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Fetched here rather than up front so a skipped or empty-results training run does not pay for a
         // profile build it never uses.
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        var liveUsers = _watchHistoryService.GetAllUserIds().ToHashSet();
+        var profiledUsers = allProfiles.Select(profile => profile.UserId).ToHashSet();
+        if (liveUsers.Any(user => !profiledUsers.Contains(user)))
+        {
+            // An unavailable enabled profile cannot authorize a partial cohort
+            // comparison after fitting; retain the current calibration instead.
+            return;
+        }
+
+        allProfiles = new Collection<UserWatchProfile>(allProfiles.Where(profile => liveUsers.Contains(profile.UserId)).ToList());
+        previousResults = TrainingService.ScopePreviousResultsByUser(previousResults, allProfiles);
         var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
         foreach (var profile in allProfiles)
         {
@@ -952,10 +963,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 .Select(w => w.SeriesId!.Value));
 
         // Also include series-level favorites (user favorited the series itself, not individual episodes)
-        foreach (var favSeriesId in userProfile.FavoriteSeriesIds)
-        {
-            watchedSeriesIds.Add(favSeriesId);
-        }
+        watchedSeriesIds.UnionWith(userProfile.FavoriteSeriesIds);
 
         // Provider-id (TMDb) keys of watched titles. The Guid checks above miss the case where the
         // same title exists as two library items (re-added, or duplicated across libraries) with
@@ -966,11 +974,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts);
 
         // Build O(1) candidate lookup by ID - shared across studio/tag preference building
-        var candidateLookup = new Dictionary<Guid, BaseItem>(allCandidates.Count);
-        foreach (var c in allCandidates)
-        {
-            candidateLookup.TryAdd(c.Id, c);
-        }
+        var candidateLookup = allCandidates.GroupBy(candidate => candidate.Id).ToDictionary(group => group.Key, group => group.First());
 
         // Build the collaborative co-occurrence map. • Batch mode: use the precomputed CollaborativeContext (itemPopularity + trust-gate read from the shared record rather than redone).
         var coOccurrence = collaborativeContext is not null
@@ -1101,10 +1105,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var ranked = RankCandidate(candidate, snapshot, scoringContext);
             scored.Add(ranked);
             CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, contentEligible, contentSupported, tasteLanes);
-            if (snapshot.Features.ContentTasteKey.HasValue && snapshot.Features.ContentFitSupport is >= 0.05 and < 0.5)
-            {
-                retainedInterests.Add(candidate.Id);
-            }
+            CaptureRetainedInterest(candidate.Id, snapshot.Features, retainedInterests);
 
             CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, strategy);
         }
@@ -1160,6 +1161,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             supported.Add(candidateId);
             tasteLanes[candidateId] = features.ContentTasteKey ?? candidateId;
+        }
+    }
+
+    private static void CaptureRetainedInterest(Guid itemId, CandidateFeatures features, HashSet<Guid> retainedInterests)
+    {
+        if (features.ContentTasteKey.HasValue && features.ContentFitSupport is >= 0.05 and < 0.5)
+        {
+            retainedInterests.Add(itemId);
         }
     }
 

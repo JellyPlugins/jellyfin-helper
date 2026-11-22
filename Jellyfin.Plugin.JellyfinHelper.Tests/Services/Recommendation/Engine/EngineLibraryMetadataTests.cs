@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -31,6 +32,38 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class EngineLibraryMetadataTests : IDisposable
 {
     private readonly string _tempDir;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GlobalCohortCalibrationUsesTheSameCurrentPerUserAccessScopeAndProfileCompletenessAsFitting(bool missingEnabledProfile)
+    {
+        using var global = new EnsembleScoringStrategy();
+        var harness = EngineTestFactory.Create(global);
+        using var engine = harness.Engine;
+        var control = Guid.NewGuid();
+        var high = Guid.NewGuid();
+        var hidden = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
+        var visible = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
+        var profiles = new Collection<UserWatchProfile>
+        {
+            new() { UserId = control, AccessibleItemIds = missingEnabledProfile ? hidden.ToHashSet() : new HashSet<Guid>() },
+            new() { UserId = high, AccessibleItemIds = visible.ToHashSet(), WatchedItems = new Collection<WatchedItemInfo>(visible.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) }
+        };
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns(profiles);
+        harness.WatchHistory.Setup(history => history.GetAllUserIds()).Returns(missingEnabledProfile ? [control, high, Guid.NewGuid()] : [control, high]);
+        var previous = new[]
+        {
+            new RecommendationResult { UserId = control, Cohort = "control", Recommendations = new Collection<RecommendedItem>(hidden.Select(id => new RecommendedItem { ItemId = id }).ToList()) },
+            new RecommendationResult { UserId = high, Cohort = "explore-high", Recommendations = new Collection<RecommendedItem>(visible.Select(id => new RecommendedItem { ItemId = id }).ToList()) }
+        };
+        typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ApplyGlobalCohortFeedback", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [previous]);
+        Assert.Equal(0, global.SigmoidMidpointOffset);
+        using var unscoped = new EnsembleScoringStrategy();
+        unscoped.ApplyCohortFeedback(previous, new Dictionary<Guid, HashSet<Guid>> { [control] = [], [high] = visible.ToHashSet() });
+        Assert.True(unscoped.SigmoidMidpointOffset < 0);
+        Assert.Equal(5, previous[0].Recommendations.Count);
+    }
 
     [Theory]
     [InlineData(false)]
@@ -106,9 +139,9 @@ public sealed class EngineLibraryMetadataTests : IDisposable
         Assert.Equal(unseenId, Assert.Single(choice.Alternatives).ObservationId);
         Assert.Equal(4, savedChoice.Choice!.Alternatives.Length);
         harness.PluginLog.Verify(log => log.LogInfo("Recommendations", It.Is<string>(message => message.Contains("2 discovery", StringComparison.Ordinal)), It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
-        Assert.Single(previous.Recommendations);
+        var retainedPrediction = Assert.Single(previous.Recommendations);
         Assert.Single(previous.TrainingContrasts!);
-        Assert.Equal(.9, previous.Recommendations[0].ScoringFeatures!.GenreSimilarity);
+        Assert.Equal(.9, retainedPrediction.ScoringFeatures!.GenreSimilarity);
         Assert.Equal(now.AddDays(-3), previous.GeneratedAt);
     }
 

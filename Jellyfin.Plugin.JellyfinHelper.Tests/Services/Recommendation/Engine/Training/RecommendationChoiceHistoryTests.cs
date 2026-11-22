@@ -13,6 +13,59 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 public sealed class RecommendationChoiceHistoryTests
 {
     [Fact]
+    public void RemovedOwnersArePrunedBeforeAnyActiveProfilePermissionLookup()
+    {
+        var now = DateTime.UtcNow;
+        var removed = Guid.NewGuid();
+        var active = Guid.NewGuid();
+        var original = Observation(removed, Identity(false), now, true);
+        original.Choice = original.Choice! with
+        {
+            ChosenItemId = Guid.NewGuid(),
+            Alternatives = original.Choice.Alternatives.Select(alternative => alternative with { LibraryItemId = Guid.NewGuid() }).ToImmutableArray()
+        };
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("removed-owner-choices.json");
+        var history = new RecommendationChoiceHistory(fs, path);
+        history.Merge([original], new HashSet<Guid> { removed }, now);
+        Assert.True(history.Save());
+        var permissions = new Dictionary<Guid, HashSet<Guid>> { [active] = new HashSet<Guid>() };
+        Assert.Empty(history.Merge(
+            [],
+            new HashSet<Guid> { active },
+            now,
+            canUseLibraryItem: (user, item) => permissions[user].Contains(item),
+            canUseCapturedItem: (user, item, _) => permissions[user].Contains(item)));
+        Assert.True(history.Save());
+        var restarted = new RecommendationChoiceHistory(fs, path);
+        var current = original.Copy();
+        current.Choice = null;
+        Assert.DoesNotContain(restarted.Merge([current], new HashSet<Guid> { removed }, now), row => row.Choice is not null || row.IsContrastSample);
+    }
+
+    [Fact]
+    public void MissingLegacyPhysicalIdsStayDormantAcrossSavingRatherThanUsingAnAccessibleDuplicateOrErasingEvidence()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("legacy-physical-choice.json");
+        var history = new RecommendationChoiceHistory(fs, path);
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        Assert.True(history.Save());
+        var before = fs.File.ReadAllText(path);
+        var current = original.Copy();
+        current.Choice = null;
+        var eligible = new HashSet<(Guid User, Guid Title)> { (user, original.ObservationId), (user, original.Choice!.Alternatives[0].ObservationId) };
+        var fitting = history.Merge([current], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: (_, _) => true);
+        Assert.DoesNotContain(fitting, row => row.Choice is not null || row.IsContrastSample);
+        Assert.True(history.Save());
+        Assert.Equal(before, fs.File.ReadAllText(path));
+        var restarted = new RecommendationChoiceHistory(fs, path);
+        Assert.DoesNotContain(restarted.Merge([current], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: (_, _) => true), row => row.Choice is not null || row.IsContrastSample);
+    }
+    [Fact]
     public void UnchosenPlaylistAlternativeKeepsItsRelativeSignalAcrossLaterRunsWithoutBecomingAPermanentBan()
     {
         var now = DateTime.UtcNow;

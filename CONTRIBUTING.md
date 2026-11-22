@@ -342,6 +342,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── PathComparisonTests.cs      # PathComparison: comparison/comparer match the platform case convention
 │   ├── TmdbLibraryMapperTests.cs   # BuildTmdbKeySet/TryGetTmdbId: media-type keying, non-positive/invalid id rejection, dedup
 │   ├── VirtualItemDetectorTests.cs # IsVirtual: virtual flag, empty path, plugins-path containment with sibling-boundary and platform-casing guards, real library under data stays owned
+│   ├── LibraryUserAccessTests.cs # Real host tag initialization and library scope captured before bounded ID predicates
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   │   └── ArrIntegrationServiceTests.cs               # Timeout → LogWarning (not LogError); parity with TestConnectionAsync
@@ -512,7 +513,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── TrainingDataBuilderTests.cs        # Deterministic observed signals and no fabricated cross-user negatives
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── RecommendationChoiceBuilderTests.cs # Saved prediction boundaries, orphan episode identities, cutoff-safe targets and never-engaged alternatives
-│       │       ├── RecommendationChoiceHistoryTests.cs # Identity aliases, latest outcomes, shared effective budgets and generation-aware bounded persistence
+│       │       ├── RecommendationChoiceHistoryTests.cs # Identity aliases, latest outcomes, shared budgets, bounded persistence and dormant legacy rows without physical provenance
+│       │       ├── ReplayIdentityRegressionTests.cs # Captured title/copy identity pairing, provider corrections and typed duplicate boundaries
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
@@ -810,6 +812,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
 │   │   │   ├── RecommendationPlaylistService.cs
+│   │   │   ├── PlaylistLibraryServices.cs # Shared current library configuration and virtual-media detector for delivery
 │   │   │   └── PlaylistSyncResult.cs
 │   │   ├── IRecommendationEngine.cs
 │   │   ├── IRecommendationCacheService.cs
@@ -1038,6 +1041,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `I18nServiceTests.cs` - Tests I18nService translations, config-page key sync, and Lazy load concurrency
 - `PathValidatorTests.cs` - Tests PathValidator safe-path, filename sanitization, and sensitive-system-path checks
 - `VirtualItemDetectorTests.cs` - Tests virtual-flag/empty-path/plugins-path detection with sibling-boundary and platform-casing guards, and that a real library under the data directory stays owned
+- `LibraryUserAccessTests.cs` - Checks host tag initialization and preserves current library scope before attaching bounded IDs
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Activity/`
 
@@ -1515,6 +1519,7 @@ while the editor closes, including after Escape.
 - `IRecommendationPlaylistService.cs`
 - `PlaylistSyncResult.cs`
 - `RecommendationPlaylistService.cs`
+- `PlaylistLibraryServices.cs`
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Scoring/`
 

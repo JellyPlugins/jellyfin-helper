@@ -43,7 +43,8 @@ internal sealed class RecommendationChoiceHistory
         DateTime referenceTime,
         IReadOnlySet<(Guid User, Guid Title)>? engagedTitles = null,
         IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles = null,
-        Func<Guid, Guid, bool>? canUseLibraryItem = null)
+        Func<Guid, Guid, bool>? canUseLibraryItem = null,
+        Func<Guid, Guid, Guid, bool>? canUseCapturedItem = null)
     {
         var engaged = current.Where(row => row.IsObserved && row.HasStableObservationId).Select(Key).ToHashSet();
         engaged.UnionWith(engagedTitles ?? new HashSet<(Guid, Guid)>());
@@ -51,16 +52,16 @@ internal sealed class RecommendationChoiceHistory
         // recover an alternative's first engagement, and a later watch must not revive
         // a prior unobserved comparison on the next publication or restart.
         current = current.Where(row => !row.IsContrastSample || (!engaged.Contains(Key(row)) && (eligibleTitles is null || eligibleTitles.Contains(Key(row)))))
-            .Select(row => WithoutEngagedAlternatives(row, engaged, referenceTime, eligibleTitles, canUseLibraryItem)).ToArray();
+            .Select(row => WithoutEngagedAlternatives(row, engaged, referenceTime, eligibleTitles, canUseLibraryItem, canUseCapturedItem)).ToArray();
         var observed = current.Where(row => row.IsObserved && row.HasStableObservationId)
             .GroupBy(Key).ToDictionary(group => group.Key, group => group.OrderByDescending(row => row.GeneratedAtUtc).First());
         var result = current.ToList();
         var replayed = new List<TrainingExample>();
         lock (_gate)
         {
-            foreach (var key in _entries.Keys.ToArray())
+            foreach (var key in _entries.Keys.Where(key => activeUsers.Contains(key.User)).ToArray())
             {
-                _entries[key] = WithoutEngagedAlternatives(_entries[key], engaged, referenceTime, eligibleTitles, canUseLibraryItem);
+                _entries[key] = PrepareStoredChoice(_entries[key], engaged, referenceTime, eligibleTitles, canUseLibraryItem, canUseCapturedItem);
             }
 
             foreach (var key in _entries.Keys.Where(key => !activeUsers.Contains(key.User) || !observed.TryGetValue(key, out var row)
@@ -76,8 +77,9 @@ internal sealed class RecommendationChoiceHistory
             foreach (var row in retained)
             {
                 _entries[Key(row)] = row;
+                var replay = WithoutEngagedAlternatives(row, engaged, referenceTime, eligibleTitles, canUseLibraryItem, canUseCapturedItem);
                 if (!current.Any(item => Key(item) == Key(row) && item.Choice?.IsValid(item.ObservationId, referenceTime) == true)
-                    && AddChoiceView(result, row, referenceTime))
+                    && Valid(replay, referenceTime) && AddChoiceView(result, replay, referenceTime))
                 {
                     replayed.Add(result[^1]);
                 }
@@ -107,6 +109,18 @@ internal sealed class RecommendationChoiceHistory
         }
     }
 
+    private static TrainingExample PrepareStoredChoice(TrainingExample stored, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime, IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles, Func<Guid, Guid, bool>? canUseLibraryItem, Func<Guid, Guid, Guid, bool>? canUseCapturedItem)
+    {
+        // Legacy rows stay dormant, never using an accessible duplicate as proof of
+        // the historical physical copy. The separate fitting view applies live scope.
+        if ((canUseLibraryItem is not null || canUseCapturedItem is not null) && !HasPhysicalProvenance(stored.Choice))
+        {
+            return WithoutEngagedAlternatives(stored, engaged, referenceTime, null, null, null);
+        }
+
+        return WithoutEngagedAlternatives(stored, engaged, referenceTime, eligibleTitles, canUseLibraryItem, canUseCapturedItem);
+    }
+
     /// <summary>Checks only referenced replay identities against the current catalog, keeping memory bounded by the stored comparisons.</summary>
     /// <param name="current">This run's current outcomes and choices.</param>
     /// <param name="activeUsers">Users whose current profiles were available.</param>
@@ -120,6 +134,19 @@ internal sealed class RecommendationChoiceHistory
         IReadOnlySet<Guid> allowedItems,
         IReadOnlySet<(int TmdbId, string MediaType)> allowedTitles,
         CancellationToken cancellationToken)
+    {
+        var needed = CaptureNeededReplayTitles(current, activeUsers);
+        var eligible = new HashSet<(Guid User, Guid Title)>();
+        foreach (var (user, titles) in needed)
+        {
+            MatchPermittedItems(user, titles, allowedItems, eligible, cancellationToken);
+            MatchPermittedTitles(user, titles, allowedTitles, eligible, cancellationToken);
+        }
+
+        return eligible;
+    }
+
+    private Dictionary<Guid, HashSet<Guid>> CaptureNeededReplayTitles(IReadOnlyList<TrainingExample> current, IReadOnlySet<Guid> activeUsers)
     {
         var needed = new Dictionary<Guid, HashSet<Guid>>();
         lock (_gate)
@@ -143,44 +170,51 @@ internal sealed class RecommendationChoiceHistory
             }
         }
 
-        var eligible = new HashSet<(Guid User, Guid Title)>();
-        foreach (var (user, titles) in needed)
-        {
-            foreach (var item in allowedItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (titles.Count == 0)
-                {
-                    break;
-                }
-
-                var key = TrainingExample.CreateLibraryObservationId(user, item);
-                if (titles.Remove(key))
-                {
-                    eligible.Add((user, key));
-                }
-            }
-
-            foreach (var title in allowedTitles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (titles.Count == 0)
-                {
-                    break;
-                }
-
-                var key = TrainingExample.CreateProviderObservationId(user, title.TmdbId, title.MediaType);
-                if (titles.Remove(key))
-                {
-                    eligible.Add((user, key));
-                }
-            }
-        }
-
-        return eligible;
+        return needed;
     }
 
-    private static TrainingExample WithoutEngagedAlternatives(TrainingExample row, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime, IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles, Func<Guid, Guid, bool>? canUseLibraryItem)
+    private static void MatchPermittedItems(Guid user, HashSet<Guid> titles, IReadOnlySet<Guid> allowedItems, HashSet<(Guid User, Guid Title)> eligible, CancellationToken cancellationToken)
+    {
+        foreach (var item in allowedItems)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (titles.Count == 0)
+            {
+                break;
+            }
+
+            AddEligibleKey(user, TrainingExample.CreateLibraryObservationId(user, item), titles, eligible);
+        }
+    }
+
+    private static void MatchPermittedTitles(Guid user, HashSet<Guid> titles, IReadOnlySet<(int TmdbId, string MediaType)> allowedTitles, HashSet<(Guid User, Guid Title)> eligible, CancellationToken cancellationToken)
+    {
+        foreach (var title in allowedTitles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (titles.Count == 0)
+            {
+                break;
+            }
+
+            AddEligibleKey(user, TrainingExample.CreateProviderObservationId(user, title.TmdbId, title.MediaType), titles, eligible);
+        }
+    }
+
+    private static void AddEligibleKey(Guid user, Guid key, HashSet<Guid> titles, HashSet<(Guid User, Guid Title)> eligible)
+    {
+        if (titles.Remove(key))
+        {
+            eligible.Add((user, key));
+        }
+    }
+
+    private static bool HasPhysicalProvenance(RecommendationChoiceEvidence? choice)
+        => IsKnownLibraryId(choice?.ChosenItemId) && choice!.Alternatives.All(alternative => IsKnownLibraryId(alternative.LibraryItemId));
+
+    private static bool IsKnownLibraryId(Guid? itemId) => itemId.HasValue && itemId.Value != Guid.Empty;
+
+    private static TrainingExample WithoutEngagedAlternatives(TrainingExample row, HashSet<(Guid User, Guid Title)> engaged, DateTime referenceTime, IReadOnlySet<(Guid User, Guid Title)>? eligibleTitles, Func<Guid, Guid, bool>? canUseLibraryItem, Func<Guid, Guid, Guid, bool>? canUseCapturedItem)
     {
         if (row.Choice is not { } choice || !choice.IsValid(row.ObservationId, referenceTime))
         {
@@ -188,10 +222,10 @@ internal sealed class RecommendationChoiceHistory
         }
 
         var chosenEligible = (eligibleTitles is null || eligibleTitles.Contains(Key(row)))
-            && (canUseLibraryItem is null || (choice.ChosenItemId is { } chosen && canUseLibraryItem(row.UserId, chosen)));
+            && IsCapturedReferenceAllowed(row.UserId, choice.ChosenItemId, row.ObservationId, canUseLibraryItem, canUseCapturedItem);
         var alternatives = choice.Alternatives.Where(alternative => chosenEligible && !engaged.Contains((row.UserId, alternative.ObservationId))
             && (eligibleTitles is null || eligibleTitles.Contains((row.UserId, alternative.ObservationId)))
-            && (canUseLibraryItem is null || (alternative.LibraryItemId is { } item && canUseLibraryItem(row.UserId, item)))).ToImmutableArray();
+            && IsCapturedReferenceAllowed(row.UserId, alternative.LibraryItemId, alternative.ObservationId, canUseLibraryItem, canUseCapturedItem)).ToImmutableArray();
         if (alternatives.Length == choice.Alternatives.Length)
         {
             return row;
@@ -200,6 +234,17 @@ internal sealed class RecommendationChoiceHistory
         var copy = row.Copy();
         copy.Choice = alternatives.IsEmpty ? null : (choice with { Alternatives = alternatives }).Copy();
         return copy;
+    }
+
+    private static bool IsCapturedReferenceAllowed(Guid user, Guid? item, Guid observation, Func<Guid, Guid, bool>? physical, Func<Guid, Guid, Guid, bool>? identity)
+    {
+        if (physical is null && identity is null)
+        {
+            return true;
+        }
+
+        return IsKnownLibraryId(item) && (physical is null || physical(user, item!.Value))
+            && (identity is null || identity(user, item!.Value, observation));
     }
 
     internal static bool AddChoiceView(List<TrainingExample> result, TrainingExample row, DateTime referenceTime)

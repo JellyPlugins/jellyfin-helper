@@ -271,8 +271,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         IReadOnlyList<BaseItem> items,
         LibraryRootScope? scope)
     {
-        var kept = items.Where(item => !item.IsVirtualItem && VirtualItems?.IsVirtual(item) != true
-            && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope))).DistinctBy(item => item.Id).ToList();
+        var kept = items.GroupBy(item => item.Id).Select(group => group.Last()).Where(item => !item.IsVirtualItem && VirtualItems?.IsVirtual(item) != true
+            && (scope is null || LibraryPathResolver.IsAllowed(item.Path, scope))).ToList();
 
         // Items with an empty path are dropped by the boundary check because they cannot be placed
         // under any root. That is correct, but surface the count so an operator can tell "excluded by
@@ -687,7 +687,33 @@ public sealed class WatchHistoryService : IWatchHistoryService
         ref double ratingSum,
         ref int ratingCount)
     {
-        // Accumulate statistics
+        AccumulatePlaybackStatistics(profile, item, userData, watchedSeriesIds);
+
+        // Track genre distribution
+        if (userData.Played || userData.PlaybackPositionTicks > 0 || userData.IsFavorite || userData.Rating is > 5)
+        {
+            AccumulateGenreDistribution(profile, genres);
+        }
+
+        if (userData.IsFavorite)
+        {
+            profile.FavoriteCount++;
+        }
+
+        if (item.CommunityRating.HasValue)
+        {
+            ratingSum += item.CommunityRating.Value;
+            ratingCount++;
+        }
+
+        if (userData.LastPlayedDate.HasValue && (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
+        {
+            profile.LastActivityDate = userData.LastPlayedDate;
+        }
+    }
+
+    private static void AccumulatePlaybackStatistics(UserWatchProfile profile, BaseItem item, UserItemData userData, HashSet<Guid> watchedSeriesIds)
+    {
         if (userData.Played)
         {
             if (item is Movie)
@@ -708,32 +734,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 profile.TotalWatchTimeTicks += item.RunTimeTicks.Value;
             }
-        }
-
-        // Track genre distribution
-        if (userData.Played || userData.PlaybackPositionTicks > 0 || userData.IsFavorite || userData.Rating is > 5)
-        {
-            AccumulateGenreDistribution(profile, genres);
-        }
-
-        // Track favorites
-        if (userData.IsFavorite)
-        {
-            profile.FavoriteCount++;
-        }
-
-        // Track community rating for average
-        if (item.CommunityRating.HasValue)
-        {
-            ratingSum += item.CommunityRating.Value;
-            ratingCount++;
-        }
-
-        // Track last activity
-        if (userData.LastPlayedDate.HasValue &&
-            (!profile.LastActivityDate.HasValue || userData.LastPlayedDate > profile.LastActivityDate))
-        {
-            profile.LastActivityDate = userData.LastPlayedDate;
         }
     }
 

@@ -150,7 +150,7 @@ internal static class DiversityReranker
         // Build the disjoint exploration pool: * Start with the widened band ranks[mmrPoolSize .. explorationPoolSize].
         if (selected.Count < count)
         {
-            FillExplorationSlots(ranked, remaining, selected, count, mmrPoolSize, explorationPoolSize, seed, retainedInterests);
+            FillExplorationSlots(ranked, remaining, selected, count, mmrPoolSize, explorationPoolSize, new ExplorationContext(seed, retainedInterests));
         }
 
         return selected;
@@ -261,8 +261,7 @@ internal static class DiversityReranker
         int count,
         int mmrPoolSize,
         int explorationPoolSize,
-        int? seed,
-        IReadOnlySet<Guid>? retainedInterests)
+        ExplorationContext context)
     {
         var mmrSelectedIds = new HashSet<Guid>(selected.Count);
         foreach (var s in selected)
@@ -286,7 +285,7 @@ internal static class DiversityReranker
         // Age weakens current preference strength, not the existence of a verified
         // thematic match. Preserve one bounded opportunity without changing scores,
         // first-choice ranking or treating random unseen media as rejected feedback.
-        var retained = ranked.Where(entry => retainedInterests?.Contains(entry.Item.Id) == true && !mmrSelectedIds.Contains(entry.Item.Id)).Take(1).ToArray();
+        var retained = ranked.Where(entry => context.RetainedInterests?.Contains(entry.Item.Id) == true && !mmrSelectedIds.Contains(entry.Item.Id)).Take(1).ToArray();
         if (retained.Length > 0 && selected.Count < count)
         {
             selected.Add(retained[0]);
@@ -299,7 +298,7 @@ internal static class DiversityReranker
         }
 
         // Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter) for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so exploration picks are reproducible per user/context and unit tests can pin behaviour.
-        var rng = seed.HasValue ? new Random(seed.Value) : Random.Shared;
+        var rng = context.Seed.HasValue ? new Random(context.Seed.Value) : Random.Shared;
         var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
         for (var e = 0; e < explorationCount; e++)
         {
@@ -315,6 +314,8 @@ internal static class DiversityReranker
             explorationPool.RemoveAt(lastIdx);
         }
     }
+
+    private sealed record ExplorationContext(int? Seed, IReadOnlySet<Guid>? RetainedInterests);
 
     /// <summary>
     ///     Caches per-item genre/studio/year metadata and computes multi-dimensional similarity between two items.
