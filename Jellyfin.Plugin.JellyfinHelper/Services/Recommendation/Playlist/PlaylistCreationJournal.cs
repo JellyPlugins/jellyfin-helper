@@ -1,0 +1,250 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
+
+/// <summary>Durable pre-create ownership evidence; pending attempts never expire into name-based cleanup.</summary>
+internal sealed class PlaylistCreationJournal
+{
+    private const int MaximumAttempts = 4096;
+    private const int MaximumOwnerIds = 4096;
+    private const long MaximumEnvelopeBytes = 256 * 1024;
+    private const long MaximumJournalBytes = 64 * 1024 * 1024;
+    private readonly string _directory;
+    private readonly Action<string, string> _write;
+    private readonly Action<string> _delete;
+    private readonly Func<string, IEnumerable<string>> _enumerate;
+    private readonly Lock _gate = new();
+    private readonly Dictionary<Guid, Attempt> _entries = [];
+    private readonly HashSet<Guid> _writingOwners = [];
+    private long _bytes;
+    private int _reservedNew;
+
+    internal PlaylistCreationJournal(string directory, Action<string, string>? write = null, Action<string>? delete = null, Func<string, IEnumerable<string>>? enumerate = null)
+    {
+        _directory = directory;
+        _write = write ?? ((path, contents) => AtomicFile.WriteAllText(path, contents));
+        _delete = delete ?? File.Delete;
+        _enumerate = enumerate ?? (path => Directory.EnumerateFiles(path, "*.json"));
+        Load();
+    }
+
+    internal Attempt? Get(Guid owner)
+    {
+        lock (_gate)
+        {
+            return _entries.GetValueOrDefault(owner);
+        }
+    }
+
+    internal Attempt[] Pending()
+    {
+        lock (_gate)
+        {
+            return _entries.Values.ToArray();
+        }
+    }
+
+    internal Attempt Begin(Guid owner, IReadOnlySet<Guid> before)
+        => Save(new Attempt(Guid.NewGuid(), owner, before.Order().ToImmutableArray()), creating: true);
+
+    internal Attempt RecordReturned(Guid owner, Guid attemptId, Guid returned)
+        => Save(Require(owner, attemptId) with { ReturnedId = returned }, creating: false);
+
+    internal Attempt RecordMarked(Guid owner, Guid attemptId)
+        => Save(Require(owner, attemptId) with { Marked = true }, creating: false);
+
+    internal bool Complete(Guid owner, Guid attemptId)
+    {
+        Attempt current;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(owner, out var value) || value.Id != attemptId)
+            {
+                return false;
+            }
+
+            if (!_writingOwners.Add(owner))
+            {
+                throw new IOException("The playlist creation attempt is already being persisted.");
+            }
+
+            current = value;
+        }
+
+        try
+        {
+            _delete(PathFor(owner));
+            lock (_gate)
+            {
+                _entries.Remove(owner);
+                _bytes -= current.FileBytes;
+            }
+
+            return true;
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _writingOwners.Remove(owner);
+            }
+        }
+    }
+
+    private Attempt Require(Guid owner, Guid attemptId)
+    {
+        var current = Get(owner);
+        if (current is null || current.Id != attemptId)
+        {
+            throw new IOException("The playlist creation attempt no longer owns its lifecycle gate.");
+        }
+
+        return current;
+    }
+
+    private Attempt Save(Attempt attempt, bool creating)
+    {
+        Validate(attempt);
+        var contents = JsonSerializer.Serialize(attempt, JsonDefaults.Options);
+        var length = Encoding.UTF8.GetByteCount(contents);
+        // The validated fixed-Guid schema with at most 4096 IDs fits below the
+        // envelope read limit; aggregate admission still uses actual UTF-8 bytes.
+
+        long previous;
+        long growth;
+        lock (_gate)
+        {
+            var current = _entries.GetValueOrDefault(attempt.Owner);
+            if ((creating && current is not null) || (!creating && current?.Id != attempt.Id))
+            {
+                throw new IOException("The playlist owner already has a different creation attempt.");
+            }
+
+            previous = current?.FileBytes ?? 0;
+            growth = Math.Max(0, length - previous);
+            if ((creating && _entries.Count + _reservedNew >= MaximumAttempts) || _bytes + growth > MaximumJournalBytes || !_writingOwners.Add(attempt.Owner))
+            {
+                throw new IOException("The bounded playlist creation journal is unavailable or full.");
+            }
+
+            if (creating)
+            {
+                _reservedNew++;
+            }
+
+            _bytes += growth;
+        }
+
+        var saved = false;
+        try
+        {
+            _write(PathFor(attempt.Owner), contents);
+            attempt = attempt with { FileBytes = length };
+            lock (_gate)
+            {
+                _entries[attempt.Owner] = attempt;
+            }
+
+            saved = true;
+            return attempt;
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _writingOwners.Remove(attempt.Owner);
+                if (creating)
+                {
+                    _reservedNew--;
+                }
+
+                // A shrinking rewrite releases bytes only after its durable
+                // success. Another owner's admission cannot spend a failed shrink.
+                _bytes -= saved ? previous + growth - length : growth;
+            }
+        }
+    }
+
+    private string PathFor(Guid owner) => Path.Join(_directory, owner.ToString("N") + ".json");
+
+    private void Load()
+    {
+        try
+        {
+            LoadCore();
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new IOException("Playlist creation evidence is inaccessible.", exception);
+        }
+    }
+
+    private void LoadCore()
+    {
+        string[] paths;
+        try
+        {
+            if ((File.GetAttributes(_directory) & FileAttributes.Directory) == 0)
+            {
+                throw new IOException("Playlist recovery path is not a directory.");
+            }
+
+            paths = _enumerate(_directory).Take(MaximumAttempts + 1).ToArray();
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return;
+        }
+
+        foreach (var path in paths)
+        {
+            var length = new FileInfo(path).Length;
+            if (_entries.Count >= MaximumAttempts || length > MaximumEnvelopeBytes || _bytes + length > MaximumJournalBytes)
+            {
+                throw new IOException("Existing playlist creation evidence exceeds its bounded recovery limit.");
+            }
+
+            using var stream = File.OpenRead(path);
+            Attempt value;
+            try
+            {
+                value = JsonSerializer.Deserialize<Attempt>(stream, JsonDefaults.Options) ?? throw new IOException("Playlist creation evidence is unavailable.");
+            }
+            catch (JsonException exception)
+            {
+                throw new IOException("Playlist creation evidence is malformed.", exception);
+            }
+
+            Validate(value);
+            if (Path.GetFileName(path) != value.Owner.ToString("N") + ".json" || !_entries.TryAdd(value.Owner, value with { FileBytes = length }))
+            {
+                throw new IOException("Playlist creation identities are inconsistent.");
+            }
+
+            _bytes += length;
+        }
+    }
+
+    private static void Validate(Attempt value)
+    {
+        if (value.Id == Guid.Empty || value.Owner == Guid.Empty || value.BeforeIds.IsDefault || value.BeforeIds.Length > MaximumOwnerIds
+            || value.BeforeIds.Contains(Guid.Empty) || value.BeforeIds.Distinct().Count() != value.BeforeIds.Length
+            || value.ReturnedId == Guid.Empty || (value.ReturnedId.HasValue && value.BeforeIds.Contains(value.ReturnedId.Value)) || (value.Marked && !value.ReturnedId.HasValue))
+        {
+            throw new IOException("Playlist creation provenance is invalid.");
+        }
+    }
+
+    internal sealed record Attempt(Guid Id, Guid Owner, ImmutableArray<Guid> BeforeIds, Guid? ReturnedId = null, bool Marked = false)
+    {
+        internal long FileBytes { get; init; }
+    }
+}

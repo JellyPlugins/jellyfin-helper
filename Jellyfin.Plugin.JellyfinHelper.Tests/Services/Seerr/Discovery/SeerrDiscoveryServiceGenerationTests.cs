@@ -22,6 +22,7 @@ using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Configuration;
@@ -352,6 +353,109 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     // Guard ladder
 
     [Theory]
+    [InlineData(false, false, "arr")]
+    [InlineData(true, false, "arr")]
+    [InlineData(true, true, "arr")]
+    [InlineData(false, false, "trakt")]
+    [InlineData(true, false, "trakt")]
+    [InlineData(true, true, "trakt")]
+    [InlineData(true, true, "expiry")]
+    [InlineData(true, true, "revision")]
+    [InlineData(true, true, "clock-back")]
+    public async Task CarriedPoolsValidateSourceAndAliasEvidenceAfterTheCacheWaitAtTheActualCommit(bool withdraw, bool afterWait, string source)
+    {
+        var profile = NewProfile();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
+        _history.Setup(history => history.GetUserParentalPolicy(profile.UserId)).Returns((true, (int?)null));
+        Plugin.Instance!.Configuration.RadarrInstances = source == "arr" ? [new ArrInstanceConfig { Url = "https://arr.example.test", ApiKey = "test-key" }] : [];
+        if (source != "arr")
+        {
+            Plugin.Instance.Configuration.TraktSourcingEnabled = true;
+            var acquired = DateTime.UtcNow.AddDays(-29);
+            _titleMetadata.StoreSupplemental(Plugin.Instance.Configuration, new TitleMetadataSnapshot { TmdbId = 701, TvdbId = 901, MediaType = "tv", FetchedAtUtc = acquired, FieldFetchedAtUtc = System.Collections.Immutable.ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.TvdbId), acquired) }, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+            _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([new Series { Id = Guid.NewGuid(), Path = "/media/library-alias", ProviderIds = new() { ["Tvdb"] = "901" } }]);
+        }
+
+        _arr.Setup(arr => arr.GetRadarrMoviesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>())).ReturnsAsync([new ArrMovie { TmdbId = 701 }]);
+        var prior = new DiscoveryResult
+        {
+            UserId = profile.UserId, UserName = profile.UserName, GeneratedAt = DateTime.UtcNow.AddDays(-1),
+            Recommendations = [new() { TmdbId = 701, MediaType = "movie" }, new() { TmdbId = 701, MediaType = "tv" }, new() { TmdbId = 702, MediaType = "movie" }]
+        };
+        Assert.True(await _cache.SaveAsync([prior], TestContext.Current.CancellationToken));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseGeneration = new ManualResetEventSlim();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-native-carried-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(directory, "jellyfin-helper-feedback-recovery"));
+        var feedbackWrites = 0;
+        using var feedback = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            EnumerateRecoveryFiles = _ =>
+            {
+                entered.TrySetResult();
+                releaseGeneration.Wait(TestContext.Current.CancellationToken);
+                throw new IOException("Transient native feedback read requires carrying the original pool.");
+            },
+            WriteFeedback = (path, contents) =>
+            {
+                Interlocked.Increment(ref feedbackWrites);
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var factory = new Mock<IHttpClientFactory>();
+        factory.Setup(value => value.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(_handler, disposeHandler: false));
+        var service = new SeerrDiscoveryService(factory.Object, _history.Object, _arr.Object, _libraryManager.Object, _perUserRegistry, _cache, feedback,
+            Mock.Of<IPluginLogService>(), TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>(), titleMetadataCache: _titleMetadata);
+        var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+        var generation = Task.Run(() => service.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
+        var held = false;
+        Task<bool>? writer = null;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await gate.WaitAsync(TestContext.Current.CancellationToken);
+            held = true;
+            if (withdraw && !afterWait) WithdrawCarriedSourceEvidence(source);
+            releaseGeneration.Set();
+            await generation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
+            Assert.False(writer.IsCompleted);
+            Assert.Equal(3, prior.Recommendations.Count);
+            if (withdraw && afterWait) WithdrawCarriedSourceEvidence(source);
+            gate.Release();
+            held = false;
+            Assert.True(await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            var committed = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(prior.GeneratedAt, committed.GeneratedAt);
+            var excludedType = source == "arr" ? "movie" : "tv";
+            var independentType = source == "arr" ? "tv" : "movie";
+            Assert.Equal(withdraw, committed.Recommendations.Any(item => item.TmdbId == 701 && item.MediaType == excludedType));
+            Assert.Contains(committed.Recommendations, item => item.TmdbId == 701 && item.MediaType == independentType);
+            Assert.Contains(committed.Recommendations, item => item.TmdbId == 702);
+            Assert.Equal(0, feedbackWrites);
+            Assert.Null(feedback.LoadForUser(profile.UserId));
+        }
+        finally
+        {
+            releaseGeneration.Set();
+            if (held) gate.Release();
+            await generation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (writer is not null) await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            feedback.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private void WithdrawCarriedSourceEvidence(string source)
+    {
+        if (source == "arr") Plugin.Instance!.Configuration.RadarrInstances = [];
+        else if (source == "expiry") _metadataClock.Days = 2;
+        else if (source == "clock-back") _metadataClock.Days = -1;
+        else if (source == "revision") _titleMetadata.StoreSupplemental(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 701, TvdbId = 902, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow }, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        else Plugin.Instance!.Configuration.TraktSourcingEnabled = false;
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task DiscoveryPersistenceCannotBlockCompletionOrCancellationBehindItsCacheWriter(bool cancel)
@@ -360,8 +464,8 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         await gate.WaitAsync(TestContext.Current.CancellationToken);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var result = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "test user" };
-        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var persistence = (Task)method.Invoke(_sut, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), cancellation.Token])!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("PersistValidatedResultsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var persistence = (Task)method.Invoke(_sut, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), null, cancellation.Token])!;
         var writer = (Task<bool>)typeof(DiscoveryCacheService).GetField("_pendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
         try
         {

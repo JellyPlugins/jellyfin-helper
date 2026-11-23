@@ -158,8 +158,8 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     [Fact]
     public async Task ReconciliationRechecksItsCapturedSourceAfterWaitingForTheCache()
     {
-        var requestReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var handler = new CountingHttpHandler { BeforeResponse = (request, _) => { if (request.RequestUri!.AbsolutePath == "/api/v1/request") requestReached.TrySetResult(); return Task.CompletedTask; } };
+        var cacheReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new CountingHttpHandler();
         handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
         handler.EnqueueResponse("/api/v1/request", HttpStatusCode.OK, """{"pageInfo":{"results":1},"results":[{"media":{"tmdbId":77,"mediaType":"movie"}}]}""");
         var user = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -168,15 +168,20 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         var service = BuildService(handler, configuredFeedback: feedback);
         var cacheGate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_cache)!;
         await cacheGate.WaitAsync(TestContext.Current.CancellationToken);
-        Task<int>? reconciliation = null;
+        _cache.BeforeLoadWait = () => cacheReached.TrySetResult();
+        var reconciliation = service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
         try
         {
-            reconciliation = service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken);
-            await requestReached.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await cacheReached.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.False(reconciliation.IsCompleted);
             Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
         }
-        finally { cacheGate.Release(); }
+        finally
+        {
+            cacheGate.Release();
+            await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            _cache.BeforeLoadWait = null;
+        }
         Assert.Equal(0, await reconciliation.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         Assert.Equal(1, handler.RequestCount("/api/v1/user"));
         Assert.Equal(1, handler.RequestCount("/api/v1/request"));
@@ -258,7 +263,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         ]);
         using var handler = new CountingHttpHandler();
         var service = BuildService(handler, configuredLibrary: library, metadata: metadata);
-        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [config, TestContext.Current.CancellationToken])!;
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [config, true, TestContext.Current.CancellationToken])!;
         Assert.Contains((700, "tv"), await Read());
         config.TraktSourcingEnabled = false;
         var changed = await Read();
@@ -337,7 +342,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             .ReturnsAsync(() => new List<ArrMovie> { new() { TmdbId = ++calls == 1 ? 100 : 200 } });
         using var handler = new CountingHttpHandler();
         var service = BuildService(handler, arr);
-        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, TestContext.Current.CancellationToken])!;
+        Task<HashSet<(int, string)>> Read() => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, true, TestContext.Current.CancellationToken])!;
         Assert.Contains((100, "movie"), await Read());
         if (change == "url") config.RadarrInstances[0].Url = "https://replacement.example.com";
         if (change == "key") config.RadarrInstances[0].ApiKey = "replacement-key";
@@ -361,7 +366,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
         var service = BuildService(handler, arr);
         var config = new PluginConfiguration { RadarrInstances = [new ArrInstanceConfig { Url = "https://old.example.com", ApiKey = "key" }], SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.com", ApiKey = "key" }] };
         typeof(Plugin).GetProperty(nameof(Plugin.Configuration))!.SetValue(Plugin.Instance, config);
-        Task<HashSet<(int, string)>> Read(CancellationToken token) => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, token])!;
+        Task<HashSet<(int, string)>> Read(CancellationToken token) => (Task<HashSet<(int, string)>>)typeof(SeerrDiscoveryService).GetMethod("GetCachedExclusionsCoreAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(service, [config, true, token])!;
         var old = Read(TestContext.Current.CancellationToken);
         config.RadarrInstances[0].Url = "https://new.example.com";
         var current = Read(TestContext.Current.CancellationToken);

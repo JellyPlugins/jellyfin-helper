@@ -74,13 +74,30 @@ internal static class MovieSequencePolicy
         UserWatchProfile? profile,
         int count,
         CancellationToken cancellationToken = default)
+        => Apply(selected, eligible, profile, count, item => ContentAffinityResolver.ResolveTmdbCollectionId(item), cancellationToken);
+
+    /// <summary>Applies dependencies using the generation's already-captured membership-aware collection identity.</summary>
+    /// <param name="selected">The actual diversity selection.</param>
+    /// <param name="eligible">Currently eligible scored physical candidates.</param>
+    /// <param name="profile">The current user's scoped completion evidence.</param>
+    /// <param name="count">Requested delivery slots.</param>
+    /// <param name="collectionIdentity">The authoritative captured identity, or zero when unknown.</param>
+    /// <param name="cancellationToken">Owning request cancellation.</param>
+    /// <returns>Unique delivered candidates retaining their original prediction.</returns>
+    internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> Apply(
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> selected,
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> eligible,
+        UserWatchProfile? profile,
+        int count,
+        Func<BaseItem, int> collectionIdentity,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var completed = (profile?.WatchedItems ?? []).Where(row => row.Played && row.TmdbId > 0 && profile?.AccessibleItemIds?.Contains(row.ItemId) != false
             && string.Equals(row.ItemType, "Movie", StringComparison.OrdinalIgnoreCase)).Select(row => row.TmdbId).ToHashSet();
         var suitable = eligible.Where(row => row.Score >= EngineConstants.MinimumPersonalSelectionScore).DistinctBy(row => row.Item.Id).ToList();
-        if (selected.Any(row => IsKnownMovie(MovieId(row.Item), ContentAffinityResolver.ResolveTmdbCollectionId(row.Item)))
-            && HasEnoughSuitableAlternatives(suitable.Select(row => row.Item).ToArray(), completed, count))
+        if (eligible.Any(row => IsKnownMovie(MovieId(row.Item), collectionIdentity(row.Item)))
+            && HasEnoughSuitableAlternatives(suitable.Select(row => row.Item).ToArray(), completed, count, collectionIdentity))
         {
             eligible = suitable;
             var suitableIds = suitable.Select(row => row.Item.Id).ToHashSet();
@@ -102,7 +119,7 @@ internal static class MovieSequencePolicy
 
             var replacement = original;
             var movieId = MovieId(original.Item);
-            var required = RequiredMovie(movieId, ContentAffinityResolver.ResolveTmdbCollectionId(original.Item), completed);
+            var required = RequiredMovie(movieId, collectionIdentity(original.Item), completed);
             if (required != movieId && !movies.TryGetValue(required, out replacement))
             {
                 continue;
@@ -118,14 +135,14 @@ internal static class MovieSequencePolicy
         return result;
     }
 
-    private static bool HasEnoughSuitableAlternatives(BaseItem[] suitable, HashSet<int> completed, int count)
+    private static bool HasEnoughSuitableAlternatives(BaseItem[] suitable, HashSet<int> completed, int count, Func<BaseItem, int> collectionIdentity)
     {
         var available = suitable.Select(MovieId).Where(id => id > 0).ToHashSet();
         var deliverable = new HashSet<(int Movie, Guid Item)>();
         foreach (var item in suitable)
         {
             var movie = MovieId(item);
-            var required = RequiredMovie(movie, ContentAffinityResolver.ResolveTmdbCollectionId(item), completed);
+            var required = RequiredMovie(movie, collectionIdentity(item), completed);
             if (required != movie && !available.Contains(required))
             {
                 continue;

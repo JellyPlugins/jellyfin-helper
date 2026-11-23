@@ -63,6 +63,43 @@ public sealed class TitleMetadataCache
     /// <summary>Gets the caller-wait clock; production keeps the same two-second persistence deadline.</summary>
     internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
 
+    /// <summary>Captures bounded metadata validity before library alias lookup; later checks perform no inventory scan.</summary>
+    /// <returns>The immutable revision and the next time-dependent projection boundary.</returns>
+    internal (long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc) CaptureExclusionStamp()
+    {
+        lock (_gate)
+        {
+            var now = Now;
+            var until = DateTime.MaxValue;
+            foreach (var snapshot in _entries.Values)
+            {
+                until = NextValidityBoundary(snapshot.FetchedAtUtc, now, until);
+                foreach (var time in snapshot.FieldFetchedAtUtc?.Values ?? [])
+                {
+                    until = NextValidityBoundary(time, now, until);
+                }
+            }
+
+            return (_generation, now, until);
+        }
+    }
+
+    /// <summary>Validates the captured alias evidence without rereading cache entries or performing I/O.</summary>
+    /// <param name="stamp">The revision and validity window captured before alias lookup.</param>
+    /// <returns>Whether no metadata or clock boundary invalidated that evidence.</returns>
+    internal bool IsExclusionStampCurrent((long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc) stamp)
+    {
+        var now = Now;
+        return Volatile.Read(ref _generation) == stamp.Revision && now >= stamp.CapturedAtUtc && now < stamp.ValidUntilUtc;
+    }
+
+    private static DateTime NextValidityBoundary(DateTime fetched, DateTime now, DateTime current)
+    {
+        var expiry = fetched > DateTime.MaxValue.AddDays(-30) ? DateTime.MaxValue : fetched.AddDays(30);
+        var boundary = fetched > now ? fetched : expiry;
+        return boundary > now && boundary < current ? boundary : current;
+    }
+
     /// <summary>Returns last-known-good metadata, including bounded stale fallback during provider outages.</summary>
     /// <param name="config">The current provider configuration.</param>
     /// <param name="tmdbId">The title ID.</param>

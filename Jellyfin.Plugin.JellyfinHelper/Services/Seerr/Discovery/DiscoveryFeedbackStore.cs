@@ -52,13 +52,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private readonly Dictionary<ReceiptKey, DateTime> _rejectedReceipts = new();
     private readonly Dictionary<ReceiptKey, PredictionReplay> _predictionReplays = new();
     private readonly Lock _recoveryInitializationGate = new();
+    private readonly Lock _preparedRequestGate = new();
     private readonly HashSet<Guid> _activeRecoveryTickets = [];
+    private readonly HashSet<Guid> _knownAcceptedIntents = [];
+    private readonly HashSet<Guid> _completedPreparedRequests = [];
+    private readonly Queue<Guid> _preparedCompletionOrder = new();
     private readonly Dictionary<TitleKey, int> _pendingRequests = new();
     private readonly Dictionary<TitleKey, int> _pendingDismissals = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
     private readonly long _sizeLimit = MaxFileSizeBytes;
+    // Normal/blocked work retains its 64-write bound. One separate recovery
+    // slot can establish the request that makes all blocked dependents runnable.
+    private PendingWrite? _priorityRecovery;
+    private PendingWrite? _retainedPriorityRecovery;
     private long _replayPayloadBytes;
+    private long _servingRevision;
     private bool _recoveryBlocked;
     private Task<bool>? _pendingGeneration;
     private bool _writerRunning;
@@ -120,6 +129,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         Dismissal,
         Watched,
         Impression,
+        RequestIntent,
     }
 
     /// <summary>Gets the atomic filesystem writer; tests can stall precisely the actual I/O boundary.</summary>
@@ -143,14 +153,132 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     /// <summary>Gets the recovery completion boundary; failed deletion retains original evidence and retry backoff.</summary>
     internal Action<string> DeleteRecovery { get; init; } = File.Delete;
 
+    /// <summary>Gets the journal enumeration boundary; unavailable originals must not become a cached empty journal.</summary>
+    internal Func<string, IEnumerable<string>> EnumerateRecoveryFiles { get; init; } = directory => Directory.EnumerateFiles(directory, "*.json");
+
     /// <summary>Gets the bounded in-memory overflow budget; durable originals remain recoverable independently of this budget.</summary>
     internal long ReplayPayloadBudget { get; init; } = MaximumReplayPayloadBytes;
+
+    /// <summary>Gets the bounded completion-acknowledgment budget; overrides never raise the 4096-ID production ceiling.</summary>
+    internal int PreparedAcknowledgmentLimit { get; init; } = MaximumRejectedReceipts;
 
     /// <summary>Gets the test synchronization hook immediately before atomic training-view selection.</summary>
     internal Action? BeforeTrainingSnapshotSelection { get; init; }
 
     /// <summary>Gets the test handoff hook before coherent serving snapshot selection.</summary>
     internal Action? BeforeDismissalSnapshotSelection { get; init; }
+
+    /// <summary>Gets the cheap serving handoff version without taking a filesystem lock.</summary>
+    internal long ServingRevision => Volatile.Read(ref _servingRevision);
+
+    internal PreparedRequest PrepareRequestedCard(Guid user, DiscoveryRecommendation card, DateTime generatedAt, string sourceScope)
+    {
+        lock (_writerGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+        }
+
+        var journal = RecoveryJournal();
+        var existing = journal.Pending().FirstOrDefault(ticket => ticket.Kind == nameof(ReceiptKind.RequestIntent) && ticket.User == user && ticket.Tmdb == card.TmdbId
+            && ticket.Type == NormalizeMediaType(card.MediaType) && ticket.RequestSourceScope == sourceScope);
+        if (existing is not null)
+        {
+            return new PreparedRequest(existing.Id, existing.SubmissionUncertain);
+        }
+
+        var receipt = CapturePredictionReceipt(new ReceiptKey(new TitleKey(user, card.TmdbId, NormalizeMediaType(card.MediaType)), ReceiptKind.RequestIntent), ReceiptTimeProvider.GetUtcNow().UtcDateTime, card.Clone(), generatedAt, sourceScope);
+        lock (_writerGate)
+        {
+            _activeRecoveryTickets.Remove(receipt.RecoveryTicket!.Id);
+        }
+
+        return new PreparedRequest(receipt.RecoveryTicket.Id, false);
+    }
+
+    internal void MarkPreparedSubmission(PreparedRequest prepared)
+    {
+        lock (_writerGate)
+        {
+            if (_completedPreparedRequests.Contains(prepared.Id))
+            {
+                return;
+            }
+        }
+
+        RecoveryJournal().UpdateIntent(prepared.Id, accepted: false, uncertain: true);
+    }
+
+    internal void AbandonPreparedRequest(PreparedRequest prepared)
+    {
+        if (prepared.PreviouslyUncertain)
+        {
+            return;
+        }
+
+        lock (_preparedRequestGate)
+        {
+            lock (_writerGate)
+            {
+                if (_activeRecoveryTickets.Contains(prepared.Id) || _knownAcceptedIntents.Contains(prepared.Id) || _completedPreparedRequests.Contains(prepared.Id))
+                {
+                    return;
+                }
+            }
+
+            RecoveryJournal().AbandonIntent(prepared.Id);
+        }
+    }
+
+    internal IReadOnlySet<(int TmdbId, string MediaType)> GetPreparedRequestItems(Guid user, string? sourceScope)
+        => RecoveryJournal().Pending().Where(ticket => ticket.User == user && ticket.Kind == nameof(ReceiptKind.RequestIntent) && ticket.RequestSourceScope == sourceScope)
+            .Select(ticket => (ticket.Tmdb, ticket.Type)).ToHashSet();
+
+    internal async Task<bool> ConfirmPreparedRequestAsync(Guid user, PreparedRequest prepared, string? sourceScope, CancellationToken cancellationToken)
+    {
+        Receipt receipt;
+        lock (_preparedRequestGate)
+        {
+            lock (_writerGate)
+            {
+                if (_completedPreparedRequests.Contains(prepared.Id))
+                {
+                    return true;
+                }
+            }
+
+            var ticket = RecoveryJournal().Get(prepared.Id);
+            if (ticket.User != user || ticket.RequestSourceScope != sourceScope)
+            {
+                throw new IOException("The original request does not match its validated user/source.");
+            }
+
+            receipt = new Receipt(new ReceiptKey(new TitleKey(user, ticket.Tmdb, ticket.Type), ReceiptKind.Request), ticket.Acquired, null, ticket.Hash, ticket);
+            lock (_writerGate)
+            {
+                if (!_activeRecoveryTickets.Add(ticket.Id))
+                {
+                    return false;
+                }
+
+                _knownAcceptedIntents.Add(ticket.Id);
+                Interlocked.Increment(ref _servingRevision);
+            }
+        }
+
+        return await RunWriteAsync(() => ReplayPrediction(receipt), [receipt], observed: true, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<bool> ConfirmPreparedForTitleAsync(Guid user, int tmdb, string type, string? sourceScope, CancellationToken cancellationToken)
+    {
+        var tickets = RecoveryJournal().Pending().Where(ticket => ticket.User == user && ticket.Tmdb == tmdb && ticket.Type == type && ticket.Kind == nameof(ReceiptKind.RequestIntent) && ticket.RequestSourceScope == sourceScope).ToArray();
+        var completed = true;
+        foreach (var ticket in tickets)
+        {
+            completed &= await ConfirmPreparedRequestAsync(user, new PreparedRequest(ticket.Id, ticket.SubmissionUncertain), sourceScope, cancellationToken).ConfigureAwait(false);
+        }
+
+        return completed;
+    }
 
     private DiscoveryFeedbackRecoveryJournal RecoveryJournal()
     {
@@ -162,7 +290,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         lock (_recoveryInitializationGate)
         {
-            current = _recoveryJournal ?? new DiscoveryFeedbackRecoveryJournal(Path.Join(Path.GetDirectoryName(_filePath)!, "jellyfin-helper-feedback-recovery"), WriteRecovery, DeleteRecovery);
+            current = _recoveryJournal ?? new DiscoveryFeedbackRecoveryJournal(Path.Join(Path.GetDirectoryName(_filePath)!, "jellyfin-helper-feedback-recovery"), WriteRecovery, DeleteRecovery, EnumerateRecoveryFiles);
             Volatile.Write(ref _recoveryJournal, current);
             return current;
         }
@@ -209,11 +337,21 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private async Task<bool> RunWriteAsync(Func<bool> operation, Receipt[] receipts, bool observed, CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            ReleaseUnadmittedRecovery(receipts);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_writerGate)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+            {
+                ReleaseUnadmittedRecovery(receipts);
+                throw new ObjectDisposedException(nameof(DiscoveryFeedbackStore));
+            }
+
             var activeWriter = _writerRunning && _pendingGeneration is { IsCompleted: false };
             if (!observed && activeWriter)
             {
@@ -225,6 +363,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 if (observed)
                 {
                     TrackRejectedReceipts(receipts);
+                    ReleaseUnadmittedRecovery(receipts);
                 }
 
                 RestartRetainedWrites(activeWriter);
@@ -258,6 +397,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
+    private void ReleaseUnadmittedRecovery(IEnumerable<Receipt> receipts)
+    {
+        lock (_writerGate)
+        {
+            foreach (var receipt in receipts)
+            {
+                if (receipt.RecoveryTicket is { } ticket)
+                {
+                    _activeRecoveryTickets.Remove(ticket.Id);
+                }
+            }
+
+            ScheduleRetainedRetry();
+        }
+    }
+
     private void RestartRetainedWrites(bool activeWriter)
     {
         if (activeWriter)
@@ -265,9 +420,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             return;
         }
 
-        while (_retryWrites.Count > 0)
+        var count = _retryWrites.Count;
+        for (var index = 0; index < count; index++)
         {
-            _writes.Enqueue(_retryWrites.Dequeue());
+            var write = _retryWrites.Dequeue();
+            if (HasUndurableDependency(write))
+            {
+                _retryWrites.Enqueue(write);
+            }
+            else
+            {
+                _writes.Enqueue(write);
+            }
         }
 
         StartWriterIfNeeded();
@@ -275,7 +439,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void StartWriterIfNeeded()
     {
-        if (_writes.Count > 0 && !(_writerRunning && _pendingGeneration is { IsCompleted: false }))
+        if ((_writes.Count > 0 || _priorityRecovery is not null) && !(_writerRunning && _pendingGeneration is { IsCompleted: false }))
         {
             _writerRunning = true;
             _pendingGeneration = Task.Run(ProcessWrites, CancellationToken.None);
@@ -284,6 +448,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void TrackRejectedReceipts(IEnumerable<Receipt> receipts)
     {
+        Interlocked.Increment(ref _servingRevision);
         foreach (var receipt in receipts)
         {
             if (!_rejectedReceipts.ContainsKey(receipt.Key) && _rejectedReceipts.Count >= MaximumRejectedReceipts)
@@ -308,7 +473,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         if (_predictionReplays.TryGetValue(receipt.Key, out var prior))
         {
-            var keepPrior = receipt.Key.Kind == ReceiptKind.Request ? prior.Acquired >= receipt.Acquired : prior.Acquired <= receipt.Acquired;
+            var incoming = receipt.RecoveryTicket;
+            var earlierOrder = IsEarlierAdmission(incoming?.AdmissionEpoch ?? Guid.Empty, incoming?.AdmissionOrder ?? 0, prior.Epoch, prior.Order);
+            var keepPrior = receipt.Key.Kind == ReceiptKind.Request
+                ? prior.Acquired >= receipt.Acquired
+                : prior.Acquired < receipt.Acquired || (prior.Acquired == receipt.Acquired && !earlierOrder);
             if (keepPrior)
             {
                 return;
@@ -324,12 +493,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             _replayPayloadBytes += bytes.LongLength;
         }
 
-        _predictionReplays[receipt.Key] = new(receipt.PredictionHash, receipt.Acquired, payload);
+        _predictionReplays[receipt.Key] = new(receipt.PredictionHash, receipt.Acquired, payload)
+        {
+            Epoch = receipt.RecoveryTicket?.AdmissionEpoch,
+            Order = receipt.RecoveryTicket?.AdmissionOrder
+        };
         // Every admitted original also has a bounded durable recovery ticket.
         // Exhausting retry memory never discards its server-validated evidence.
     }
 
-    private Receipt CapturePredictionReceipt(ReceiptKey key, DateTime acquired, DiscoveryRecommendation item, DateTime generatedAt)
+    private Receipt CapturePredictionReceipt(ReceiptKey key, DateTime acquired, DiscoveryRecommendation item, DateTime generatedAt, string? requestScope = null)
     {
         lock (_writerGate)
         {
@@ -354,8 +527,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
         try
         {
-            var ticket = RecoveryJournal().Admit(new DiscoveryFeedbackRecoveryJournal.Ticket(id, key.Title.User, key.Title.TmdbId, key.Title.MediaType, key.Kind.ToString(), acquired, hash), bytes);
-            return new(key, acquired, bytes, hash, ticket);
+            var ticket = RecoveryJournal().Admit(new DiscoveryFeedbackRecoveryJournal.Ticket(id, key.Title.User, key.Title.TmdbId, key.Title.MediaType, key.Kind.ToString(), acquired, hash) { RequestSourceScope = requestScope }, bytes);
+            if (key.Kind != ReceiptKind.RequestIntent)
+            {
+                Interlocked.Increment(ref _servingRevision);
+            }
+
+            return new(key, acquired, bytes, hash, ticket, key.Kind == ReceiptKind.Impression ? new ReceiptProcessing() : null);
         }
         catch
         {
@@ -385,18 +563,32 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void PromoteRecoveryTickets(DiscoveryFeedbackRecoveryJournal journal)
     {
-        foreach (var ticket in journal.Pending().Where(ticket => !_activeRecoveryTickets.Contains(ticket.Id)))
+        var dependencies = _retryWrites.SelectMany(write => write.Dependencies).ToHashSet();
+        foreach (var ticket in journal.Pending().Where(IsRunnableRecoveryTicket)
+                     .OrderBy(ticket => IsRequestRecoveryTicket(ticket) && dependencies.Contains(new TitleKey(ticket.User, ticket.Tmdb, ticket.Type)) ? 0 : 1)
+                     .ThenBy(ticket => ticket.Acquired))
         {
-            if (_writes.Count + _retryWrites.Count >= MaximumPendingWrites)
+            var priority = _writes.Count + _retryWrites.Count >= MaximumPendingWrites;
+            if (priority && !CanAdmitPriorityRecovery())
             {
                 break;
             }
 
-            var key = new ReceiptKey(new TitleKey(ticket.User, ticket.Tmdb, ticket.Type), Enum.Parse<ReceiptKind>(ticket.Kind));
-            var receipt = new Receipt(key, ticket.Acquired, null, ticket.Hash, ticket);
+            var kind = ticket.Kind == nameof(ReceiptKind.RequestIntent) ? ReceiptKind.Request : Enum.Parse<ReceiptKind>(ticket.Kind);
+            var key = new ReceiptKey(new TitleKey(ticket.User, ticket.Tmdb, ticket.Type), kind);
+            var receipt = new Receipt(key, ticket.Acquired, null, ticket.Hash, ticket, key.Kind == ReceiptKind.Impression ? new ReceiptProcessing() : null);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             _ = completion.Task.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-            _writes.Enqueue(new PendingWrite(() => ReplayPrediction(receipt), true, completion, [receipt], []));
+            var write = new PendingWrite(() => ReplayPrediction(receipt), true, completion, [receipt], [], priority);
+            if (priority)
+            {
+                _priorityRecovery = write;
+            }
+            else
+            {
+                _writes.Enqueue(write);
+            }
+
             _activeRecoveryTickets.Add(ticket.Id);
             TrackRejectedReceipts([receipt]);
             Interlocked.Increment(ref _pendingObservedWrites);
@@ -404,15 +596,30 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
+    private bool IsRunnableRecoveryTicket(DiscoveryFeedbackRecoveryJournal.Ticket ticket)
+        => !_activeRecoveryTickets.Contains(ticket.Id) && (ticket.Kind != nameof(ReceiptKind.RequestIntent) || _knownAcceptedIntents.Contains(ticket.Id));
+
+    private bool IsRequestRecoveryTicket(DiscoveryFeedbackRecoveryJournal.Ticket ticket)
+        => ticket.Kind == nameof(ReceiptKind.Request) || (ticket.Kind == nameof(ReceiptKind.RequestIntent) && _knownAcceptedIntents.Contains(ticket.Id));
+
+    private bool CanAdmitPriorityRecovery()
+        => _priorityRecovery is null && _retainedPriorityRecovery is null && _writes.Count == 0 && _retryWrites.All(HasUndurableDependency);
+
     private bool ReplayPrediction(Receipt receipt)
     {
         // Deserialization and file I/O run on the managed worker, never while the
         // serving/readiness gate is held.
-        var bytes = receipt.Prediction ?? RecoveryJournal().Read(receipt.RecoveryTicket!);
+        var ticket = receipt.RecoveryTicket;
+        if (ticket?.Kind == nameof(ReceiptKind.RequestIntent))
+        {
+            ticket = RecoveryJournal().UpdateIntent(ticket.Id, accepted: true, uncertain: true);
+        }
+
+        var bytes = receipt.Prediction ?? RecoveryJournal().Read(ticket!);
         var payload = JsonSerializer.Deserialize<PredictionPayload>(bytes, JsonOptions)!;
         payload.Item.KnownPeople = payload.KnownPeople?.ToArray();
         return receipt.Key.Kind == ReceiptKind.Impression
-            ? RecordImpressionsCore(receipt.Key.Title.User, [payload.Item], payload.GeneratedAt, receipt.Acquired)
+            ? RecordImpressionsCore(receipt.Key.Title.User, [payload.Item], payload.GeneratedAt, receipt.Acquired, [receipt])
             : RecordReceiptActionCore(receipt, payload.Item, payload.GeneratedAt);
     }
 
@@ -428,7 +635,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             }
         }
 
-        return RecordActionCore(receipt.Key.Title.User, receipt.Key.Title.TmdbId, receipt.Key.Title.MediaType, receipt.Key.Kind == ReceiptKind.Request, item, generatedAt, new ActionTiming(receipt.Acquired, outcomeAt));
+        return RecordActionCore(receipt.Key.Title.User, receipt.Key.Title.TmdbId, receipt.Key.Title.MediaType, receipt.Key.Kind == ReceiptKind.Request, item, generatedAt, new ActionTiming(receipt.Acquired, outcomeAt, receipt.RecoveryTicket?.AdmissionEpoch ?? Guid.Empty, receipt.RecoveryTicket?.AdmissionOrder ?? 0));
     }
 
     private DateTime RetainedReceiptTime(Receipt receipt)
@@ -449,6 +656,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void AddPendingActions(IEnumerable<Receipt> receipts)
     {
+        Interlocked.Increment(ref _servingRevision);
         foreach (var key in receipts.Where(receipt => receipt.Key.Kind is ReceiptKind.Request or ReceiptKind.Dismissal).Select(receipt => receipt.Key))
         {
             var pending = key.Kind == ReceiptKind.Request ? _pendingRequests : _pendingDismissals;
@@ -475,14 +683,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             PendingWrite write;
             lock (_writerGate)
             {
-                if (_writes.Count == 0)
+                if (_writes.Count == 0 && _priorityRecovery is null)
                 {
                     _writerRunning = false;
                     ScheduleRetainedRetry();
                     return successful;
                 }
 
-                write = _writes.Dequeue();
+                write = DequeueNextWrite();
             }
 
             var saved = false;
@@ -528,11 +736,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
+    private PendingWrite DequeueNextWrite()
+    {
+        if (_priorityRecovery is not { } priority)
+        {
+            return _writes.Dequeue();
+        }
+
+        _priorityRecovery = null;
+        return priority;
+    }
+
     private bool ReleaseWriterIfIdle()
     {
         lock (_writerGate)
         {
-            if (_writes.Count > 0)
+            if (_writes.Count > 0 || _priorityRecovery is not null)
             {
                 return false;
             }
@@ -562,7 +781,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             {
                 // Failed requests and dependent watches retain their original receipts.
                 // One backoff timer restarts runnable retained work without requiring a new action.
-                if (_writes.Count + _retryWrites.Count < MaximumPendingWrites)
+                if (write.PriorityRecovery)
+                {
+                    // This reserved slot remains admitted but is restarted only
+                    // by the backoff timer, never an immediate failing replay loop.
+                    _retainedPriorityRecovery = write;
+                }
+                else if (_writes.Count + _retryWrites.Count < MaximumPendingWrites)
                 {
                     _retryWrites.Enqueue(write);
                 }
@@ -594,8 +819,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     }
 
     private bool HasRunnableRetainedWrites()
-        => _retryWrites.Any(write => !HasUndurableDependency(write))
-            || (_recoveryJournal?.Pending().Any(ticket => !_activeRecoveryTickets.Contains(ticket.Id)) ?? false);
+        => _retainedPriorityRecovery is not null || _retryWrites.Any(write => !HasUndurableDependency(write))
+            || (_recoveryJournal?.Pending().Any(IsRunnableRecoveryTicket) ?? false);
 
     private void RetryRetainedWrites(long generation)
     {
@@ -611,6 +836,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (_disposed)
             {
                 return;
+            }
+
+            if (_retainedPriorityRecovery is { } retained)
+            {
+                _priorityRecovery = retained;
+                _retainedPriorityRecovery = null;
             }
 
             var count = _retryWrites.Count;
@@ -634,6 +865,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void RetireObservedWrite(PendingWrite write, bool recovered = true)
     {
+        Interlocked.Increment(ref _servingRevision);
         Interlocked.Decrement(ref _pendingObservedWrites);
         if (_pendingObservedWrites == 0 && _retryWrites.Count == 0)
         {
@@ -647,6 +879,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (receipt.RecoveryTicket is { } ticket)
             {
                 _activeRecoveryTickets.Remove(ticket.Id);
+                if (recovered)
+                {
+                    _knownAcceptedIntents.Remove(ticket.Id);
+                }
             }
 
             RetirePendingAction(receipt.Key);
@@ -688,6 +924,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (receipt.PredictionHash != prediction.Hash)
             {
                 return false;
+            }
+
+            if (receipt.Key.Kind == ReceiptKind.Impression && receipt.Processing?.OmittedByRetention == true)
+            {
+                // The exact original was processed by a successful save, then
+                // deliberately excluded by retention. Missing is not this proof.
+                return true;
             }
 
             // Exact prediction provenance alone cannot acknowledge an outcome's
@@ -885,19 +1128,44 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     userResult.Entries.Add(entry);
                 }
 
-                if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value <= itemAcquired)
+                var ticket = receipts?[index].RecoveryTicket;
+                var confirmation = new PredictionConfirmation(itemAcquired, false, false, ticket?.AdmissionEpoch ?? Guid.Empty, ticket?.AdmissionOrder ?? 0);
+                if (entry.ImpressionAtUtc < itemAcquired || (entry.ImpressionAtUtc == itemAcquired && !IsEarlierReceipt(confirmation, entry)))
                 {
                     continue;
                 }
 
                 // A verified action can establish the prediction before any viewport acknowledgement.
                 // Later impressions may record visibility but must not rewrite that action's evidence.
-                ConfirmPrediction(entry, item, generatedAtUtc, itemAcquired);
+                ConfirmPrediction(entry, item, generatedAtUtc, confirmation);
                 entry.ImpressionAtUtc = itemAcquired;
                 modified = true;
             }
 
-            return !modified || SaveInternal(data);
+            var saved = !modified || SaveInternal(data);
+            if (saved && receipts is not null)
+            {
+                CaptureRetainedImpressionDisposition(userResult, receipts);
+            }
+
+            return saved;
+        }
+    }
+
+    private void CaptureRetainedImpressionDisposition(DiscoveryFeedbackResult processed, IReadOnlyList<Receipt> receipts)
+    {
+        var durable = Volatile.Read(ref _memoryCache)?.FirstOrDefault(user => user.UserId == processed.UserId)?.Entries ?? [];
+        foreach (var receipt in receipts)
+        {
+            if (receipt.Processing is not { } outcome)
+            {
+                continue;
+            }
+
+            var title = receipt.Key.Title;
+            var applied = processed.Entries.FirstOrDefault(entry => entry.TmdbId == title.TmdbId && NormalizeMediaType(entry.MediaType) == title.MediaType);
+            outcome.OmittedByRetention = applied?.ImpressionAtUtc <= receipt.Acquired
+                && !durable.Any(entry => entry.TmdbId == title.TmdbId && NormalizeMediaType(entry.MediaType) == title.MediaType);
         }
     }
 
@@ -1080,9 +1348,23 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private void CompleteRecoveryTickets(PendingWrite write)
     {
-        foreach (var ticket in write.Receipts.Select(receipt => receipt.RecoveryTicket).OfType<DiscoveryFeedbackRecoveryJournal.Ticket>())
+        foreach (var id in write.Receipts.Select(receipt => receipt.RecoveryTicket).OfType<DiscoveryFeedbackRecoveryJournal.Ticket>().Select(ticket => ticket.Id))
         {
-            RecoveryJournal().Complete(ticket.Id);
+            lock (_preparedRequestGate)
+            {
+                RecoveryJournal().Complete(id);
+                lock (_writerGate)
+                {
+                    if (_knownAcceptedIntents.Contains(id) && _completedPreparedRequests.Add(id))
+                    {
+                        _preparedCompletionOrder.Enqueue(id);
+                        while (_preparedCompletionOrder.Count > Math.Clamp(PreparedAcknowledgmentLimit, 1, MaximumRejectedReceipts))
+                        {
+                            _completedPreparedRequests.Remove(_preparedCompletionOrder.Dequeue());
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1102,18 +1384,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
             var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
-            UpdateActionPrediction(entry, item, generatedAtUtc, timing.PredictionAt, requested);
+            UpdateActionPrediction(entry, item, generatedAtUtc, timing, requested);
             RecordActionTimestamp(entry, requested, timing.OutcomeAt);
 
             return SaveInternal(data);
         }
     }
 
-    private static void UpdateActionPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation? item, DateTime? generatedAtUtc, DateTime acquired, bool requested)
+    private static void UpdateActionPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation? item, DateTime? generatedAtUtc, ActionTiming timing, bool requested)
     {
         if (item is not null && generatedAtUtc.HasValue)
         {
-            ConfirmPrediction(entry, item, generatedAtUtc.Value, acquired, action: true, requested: requested);
+            ConfirmPrediction(entry, item, generatedAtUtc.Value, new PredictionConfirmation(timing.PredictionAt, true, requested, timing.Epoch, timing.Order));
         }
         else if (!entry.HasConfirmedPrediction)
         {
@@ -1121,7 +1403,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             entry.TitleMetadata = null;
             if (!entry.RequestedAtUtc.HasValue && !entry.DismissedAtUtc.HasValue)
             {
-                entry.ShownAtUtc = acquired;
+                entry.ShownAtUtc = timing.PredictionAt;
             }
         }
     }
@@ -1147,14 +1429,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, DateTime? acquiredAtUtc = null, bool action = false, bool requested = false)
+    private static void ConfirmPrediction(DiscoveryFeedbackEntry entry, DiscoveryRecommendation item, DateTime generatedAtUtc, PredictionConfirmation confirmation)
     {
-        var acquired = acquiredAtUtc ?? DateTime.UtcNow;
-        var confirmedAt = entry.PredictionEvidenceAtUtc ?? entry.ImpressionAtUtc;
-        if ((action && requested && entry.WasWatched && entry.RequestedAtUtc.HasValue)
-            || entry.CardRequestedAtUtc >= acquired
-            || (!action && (entry.PredictionActionAtUtc.HasValue || (confirmedAt.HasValue && confirmedAt.Value <= acquired)))
-            || (action && !requested && entry.PredictionActionAtUtc.HasValue && entry.PredictionActionAtUtc.Value <= acquired))
+        var acquired = confirmation.Acquired;
+        if (KeepConfirmedPrediction(entry, confirmation, generatedAtUtc))
         {
             return;
         }
@@ -1163,10 +1441,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         // the first actually confirmed inputs, never whichever write finished first.
         // A genuinely newer observed action remains authoritative over an older retry.
         entry.Title = item.Title;
-        if (action)
+        if (confirmation.Action)
         {
             entry.PredictionActionAtUtc = acquired;
-            if (requested)
+            if (confirmation.Requested)
             {
                 entry.CardRequestedAtUtc = acquired;
             }
@@ -1182,7 +1460,38 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         entry.TitleMetadata = item.TitleMetadata;
         entry.ShownAtUtc = DateTimeNormalization.ToUtc(generatedAtUtc);
         entry.PredictionEvidenceAtUtc = acquired;
+        entry.PredictionReceiptEpoch = confirmation.Epoch == Guid.Empty ? null : confirmation.Epoch;
+        entry.PredictionReceiptOrder = confirmation.Order == 0 ? null : confirmation.Order;
     }
+
+    private static bool KeepConfirmedPrediction(DiscoveryFeedbackEntry entry, PredictionConfirmation confirmation, DateTime generatedAt)
+    {
+        if (entry.CardRequestedAtUtc >= confirmation.Acquired
+            || (confirmation.Action && confirmation.Requested && entry.WasWatched && entry.RequestedAtUtc.HasValue && !CanRepairCompletedRequest(entry, confirmation.Acquired, generatedAt)))
+        {
+            return true;
+        }
+
+        if (!confirmation.Action)
+        {
+            return entry.PredictionActionAtUtc.HasValue || PrecedesReceipt(entry.PredictionEvidenceAtUtc ?? entry.ImpressionAtUtc, confirmation, entry);
+        }
+
+        return !confirmation.Requested && PrecedesReceipt(entry.PredictionActionAtUtc, confirmation, entry);
+    }
+
+    private static bool PrecedesReceipt(DateTime? committed, PredictionConfirmation incoming, DiscoveryFeedbackEntry entry)
+        => committed < incoming.Acquired || (committed == incoming.Acquired && !IsEarlierReceipt(incoming, entry));
+
+    private static bool IsEarlierReceipt(PredictionConfirmation incoming, DiscoveryFeedbackEntry entry)
+        => IsEarlierAdmission(incoming.Epoch, incoming.Order, entry.PredictionReceiptEpoch, entry.PredictionReceiptOrder);
+
+    private static bool IsEarlierAdmission(Guid incomingEpoch, long incomingOrder, Guid? committedEpoch, long? committedOrder)
+        => incomingEpoch != Guid.Empty && incomingOrder > 0 && committedEpoch == incomingEpoch && committedOrder > incomingOrder;
+
+    private static bool CanRepairCompletedRequest(DiscoveryFeedbackEntry entry, DateTime acquired, DateTime generatedAt)
+        => entry.CardRequestedAtUtc is null && acquired <= entry.RequestedAtUtc
+            && DateTimeNormalization.ToUtc(generatedAt) <= entry.RequestedAtUtc;
 
     /// <inheritdoc />
     public void MarkWatched(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems)
@@ -1255,7 +1564,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             BeforeTrainingSnapshotSelection?.Invoke();
             lock (_writerGate)
             {
-                if (_pendingObservedWrites > 0 || _rejectedReceipts.Count > 0 || _untrackedRejection || (_recoveryJournal?.HasPending ?? false))
+                if (_pendingObservedWrites > 0 || _rejectedReceipts.Count > 0 || _untrackedRejection || _knownAcceptedIntents.Count > 0 || (_recoveryJournal?.HasPending ?? false))
                 {
                     throw new IOException("New confirmed feedback is awaiting persistence; obsolete outcomes are unavailable for fitting or admission.");
                 }
@@ -1325,7 +1634,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         {
             var pending = _pendingRequests.Keys.Concat(_rejectedReceipts.Keys.Where(key => key.Kind == ReceiptKind.Request).Select(key => key.Title))
                 .Where(title => title.User == userId).Select(title => (title.TmdbId, title.MediaType)).ToHashSet();
-            pending.UnionWith(_recoveryJournal!.Pending().Where(ticket => ticket.User == userId && ticket.Kind == nameof(ReceiptKind.Request)).Select(ticket => (ticket.Tmdb, ticket.Type)));
+            pending.UnionWith(_recoveryJournal!.Pending().Where(ticket => ticket.User == userId && (ticket.Kind == nameof(ReceiptKind.Request) || _knownAcceptedIntents.Contains(ticket.Id))).Select(ticket => (ticket.Tmdb, ticket.Type)));
             return pending;
         }
     }
@@ -1371,6 +1680,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 ImpressionAtUtc = e.ImpressionAtUtc,
                 PredictionEvidenceAtUtc = e.PredictionEvidenceAtUtc,
                 PredictionActionAtUtc = e.PredictionActionAtUtc,
+                PredictionReceiptEpoch = e.PredictionReceiptEpoch,
+                PredictionReceiptOrder = e.PredictionReceiptOrder,
                 CardRequestedAtUtc = e.CardRequestedAtUtc,
                 PredictionInputsCompacted = e.PredictionInputsCompacted,
                 KnownPeople = e.KnownPeople?.ToList(),
@@ -1531,6 +1842,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
             // Atomically replace the live cache with the post-eviction copy.
             Volatile.Write(ref _memoryCache, workingCopy);
+            Interlocked.Increment(ref _servingRevision);
             return true;
         }
 
@@ -1735,13 +2047,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private readonly record struct ReceiptKey(TitleKey Title, ReceiptKind Kind);
 
-    private readonly record struct Receipt(ReceiptKey Key, DateTime Acquired, byte[]? Prediction = null, string? PredictionHash = null, DiscoveryFeedbackRecoveryJournal.Ticket? RecoveryTicket = null);
+    private readonly record struct Receipt(ReceiptKey Key, DateTime Acquired, byte[]? Prediction = null, string? PredictionHash = null, DiscoveryFeedbackRecoveryJournal.Ticket? RecoveryTicket = null, ReceiptProcessing? Processing = null);
 
-    private readonly record struct ActionTiming(DateTime PredictionAt, DateTime OutcomeAt);
+    private readonly record struct ActionTiming(DateTime PredictionAt, DateTime OutcomeAt, Guid Epoch = default, long Order = 0);
+
+    private readonly record struct PredictionConfirmation(DateTime Acquired, bool Action, bool Requested, Guid Epoch, long Order);
 
     private sealed record PredictionPayload(DiscoveryRecommendation Item, DateTime GeneratedAt, IReadOnlyList<string>? KnownPeople);
 
-    private sealed record PredictionReplay(string Hash, DateTime Acquired, byte[]? Payload);
+    private sealed record PredictionReplay(string Hash, DateTime Acquired, byte[]? Payload)
+    {
+        internal Guid? Epoch { get; init; }
 
-    private sealed record PendingWrite(Func<bool> Operation, bool Observed, TaskCompletionSource<bool> Completion, Receipt[] Receipts, TitleKey[] Dependencies);
+        internal long? Order { get; init; }
+    }
+
+    private sealed record PendingWrite(Func<bool> Operation, bool Observed, TaskCompletionSource<bool> Completion, Receipt[] Receipts, TitleKey[] Dependencies, bool PriorityRecovery = false);
+
+    private sealed class ReceiptProcessing
+    {
+        internal bool OmittedByRetention { get; set; }
+    }
+
+    internal sealed record PreparedRequest(Guid Id, bool PreviouslyUncertain);
 }

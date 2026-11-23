@@ -2,6 +2,7 @@
 using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
+using Jellyfin.Database.Implementations;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
@@ -30,6 +31,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -286,7 +288,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
-        serviceCollection.AddSingleton(sp => new PlaylistLibraryServices(sp.GetRequiredService<IPluginConfigurationService>(), sp.GetRequiredService<VirtualItemDetector>()));
+        serviceCollection.AddSingleton(sp => new HostedPlaylistInventory(sp.GetRequiredService<ILibraryManager>(), sp.GetRequiredService<IDbContextFactory<JellyfinDbContext>>()));
+        serviceCollection.AddSingleton(sp => new PlaylistLibraryServices(sp.GetRequiredService<IPluginConfigurationService>(), sp.GetRequiredService<VirtualItemDetector>())
+        {
+            LinkedChildren = sp.GetService<ILinkedChildrenService>(),
+            OwnedPlaylists = sp.GetRequiredService<HostedPlaylistInventory>().LoadOwned,
+            RecoveryDirectory = Path.Join(Plugin.Instance?.DataFolderPath ?? Path.Join(sp.GetRequiredService<MediaBrowser.Common.Configuration.IApplicationPaths>().DataPath, "plugins", "Jellyfin.Plugin.JellyfinHelper"), "jellyfin-helper-playlist-recovery")
+        });
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();

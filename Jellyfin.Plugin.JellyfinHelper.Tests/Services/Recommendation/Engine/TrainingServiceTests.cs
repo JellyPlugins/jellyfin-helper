@@ -63,6 +63,53 @@ public class TrainingServiceTests
         => new(_watchHistoryMock.Object, _feedbackStoreMock.Object, _pluginLogMock.Object, _loggerMock.Object);
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MalformedOrInaccessibleOriginalsPermitConfirmedWatchRepairButNeverCertifyACompleteFittingView(bool malformed)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-watched-journal-" + Guid.NewGuid().ToString("N"));
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory))
+        {
+            original.RecordRequested(user, 700, "movie");
+        }
+
+        var recovery = Path.Join(directory, "jellyfin-helper-feedback-recovery");
+        Directory.CreateDirectory(recovery);
+        if (malformed)
+        {
+            await File.WriteAllTextAsync(Path.Join(recovery, Guid.NewGuid().ToString("N") + ".json"), "{", TestContext.Current.CancellationToken);
+        }
+
+        using var restored = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            EnumerateRecoveryFiles = path => malformed ? Directory.EnumerateFiles(path, "*.json") : throw new UnauthorizedAccessException("Originals are inaccessible.")
+        };
+        var harness = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, WatchedItems = [new() { ItemId = item, ItemType = "Movie", TmdbId = 700, Played = true }] }]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>())).Returns([new MediaBrowser.Controller.Entities.Movies.Movie { Id = item, Path = "/media/confirmed.mkv", ProviderIds = new() { ["Tmdb"] = "700" } }]);
+        harness.FeedbackStore.Setup(store => store.LoadAll()).Returns(() => restored.LoadAll());
+        harness.FeedbackStore.Setup(store => store.LoadForUser(user)).Returns(() => restored.LoadForUser(user));
+        harness.FeedbackStore.Setup(store => store.MarkWatchedAsync(user, It.IsAny<IReadOnlySet<(int, string)>>(), It.IsAny<CancellationToken>())).Returns((Guid id, IReadOnlySet<(int, string)> titles, CancellationToken token) => restored.MarkWatchedAsync(id, titles, token));
+        try
+        {
+            var update = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("UpdateDiscoveryWatchedStatus", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            Assert.False((bool)update.Invoke(engine, [TestContext.Current.CancellationToken])!);
+            harness.FeedbackStore.Verify(store => store.LoadForUser(user), Times.Once);
+            harness.FeedbackStore.Verify(store => store.MarkWatchedAsync(user, It.Is<IReadOnlySet<(int, string)>>(titles => titles.Contains(new ValueTuple<int, string>(700, "movie"))), It.IsAny<CancellationToken>()), Times.Once);
+            Assert.True(Assert.Single(restored.LoadForUser(user)!.Entries).WasWatched);
+            Assert.Throws<IOException>(() => restored.LoadAll());
+        }
+        finally
+        {
+            restored.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void AHoldoutOnlyPartitionNeverCallsTheFitterButOneFittingObservationStillDoes(bool holdout)
@@ -109,13 +156,19 @@ public class TrainingServiceTests
     {
         ArgumentNullException.ThrowIfNull(type);
         var user = Guid.NewGuid();
+        var canonical = type.Trim().Equals("tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
+        while (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateProviderObservationId(user, 700, canonical), HasStableObservationId = true }.IsPermanentHoldout)
+        {
+            user = Guid.NewGuid();
+        }
+
         var hidden = Guid.NewGuid();
-        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([new UserWatchProfile { UserId = user, AccessibleItemIds = new HashSet<Guid>() }]);
+        var profile = new UserWatchProfile { UserId = user, AccessibleItemIds = new HashSet<Guid>() };
+        _watchHistoryMock.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
         _feedbackStoreMock.Setup(store => store.LoadAll()).Returns([new DiscoveryFeedbackResult
         {
             UserId = user, Entries = [new DiscoveryFeedbackEntry { TmdbId = 700, MediaType = type, RequestedAtUtc = DateTime.UtcNow, ShownAtUtc = DateTime.UtcNow.AddDays(-1) }]
         }]);
-        var canonical = type.Trim().Equals("tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
         var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>())
         {
             AllowedItemIds = new HashSet<Guid> { hidden }, TitleKeysByItemId = new Dictionary<Guid, (int, string)> { [hidden] = (700, canonical) }
@@ -124,6 +177,10 @@ public class TrainingServiceTests
         var recorder = new RecordingStrategy();
         Assert.False(service.Train(recorder, [new RecommendationResult { UserId = user }], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal(0, recorder.TrainInvocationCount);
+        profile.AccessibleItemIds = new HashSet<Guid> { hidden };
+        var accessible = new RecordingStrategy();
+        Assert.True(service.Train(accessible, [new RecommendationResult { UserId = user }], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Equal(1, accessible.TrainInvocationCount);
     }
 
     [Fact]

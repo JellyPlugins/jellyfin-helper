@@ -229,6 +229,117 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.Equal(2, saved.Recommendations.Count);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FinalFeedbackWaitCannotRetainAnEarlierUnrestrictedParentalPolicy(bool restricted)
+    {
+        var user = Guid.NewGuid();
+        int? rating = null;
+        var reads = 0;
+        var service = CreateService(configureFeedback: store => store.Setup(value => value.GetDismissedItems(user)).Returns(() =>
+        {
+            if (++reads == 2 && restricted) rating = 6;
+            return new HashSet<(int, string)>();
+        }));
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() => (true, rating));
+        var pool = new DiscoveryResult { Recommendations = [new() { TmdbId = 77, MediaType = "movie", CertificationScore = 18, CertificationPolicyCountry = "*" }, new() { TmdbId = 78, MediaType = "movie", CertificationScore = 6, CertificationPolicyCountry = "*" }] };
+        var result = service.FilterConsumedItems(user, pool);
+        Assert.Equal(restricted ? new[] { 78 } : [77, 78], result.Recommendations.Select(item => item.TmdbId));
+        Assert.Equal(2, pool.Recommendations.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FeedbackChangedDuringTheLastPolicyLookupDefersTheViewInsteadOfReturningAPreviouslyAdmittedCard(bool changed)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-coherent-view-" + Guid.NewGuid().ToString("N"));
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
+        var user = Guid.NewGuid();
+        var service = CreateService(feedbackStoreOverride: store);
+        var policyReads = 0;
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns(() =>
+        {
+            if (++policyReads == 2 && changed) store.RecordDismissed(user, 77, "movie");
+            return (true, (int?)null);
+        });
+        try
+        {
+            var pool = new DiscoveryResult { Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 78, MediaType = "movie" }] };
+            var view = service.FilterConsumedItems(user, pool);
+            Assert.Equal(changed ? 0 : 2, view.Recommendations.Count);
+            if (changed) Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, pool).Recommendations).TmdbId);
+            Assert.Equal(2, pool.Recommendations.Count);
+        }
+        finally { store.Dispose(); if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LibraryOwnershipChangedDuringFinalFeedbackReadDefersTheNativeViewWithoutRescanningOrPruningItsPool(bool changed)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-library-handoff-" + Guid.NewGuid().ToString("N"));
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        var users = new Mock<MediaBrowser.Controller.Library.IUserManager>();
+        users.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var configuration = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess.IPluginConfigurationService>();
+        configuration.Setup(service => service.GetConfiguration()).Returns(() => Plugin.Instance!.Configuration);
+        using var history = new WatchHistoryService(_libraryManager.Object, configuration.Object, users.Object, Mock.Of<MediaBrowser.Controller.Library.IUserDataManager>(), Mock.Of<IPluginLogService>(), Mock.Of<ILogger<WatchHistoryService>>());
+        var owned = new MediaBrowser.Controller.Entities.Movies.Movie { Id = Guid.NewGuid(), Path = "/media/newly-owned.mkv", ProviderIds = new() { ["Tmdb"] = "77" } };
+        var nowOwned = false;
+        var reads = 0;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            BeforeDismissalSnapshotSelection = () =>
+            {
+                if (++reads == 2 && changed)
+                {
+                    nowOwned = true;
+                    _libraryManager.Raise(library => library.ItemAdded += null, _libraryManager.Object, new MediaBrowser.Controller.Library.ItemChangeEventArgs { Item = owned });
+                }
+            }
+        };
+        CreateService();
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<MediaBrowser.Controller.Entities.InternalItemsQuery>())).Returns(() => nowOwned ? [owned] : []);
+        var service = new SeerrDiscoveryService(Mock.Of<IHttpClientFactory>(), history, Mock.Of<IArrIntegrationService>(), _libraryManager.Object, Mock.Of<IPerUserEnsembleRegistry>(), _lastCache!, store,
+            Mock.Of<IPluginLogService>(), TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>());
+        try
+        {
+            var pool = new DiscoveryResult { UserId = user.Id, Recommendations = [new() { TmdbId = 77, MediaType = "movie" }, new() { TmdbId = 78, MediaType = "movie" }] };
+            var view = service.FilterConsumedItems(user.Id, pool);
+            Assert.Equal(changed ? 0 : 2, view.Recommendations.Count);
+            _libraryManager.Verify(library => library.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Once);
+            if (changed) Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user.Id, pool).Recommendations).TmdbId);
+            Assert.Equal(2, pool.Recommendations.Count);
+            Assert.Equal(changed ? 1 : 0, history.LibraryEpoch);
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RejectingWrongTitleMetadataRemovesOnlyProjectedGenresNotOverlappingIndependentLabels(bool independent)
+    {
+        var service = CreateService(titleMetadataCache: new TitleMetadataCache());
+        var candidate = new TmdbDiscoverItem
+        {
+            Id = 77, MediaType = "movie", SourceGenres = independent ? ["Drama"] : null,
+            TitleMetadata = new TitleMetadataSnapshot { TmdbId = 78, MediaType = "movie", SourceGenres = ["Drama", "Kids"], FetchedAtUtc = DateTime.UtcNow }
+        };
+        candidate.ProjectSourceGenres(["Drama", "Kids"]);
+        typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, Plugin.Instance!.Configuration, null]);
+        Assert.Null(candidate.TitleMetadata);
+        Assert.Equal(independent, candidate.SourceGenres?.Contains("Drama") == true);
+        Assert.DoesNotContain("Kids", candidate.SourceGenres ?? []);
+    }
+
     [Fact]
     public void FailedCandidateOwnershipLookupRetainsKnownDurableFeedbackExclusions()
     {
@@ -720,7 +831,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }, "movie", acquired.AddHours(1));
         var cache = new TitleMetadataCache();
         cache.StoreSupplemental(config, newer, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
-        var candidate = new TmdbDiscoverItem { Id = 101, SourceGenres = independentLabel ? ["Animation", "custom interest"] : ["Animation"], TitleMetadata = older };
+        var candidate = new TmdbDiscoverItem { Id = 101, SourceGenres = independentLabel ? ["custom interest"] : null, TitleMetadata = older };
+        candidate.ProjectSourceGenres(["Animation"]);
         var method = typeof(SeerrDiscoveryService).GetMethod("ApplyCachedSnapshot", BindingFlags.Static | BindingFlags.NonPublic)!;
         method.Invoke(null, [candidate, cache.Get(config, 101, "movie")]);
         Assert.Equal(independentLabel ? new[] { "custom interest" } : [], candidate.SourceGenres);
@@ -782,8 +894,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService(feedbackStoreOverride: store, cacheWaitClock: cancel ? new ControlledWaitTimeProvider() : TimeProvider.System);
         var result = new DiscoveryResult { UserId = user, UserName = "user", GeneratedAt = DateTime.UtcNow.AddDays(-3), Recommendations = [new DiscoveryRecommendation { TmdbId = 500, Title = "generated" }] };
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), cancellation.Token])!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("PersistValidatedResultsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), null, cancellation.Token])!;
         Task<bool>? writer = null;
         try
         {
@@ -842,8 +954,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var service = CreateService(configureFeedback: value => feedback = value, titleMetadataCache: metadata, cacheWaitClock: cancel ? new ControlledWaitTimeProvider() : TimeProvider.System);
         var result = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "test user" };
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), cancellation.Token])!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("PersistValidatedResultsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { result }, new HashSet<Guid>(), null, cancellation.Token])!;
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
@@ -888,8 +1000,8 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var fresh = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "fresh", GeneratedAt = DateTime.UtcNow.AddDays(-3), Recommendations = [new DiscoveryRecommendation { TmdbId = 500, Title = "original" }] };
         var held = true;
         var carried = new DiscoveryResult { UserId = Guid.NewGuid(), UserName = "carried", GeneratedAt = fresh.GeneratedAt, Recommendations = [new DiscoveryRecommendation { TmdbId = 600 }] };
-        var method = typeof(SeerrDiscoveryService).GetMethod("PersistResultsAndRecordFeedbackAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { fresh, carried }, new HashSet<Guid> { carried.UserId }, TestContext.Current.CancellationToken])!;
+        var method = typeof(SeerrDiscoveryService).GetMethod("PersistValidatedResultsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var persistence = (Task)method.Invoke(service, [new List<DiscoveryResult> { fresh, carried }, new HashSet<Guid> { carried.UserId }, null, TestContext.Current.CancellationToken])!;
         try
         {
             clock.ExpireDeadlines();
@@ -906,7 +1018,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
             Assert.Null(saved.ImpressionAtUtc);
             Assert.Null(store.LoadForUser(carried.UserId));
             var before = System.Text.Json.JsonSerializer.Serialize(store.LoadAll());
-            await ((Task)method.Invoke(service, [cache.Load().ToList(), new HashSet<Guid> { fresh.UserId, carried.UserId }, TestContext.Current.CancellationToken])!).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await ((Task)method.Invoke(service, [cache.Load().ToList(), new HashSet<Guid> { fresh.UserId, carried.UserId }, null, TestContext.Current.CancellationToken])!).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
             Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(store.LoadAll()));
         }
         finally
@@ -1391,8 +1503,9 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         cache.Store(config, new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, GenreIds = [16], Keywords = ["pirate"], FetchedAtUtc = DateTime.UtcNow.AddMinutes(-2) });
         var candidate = new TmdbDiscoverItem
         {
-            Id = 77, MediaType = "tv", SourceGenres = ["Drama", "Kids"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = conflicts ? 23 : 22, Keywords = ["friendship"], SourceGenres = ["Kids"], Source = "trakt", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }
+            Id = 77, MediaType = "tv", SourceGenres = ["Drama"], TitleMetadata = new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = conflicts ? 23 : 22, Keywords = ["friendship"], SourceGenres = ["Kids"], Source = "trakt", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }
         };
+        candidate.ProjectSourceGenres(["Kids"]);
         typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
         Assert.Equal(22, candidate.TitleMetadata!.TvdbId);
         Assert.Contains("pirate", candidate.TitleMetadata.Keywords!.Value);

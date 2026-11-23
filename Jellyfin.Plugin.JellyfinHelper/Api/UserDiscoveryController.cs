@@ -544,6 +544,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = ActionDeliveryUnavailableMessage });
         }
 
+        var requestScope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance?.Configuration);
         // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
         // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
@@ -600,25 +601,105 @@ public sealed class UserDiscoveryController : ControllerBase
             return certificationError;
         }
 
-        var result = await _discovery.SubmitRequestAsync(
-            dto.TmdbId,
-            mediaType,
-            seerrUserId,
-            dto.ServerId,
-            dto.ProfileId,
-            rootFolder,
-            cancellationToken).ConfigureAwait(false);
+        var submission = new SeerrDiscoveryService.CapturedSubmission(dto.TmdbId, mediaType, seerrUserId, dto.ServerId, dto.ProfileId, rootFolder, requestScope);
+        return await SubmitValidatedRequestAsync(submission, currentJellyfinUserId, delivery, dto, cancellationToken).ConfigureAwait(false);
+    }
+
+    private (DiscoveryFeedbackStore.PreparedRequest? Prepared, ObjectResult? Error) PrepareOriginalRequest(Guid user, DeliveredCandidate? delivery, string? scope)
+    {
+        if (_feedbackStore is not DiscoveryFeedbackStore durable || delivery is null)
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            if (scope is null || scope != SeerrDiscoveryService.RequestSourceScope(Plugin.Instance?.Configuration))
+            {
+                return (null, StatusCode(503, new RequestResult { Success = false, Message = "Seerr configuration changed while request permissions were being verified. Please retry." }));
+            }
+
+            var prepared = durable.PrepareRequestedCard(user, delivery.Item, delivery.GeneratedAtUtc, scope);
+            durable.MarkPreparedSubmission(prepared);
+            return (prepared, null);
+        }
+        catch (Exception exception) when (!exception.IsFatal())
+        {
+            _logger.LogWarning(exception, "[Discovery] Original request evidence admission failed before Seerr submission");
+            return (null, StatusCode(503, new RequestResult { Success = false, Message = "Original request evidence could not be retained. No Seerr request was submitted; please retry." }));
+        }
+    }
+
+    private async Task<ActionResult<RequestResult>> SubmitValidatedRequestAsync(SeerrDiscoveryService.CapturedSubmission submission, Guid user, DeliveredCandidate? delivery, DiscoveryRequestDto dto, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var admission = PrepareOriginalRequest(user, delivery, submission.SourceScope);
+        if (admission.Error is not null)
+        {
+            return admission.Error;
+        }
+
+        var result = _discovery is SeerrDiscoveryService native
+            ? await native.SubmitCapturedRequestAsync(submission, cancellationToken).ConfigureAwait(false)
+            : await _discovery.SubmitRequestAsync(submission.TmdbId, submission.MediaType, submission.SeerrUserId, submission.ServerId, submission.ProfileId, submission.RootFolder, cancellationToken).ConfigureAwait(false);
 
         if (!result.Success)
         {
+            RetireUnacceptedRequest(admission.Prepared, result);
             return StatusCode(502, new RequestResult { Success = false, Message = result.Message });
         }
 
-        await PersistRequestBookkeepingAsync(dto, mediaType, currentJellyfinUserId, delivery).ConfigureAwait(false);
+        var confirmationError = await ConfirmAcceptedRequestAsync(user, admission.Prepared, submission.SourceScope).ConfigureAwait(false);
+        if (confirmationError is not null)
+        {
+            return confirmationError;
+        }
+
+        await PersistRequestBookkeepingAsync(dto, submission.MediaType, user, delivery, admission.Prepared is not null).ConfigureAwait(false);
 
         return StatusCode(
             result.AlreadyRequested ? StatusCodes.Status200OK : StatusCodes.Status201Created,
             new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
+    }
+
+    private void RetireUnacceptedRequest(DiscoveryFeedbackStore.PreparedRequest? prepared, SeerrRequestResult result)
+    {
+        if (prepared is null || result.SubmissionUncertain)
+        {
+            return;
+        }
+
+        try
+        {
+            ((DiscoveryFeedbackStore)_feedbackStore).AbandonPreparedRequest(prepared);
+        }
+        catch (Exception exception) when (!exception.IsFatal())
+        {
+            _logger.LogWarning(exception, "[Discovery] Unaccepted prepared request evidence could not yet be retired");
+        }
+    }
+
+    private async Task<ObjectResult?> ConfirmAcceptedRequestAsync(Guid user, DiscoveryFeedbackStore.PreparedRequest? prepared, string? scope)
+    {
+        if (prepared is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            if (!await ((DiscoveryFeedbackStore)_feedbackStore).ConfirmPreparedRequestAsync(user, prepared, scope, CancellationToken.None).ConfigureAwait(false))
+            {
+                return StatusCode(503, new RequestResult { Success = false, Message = "Seerr accepted the request, but feedback is still pending. Its original card evidence is retained by server recovery." });
+            }
+
+            return null;
+        }
+        catch (Exception exception) when (!exception.IsFatal())
+        {
+            _logger.LogWarning(exception, "[Discovery] Accepted original request evidence remains pending server recovery");
+            return StatusCode(503, new RequestResult { Success = false, Message = "Seerr accepted the request; original card evidence remains retained for server recovery." });
+        }
     }
 
     private async Task<ObjectResult?> ValidateRequestCertificationAsync(Guid userId, int tmdbId, string mediaType, CancellationToken cancellationToken)
@@ -726,7 +807,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Performs the best-effort local bookkeeping (cache + feedback store) after Seerr has accepted a request.
     /// </summary>
-    private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId, DeliveredCandidate? delivery)
+    private async Task PersistRequestBookkeepingAsync(DiscoveryRequestDto dto, string mediaType, Guid currentJellyfinUserId, DeliveredCandidate? delivery, bool feedbackConfirmed)
     {
         // CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store updates below. Once Seerr has accepted the request above, the local bookkeeping MUST run regardless of whether the HTTP client has disconnected - otherwise: 1.
         try
@@ -737,6 +818,11 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             // Best-effort cache update - log but do not fail the request.
             _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
+        }
+
+        if (feedbackConfirmed)
+        {
+            return;
         }
 
         try

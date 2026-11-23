@@ -45,4 +45,18 @@ public sealed class LibraryUserAccessTests
         Assert.Empty(LibraryUserAccess.GetAllowedIds(library.Object, new User("viewer", "test", "test"), []));
         library.VerifyNoOtherCalls();
     }
+
+    [Fact]
+    public void AuthorizationKeepsDistinctPermittedCopiesWithTheSamePresentationKey()
+    {
+        var user = new User("viewer", "test", "test");
+        var first = Guid.NewGuid();
+        var playedCopy = Guid.NewGuid();
+        var library = new Mock<ILibraryManager>();
+        library.Setup(manager => manager.GetItemIds(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+            query.GroupByPresentationUniqueKey ? [first] : [first, playedCopy]);
+        var allowed = LibraryUserAccess.GetAllowedIds(library.Object, user, [first, playedCopy]);
+        Assert.Equal(new[] { first, playedCopy }.Order(), allowed.Order());
+        library.Verify(manager => manager.GetItemIds(It.Is<InternalItemsQuery>(query => !query.GroupByPresentationUniqueKey && query.User == user)), Times.Once);
+    }
 }

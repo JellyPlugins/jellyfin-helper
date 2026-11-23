@@ -99,6 +99,44 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
         _mockUserDataManager.Verify(manager => manager.GetUserData(user, excluded), Times.Never);
     }
 
+    [Fact]
+    public void PlaybackOnTheSecondPermittedPresentationCopySurvivesProfileAccessFiltering()
+    {
+        using var service = CreateService(string.Empty, userAccess: true);
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "prov", "res");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var first = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/first.mkv", PresentationUniqueKey = "same-title", ProviderIds = new() { ["Tmdb"] = "700" } };
+        var second = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/second.mkv", PresentationUniqueKey = "same-title", ProviderIds = new() { ["Tmdb"] = "700" } };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IsFolder == true || query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet) ? [] : [first, second]);
+        _mockLibraryManager.Setup(manager => manager.GetItemIds(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IsFolder == true) return [];
+            return query.GroupByPresentationUniqueKey ? [first.Id] : [first.Id, second.Id];
+        });
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, first)).Returns(new UserItemData { Key = "never-played" });
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, second)).Returns(new UserItemData { Key = "played", Played = true, PlayCount = 1 });
+        var profile = service.GetUserWatchProfile(user.Id)!;
+        Assert.Equal(second.Id, Assert.Single(profile.WatchedItems).ItemId);
+        Assert.Equal(2, profile.AccessibleItemIds!.Count);
+    }
+
+    [Fact]
+    public void BatchLibraryScopeUsesTheCapturedExclusionsEvenWhenConfigurationChangesAndReturns()
+    {
+        using var service = CreateService("Anime");
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "prov", "res");
+        _mockUserManager.Setup(manager => manager.GetUsers()).Returns([user]);
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var reads = 0;
+        _mockConfigService.Setup(configuration => configuration.GetConfiguration()).Returns(() => new PluginConfiguration { ExcludedLibraries = ++reads == 2 ? "Movies" : "Anime" });
+        var allowed = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/watched.mkv", Genres = ["Drama"] };
+        var excluded = new Movie { Id = Guid.NewGuid(), Path = ExcludedRoot + "/watched.mkv", Genres = ["Animation"] };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IsFolder == true || query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet) ? [] : [allowed, excluded]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "played", Played = true });
+        var profile = Assert.Single(service.GetAllUserWatchProfiles());
+        Assert.Equal(allowed.Id, Assert.Single(profile.WatchedItems).ItemId);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("Anime")]

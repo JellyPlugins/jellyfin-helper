@@ -534,7 +534,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var unavailableProfiles = (_watchHistoryService.GetAllUserIds() ?? []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
-        var excludedTmdbIds = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        ExclusionCommitStamp? exclusionScope = null;
+        var excludedTmdbIds = await GetScopedCachedExclusionsCoreAsync(config, includeLibrary: true, scope => exclusionScope = scope, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             LogCategory,
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + Arr - per-user dismissed/requested merged later).",
@@ -560,7 +561,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             if (previousByUser.TryGetValue(user, out var priorPool))
             {
-                allResults.Add(FilterCarriedPool(priorPool, excludedTmdbIds));
+                allResults.Add(priorPool.Clone());
                 carriedForwardUsers.Add(user);
             }
         }
@@ -581,7 +582,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 case UserGenerationStatus.TransientFailure
                     when previousByUser.TryGetValue(profile.UserId, out var priorPool):
                     // Preserve the user's last-known-good pool; a transient hiccup must not empty their sidebar.
-                    allResults.Add(FilterCarriedPool(priorPool, excludedTmdbIds));
+                    allResults.Add(priorPool.Clone());
                     carriedForwardUsers.Add(profile.UserId);
                     _pluginLog.LogDebug(
                         LogCategory,
@@ -607,15 +608,49 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            await PersistResultsAndRecordFeedbackAsync(allResults, carriedForwardUsers, cancellationToken).ConfigureAwait(false);
+            await PersistValidatedResultsAsync(allResults, carriedForwardUsers, snapshots => FilterCarriedPoolsAtCommit(snapshots, carriedForwardUsers, excludedTmdbIds, exclusionScope), cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static DiscoveryResult FilterCarriedPool(DiscoveryResult prior, HashSet<(int TmdbId, string MediaType)> excluded)
+    private void FilterCarriedPoolsAtCommit(IReadOnlyList<DiscoveryResult> snapshots, HashSet<Guid> carriedUsers, HashSet<(int TmdbId, string MediaType)> excluded, ExclusionCommitStamp? sourceScope)
     {
-        var copy = prior.Clone();
-        copy.Recommendations.RemoveAll(item => excluded.Contains((item.TmdbId, NormalizeReconcileMediaType(item.MediaType))));
-        return copy;
+        if (sourceScope is null || !IsExclusionCommitStampCurrent(sourceScope))
+        {
+            // Arr ownership and library aliases share this captured exclusion set.
+            // Withdrawn or changed evidence cannot permanently prune a carried card.
+            return;
+        }
+
+        foreach (var pool in snapshots.Where(pool => carriedUsers.Contains(pool.UserId)))
+        {
+            pool.Recommendations.RemoveAll(item => excluded.Contains((item.TmdbId, NormalizeReconcileMediaType(item.MediaType))));
+        }
+    }
+
+    private ExclusionCommitStamp CaptureExclusionCommitStamp(string arrScope, PluginConfiguration config)
+        => new(arrScope, UserSourceScope(config), _titleMetadataCache?.MetadataLanguage, IsTraktAliasSourceAvailable(config), (_watchHistoryService as WatchHistoryService)?.LibraryEpoch, _titleMetadataCache?.CaptureExclusionStamp());
+
+    private ExclusionCommitStamp? CaptureExclusionCommitStampIfNeeded(Action<ExclusionCommitStamp>? capture, string arrScope, PluginConfiguration config)
+        => capture is null ? null : CaptureExclusionCommitStamp(arrScope, config);
+
+    private static void PublishExclusionCommitStamp(Action<ExclusionCommitStamp>? capture, ExclusionCommitStamp? stamp)
+    {
+        if (stamp is not null)
+        {
+            capture?.Invoke(stamp);
+        }
+    }
+
+    private bool IsTraktAliasSourceAvailable(PluginConfiguration config)
+        => config.TraktSourcingEnabled && (_titleMetadataCache?.TraktMetadataAvailable(config) ?? false);
+
+    private bool IsExclusionCommitStampCurrent(ExclusionCommitStamp stamp)
+    {
+        var current = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        return ExclusionSourceScope(current) == stamp.ArrScope && UserSourceScope(current) == stamp.SeerrScope
+            && _titleMetadataCache?.MetadataLanguage == stamp.Language && IsTraktAliasSourceAvailable(current) == stamp.TraktAvailable
+            && (_watchHistoryService as WatchHistoryService)?.LibraryEpoch == stamp.LibraryEpoch
+            && (_titleMetadataCache?.IsExclusionStampCurrent(stamp.Metadata.GetValueOrDefault()) ?? true);
     }
 
     /// <inheritdoc />
@@ -674,7 +709,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             .Select(rec => (rec.TmdbId, MediaType: NormalizeReconcileMediaType(rec.MediaType))).ToHashSet();
         // A rejected receipt remains confirmed work even after fresh generation drops
         // its card. Retry only against this user's complete current Seerr request set.
-        var pendingRequests = _feedbackStore.GetPendingRequestedItems(jellyfinUserId) ?? new HashSet<(int, string)>();
+        HashSet<(int TmdbId, string MediaType)> pendingRequests;
+        try
+        {
+            pendingRequests = (_feedbackStore.GetPendingRequestedItems(jellyfinUserId) ?? new HashSet<(int, string)>()).ToHashSet();
+            if (_feedbackStore is DiscoveryFeedbackStore durable)
+            {
+                pendingRequests.UnionWith(durable.GetPreparedRequestItems(jellyfinUserId, sourceScope));
+            }
+        }
+        catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
+        {
+            _pluginLog.LogDebug(LogCategory, $"Reconcile: could not load pending requested items for user {jellyfinUserId}: {ex.Message}", _logger);
+            pendingRequests = new HashSet<(int, string)>();
+        }
+
         candidates.UnionWith(pendingRequests);
 
         HashSet<(int TmdbId, string MediaType)> alreadyRecorded;
@@ -745,6 +794,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             // the point of reconciliation, and GetRequestedItems reads only the feedback store, so a
             // later cache failure still leaves the item excluded from the view and from regeneration.
             // The reverse order would risk stamping the cache while the durable signal is lost.
+            if (_feedbackStore is DiscoveryFeedbackStore durable
+                && !await durable.ConfirmPreparedForTitleAsync(jellyfinUserId, tmdbId, mediaType, sourceScope, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
             if (!await _feedbackStore.RecordRequestedAsync(jellyfinUserId, tmdbId, mediaType, cancellationToken).ConfigureAwait(false))
             {
                 return false;
@@ -993,24 +1048,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    /// <summary>
-    ///     Persists the discovery results and, on success, records the freshly-generated shown items in the
-    ///     feedback store for training-data collection (best-effort per user). Carried-forward pools (retained
-    ///     from a prior run after a transient failure) are persisted but excluded from feedback recording so
-    ///     their items are not counted as shown twice.
-    /// </summary>
-    /// <param name="allResults">All pools to persist: freshly generated plus any carried-forward.</param>
-    /// <param name="carriedForwardUsers">Users whose pool is a carried-forward snapshot, not fresh this run.</param>
-    /// <param name="cancellationToken">Scheduled-task cancellation, honored by both bounded persistence waits.</param>
-    private async Task PersistResultsAndRecordFeedbackAsync(
-        List<DiscoveryResult> allResults,
-        HashSet<Guid> carriedForwardUsers,
-        CancellationToken cancellationToken)
+    private async Task PersistValidatedResultsAsync(List<DiscoveryResult> allResults, HashSet<Guid> carriedForwardUsers, Action<IReadOnlyList<DiscoveryResult>>? beforeCommit, CancellationToken cancellationToken)
     {
         var retained = carriedForwardUsers.ToHashSet();
-        var persisted = await _cache.SaveWithCompletionAsync(
+        var persisted = await _cache.SaveValidatedWithCompletionAsync(
             allResults,
             snapshot => CompletePersistedResultsAsync(snapshot, retained),
+            beforeCommit ?? (_ => { }),
             cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (!persisted)
@@ -1064,7 +1108,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task<SeerrRequestResult> SubmitRequestAsync(
+    public Task<SeerrRequestResult> SubmitRequestAsync(
         int tmdbId,
         string mediaType,
         int? seerrUserId,
@@ -1072,7 +1116,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         int? profileId,
         string? rootFolder,
         CancellationToken cancellationToken)
+        => SubmitCapturedRequestAsync(new CapturedSubmission(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, RequestSourceScope(Plugin.Instance?.Configuration)), cancellationToken);
+
+    internal static string? RequestSourceScope(PluginConfiguration? configuration) => UserSourceScope(configuration);
+
+    internal async Task<SeerrRequestResult> SubmitCapturedRequestAsync(CapturedSubmission submission, CancellationToken cancellationToken)
     {
+        var tmdbId = submission.TmdbId;
+        var mediaType = submission.MediaType;
+        var seerrUserId = submission.SeerrUserId;
+        var serverId = submission.ServerId;
+        var profileId = submission.ProfileId;
+        var rootFolder = submission.RootFolder;
         if (tmdbId <= 0)
         {
             return new(false, "Invalid TMDb ID.");
@@ -1084,7 +1139,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new(false, "mediaType must be 'movie' or 'tv'.");
         }
 
-        var config = Plugin.Instance?.Configuration;
+        var config = CaptureSeerrConfiguration(Plugin.Instance?.Configuration);
+        if (UserSourceScope(config) != submission.SourceScope)
+        {
+            return new(false, "Seerr configuration changed while the request was being validated. Please retry.");
+        }
+
         if (config == null)
         {
             _pluginLog.LogWarning(LogCategory, PluginInstanceUnavailableMessage, null, _logger);
@@ -1120,7 +1180,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
-        var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder);
+        var requestParams = new SeerrRequestParams(tmdbId, mediaType, seerrUserId, serverId, profileId, rootFolder, submission.SourceScope);
         var key = MetadataCacheKey(baseUri, apiKey, $"api/v1/{mediaType}/{tmdbId}");
         return await _requestCoordinator.ExecuteAsync(
             key,
@@ -1136,10 +1196,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         bool submittedWhileWaiting,
         CancellationToken cancellationToken)
     {
+        if (UserSourceScope(Plugin.Instance?.Configuration) != requestParams.SourceScope)
+        {
+            return new(false, "Seerr configuration changed before request submission. Please retry.");
+        }
+
         var status = await FetchTitleStatusAsync(client, baseUri, apiKey, requestParams.TmdbId, requestParams.MediaType, cancellationToken).ConfigureAwait(false);
         if (!status.Verified)
         {
             return new SeerrRequestResult(false, status.ErrorMessage ?? "Seerr status check failed. Please try again later.");
+        }
+
+        if (UserSourceScope(Plugin.Instance?.Configuration) != requestParams.SourceScope)
+        {
+            return new(false, "Seerr configuration changed during request verification. Please retry.");
         }
 
         // A successful in-flight POST also proves the duplicate when Seerr's detail projection lags.
@@ -1219,7 +1289,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
 
             // The full error body is already logged above for admin diagnostics. Only return a generic status code to the client to avoid leaking internal Seerr server details (hostnames, config paths, stack traces).
-            return new(false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
+            return new(false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.")
+            {
+                SubmissionUncertain = (int)response.StatusCode >= 500 || response.StatusCode == System.Net.HttpStatusCode.Accepted
+            };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1232,7 +1305,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Request timed out for TMDb#{tmdbId}",
                 ex,
                 _logger);
-            return new(false, "Request timed out.");
+            return new(false, "Request timed out.") { SubmissionUncertain = true };
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
         {
@@ -1241,7 +1314,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Request failed for TMDb#{tmdbId}: {ex.Message}",
                 ex,
                 _logger);
-            return new(false, "Request failed.");
+            return new(false, "Request failed.") { SubmissionUncertain = true };
         }
     }
 
@@ -2374,14 +2447,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
         }
 
+        var libraryEpoch = (_watchHistoryService as WatchHistoryService)?.LibraryEpoch;
         AddCurrentLibraryOwnership(result.Recommendations, excluded);
         var targetSeriesShare = result.TargetSeriesShare.HasValue ? CurrentMediaTarget(jellyfinUserId) : null;
-        policy = CurrentParentalPolicy(jellyfinUserId);
-        if (!policy.Available)
-        {
-            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
-        }
-
+        var feedbackRevision = (_feedbackStore as DiscoveryFeedbackStore)?.ServingRevision;
+        var policyEpoch = (_watchHistoryService as WatchHistoryService)?.PolicyEpoch;
         var currentFeedback = ConsumedItemKeys(jellyfinUserId, out feedbackAvailable);
         if (!feedbackAvailable)
         {
@@ -2389,6 +2459,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         excluded.UnionWith(currentFeedback ?? []);
+
+        policy = CurrentParentalPolicy(jellyfinUserId);
+        if (!policy.Available)
+        {
+            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
+        }
+
+        if (feedbackRevision != (_feedbackStore as DiscoveryFeedbackStore)?.ServingRevision
+            || policyEpoch != (_watchHistoryService as WatchHistoryService)?.PolicyEpoch
+            || libraryEpoch != (_watchHistoryService as WatchHistoryService)?.LibraryEpoch)
+        {
+            // These cheap versions close the last cross-lookup handoff. A changed
+            // view defers delivery instead of alternating unbounded rereads.
+            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
+        }
 
         var filtered = new DiscoveryResult
         {
@@ -2890,9 +2975,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             && (cached is null || TitleProviderIdentity.Compatible(cached, alias));
         if (alias is not null && !compatible)
         {
-            var independentGenres = GenreNormalizer.Set(candidate.SourceGenres);
-            independentGenres.ExceptWith(GenreNormalizer.Set(alias.SourceGenres));
-            candidate.SourceGenres = independentGenres.ToArray();
+            candidate.ProjectSourceGenres(null);
             candidate.TitleMetadata = null;
         }
 
@@ -2911,8 +2994,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static void ApplyCachedSnapshot(TmdbDiscoverItem candidate, TitleMetadataSnapshot? cached)
     {
         var priorSourceGenres = candidate.TitleMetadata?.SourceGenres;
-        var independentSourceGenres = GenreNormalizer.Set(candidate.SourceGenres);
-        independentSourceGenres.ExceptWith(GenreNormalizer.Set(priorSourceGenres));
         if (cached is not null)
         {
             candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(candidate.TitleMetadata is null ? [cached] : [cached, candidate.TitleMetadata], DateTime.UtcNow);
@@ -2935,8 +3016,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             // Replace represented provider labels from the reconciled observations.
             // Unrepresented input labels remain separate instead of being erased or
             // used to resurrect a superseded same-source value.
-            independentSourceGenres.UnionWith(GenreNormalizer.Set(candidate.TitleMetadata?.SourceGenres));
-            candidate.SourceGenres = independentSourceGenres.ToArray();
+            candidate.ProjectSourceGenres(candidate.TitleMetadata?.SourceGenres is { } labels ? labels : null);
         }
 
         if (seerr is null || !ProjectWinningSeerrKeywords(candidate, seerr.ObservationScope))
@@ -3592,16 +3672,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    /// <summary>
-    ///     Returns the shared exclusion set (library + Arr titles), serving the cached copy while fresh.
-    ///     A defensive copy is returned so callers can never mutate the cached set.
-    /// </summary>
-    private Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionSetAsync(PluginConfiguration config, CancellationToken cancellationToken)
-        => GetCachedExclusionsCoreAsync(config, includeLibrary: true, cancellationToken);
+    private Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionsCoreAsync(PluginConfiguration config, bool includeLibrary, CancellationToken cancellationToken)
+        => GetScopedCachedExclusionsCoreAsync(config, includeLibrary, null, cancellationToken);
 
-    private async Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionsCoreAsync(
+    private async Task<HashSet<(int TmdbId, string MediaType)>> GetScopedCachedExclusionsCoreAsync(
         PluginConfiguration config,
         bool includeLibrary,
+        Action<ExclusionCommitStamp>? captureScope,
         CancellationToken cancellationToken)
     {
         while (true)
@@ -3646,9 +3723,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 cached = new HashSet<(int TmdbId, string MediaType)>(fresh);
             }
 
+            var commitStamp = CaptureExclusionCommitStampIfNeeded(captureScope, scope, Plugin.Instance?.Configuration ?? config);
             AddOptionalLibraryExclusions(cached, includeLibrary, cancellationToken);
             if (ExclusionSourceScope(Plugin.Instance?.Configuration ?? config) == scope)
             {
+                PublishExclusionCommitStamp(captureScope, commitStamp);
                 return cached;
             }
         }
@@ -4752,19 +4831,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="ServerId">Optional target server id.</param>
     /// <param name="ProfileId">Optional quality profile id.</param>
     /// <param name="RootFolder">Optional root folder path.</param>
+    /// <param name="SourceScope">The Seerr source validated for this request.</param>
     private readonly record struct SeerrRequestParams(
         int TmdbId,
         string MediaType,
         int? SeerrUserId,
         int? ServerId,
         int? ProfileId,
-        string? RootFolder);
+        string? RootFolder,
+        string? SourceScope);
 
     /// <summary>
     ///     Result of generating discovery for a single user: the status plus the fresh result (only set when
     ///     <see cref="UserGenerationStatus.Generated"/>).
     /// </summary>
     private readonly record struct UserGenerationOutcome(UserGenerationStatus Status, DiscoveryResult? Result);
+
+    internal sealed record CapturedSubmission(int TmdbId, string MediaType, int? SeerrUserId, int? ServerId, int? ProfileId, string? RootFolder, string? SourceScope);
+
+    private sealed record ExclusionCommitStamp(string ArrScope, string? SeerrScope, string? Language, bool TraktAvailable, long? LibraryEpoch, (long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc)? Metadata);
 
     private sealed record CachedMediaDetail(SeerrMediaDetailResponse Detail, DateTime ExpiresAtUtc);
 

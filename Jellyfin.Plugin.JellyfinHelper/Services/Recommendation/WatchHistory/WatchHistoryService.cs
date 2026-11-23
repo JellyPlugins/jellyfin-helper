@@ -40,6 +40,8 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
     private readonly ILinkedChildrenService? _linkedChildren;
     private readonly ConcurrentDictionary<Guid, MediaTargetSnapshot> _mediaTargets = new();
     private long _mediaTargetEpoch;
+    private long _policyEpoch;
+    private long _libraryEpoch;
     private bool _disposed;
 
     /// <summary>
@@ -77,6 +79,12 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
 
     /// <summary>Gets the optional, init-only network-free metadata source configured by the registration factory.</summary>
     internal TitleMetadataCache? TitleMetadataCache { get; init; }
+
+    /// <summary>Gets the current user-policy handoff version without a user or library lookup.</summary>
+    internal long PolicyEpoch => Volatile.Read(ref _policyEpoch);
+
+    /// <summary>Gets the physical-library handoff version without an additional inventory query.</summary>
+    internal long LibraryEpoch => Volatile.Read(ref _libraryEpoch);
 
     /// <summary>Gets the shared detector so virtual stubs cannot supply watch-profile or progression evidence.</summary>
     internal VirtualItemDetector? VirtualItems { get; init; }
@@ -124,12 +132,17 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
 
     private void OnUserDataSaved(object? sender, UserDataSaveEventArgs args) => InvalidateMediaTargets();
 
-    private void OnUserUpdated(object? sender, GenericEventArgs<Jellyfin.Database.Implementations.Entities.User> args) => InvalidateMediaTargets();
+    private void OnUserUpdated(object? sender, GenericEventArgs<Jellyfin.Database.Implementations.Entities.User> args)
+    {
+        Interlocked.Increment(ref _policyEpoch);
+        InvalidateMediaTargets();
+    }
 
     private void OnLibraryChanged(object? sender, ItemChangeEventArgs args)
     {
         if (args.Item is not MediaBrowser.Controller.Playlists.Playlist && args.Item is Movie or Episode or Series or Folder)
         {
+            Interlocked.Increment(ref _libraryEpoch);
             InvalidateMediaTargets();
         }
     }
@@ -144,6 +157,8 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
     public void Dispose()
     {
         _disposed = true;
+        Interlocked.Increment(ref _policyEpoch);
+        Interlocked.Increment(ref _libraryEpoch);
         _userDataManager.UserDataSaved -= OnUserDataSaved;
         _userManager.OnUserUpdated -= OnUserUpdated;
         _libraryManager.ItemAdded -= OnLibraryChanged;
@@ -168,7 +183,7 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
         // The library scope is resolved a single time here and threaded into each loader so the
         // excluded-library filter never re-reads virtual folders per query.
         var excludedAtLoad = _configService.GetConfiguration().ExcludedLibraries;
-        var scope = ResolveLibraryScope();
+        var scope = ResolveLibraryScope(excludedAtLoad);
         var allItems = LoadAllVideoItems(scope);
         var allSeries = LoadAllSeriesItems(scope);
 
@@ -318,8 +333,11 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
     // filter never re-reads virtual folders per query. Mirrors the engine's per-run resolution to
     // keep training and scoring on the same item set (train/serve parity).
     private LibraryRootScope? ResolveLibraryScope()
+        => ResolveLibraryScope(_configService.GetConfiguration().ExcludedLibraries);
+
+    private LibraryRootScope? ResolveLibraryScope(string excludedLibraries)
     {
-        var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService.GetConfiguration().ExcludedLibraries);
+        var excluded = CleanupConfigHelper.ParseCommaSeparated(excludedLibraries);
         return excluded.Count == 0
             ? null
             : LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded);

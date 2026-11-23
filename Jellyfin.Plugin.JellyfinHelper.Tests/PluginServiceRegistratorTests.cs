@@ -220,6 +220,7 @@ public class PluginServiceRegistratorTests : IDisposable
         sc.AddSingleton(new Mock<IUserManager>().Object);
         sc.AddSingleton(new Mock<ILibraryManager>().Object);
         sc.AddSingleton(new Mock<IUserDataManager>().Object);
+        sc.AddSingleton(new Mock<Microsoft.EntityFrameworkCore.IDbContextFactory<Jellyfin.Database.Implementations.JellyfinDbContext>>().Object);
         sc.AddSingleton(TestMockFactory.CreateAppPaths().Object);
 
         var provider = sc.BuildServiceProvider(validateScopes: true);

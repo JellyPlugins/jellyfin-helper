@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Persistence;
 using Moq;
 using Xunit;
 
@@ -22,6 +23,54 @@ public sealed class MovieSequencePolicyTests
         var selected = MovieSequencePolicy.Apply([pool[0], pool[1]], pool, null, 2, TestContext.Current.CancellationToken);
         Assert.Equal(new[] { first.Id, other.Id }, selected.Select(row => row.Item.Id));
         Assert.Equal(.8, selected[0].Score);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SequenceSuitabilityAppliesWhenStandaloneCopyDeduplicationReachesASequelDuringBackfill(bool scarce)
+    {
+        var firstCopy = Movie(999001, 0, 9);
+        var secondCopy = Movie(999001, 0, 8.9f);
+        var sequel = Movie(121, 119, 8);
+        var other = Movie(999002, 0, 7);
+        var prerequisite = Movie(120, 119, 1);
+        var movies = scarce ? new[] { firstCopy, secondCopy, sequel, prerequisite } : [firstCopy, secondCopy, sequel, other, prerequisite];
+        var rows = movies.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var selected = MovieSequencePolicy.Apply([rows[0], rows[1]], rows, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { firstCopy.Id, scarce ? prerequisite.Id : other.Id }, selected.Select(row => row.Item.Id));
+        Assert.DoesNotContain(selected, row => row.Item.Id == sequel.Id);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ColdWarmLiveAndBatchSequenceChecksUseAuthoritativeBoxSetOnlyMembership(bool warm, bool batch)
+    {
+        var prerequisite = Movie(120, 0, .1f);
+        var sequel = Movie(121, 0, 10);
+        prerequisite.ProviderIds.Remove("TmdbCollection");
+        sequel.ProviderIds.Remove("TmdbCollection");
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "119" } };
+        var linked = new Mock<ILinkedChildrenService>();
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([prerequisite.Id, sequel.Id]);
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        using var engine = harness.Engine;
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        if (warm) profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] });
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IncludeItemTypes.Contains(BaseItemKind.Movie)) return [sequel, prerequisite];
+            return query.IncludeItemTypes.Contains(BaseItemKind.BoxSet) ? [collection] : [];
+        });
+        RecommendationResult Generate() => batch ? Assert.Single(engine.GetAllRecommendations(1, TestContext.Current.CancellationToken)) : engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!;
+        Assert.Equal(prerequisite.Id, Assert.Single(Generate().Recommendations).ItemId);
+        profile.WatchedItems.Add(new() { ItemId = prerequisite.Id, ItemType = "Movie", TmdbId = 120, Played = true, Genres = ["Action"] });
+        Assert.Equal(sequel.Id, Assert.Single(Generate().Recommendations).ItemId);
     }
 
     [Fact]

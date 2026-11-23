@@ -43,7 +43,10 @@ public sealed class RecommendationPlaylistServiceDeletionFallbackTests : IDispos
             _userManagerMock.Object,
             _libraryManagerMock.Object,
             _pluginLogMock.Object,
-            _loggerMock.Object);
+            _loggerMock.Object)
+        {
+            RecoveryDirectory = Path.Join(_playlistsRoot, "creation-recovery")
+        };
 
     private void SetupUserManagerSingleUser(Guid userId, string username)
     {

@@ -574,7 +574,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         var selected = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed);
-        var topItems = MovieSequencePolicy.Apply(selected, scored, userProfile, maxResults, cancellationToken)
+        var topItems = MovieSequencePolicy.Apply(selected, scored, userProfile, maxResults, item => GetCapturedOrLiveContent(item, contentAffinityLookup).TmdbCollectionId, cancellationToken)
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
@@ -584,8 +584,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 Score = Math.Round(s.Score, 4),
                 Reason = s.Reason,
                 ReasonKey = s.ReasonKey,
-                Genres = contentAffinityLookup[s.Item.Id].EffectiveGenres.ToArray(),
-                TitleMetadata = contentAffinityLookup[s.Item.Id].TitleMetadata,
+                Genres = GetCapturedOrLiveContent(s.Item, contentAffinityLookup).EffectiveGenres.ToArray(),
+                TitleMetadata = GetCapturedOrLiveContent(s.Item, contentAffinityLookup).TitleMetadata,
                 Year = s.Item.ProductionYear,
                 CommunityRating = s.Item.CommunityRating,
                 CriticRating = s.Item.CriticRating,
@@ -600,7 +600,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 BoxSetIds = candidateBoxSetLookup.GetValueOrDefault(s.Item.Id) ?? [],
                 DateCreated = s.Item.DateCreated,
                 TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(s.Item),
-                TmdbCollectionId = contentAffinityLookup[s.Item.Id].TmdbCollectionId,
+                TmdbCollectionId = GetCapturedOrLiveContent(s.Item, contentAffinityLookup).TmdbCollectionId,
                 ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(s.Item),
                 InheritedTags = ContentAffinityResolver.ResolveInheritedTags(s.Item),
                 SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(s.Item),
@@ -1114,7 +1114,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         var selectionPool = scored.Where(candidate => contentEligible.Contains(candidate.Item.Id)).ToList();
         var selected = DiversityReranker.ApplyDiversityReranking(selectionPool, maxResults, explorationSeed, contentSupported, tasteLanes, MediaTypeBalance.TargetSeriesShare(userProfile, scoringAt), retainedInterests);
-        selected = MovieSequencePolicy.Apply(selected, selectionPool, userProfile, maxResults, ct);
+        selected = MovieSequencePolicy.Apply(selected, selectionPool, userProfile, maxResults, item => GetCapturedOrLiveContent(item, contentAffinityLookup).TmdbCollectionId, ct);
         var selectedIds = selected.Select(item => item.Item.Id).ToHashSet();
         ReserveSelectedRankingTrace(rankingTrace, selected, selectedIds);
         var topItems = selected
@@ -1506,9 +1506,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         BaseItem candidate,
         UserScoringContext context)
     {
-        var content = context.ContentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
-            ? cachedContent
-            : ResolveContentAffinity(candidate);
+        var content = GetCapturedOrLiveContent(candidate, context.ContentAffinityLookup);
         var genres = content.EffectiveGenres;
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(genres, context.GenrePreferences, context.GenreNormSq);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, context.CoOccurrence, context.CollaborativeMax);
@@ -2040,6 +2038,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             EffectiveGenres = effectiveGenres
         };
     }
+
+    private CandidateContentAffinity GetCapturedOrLiveContent(BaseItem candidate, IReadOnlyDictionary<Guid, CandidateContentAffinity> captured)
+        => captured.TryGetValue(candidate.Id, out var content) ? content : ResolveContentAffinity(candidate);
 
     private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)
         => _titleMetadataCache?.Get(_configService.GetConfiguration(), ResolveTitleTmdbId(candidate), candidate is Series ? "tv" : TmdbLibraryMapper.MovieMediaType, TitleProviderIdentity.Tvdb(candidate), TitleProviderIdentity.Imdb(candidate));

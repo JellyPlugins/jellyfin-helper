@@ -47,7 +47,7 @@ internal static class LibraryUserAccess
     /// <returns>A configured query with no ID or ancestor predicate yet.</returns>
     internal static InternalItemsQuery CreateQuery(ILibraryManager library, User user)
     {
-        var query = new InternalItemsQuery(user) { Recursive = true };
+        var query = new InternalItemsQuery(user) { Recursive = true, GroupByPresentationUniqueKey = false };
         library.ConfigureUserAccess(query, user);
         return query;
     }

@@ -814,6 +814,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── IRecommendationPlaylistService.cs
 │   │   │   ├── RecommendationPlaylistService.cs
 │   │   │   ├── PlaylistLibraryServices.cs # Shared current library configuration and virtual-media detector for delivery
+│   │   │   ├── HostedPlaylistInventory.cs # Host-side owner-filtered playlist IDs without viewer visibility
+│   │   │   ├── PlaylistOwnerOperations.cs # Bounded per-owner creation, recovery and cleanup leases
+│   │   │   ├── PlaylistCreationJournal.cs # Durable pre-create ownership inventory and marking state
 │   │   │   └── PlaylistSyncResult.cs
 │   │   ├── IRecommendationEngine.cs
 │   │   ├── IRecommendationCacheService.cs
@@ -1523,6 +1526,9 @@ while the editor closes, including after Escape.
 - `PlaylistSyncResult.cs`
 - `RecommendationPlaylistService.cs`
 - `PlaylistLibraryServices.cs`
+- `HostedPlaylistInventory.cs`
+- `PlaylistOwnerOperations.cs`
+- `PlaylistCreationJournal.cs`
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Scoring/`
 
