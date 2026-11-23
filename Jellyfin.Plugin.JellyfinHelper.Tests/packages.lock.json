@@ -80,11 +80,11 @@
       },
       "System.IO.Abstractions.TestingHelpers": {
         "type": "Direct",
-        "requested": "[23.0.1, 23.0.1]",
-        "resolved": "23.0.1",
-        "contentHash": "xvtk/oUtXlR++Hkk7EUU8Bb3mLlVelEoZdMGVMjjKcH7HWFuQZAP3nMNWIGuFE3a4qrNn0XPEWHnFtcplH79ig==",
+        "requested": "[23.1.0, 23.1.0]",
+        "resolved": "23.1.0",
+        "contentHash": "e03Q/r4YHGAnA8TOPO3+u627dRPUbFcHG/XkIgneEKKdvv7tC6zIKfj+fd6r1IcEgcRkvdWQKHXhNfwh1A8lOA==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions.TestingHelpers": "23.0.1"
+          "TestableIO.System.IO.Abstractions.TestingHelpers": "23.1.0"
         }
       },
       "xunit.runner.visualstudio": {
@@ -380,11 +380,11 @@
       },
       "TestableIO.System.IO.Abstractions.TestingHelpers": {
         "type": "Transitive",
-        "resolved": "23.0.1",
-        "contentHash": "fevd8a+0C9YJw8Ma1byZhbxbEbOuuMgKZgLPayG8+VOUrWabnghA36qkoBEEVqhQiD20wHK+Et8eER+8U9Q6gw==",
+        "resolved": "23.1.0",
+        "contentHash": "VEUGfp8BvWTbqIz2wKuijEsOwYW9mdAgDmvByjIZVuYv9Po/acEETFax6svxa+0/aPw//yYbDOiBeH4xlmoDYw==",
         "dependencies": {
-          "TestableIO.System.IO.Abstractions.Wrappers": "23.0.1",
-          "Testably.Abstractions.FileSystem.Interface": "11.0.0"
+          "TestableIO.System.IO.Abstractions.Wrappers": "23.1.0",
+          "Testably.Abstractions.FileSystem.Interface": "11.1.0"
         }
       },
       "TestableIO.System.IO.Abstractions.Wrappers": {
