@@ -2277,7 +2277,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             mapped.RemoveAll(c => !enrichedKeys.Contains((c.Id, c.MediaType)));
         }
 
-        var sharedExclusions = await GetCachedExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
+        var sharedExclusions = await GetCachedExclusionsCoreAsync(config, includeLibrary: false, cancellationToken).ConfigureAwait(false);
+        AddCurrentLibraryOwnership(mapped.Select(item => new DiscoveryRecommendation { TmdbId = item.Id, MediaType = item.MediaType, TitleMetadata = item.TitleMetadata }).ToList(), sharedExclusions, cancellationToken);
         var userExcluded = TryBuildExternalExclusionSet(profile, sharedExclusions);
         if (userExcluded is null)
         {
@@ -2381,6 +2382,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
         }
 
+        var currentFeedback = ConsumedItemKeys(jellyfinUserId, out feedbackAvailable);
+        if (!feedbackAvailable)
+        {
+            return new DiscoveryResult { UserId = jellyfinUserId, UserName = result.UserName, GeneratedAt = result.GeneratedAt };
+        }
+
+        excluded.UnionWith(currentFeedback ?? []);
+
         var filtered = new DiscoveryResult
         {
             UserId = result.UserId,
@@ -2424,8 +2433,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private void AddCurrentLibraryOwnership(List<DiscoveryRecommendation> candidates, HashSet<(int TmdbId, string MediaType)> excluded)
+    private void AddCurrentLibraryOwnership(List<DiscoveryRecommendation> candidates, HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (candidates.Count == 0)
         {
             return;
@@ -2433,6 +2443,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var requested = candidates.Select(item => (item.TmdbId, MediaType: NormalizeReconcileMediaType(item.MediaType))).ToHashSet();
+        var identities = candidates.Select(item => CandidateOwnershipIdentity(item, config)).ToArray();
         var providerIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         void Add(string provider, string id)
         {
@@ -2445,11 +2456,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             ids.Add(id);
         }
 
-        foreach (var (id, type) in requested)
+        foreach (var metadata in identities)
         {
-            Add("Tmdb", id.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            var metadata = _titleMetadataCache?.Get(config, id, type);
-            if (metadata?.TvdbId is > 0)
+            cancellationToken.ThrowIfCancellationRequested();
+            Add("Tmdb", metadata.TmdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (metadata.TvdbId > 0)
             {
                 Add("Tvdb", metadata.TvdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
@@ -2469,12 +2480,47 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series], Recursive = true,
                 HasAnyProviderIds = providerIds.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray())
             });
-            excluded.UnionWith(TitleProviderIdentity.ResolveTmdbKeys(items.Where(item => !_virtualItemDetector.IsVirtual(item)), _titleMetadataCache, config).Where(requested.Contains));
+            excluded.UnionWith(TitleProviderIdentity.ResolveTmdbKeys(items.Where(item => !_virtualItemDetector.IsVirtual(item)), _titleMetadataCache, config, cancellationToken).Where(requested.Contains));
+            AddCandidateAliasOwnership(items, identities, excluded, cancellationToken);
         }
-        catch (Exception exception) when (!exception.IsFatal())
+        catch (Exception exception) when (!exception.IsFatal() && exception is not OperationCanceledException)
         {
             _pluginLog.LogDebug(LogCategory, "Current Discovery ownership verification unavailable; retaining known request exclusions.", _logger);
         }
+    }
+
+    private void AddCandidateAliasOwnership(IEnumerable<BaseItem> items, TitleMetadataSnapshot[] identities, HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken)
+    {
+        foreach (var item in items.Where(item => item is Movie or Series && !_virtualItemDetector.IsVirtual(item)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (TmdbLibraryMapper.TryGetTmdbId(item, out _))
+            {
+                continue;
+            }
+
+            var alias = new TitleMetadataSnapshot { MediaType = item is Series ? "tv" : MediaTypeMovie, TvdbId = TitleProviderIdentity.Tvdb(item), ImdbId = TitleProviderIdentity.Imdb(item) };
+            foreach (var candidate in identities.Where(identity => TitleProviderIdentity.Compatible(identity, alias) && TitleProviderIdentity.SharesIdentity(identity, alias)))
+            {
+                excluded.Add((candidate.TmdbId, candidate.MediaType));
+            }
+        }
+    }
+
+    private TitleMetadataSnapshot CandidateOwnershipIdentity(DiscoveryRecommendation item, PluginConfiguration config)
+    {
+        var type = NormalizeReconcileMediaType(item.MediaType);
+        var exact = _titleMetadataCache?.Get(config, item.TmdbId, type);
+        var supplied = item.TitleMetadata is { } original ? TitleMetadataCache.FreshProjection(original, DateTime.UtcNow) : null;
+        var compatible = supplied is not null && supplied.MediaType == type && (supplied.TmdbId <= 0 || supplied.TmdbId == item.TmdbId)
+            && (exact is null || TitleProviderIdentity.Compatible(exact, supplied));
+        var metadata = exact;
+        if (compatible)
+        {
+            metadata = TitleMetadataMerger.CombineCurrentObservations(exact is null ? [supplied!] : [exact, supplied!], DateTime.UtcNow);
+        }
+
+        return new TitleMetadataSnapshot { TmdbId = item.TmdbId, MediaType = type, TvdbId = metadata?.TvdbId ?? 0, ImdbId = metadata?.ImdbId };
     }
 
     private HashSet<(int TmdbId, string MediaType)>? ConsumedItemKeys(Guid jellyfinUserId, out bool available)
@@ -3550,8 +3596,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Returns the shared exclusion set (library + Arr titles), serving the cached copy while fresh.
     ///     A defensive copy is returned so callers can never mutate the cached set.
     /// </summary>
-    private async Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionSetAsync(
+    private Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionSetAsync(PluginConfiguration config, CancellationToken cancellationToken)
+        => GetCachedExclusionsCoreAsync(config, includeLibrary: true, cancellationToken);
+
+    private async Task<HashSet<(int TmdbId, string MediaType)>> GetCachedExclusionsCoreAsync(
         PluginConfiguration config,
+        bool includeLibrary,
         CancellationToken cancellationToken)
     {
         while (true)
@@ -3596,11 +3646,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 cached = new HashSet<(int TmdbId, string MediaType)>(fresh);
             }
 
-            AddLibraryExclusions(cached, cancellationToken);
+            AddOptionalLibraryExclusions(cached, includeLibrary, cancellationToken);
             if (ExclusionSourceScope(Plugin.Instance?.Configuration ?? config) == scope)
             {
                 return cached;
             }
+        }
+    }
+
+    private void AddOptionalLibraryExclusions(HashSet<(int TmdbId, string MediaType)> excluded, bool includeLibrary, CancellationToken cancellationToken)
+    {
+        if (includeLibrary)
+        {
+            AddLibraryExclusions(excluded, cancellationToken);
         }
     }
 

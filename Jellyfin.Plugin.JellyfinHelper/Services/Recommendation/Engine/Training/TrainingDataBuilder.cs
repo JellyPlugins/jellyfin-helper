@@ -228,6 +228,8 @@ internal static class TrainingDataBuilder
         if (examples.Any(example => example.IsPassiveSample))
         {
             var observed = examples.Where(example => example.IsObserved).Select(example => (example.UserId, example.ObservationId)).ToHashSet();
+            observed.UnionWith(ctx.ProfileById.Values.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, ctx.Lookups.TmdbIds)
+                .Select(title => (profile.UserId, title))));
             var removed = examples.RemoveAll(example => example.IsPassiveSample && observed.Contains((example.UserId, example.ObservationId)));
             discoveryCount -= removed;
         }

@@ -216,6 +216,112 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
     }
 
+    [Fact]
+    public void FeedbackCommittedDuringTheLibraryLookupIsRecheckedBeforeReturningATraktCard()
+    {
+        var user = Guid.NewGuid();
+        var dismissed = new HashSet<(int, string)>();
+        var service = CreateService(configureFeedback: store => store.Setup(value => value.GetDismissedItems(user)).Returns(() => dismissed.ToHashSet()));
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(() => { dismissed.Add((77, "tv")); return []; });
+        var saved = new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+        var result = service.FilterConsumedItems(user, saved);
+        Assert.Equal(78, Assert.Single(result.Recommendations).TmdbId);
+        Assert.Equal(2, saved.Recommendations.Count);
+    }
+
+    [Fact]
+    public void FailedCandidateOwnershipLookupRetainsKnownDurableFeedbackExclusions()
+    {
+        var user = Guid.NewGuid();
+        var service = CreateService(configureFeedback: store => store.Setup(value => value.GetDismissedItems(user)).Returns(new HashSet<(int, string)> { (77, "tv") }));
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Throws(new IOException("library unavailable"));
+        var saved = new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 77, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
+        Assert.Equal(78, Assert.Single(service.FilterConsumedItems(user, saved).Recommendations).TmdbId);
+        Assert.Equal(2, saved.Recommendations.Count);
+    }
+
+    [Fact]
+    public async Task ExternalOwnershipChecksUseOnlyCandidateIdsAndStillExcludeHiddenOwnedCopies()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var service = CreateService();
+        var queries = new List<InternalItemsQuery>();
+        var owned = new Movie { Id = Guid.NewGuid(), Path = "/hidden-library/owned.mkv", ProviderIds = new() { ["Tmdb"] = "77" } };
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => { queries.Add(query); return [owned]; });
+        Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(77)], TestContext.Current.CancellationToken));
+        Assert.Null(await service.ScoreExternalCandidatesAsync(user, [Candidate(77)], TestContext.Current.CancellationToken));
+        Assert.Equal(2, queries.Count);
+        Assert.All(queries, query =>
+        {
+            Assert.Null(query.User);
+            Assert.NotNull(query.HasAnyProviderIds);
+            Assert.True(query.HasAnyProviderIds.TryGetValue("Tmdb", out var ids));
+            Assert.Equal(new[] { "77" }, ids);
+        });
+    }
+
+    [Theory]
+    [InlineData("compatible", true)]
+    [InlineData("conflicting", false)]
+    [InlineData("movie", false)]
+    [InlineData("virtual", false)]
+    public void CandidateScopedOwnershipIncludesOnlyCompatibleTypedPhysicalAliases(string copy, bool owned)
+    {
+        var cache = new TitleMetadataCache();
+        cache.Store(Plugin.Instance!.Configuration, new TitleMetadataSnapshot { TmdbId = 77, MediaType = "tv", TvdbId = 22, ImdbId = "tt1234", FetchedAtUtc = DateTime.UtcNow });
+        var service = CreateService(titleMetadataCache: cache);
+        BaseItem item = copy == "movie" ? new Movie() : new MediaBrowser.Controller.Entities.TV.Series();
+        item.Id = Guid.NewGuid();
+        item.Path = copy == "virtual" ? null : "/hidden/title";
+        item.IsVirtualItem = copy == "virtual";
+        item.ProviderIds = new() { ["Tvdb"] = "22", ["Imdb"] = copy == "conflicting" ? "tt9999" : "tt1234" };
+        InternalItemsQuery? captured = null;
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => { captured = query; return [item]; });
+        var card = new DiscoveryRecommendation { TmdbId = 77, MediaType = "tv" };
+        var result = service.FilterConsumedItems(Guid.NewGuid(), new DiscoveryResult { Recommendations = [card] });
+        Assert.Equal(!owned, result.Recommendations.Count == 1);
+        Assert.NotNull(captured);
+        Assert.Null(captured.User);
+        Assert.NotNull(captured.HasAnyProviderIds);
+        Assert.Equal(new[] { "22" }, captured.HasAnyProviderIds["Tvdb"]);
+        Assert.Equal(new[] { "tt1234" }, captured.HasAnyProviderIds["Imdb"]);
+        Assert.Equal(0, _detailCalls);
+    }
+
+    [Fact]
+    public async Task CandidateOwnershipCancellationIsNotSwallowedAsAnUnavailableLibrary()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        var service = CreateService();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(() => { cancellation.Cancel(); return [new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" } }]; });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ScoreExternalCandidatesAsync(user, [Candidate(77)], cancellation.Token));
+    }
+
+    [Fact]
+    public void DurableFeedbackFailureAfterTheOwnershipLookupStillWithholdsTheDelivery()
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-final-feedback-" + Guid.NewGuid().ToString("N"));
+        var user = Guid.NewGuid();
+        using (var initial = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) initial.RecordDismissed(user, 700, "tv");
+        var unavailable = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            BeforeDismissalSnapshotSelection = () => { if (unavailable) throw new IOException("durable snapshot unavailable"); }
+        };
+        var service = CreateService(feedbackStoreOverride: store);
+        _libraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns(() => { unavailable = true; return []; });
+        try
+        {
+            var saved = new DiscoveryResult { Recommendations = [new() { TmdbId = 78, MediaType = "movie" }] };
+            Assert.Empty(service.FilterConsumedItems(user, saved).Recommendations);
+            Assert.Single(saved.Recommendations);
+        }
+        finally { store.Dispose(); Directory.Delete(directory, recursive: true); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

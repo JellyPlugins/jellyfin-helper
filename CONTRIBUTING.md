@@ -879,6 +879,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
 │   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
 │   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
+│   │       ├── DiscoveryFeedbackRecoveryJournal.cs # Bounded durable server-owned original feedback evidence
 │   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
 │   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
 │   │       ├── DiscoveryDismissedItem.cs    # Permanent typed dismissal identity, separate from bounded fitting history
@@ -1594,6 +1595,7 @@ the heuristic rules and ensemble blend limits are unchanged.
 - `DiscoveryFeedbackResult.cs`
 - `DiscoveryDismissedItem.cs`
 - `DiscoveryFeedbackStore.cs`
+- `DiscoveryFeedbackRecoveryJournal.cs`
 - `DiscoveryInteractionStatus.cs`
 - `DiscoveryRecommendation.cs`
 - `DiscoveryResult.cs`

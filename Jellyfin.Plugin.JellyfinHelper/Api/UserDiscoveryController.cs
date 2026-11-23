@@ -220,7 +220,7 @@ public sealed class UserDiscoveryController : ControllerBase
         catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "Could not persist discovery impressions for user {UserId}", userId.Value);
-            return StatusCode(503, new RequestResult { Success = false, Message = "Feedback persistence is temporarily unavailable. Retry this original delivery; a later delivery cannot replace its prediction evidence." });
+            return StatusCode(503, new RequestResult { Success = false, Message = "Feedback persistence is temporarily unavailable. Admitted original evidence is retained by server recovery; expired delivery tokens cannot be resubmitted." });
         }
 
         return NoContent();
@@ -897,12 +897,13 @@ public sealed class UserDiscoveryController : ControllerBase
         var ownKeys = new HashSet<(int TmdbId, string MediaType)>();
         if (GetCurrentUserId() is Guid userId)
         {
-            result = _discovery.FilterConsumedItems(userId, result) ?? new DiscoveryResult { UserId = userId, GeneratedAt = result.GeneratedAt };
             var own = (await _cache.LoadAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(item => item.UserId == userId);
             if (own is not null)
             {
                 ownKeys.UnionWith(own.Recommendations.Select(DiscoveryItemKey));
             }
+
+            result = _discovery.FilterConsumedItems(userId, result) ?? new DiscoveryResult { UserId = userId, GeneratedAt = result.GeneratedAt };
         }
 
         return new DiscoveryResult

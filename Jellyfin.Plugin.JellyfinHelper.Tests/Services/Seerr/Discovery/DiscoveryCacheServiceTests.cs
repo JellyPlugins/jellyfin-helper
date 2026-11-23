@@ -92,7 +92,15 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
             await read.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             await removal.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
-        finally { if (!released) gate.Release(); cache.Dispose(); }
+        finally
+        {
+            if (!released) gate.Release();
+            try
+            {
+                await Task.WhenAll(save, read, removal).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            }
+            finally { cache.Dispose(); }
+        }
     }
 
     [Theory]

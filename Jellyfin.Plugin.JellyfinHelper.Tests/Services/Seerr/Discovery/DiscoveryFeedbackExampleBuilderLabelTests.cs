@@ -91,6 +91,24 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(passive, DateTime.UtcNow));
     }
 
+    [Fact]
+    public void DuplicatePassiveCardsAreRemovedBeforeThePassiveCapCanHideThem()
+    {
+        var user = Guid.NewGuid();
+        var a = ShownEntry();
+        a.TmdbId = 1;
+        a.ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true };
+        var b = ShownEntry();
+        b.TmdbId = 2;
+        b.ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true };
+        var first = new DiscoveryFeedbackResult { UserId = user, Entries = [a] };
+        var second = new DiscoveryFeedbackResult { UserId = user, Entries = [a, b] };
+        var built = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples([first, second], new Dictionary<Guid, UserWatchProfile>(), null, null, TestContext.Current.CancellationToken);
+        var passive = built.Examples.Where(example => example.IsPassiveSample).ToArray();
+        Assert.Equal(2, passive.Length);
+        Assert.Equal(2, passive.Select(example => example.ObservationId).Distinct().Count());
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, false)]

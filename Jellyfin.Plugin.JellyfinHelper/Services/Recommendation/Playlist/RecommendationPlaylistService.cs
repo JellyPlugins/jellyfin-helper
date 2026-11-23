@@ -311,7 +311,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService?.GetConfiguration().ExcludedLibraries ?? string.Empty);
             var scope = excluded.Count > 0 ? LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded) : null;
-            var originatingItems = new Dictionary<Guid, Guid>();
+            var originatingItems = new List<(Guid Resolved, Guid Original)>();
             var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count, user, scope, originatingItems, cancellationToken);
 
             if (itemIds.Length == 0)
@@ -633,11 +633,12 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         int maxItems,
         Jellyfin.Database.Implementations.Entities.User? user,
         LibraryRootScope? scope,
-        Dictionary<Guid, Guid>? originatingItems,
+        List<(Guid Resolved, Guid Original)>? originatingItems,
         CancellationToken cancellationToken)
     {
         var resolvedIds = new List<Guid>();
         var uniqueIds = new HashSet<Guid>();
+        var uniqueOrigins = new HashSet<Guid>();
         var skippedCount = 0;
         var snapshot = recommendations.ToArray();
         var verifyLive = VerifyLiveDelivery;
@@ -661,10 +662,13 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             var resolved = ResolvePlaylistItem(rec, new DeliveryContext(user, scope, verifyLive, sequenceMovies), cancellationToken);
+            if (resolved.HasValue && originatingItems is not null && uniqueOrigins.Add(rec.ItemId))
+            {
+                originatingItems.Add((resolved.Value, rec.ItemId));
+            }
+
             if (resolved.HasValue && uniqueIds.Add(resolved.Value))
             {
-                originatingItems?.TryAdd(resolved.Value, rec.ItemId);
-
                 resolvedIds.Add(resolved.Value);
             }
             else
@@ -755,31 +759,37 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         => data is { Played: false, PlayCount: <= 0, PlaybackPositionTicks: <= 0, IsFavorite: false }
             && !(data.Rating is > 0 && double.IsFinite(data.Rating.Value));
 
-    private Guid[] RecheckResolvedItemsAtCreation(Guid[] itemIds, Jellyfin.Database.Implementations.Entities.User owner, Dictionary<Guid, Guid> originatingItems, CancellationToken cancellationToken)
+    private Guid[] RecheckResolvedItemsAtCreation(Guid[] itemIds, Jellyfin.Database.Implementations.Entities.User owner, List<(Guid Resolved, Guid Original)> originatingItems, CancellationToken cancellationToken)
     {
         var excluded = CleanupConfigHelper.ParseCommaSeparated(_configService?.GetConfiguration().ExcludedLibraries ?? string.Empty);
         var scope = excluded.Count > 0 ? LibraryPathResolver.GetLibraryRootScope(_libraryManager, excluded) : null;
-        var permitted = LibraryUserAccess.GetAllowedIds(_libraryManager, owner, itemIds);
+        var origins = originatingItems.Count > 0 ? originatingItems.ToArray() : itemIds.Select(id => (Resolved: id, Original: id)).ToArray();
+        var permitted = LibraryUserAccess.GetAllowedIds(_libraryManager, owner, origins.SelectMany(origin => new[] { origin.Resolved, origin.Original }).Distinct().ToArray());
         var sequence = new Lazy<(Dictionary<int, Movie> Unseen, HashSet<int> Completed)>(() => LoadSequenceMovies(owner, scope, cancellationToken));
         var context = new DeliveryContext(owner, scope, true, sequence);
-        return itemIds.Select(id => RecheckDeliveryItem(id, context, permitted, originatingItems, cancellationToken)).OfType<Guid>().Distinct().ToArray();
+        return origins.Select(origin => RecheckDeliveryItem(origin.Resolved, origin.Original, context, permitted, cancellationToken)).OfType<Guid>().Distinct().ToArray();
     }
 
-    private Guid? RecheckDeliveryItem(Guid id, DeliveryContext context, HashSet<Guid> permitted, Dictionary<Guid, Guid> originatingItems, CancellationToken cancellationToken)
+    private Guid? RecheckDeliveryItem(Guid id, Guid originalId, DeliveryContext context, HashSet<Guid> permitted, CancellationToken cancellationToken)
     {
         var owner = context.User!;
         var scope = context.Scope;
         cancellationToken.ThrowIfCancellationRequested();
-        if (originatingItems.TryGetValue(id, out var originalId) && _libraryManager.GetItemById(originalId) is Movie originalMovie)
+        if (!permitted.Contains(originalId))
         {
-            var originalPermitted = originalId == id ? permitted.Contains(id) : LibraryUserAccess.GetAllowedIds(_libraryManager, owner, [originalId]).Contains(originalId);
-            return originalPermitted && IsEligibleAtDelivery(originalMovie, owner, scope) ? ResolveMovieAtDelivery(originalMovie, context) : null;
+            return null;
+        }
+
+        var original = _libraryManager.GetItemById(originalId);
+        if (original is Movie originalMovie)
+        {
+            return IsEligibleAtDelivery(originalMovie, owner, scope) ? ResolveMovieAtDelivery(originalMovie, context) : null;
         }
 
         if (!permitted.Contains(id) || _libraryManager.GetItemById(id) is not { } item || !IsEligibleAtDelivery(item, owner, scope))
         {
-            return originatingItems.TryGetValue(id, out var series) && LibraryUserAccess.GetAllowedIds(_libraryManager, owner, [series]).Contains(series)
-                ? ResolveFirstEpisodeForSeries(series, owner, scope, cancellationToken)
+            return original is Series && IsAccessibleMediaAtDelivery(original, owner, scope)
+                ? ResolveFirstEpisodeForSeries(originalId, owner, scope, cancellationToken)
                 : (Guid?)null;
         }
 
@@ -873,13 +883,13 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         bool onlyIfDisabled = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_uncertainCreations.ContainsKey(userId))
+        var user = _userManager.GetUserById(userId);
+        if (user is null || (onlyIfDisabled && !IsDisabled(user)))
         {
             return 0;
         }
 
-        var user = _userManager.GetUserById(userId);
-        if (user is null || (onlyIfDisabled && !IsDisabled(user)))
+        if (!CanReconcileUncertainCreation(userId))
         {
             return 0;
         }
@@ -1055,6 +1065,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             return false;
         }
 
+        return CanReconcileUncertainCreation(userId);
+    }
+
+    private bool CanReconcileUncertainCreation(Guid userId)
+    {
         if (!_uncertainCreations.TryGetValue(userId, out var before))
         {
             return true;
@@ -1135,6 +1150,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     private int RemoveIdentifiedInactivePlaylists(HashSet<Guid> liveUsers, HashSet<Guid> disabledUsers, CancellationToken cancellationToken, bool removeAll = false)
     {
         var removed = 0;
+        var reconciledOwners = new Dictionary<Guid, bool>();
         try
         {
             var playlists = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Playlist], Recursive = true });
@@ -1142,9 +1158,19 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var owner = playlist.OwnerUserId;
-                if (!_uncertainCreations.ContainsKey(owner) && HasManagedOwner(playlist, owner) && (removeAll || !liveUsers.Contains(owner) || disabledUsers.Contains(owner))
-                    && (removeAll || IsVerifiedInactiveOwner(owner))
-                    && TryRemovePlaylist(playlist, owner))
+                if (!HasManagedOwner(playlist, owner) || !(removeAll || !liveUsers.Contains(owner) || disabledUsers.Contains(owner))
+                    || !(removeAll || IsVerifiedInactiveOwner(owner)))
+                {
+                    continue;
+                }
+
+                if (!reconciledOwners.TryGetValue(owner, out var safe))
+                {
+                    safe = CanReconcileUncertainCreation(owner);
+                    reconciledOwners[owner] = safe;
+                }
+
+                if (safe && TryRemovePlaylist(playlist, owner))
                 {
                     removed++;
                 }

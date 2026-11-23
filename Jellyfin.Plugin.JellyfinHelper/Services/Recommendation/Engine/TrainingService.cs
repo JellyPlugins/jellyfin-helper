@@ -505,7 +505,7 @@ internal sealed class TrainingService : IDisposable
     {
         if (ReplayTitleKeys(metadata, cancellationToken) is not { } titles)
         {
-            return null;
+            return (user, item, observation) => observation == TrainingExample.CreateLibraryObservationId(user, item);
         }
 
         // Resolve only referenced copies. A permitted duplicate cannot certify the

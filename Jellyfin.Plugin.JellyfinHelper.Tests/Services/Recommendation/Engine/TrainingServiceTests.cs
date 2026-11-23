@@ -519,9 +519,9 @@ public class TrainingServiceTests
             Features = features, Label = .85, GeneratedAtUtc = now.AddDays(-3),
             Choice = new RecommendationChoiceEvidence
             {
-                ChosenObservationId = chosenObservation, ChosenFeatures = features.Copy(), AvailableAtUtc = now.AddDays(-10),
+                ChosenObservationId = chosenObservation, ChosenItemId = chosen, ChosenFeatures = features.Copy(), AvailableAtUtc = now.AddDays(-10),
                 RecommendedAtUtc = now.AddDays(-3), ChosenAtUtc = now.AddDays(-2),
-                Alternatives = [new(seriesObservation, features.Copy()), new(unseenObservation, features.Copy())]
+                Alternatives = [new(seriesObservation, features.Copy()) { LibraryItemId = series }, new(unseenObservation, features.Copy()) { LibraryItemId = unseen }]
             }
         };
         var history = new RecommendationChoiceHistory();
@@ -539,7 +539,10 @@ public class TrainingServiceTests
         using var service = CreateSut();
         service.ChoiceHistory = history;
         var previous = new RecommendationResult { UserId = user, GeneratedAt = now.AddHours(-1), Recommendations = [new RecommendedItem { ItemId = unseen, ItemType = "Movie", ScoringFeatures = features.Copy() }] };
-        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>(), new Dictionary<Guid, int> { [series] = 43 });
+        var metadata = new LibraryItemMetadata(new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<string>>(), new Dictionary<Guid, IReadOnlyList<Guid>>(), new Dictionary<Guid, int> { [series] = 43 })
+        {
+            TitleKeysByItemId = new Dictionary<Guid, (int, string)> { [series] = (43, "tv") }
+        };
         var recorder = new RecordingStrategy();
         Assert.True(service.Train(recorder, [previous], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
         var examples = recorder.LastReceivedTrainSet!.Concat(recorder.LastReceivedHeldOutSet ?? []).ToArray();
@@ -547,6 +550,14 @@ public class TrainingServiceTests
         Assert.Equal(unseenObservation, Assert.Single(Assert.Single(examples, row => row.Choice is not null).Choice!.Alternatives).ObservationId);
         Assert.DoesNotContain(examples, row => row.ObservationId == seriesObservation);
         Assert.Equal(2, oldChoice.Choice!.Alternatives.Length);
+        profile.WatchedItems.RemoveAt(1);
+        var controlHistory = new RecommendationChoiceHistory();
+        controlHistory.Merge([oldChoice], new HashSet<Guid> { user }, now);
+        service.ChoiceHistory = controlHistory;
+        var control = new RecordingStrategy();
+        Assert.True(service.Train(control, [previous], libraryItemMetadata: metadata, cancellationToken: TestContext.Current.CancellationToken));
+        var controlRows = control.LastReceivedTrainSet!.Concat(control.LastReceivedHeldOutSet ?? []).ToArray();
+        Assert.Contains(Assert.Single(controlRows, row => row.Choice is not null).Choice!.Alternatives, alternative => alternative.ObservationId == seriesObservation);
     }
 
     [Fact]
@@ -1100,15 +1111,25 @@ public class TrainingServiceTests
     public void Train_Incremental_SubsamplesOldExamples()
     {
         // Incremental=true reduces the training set to "recent + sampled old".
-        var userId = Guid.NewGuid();
-        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        var userId = Guid.Parse("1074058b-c035-4352-9e46-f922dbdc92b0");
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile { UserId = userId };
+        var nextId = 1;
+        while (profile.WatchedItems.Count < 80)
+        {
+            var item = new Guid(nextId++, 0, 0, new byte[8]);
+            if (new TrainingExample { Features = new CandidateFeatures(), ObservationId = TrainingExample.CreateLibraryObservationId(userId, item), HasStableObservationId = true }.IsPermanentHoldout) continue;
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = item, ItemType = "Movie", Played = true, Genres = ["Drama"], LastPlayedDate = now.AddDays(-30) });
+        }
+
+        var profiles = new Collection<UserWatchProfile> { profile };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
         _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
 
         using var sut = CreateSut();
         var strategy = new RecordingStrategy();
         var baselineStrategy = new RecordingStrategy();
-        var previous = new[] { CreateResultWithRecommendations(userId) };
+        var previous = new[] { new RecommendationResult { UserId = userId, GeneratedAt = now.AddDays(-7) } };
 
         var baselineResult = sut.Train(baselineStrategy, previous, incremental: false, cancellationToken: TestContext.Current.CancellationToken);
         var incrementalResult = sut.Train(strategy, previous, incremental: true, cancellationToken: TestContext.Current.CancellationToken);
@@ -1118,10 +1139,11 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedTrainSet);
         Assert.NotNull(baselineStrategy.LastReceivedTrainSet);
 
-        // Invariant: an incremental pass never enlarges the training set relative to a full pass on the same fixture.
-        Assert.True(
-            strategy.LastReceivedTrainSet!.Count <= baselineStrategy.LastReceivedTrainSet!.Count,
-            $"incremental training must not enlarge the training set (baseline={baselineStrategy.LastReceivedTrainSet!.Count}, incremental={strategy.LastReceivedTrainSet!.Count})");
+        // Stay above the real sampling threshold and outside the permanent holdout:
+        // this checks sampling, not the luck of two random title IDs landing in fitting.
+        Assert.Equal(80, baselineStrategy.LastReceivedTrainSet!.Count);
+        Assert.Equal(24, strategy.LastReceivedTrainSet!.Count);
+        Assert.All(strategy.LastReceivedTrainSet, example => Assert.Contains(example.ObservationId, baselineStrategy.LastReceivedTrainSet.Select(row => row.ObservationId)));
     }
 
     [Theory]

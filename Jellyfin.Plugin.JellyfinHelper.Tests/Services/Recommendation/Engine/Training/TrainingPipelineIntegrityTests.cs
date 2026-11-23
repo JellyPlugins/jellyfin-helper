@@ -38,6 +38,23 @@ public sealed class TrainingPipelineIntegrityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void UnfinishedLibraryPlaybackSuppressesTheSameTitlesPassiveVisibilitySample(bool engaged)
+    {
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        var predicted = DateTime.UtcNow.AddDays(-12);
+        var result = new RecommendationResult { UserId = user, GeneratedAt = predicted, Recommendations = [new() { ItemId = item, ItemType = "Movie", TmdbId = 700, DateCreated = predicted.AddDays(-1), ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, HasGenreEvidence = true } }] };
+        var profile = new UserWatchProfile { UserId = user };
+        if (engaged) profile.WatchedItems.Add(new() { ItemId = item, ItemType = "Movie", TmdbId = 700, Played = false, PlaybackPositionTicks = 80, RuntimeTicks = 100, LastPlayedDate = predicted.AddDays(1) });
+        var feedback = new DiscoveryFeedbackResult { UserId = user, Entries = [new() { TmdbId = 700, MediaType = "movie", ShownAtUtc = predicted, ImpressionAtUtc = predicted.AddDays(1), ScoringFeatures = new CandidateFeatures { GenreSimilarity = .7, IsExternalCandidate = true } }] };
+        var examples = TrainingDataBuilder.BuildExamples([result], [profile], [feedback], TestContext.Current.CancellationToken).Examples;
+        Assert.Equal(!engaged, examples.Any(example => example.IsPassiveSample));
+        Assert.DoesNotContain(profile.WatchedItems, row => row.Played);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void ChoosingTheFifthPlaylistTitleIsRelativeEvidenceAgainstTheUnchosenFirstNotAnObservedDislike(bool completed)
     {
         var user = Guid.NewGuid();
@@ -58,7 +75,7 @@ public sealed class TrainingPipelineIntegrityTests
             ItemId = listed[4].ItemId, ItemType = "Movie", Played = completed, PlaybackPositionTicks = completed ? 0 : 80,
             RuntimeTicks = 100, LastPlayedDate = Prediction.AddDays(1), DateCreated = Prediction.AddDays(-1)
         }] };
-        var built = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken);
+        var built = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
         var firstId = TrainingExample.CreateLibraryObservationId(user, listed[0].ItemId);
         Assert.DoesNotContain(built.Examples, example => example.ObservationId == firstId && example.IsObserved);
         if (completed)
@@ -75,7 +92,7 @@ public sealed class TrainingPipelineIntegrityTests
             Assert.InRange(built.Examples.Where(example => example.IsContrastSample).Sum(example => example.SampleWeight), .24, .26);
 
             profile.WatchedItems.Add(new WatchedItemInfo { ItemId = listed[0].ItemId, ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(2), DateCreated = Prediction.AddDays(-1) });
-            var afterAlsoWatchingFirst = TrainingDataBuilder.BuildExamples([result], [profile], TestContext.Current.CancellationToken);
+            var afterAlsoWatchingFirst = TrainingDataBuilder.BuildExamples([result], [profile], Prediction.AddDays(3), TestContext.Current.CancellationToken);
             Assert.DoesNotContain(afterAlsoWatchingFirst.Examples, example => example.ObservationId == firstId && example.IsContrastSample);
         }
         else
