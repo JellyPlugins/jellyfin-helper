@@ -2465,7 +2465,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 Add("Tvdb", metadata.TvdbId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            if (metadata?.ImdbId is { } imdb)
+            if (metadata.ImdbId is { } imdb)
             {
                 Add("Imdb", imdb);
             }

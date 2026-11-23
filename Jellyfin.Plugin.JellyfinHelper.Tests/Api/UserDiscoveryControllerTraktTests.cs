@@ -397,10 +397,9 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
 
         var gate = (SemaphoreSlim)typeof(DiscoveryCacheService).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(_cache)!;
         await gate.WaitAsync(TestContext.Current.CancellationToken);
-        Task<DiscoveryResult>? read = null;
+        var read = Read();
         try
         {
-            read = Read();
             Assert.False(read.IsCompleted);
             _discoveryMock.Verify(service => service.FilterConsumedItems(user, It.IsAny<DiscoveryResult>()), Times.Never);
             dismissed = true;
@@ -408,10 +407,10 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         finally
         {
             gate.Release();
-            if (read is not null) await read.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await read.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
 
-        var delivered = await read!;
+        var delivered = await read;
         Assert.Equal(Enumerable.Range(1001, 10), delivered.Recommendations.Select(item => item.TmdbId));
         Assert.Equal(20, pool.Recommendations.Count);
         Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = delivered.DeliveryId, Items = [new() { TmdbId = 1000, MediaType = "movie" }] }));
