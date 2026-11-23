@@ -152,7 +152,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public async Task NativeReconciliationRestoresAnExpiredPreparedCardAfterRestartEvenForACompletedIdentityOnlyRequest(bool completedIdentity, bool failConfirmation)
+    public async Task NativeReconciliationRestoresThePreparedOriginalWithoutACachedDeliveryAfterRestart(bool completedIdentity, bool failConfirmation)
     {
         var directory = Path.Join(Path.GetTempPath(), "jfh-native-prepared-" + Guid.NewGuid().ToString("N"));
         var user = Guid.NewGuid();
@@ -190,6 +190,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         try
         {
             Assert.True(await _cache.SaveAsync([], TestContext.Current.CancellationToken));
+            Assert.Empty(await _cache.LoadAsync(TestContext.Current.CancellationToken));
             _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, $$"""{"pageInfo":{"pages":1,"results":1},"results":[{"id":42,"jellyfinUserId":"{{user:N}}"}]}""");
             _handler.RegisterResponse(HttpMethod.Get, "requestedBy=42", HttpStatusCode.OK, """{"pageInfo":{"pages":1,"results":1},"results":[{"id":70,"status":2,"media":{"tmdbId":700,"mediaType":"movie","status":3}}]}""");
             var library = TestMockFactory.CreateLibraryManager();

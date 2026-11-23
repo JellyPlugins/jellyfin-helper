@@ -40,6 +40,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <summary>Durable negative provenance for administrator-preserved ambiguous IDs, independent of playlist names.</summary>
     internal const string PreservedPlaylistProviderKey = "JellyfinHelperPreservedPlaylist";
 
+    /// <summary>Attempt-specific creation provenance; a reused ID and owner do not carry this marker.</summary>
+    internal const string CreationAttemptProviderKey = "JellyfinHelperPlaylistAttempt";
+
     private const string LogCategory = "PlaylistSync";
     private const int MaximumCreationRecoveryPasses = 4;
 
@@ -54,6 +57,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     private readonly ILinkedChildrenService? _linkedChildren;
     private readonly Func<Guid, IReadOnlyList<BaseItem>>? _ownedPlaylists;
     private readonly ConcurrentDictionary<Guid, Guid> _unmarkedReplacements = new();
+    private readonly ConcurrentDictionary<Guid, CreationProof> _creationProofs = new();
+    private readonly AsyncLocal<Guid?> _creationExecution = new();
     private readonly ConcurrentDictionary<Guid, HashSet<Guid>> _uncertainCreations = new();
     private readonly PlaylistOwnerOperations _ownerOperations = new();
     private readonly Lock _recoveryInitializationGate = new();
@@ -102,6 +107,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <summary>Gets the durable creation-evidence completion boundary.</summary>
     internal Action<string> DeleteCreationState { get; init; } = File.Delete;
 
+    /// <summary>Gets the fully reserved creation budget; smaller overrides exercise admission boundaries.</summary>
+    internal long CreationJournalByteBudget { get; init; } = PlaylistCreationJournal.MaximumJournalBytes;
+
     private PlaylistCreationJournal EnsureCreationRecovery()
     {
         lock (_recoveryInitializationGate)
@@ -112,7 +120,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             var directory = RecoveryDirectory ?? throw new IOException("A durable playlist creation recovery directory is required.");
-            var journal = new PlaylistCreationJournal(directory, WriteCreationState, DeleteCreationState);
+            var journal = new PlaylistCreationJournal(directory, WriteCreationState, DeleteCreationState, byteBudget: CreationJournalByteBudget);
             foreach (var attempt in journal.Pending())
             {
                 _uncertainCreations.TryAdd(attempt.Owner, attempt.BeforeIds.ToHashSet());
@@ -215,7 +223,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             var inspected = before.ToHashSet();
             var attempt = EnsureCreationRecovery().Get(userId);
-            if (attempt?.ReturnedId is { } returned)
+            if (attempt?.ReturnedId is { } returned && HasCreationProof(returned, userId))
             {
                 inspected.Add(returned);
             }
@@ -252,7 +260,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         foreach (var id in current.Except(inspected))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if ((!_unmarkedReplacements.TryGetValue(id, out var receiptOwner) || receiptOwner != userId)
+            if ((!_unmarkedReplacements.TryGetValue(id, out var receiptOwner) || receiptOwner != userId || !HasCreationProof(id, userId))
                 && !await PreserveAmbiguousPlaylistAsync(id, userId, cancellationToken).ConfigureAwait(false))
             {
                 return false;
@@ -279,14 +287,22 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
         // Persist the ID-specific no-delete decision before releasing the gate.
         // It survives restarts and cannot be copied to protect a different ID.
-        playlist.ProviderIds[PreservedPlaylistProviderKey] = id.ToString("N");
-        await _libraryManager.UpdateItemAsync(playlist, parent, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-        if (playlist.IsFile)
+        var previous = playlist.ProviderIds.GetValueOrDefault(PreservedPlaylistProviderKey);
+        var saved = false;
+        try
         {
-            _playlistManager.SavePlaylistFile(playlist);
+            playlist.ProviderIds[PreservedPlaylistProviderKey] = id.ToString("N");
+            await _libraryManager.UpdateItemAsync(playlist, parent, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+            saved = true;
+            return true;
         }
-
-        return true;
+        finally
+        {
+            if (!saved)
+            {
+                RestoreProviderId(playlist, PreservedPlaylistProviderKey, previous);
+            }
+        }
     }
 
     /// <summary>
@@ -429,8 +445,23 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             request.ItemIdList = itemIds;
-            var playlistResult = await CreateReplacementAsync(request, beforeCreation, cancellationToken).ConfigureAwait(false);
+            var playlistResult = await CreateReplacementAsync(request, beforeCreation, originatingItems, cancellationToken).ConfigureAwait(false);
+            if (playlistResult is null)
+            {
+                syncResult.OldPlaylistsRemoved += RemoveUserPlaylists(result.UserId, cancellationToken);
+                return;
+            }
+
             itemIds = request.ItemIdList.ToArray();
+
+            var addedItems = ReadPersistedReplacementItems(Guid.Parse(playlistResult.Id), result.UserId, itemIds);
+            if (addedItems == 0)
+            {
+                syncResult.PlaylistsFailed++;
+                RememberUnmarkedReplacement(playlistResult.Id, result.UserId);
+                ClearUnmarkedReplacements(result.UserId);
+                return;
+            }
 
             // CreateReplacementAsync returns only a verified new identity.
             if (!await MarkReplacementAsync(playlistResult.Id, result.UserId, cancellationToken).ConfigureAwait(false))
@@ -452,11 +483,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             var removed = RemoveUserPlaylistsExcept(result.UserId, playlistResult.Id, cancellationToken);
             syncResult.OldPlaylistsRemoved += removed;
             syncResult.PlaylistsCreated++;
-            syncResult.TotalItemsAdded += itemIds.Length;
+            syncResult.TotalItemsAdded += addedItems;
 
             _pluginLog.LogDebug(
                 LogCategory,
-                $"Created playlist '{playlistName}' for user '{result.UserName}' with {itemIds.Length} items.",
+                $"Created playlist '{playlistName}' for user '{result.UserName}' with {addedItems} items.",
                 _logger);
         }
         catch (OperationCanceledException)
@@ -1057,7 +1088,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         try
         {
             if (!Guid.TryParse(playlistId, out var id) || _libraryManager.GetItemById(id) is not MediaBrowser.Controller.Playlists.Playlist playlist
-                || playlist.OwnerUserId != userId)
+                || playlist.OwnerUserId != userId || !HasCreationProof(id, userId, playlist))
             {
                 return false;
             }
@@ -1068,14 +1099,26 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 return false;
             }
 
-            playlist.ProviderIds[ManagedOwnerProviderKey] = userId.ToString("N");
-            await _libraryManager.UpdateItemAsync(playlist, parent, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-            if (playlist.IsFile)
+            var attempt = EnsureCreationRecovery().Get(userId)!;
+            var previousOwner = playlist.ProviderIds.GetValueOrDefault(ManagedOwnerProviderKey);
+            var previousAttempt = playlist.ProviderIds.GetValueOrDefault(CreationAttemptProviderKey);
+            var saved = false;
+            try
             {
-                _playlistManager.SavePlaylistFile(playlist);
+                playlist.ProviderIds[ManagedOwnerProviderKey] = userId.ToString("N");
+                playlist.ProviderIds[CreationAttemptProviderKey] = attempt.Id.ToString("N");
+                await _libraryManager.UpdateItemAsync(playlist, parent, ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+                saved = true;
+                return true;
             }
-
-            return true;
+            finally
+            {
+                if (!saved)
+                {
+                    RestoreProviderId(playlist, ManagedOwnerProviderKey, previousOwner);
+                    RestoreProviderId(playlist, CreationAttemptProviderKey, previousAttempt);
+                }
+            }
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
         {
@@ -1130,6 +1173,13 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             var item = _libraryManager.GetItemById(receipt.Key);
             var owned = item is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == receipt.Value;
+            if (owned && !HasCreationProof(receipt.Key, receipt.Value, item))
+            {
+                // Restored IDs without an attempt marker, or a different current
+                // object reusing the ID, are ambiguous. Never delete by owner/name.
+                return (false, false);
+            }
+
             if (owned && !TryRemovePlaylist(item!, receipt.Value))
             {
                 return (false, false);
@@ -1138,6 +1188,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // Absent or differently owned IDs never authorize deletion. Conditional
             // removal cannot discard a concurrent receipt for another owner.
             ((ICollection<KeyValuePair<Guid, Guid>>)_unmarkedReplacements).Remove(receipt);
+            _creationProofs.TryRemove(receipt.Key, out _);
             return (true, owned);
         }
         catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
@@ -1205,22 +1256,74 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     private bool IsPreservedOwnedId(Guid id, Guid owner)
         => _libraryManager.GetItemById(id) is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == owner && IsPreservedPlaylist(playlist);
 
+    private bool HasCreationProof(Guid id, Guid owner, BaseItem? item = null)
+    {
+        var attempt = EnsureCreationRecovery().Get(owner);
+        item ??= _libraryManager.GetItemById(id);
+        return attempt?.ReturnedId == id && item is MediaBrowser.Controller.Playlists.Playlist playlist && playlist.OwnerUserId == owner
+            && (playlist.ProviderIds.GetValueOrDefault(CreationAttemptProviderKey) == attempt.Id.ToString("N")
+                || (_creationProofs.TryGetValue(id, out var proof) && proof.Attempt == attempt.Id && ReferenceEquals(proof.Item, item)));
+    }
+
+    private static void RestoreProviderId(BaseItem item, string key, string? previous)
+    {
+        if (previous is null)
+        {
+            item.ProviderIds.Remove(key);
+        }
+        else
+        {
+            item.ProviderIds[key] = previous;
+        }
+    }
+
+    private int ReadPersistedReplacementItems(Guid id, Guid owner, IReadOnlyCollection<Guid> requested)
+    {
+        if (_libraryManager.GetItemById(id) is not MediaBrowser.Controller.Playlists.Playlist playlist || playlist.OwnerUserId != owner || !HasCreationProof(id, owner, playlist))
+        {
+            throw new IOException("The returned playlist no longer matches its creation receipt.");
+        }
+
+        var entries = _linkedChildren is null
+            ? playlist.LinkedChildren.Where(child => child.Type == LinkedChildType.Manual && child.ItemId.HasValue).Select(child => child.ItemId.GetValueOrDefault()).ToArray()
+            : _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual) ?? throw new IOException("Persisted playlist entries are unavailable.");
+        var expected = requested.ToHashSet();
+        if (entries.Count > expected.Count || entries.Any(entry => !expected.Contains(entry)))
+        {
+            throw new IOException("The returned playlist contains entries not established by this creation attempt.");
+        }
+
+        return entries.Distinct().Count();
+    }
+
     private bool CompleteCreationAttempt(Guid owner, HashSet<Guid> before, HashSet<Guid> current)
     {
         var journal = EnsureCreationRecovery();
         var attempt = journal.Get(owner);
-        if (attempt?.ReturnedId is { } returned && !attempt.Marked && current.Contains(returned))
+        if (attempt?.ReturnedId is { } returned && !attempt.Marked && current.Contains(returned) && !IsPreservedOwnedId(returned, owner))
         {
             return false;
         }
 
         // Clear the matching in-memory gate only after the same durable attempt
         // completed. A changed journal identity must leave that gate untouched.
-        return (attempt is null || journal.Complete(owner, attempt.Id))
+        if (current.Any(id => !before.Contains(id) && !(attempt?.Marked == true && attempt.ReturnedId == id && HasCreationProof(id, owner)) && !IsPreservedOwnedId(id, owner)))
+        {
+            return false;
+        }
+
+        var completed = (attempt is null || journal.Complete(owner, attempt.Id))
             && ((ICollection<KeyValuePair<Guid, HashSet<Guid>>>)_uncertainCreations).Remove(new(owner, before));
+        if (completed && attempt?.ReturnedId is { } completedId)
+        {
+            ((ICollection<KeyValuePair<Guid, Guid>>)_unmarkedReplacements).Remove(new(completedId, owner));
+            _creationProofs.TryRemove(completedId, out _);
+        }
+
+        return completed;
     }
 
-    private async Task<PlaylistCreationResult> CreateReplacementAsync(PlaylistCreationRequest request, HashSet<Guid> before, CancellationToken cancellationToken)
+    private async Task<PlaylistCreationResult?> CreateReplacementAsync(PlaylistCreationRequest request, HashSet<Guid> before, List<(Guid Resolved, Guid Original)> origins, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var journal = EnsureCreationRecovery();
@@ -1239,20 +1342,33 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 // Durable admission itself can wait on I/O. Revalidate physical
                 // items against current access/playback after that final wait.
-                request.ItemIdList = RecheckResolvedItemsAtCreation(request.ItemIdList.ToArray(), owner, [], cancellationToken);
+                request.ItemIdList = RecheckResolvedItemsAtCreation(request.ItemIdList.ToArray(), owner, origins, cancellationToken);
                 if (request.ItemIdList.Count == 0)
                 {
-                    throw new IOException("No current permitted unseen playlist item remains after durable admission.");
+                    if (!CanReconcileUncertainCreation(request.UserId))
+                    {
+                        throw new IOException("Confirmed-empty creation could not be reconciled safely.");
+                    }
+
+                    return null;
                 }
             }
 
-            var created = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+            var registration = await CreateWithRegistrationReceiptAsync(request, attempt, before).ConfigureAwait(false);
+            var created = registration.Result;
             if (!Guid.TryParse(created.Id, out var id) || id == Guid.Empty || before.Contains(id))
             {
                 throw new IOException("The host did not return a new playlist identity; the failed attempt must be reconciled.");
             }
 
             _unmarkedReplacements.TryAdd(id, request.UserId);
+            if (registration.Registered is { } registered && registered.Id == id)
+            {
+                // Captured from this host call's registration event, never from
+                // a later lookup that might already refer to a reused manual ID.
+                _creationProofs.TryAdd(id, new CreationProof(attempt.Id, registered));
+            }
+
             journal.RecordReturned(request.UserId, attempt.Id, id);
             return created;
         }
@@ -1262,6 +1378,36 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // retry an ID-less failed call without reconciling its ownership snapshot.
             _uncertainCreations.TryAdd(request.UserId, before);
             throw;
+        }
+    }
+
+    private async Task<(PlaylistCreationResult Result, MediaBrowser.Controller.Playlists.Playlist? Registered)> CreateWithRegistrationReceiptAsync(
+        PlaylistCreationRequest request,
+        PlaylistCreationJournal.Attempt attempt,
+        HashSet<Guid> before)
+    {
+        MediaBrowser.Controller.Playlists.Playlist? registered = null;
+        var previous = _creationExecution.Value;
+        void OnRegistered(object? sender, ItemChangeEventArgs change)
+        {
+            if (_creationExecution.Value == attempt.Id && change.Item is MediaBrowser.Controller.Playlists.Playlist playlist
+                && playlist.OwnerUserId == request.UserId && playlist.Name == request.Name && !before.Contains(playlist.Id))
+            {
+                Interlocked.CompareExchange(ref registered, playlist, null);
+            }
+        }
+
+        _creationExecution.Value = attempt.Id;
+        _libraryManager.ItemAdded += OnRegistered;
+        try
+        {
+            var result = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
+            return (result, registered);
+        }
+        finally
+        {
+            _libraryManager.ItemAdded -= OnRegistered;
+            _creationExecution.Value = previous;
         }
     }
 
@@ -1481,6 +1627,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     }
 
     private sealed record MovieSequenceSnapshot(Dictionary<int, Movie> Unseen, HashSet<int> Completed, Dictionary<Guid, int> CollectionIds);
+
+    private sealed record CreationProof(Guid Attempt, BaseItem Item);
 
     private sealed record DeliveryContext(Jellyfin.Database.Implementations.Entities.User? User, LibraryRootScope? Scope, bool VerifyLive, Lazy<MovieSequenceSnapshot> SequenceMovies);
 }

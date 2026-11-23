@@ -398,6 +398,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryCacheServiceTests.cs            # Disk/memory snapshots; bounded single-writer waits, cancellation and safe deferred disposal
 │   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
+│   │       ├── DiscoveryDismissalIdentityStoreTests.cs   # Independent durable identities, bounded ownership/storage, cold-read recovery and transactional publication
 │   │       ├── DiscoveryFeedbackStoreTests.cs          # Typed receipt recovery, dependent watches, bounded backpressure and atomic training views
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
@@ -881,6 +882,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrCrewMember.cs       # Crew member DTO
 │   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
 │   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
+│   │       ├── DiscoveryDismissalIdentityStore.cs # Independent bounded permanent dismissal identities and atomic per-user publication
 │   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
 │   │       ├── DiscoveryFeedbackRecoveryJournal.cs # Bounded durable server-owned original feedback evidence
 │   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
@@ -1198,6 +1200,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Seerr/Discovery/`
 
 - `DiscoveryCacheServiceTests.cs`
+- `DiscoveryDismissalIdentityStoreTests.cs`
 - `DiscoveryFeedbackStoreTests.cs`
 - `DiscoveryRecommendationTests.cs`
 - `DiscoveryRegressionTests.cs`
@@ -1597,6 +1600,7 @@ the heuristic rules and ensemble blend limits are unchanged.
 
 - `AllowedQualityProfile.cs`
 - `DiscoveryCacheService.cs`
+- `DiscoveryDismissalIdentityStore.cs`
 - `DiscoveryFeedbackEntry.cs`
 - `DiscoveryFeedbackResult.cs`
 - `DiscoveryDismissedItem.cs`

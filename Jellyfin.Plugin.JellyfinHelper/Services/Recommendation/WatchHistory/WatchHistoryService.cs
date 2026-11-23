@@ -427,7 +427,7 @@ public sealed class WatchHistoryService : IWatchHistoryService, IDisposable
         LibraryRootScope? onDemandScope = null;
         if (allItems is null || allSeries is null)
         {
-            onDemandScope = ResolveLibraryScope();
+            onDemandScope = ResolveLibraryScope(mediaExcluded);
         }
 
         allItems ??= LoadAllVideoItems(onDemandScope);

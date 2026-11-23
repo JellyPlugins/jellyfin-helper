@@ -413,6 +413,7 @@ public sealed class UserDiscoveryControllerTraktTests : IDisposable
         var delivered = await read;
         Assert.Equal(Enumerable.Range(1001, 10), delivered.Recommendations.Select(item => item.TmdbId));
         Assert.Equal(20, pool.Recommendations.Count);
+        Assert.IsType<NoContentResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = delivered.DeliveryId, Items = [new() { TmdbId = 1001, MediaType = "movie" }] }));
         Assert.IsType<BadRequestObjectResult>(controller.RecordImpressions(new DiscoveryImpressionsDto { DeliveryId = delivered.DeliveryId, Items = [new() { TmdbId = 1000, MediaType = "movie" }] }));
     }
 

@@ -266,9 +266,11 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
                 Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
             }
         };
+        var submissionStarted = false;
         try
         {
             var prepared = await PrepareConcreteCardRequestAsync(user, store);
+            submissionStarted = true;
             var request = prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             await clock.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
@@ -276,14 +278,25 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             Assert.Equal(503, Assert.IsType<ObjectResult>((await request.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)).Result).StatusCode);
             Assert.Contains((700, "movie"), store.GetPendingRequestedItems(user));
             Assert.Throws<IOException>(() => store.LoadAll());
+            release.Set();
+            await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
         }
         finally
         {
             release.Set();
-            await FeedbackWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-            Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
-            store.Dispose();
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            try
+            {
+                if (submissionStarted && typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store) is Task<bool> writer)
+                {
+                    await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                }
+            }
+            finally
+            {
+                store.Dispose();
+                if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            }
         }
     }
 
@@ -745,7 +758,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             Assert.Throws<IOException>(() => store.LoadAll());
             using (var beforeRecovery = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), path))
             {
-                Assert.DoesNotContain((700, "tv"), beforeRecovery.GetDismissedItems(user));
+                Assert.Contains((700, "tv"), beforeRecovery.GetDismissedItems(user));
+                Assert.Null(Assert.Single(beforeRecovery.LoadForUser(user)!.Entries).DismissedAtUtc);
             }
 
             fail = false;

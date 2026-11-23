@@ -98,6 +98,9 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <summary>Gets or sets the test handoff immediately before an admitted asynchronous cache read waits on the file gate.</summary>
     internal Action? BeforeLoadWait { get; set; }
 
+    /// <summary>Gets or sets the test handoff immediately before the managed writer waits on the file gate.</summary>
+    internal Action? BeforeSaveWait { get; set; }
+
     /// <summary>
     ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache if available, otherwise reads from disk and populates the cache first.
     /// </summary>
@@ -603,6 +606,7 @@ public sealed class DiscoveryCacheService : IDisposable
     {
         ArgumentNullException.ThrowIfNull(results);
 
+        BeforeSaveWait?.Invoke();
         _fileLock.Wait();
         try
         {

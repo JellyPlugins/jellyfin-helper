@@ -199,7 +199,8 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         var saving = cache.SaveWithCompletionAsync([original], committed =>
         {
             Assert.Equal("original", Assert.Single(committed).UserName);
-            Assert.Equal("original", Assert.Single(cache.Load()).UserName);
+            using var published = new DiscoveryCacheService(new Mock<IPluginLogService>().Object, new Mock<ILogger<DiscoveryCacheService>>().Object, _cacheFilePath);
+            Assert.Equal(original.UserId, Assert.Single(published.Load()).UserId);
             Interlocked.Increment(ref calls);
             return Task.CompletedTask;
         }, TestContext.Current.CancellationToken);

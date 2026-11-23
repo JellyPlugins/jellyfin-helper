@@ -51,6 +51,19 @@ public sealed class ContentAffinityResolverTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InferredCollectionIdentityRequiresCompleteMembershipButDirectIdentityKeepsItsOwnProvenance(bool complete)
+    {
+        var inferred = new Movie { Id = Guid.NewGuid() };
+        var direct = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["TmdbCollection"] = "999" } };
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "123" }, LinkedChildren = [LinkedChild.Create(inferred), LinkedChild.Create(direct)] };
+        var memberships = new Dictionary<Guid, List<Guid>> { [inferred.Id] = [box.Id], [direct.Id] = [box.Id] };
+        Assert.Equal(complete ? 123 : 0, ContentAffinityResolver.ResolveTmdbCollectionId(inferred, [box], memberships, complete));
+        Assert.Equal(999, ContentAffinityResolver.ResolveTmdbCollectionId(direct, [box], memberships, complete));
+    }
+
+    [Theory]
     [InlineData(SeriesStatus.Continuing, "Continuing")]
     [InlineData(SeriesStatus.Ended, "Ended")]
     [InlineData(SeriesStatus.Unreleased, "Unreleased")]

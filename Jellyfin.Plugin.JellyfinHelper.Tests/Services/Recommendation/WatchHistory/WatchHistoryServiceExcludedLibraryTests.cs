@@ -137,6 +137,23 @@ public sealed class WatchHistoryServiceExcludedLibraryTests
         Assert.Equal(allowed.Id, Assert.Single(profile.WatchedItems).ItemId);
     }
 
+    [Fact]
+    public void OnDemandLibraryScopeUsesTheCapturedExclusionsInsteadOfASecondConfigurationRead()
+    {
+        using var service = CreateService("Anime");
+        var user = new Jellyfin.Database.Implementations.Entities.User("viewer", "prov", "res");
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        var reads = 0;
+        _mockConfigService.Setup(configuration => configuration.GetConfiguration()).Returns(() => new PluginConfiguration { ExcludedLibraries = ++reads == 2 ? "Movies" : "Anime" });
+        var allowed = new Movie { Id = Guid.NewGuid(), Path = AllowedRoot + "/watched.mkv", Genres = ["Drama"] };
+        var excluded = new Movie { Id = Guid.NewGuid(), Path = ExcludedRoot + "/watched.mkv", Genres = ["Animation"] };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IsFolder == true || query.IncludeItemTypes.Contains(Jellyfin.Data.Enums.BaseItemKind.BoxSet) ? [] : [allowed, excluded]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, It.IsAny<BaseItem>())).Returns(new UserItemData { Key = "played", Played = true });
+        var profile = service.GetUserWatchProfile(user.Id)!;
+        Assert.Equal(allowed.Id, Assert.Single(profile.WatchedItems).ItemId);
+        _mockUserDataManager.Verify(manager => manager.GetUserData(user, excluded), Times.Never);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("Anime")]

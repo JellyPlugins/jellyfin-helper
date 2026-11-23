@@ -33,8 +33,9 @@ internal static class ContentAffinityResolver
     /// <param name="item">The library movie; BoxSet libraries are optional.</param>
     /// <param name="collections">Optional corroboration for ambiguous self-valued IDs.</param>
     /// <param name="memberships">An optional pre-resolved authoritative item-to-BoxSet lookup.</param>
+    /// <param name="membershipsComplete">Whether every authoritative membership read completed; partial reads cannot establish an inferred identity.</param>
     /// <returns>The typed collection ID, or zero while evidence is insufficient.</returns>
-    internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null)
+    internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null, bool membershipsComplete = true)
     {
         if (item is not Movie)
         {
@@ -43,7 +44,7 @@ internal static class ContentAffinityResolver
 
         if (!int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0)
         {
-            return ResolveLinkedCollectionId(item, collections, memberships);
+            return membershipsComplete ? ResolveLinkedCollectionId(item, collections, memberships) : 0;
         }
 
         if (!NeedsCollectionCorroboration(item))

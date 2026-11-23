@@ -120,11 +120,7 @@ public sealed class TitleMetadataCache
         lock (_gate)
         {
             var now = Now;
-            var keys = IdentityKeys(Key(config, 0, mediaType, language).Split(':')[0], mediaType, tmdbId, tvdbId, imdbId).ToList();
-            foreach (var source in ActiveSupplementalSources(config))
-            {
-                keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == "trakt" ? null : language), mediaType, tmdbId, tvdbId, imdbId));
-            }
+            var keys = LookupIdentityKeys(config, mediaType, tmdbId, tvdbId, imdbId, language);
 
             // An ambiguous current scope is not a miss that another provider may silently
             // resolve. Exact TMDb anchors remain usable; expired alias claims do not compete.
@@ -158,6 +154,36 @@ public sealed class TitleMetadataCache
 
             return TitleMetadataMerger.Combine(snapshots);
         }
+    }
+
+    /// <summary>Checks all current source claims before an alias-only physical copy establishes ownership.</summary>
+    /// <param name="config">Current configured metadata sources.</param>
+    /// <param name="mediaType">The typed title namespace.</param>
+    /// <param name="tvdbId">The independently observed television alias.</param>
+    /// <param name="imdbId">Optional independently observed IMDb corroboration.</param>
+    /// <returns>Whether the supplied aliases still admit competing current identities.</returns>
+    internal bool HasAmbiguousAliasClaims(PluginConfiguration config, string mediaType, int tvdbId, string? imdbId)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var identity = new TitleMetadataSnapshot { MediaType = mediaType, TvdbId = tvdbId, ImdbId = TitleProviderIdentity.NormalizeImdb(imdbId) };
+        lock (_gate)
+        {
+            var now = Now;
+            var keys = LookupIdentityKeys(config, mediaType, 0, tvdbId, identity.ImdbId, MetadataLanguage);
+            return keys.Any(key => AliasIsAmbiguous(key, identity, now))
+                || ConflictingIdentities(keys.Select(key => ReadEntry(key, now, identity)).OfType<TitleMetadataSnapshot>());
+        }
+    }
+
+    private List<string> LookupIdentityKeys(PluginConfiguration config, string mediaType, int tmdbId, int tvdbId, string? imdbId, string? language)
+    {
+        var keys = IdentityKeys(Key(config, 0, mediaType, language).Split(':')[0], mediaType, tmdbId, tvdbId, imdbId).ToList();
+        foreach (var source in ActiveSupplementalSources(config))
+        {
+            keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == "trakt" ? null : language), mediaType, tmdbId, tvdbId, imdbId));
+        }
+
+        return keys;
     }
 
     private static TitleMetadataSnapshot LinkSuppliedIdentity(TitleMetadataSnapshot snapshot, TitleMetadataSnapshot identity)

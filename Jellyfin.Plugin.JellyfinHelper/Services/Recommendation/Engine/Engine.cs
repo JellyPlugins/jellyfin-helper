@@ -2367,14 +2367,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
             var collections = queried.OfType<MediaBrowser.Controller.Entities.Movies.BoxSet>().ToArray();
             var incompleteSequences = new HashSet<Guid>();
-            membershipsComplete = CollectionMembershipResolver.Merge(
+            var complete = CollectionMembershipResolver.Merge(
                 lookup,
                 allTitles.Select(candidate => candidate.Id).ToHashSet(),
                 collections,
                 _linkedChildren is null ? null : id => _linkedChildren.GetLinkedChildrenIds(id, (int)LinkedChildType.Manual),
                 ex => _pluginLog.LogWarning(LogCategory, "Collection relationship query failed; retaining linked-item and parent fallbacks.", ex, _logger),
                 incompleteSequences);
-            collectionIds = candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, collections, lookup));
+            membershipsComplete = complete;
+            collectionIds = candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, collections, lookup, complete));
             // A known member removed by path scope (or absent altogether) must not become an invisible gap.
             // Keep its collection neutral without importing excluded titles into serving or training.
             var sequenced = collections.Where(collection => !incompleteSequences.Contains(collection.Id)

@@ -43,6 +43,27 @@ public sealed class CollectionMembershipResolverTests
         Assert.Equal(1, calls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AFailedSecondMembershipReadCannotMakeTheFirstCollectionLookUnambiguous(bool failSecond)
+    {
+        var movie = new Movie { Id = Guid.NewGuid() };
+        var direct = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["TmdbCollection"] = "999" } };
+        var first = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "123" } };
+        var second = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "456" } };
+        var calls = 0;
+        var ids = CollectionMembershipResolver.CollectionIds([movie, direct], [first, second], id =>
+        {
+            calls++;
+            if (id == second.Id && failSecond) throw new IOException("authoritative membership unavailable");
+            return id == first.Id ? [movie.Id, direct.Id] : [];
+        });
+        Assert.Equal(failSecond ? 0 : 123, ids[movie.Id]);
+        Assert.Equal(999, ids[direct.Id]);
+        Assert.Equal(2, calls);
+    }
+
     [Fact]
     public void Merge_CancelledMembershipQueryPropagatesWithoutLegacyFallbackOrFailureLogging()
     {

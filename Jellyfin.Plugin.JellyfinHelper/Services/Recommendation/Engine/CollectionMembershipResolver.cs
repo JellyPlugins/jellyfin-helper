@@ -21,8 +21,8 @@ internal static class CollectionMembershipResolver
         var candidates = items.DistinctBy(item => item.Id).ToArray();
         var boxsets = collections.ToArray();
         var membership = new Dictionary<Guid, List<Guid>>();
-        Merge(membership, candidates.OfType<Movie>().Select(item => item.Id).ToHashSet(), boxsets, linkedChildren);
-        return candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, boxsets, membership));
+        var complete = Merge(membership, candidates.OfType<Movie>().Select(item => item.Id).ToHashSet(), boxsets, linkedChildren);
+        return candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, boxsets, membership, complete));
     }
 
     /// <summary>Captures one membership read for the allowed history population of a complete generation run.</summary>
