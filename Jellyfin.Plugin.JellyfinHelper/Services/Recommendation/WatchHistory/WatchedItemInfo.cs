@@ -239,9 +239,14 @@ public sealed class WatchedItemInfo
     /// <summary>
     ///     Checks if the user meaningfully interacted with this item.
     /// </summary>
-    /// <returns>True if played, favorited or has any playback.</returns>
+    /// <returns>True if played, favorited, explicitly rated or has any playback.</returns>
     public bool HasMeaningfulInteraction()
-        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0;
+        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0 || (UserRating is > 0 && double.IsFinite(UserRating.Value));
+
+    /// <summary>Checks for playback, a favorite or a genuinely positive explicit rating; dislikes alone never establish collaborative affinity.</summary>
+    /// <returns>Whether this row can supply positive collaborative overlap.</returns>
+    public bool HasPositiveInteraction()
+        => HasPlaybackActivity() || IsFavorite || (UserRating is > 5 && double.IsFinite(UserRating.Value));
 
     /// <summary>
     ///     Checks if the user actually played this item.

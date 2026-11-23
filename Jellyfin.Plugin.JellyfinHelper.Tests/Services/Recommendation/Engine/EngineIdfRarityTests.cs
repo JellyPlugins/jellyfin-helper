@@ -54,7 +54,9 @@ public sealed class EngineIdfRarityTests
             : harness.Engine.GetRecommendations(profile.UserId, 100, TestContext.Current.CancellationToken)!;
         var horror = Assert.Single(results.Recommendations, item => item.ItemId == candidates[99].Id);
         Assert.Equal(1, horror.ScoringFeatures!.GenreStudioIdfPrior);
-        Assert.All(results.Recommendations.Where(item => item.ItemId != horror.ItemId), item => Assert.Equal(commonRarity, item.ScoringFeatures!.GenreStudioIdfPrior, 12));
+        var drama = results.Recommendations.Where(item => item.ItemId != horror.ItemId).ToArray();
+        Assert.NotEmpty(drama);
+        Assert.All(drama, item => Assert.Equal(commonRarity, item.ScoringFeatures!.GenreStudioIdfPrior, 12));
         Assert.All(candidates, candidate => Assert.Empty(candidate.Genres));
     }
 

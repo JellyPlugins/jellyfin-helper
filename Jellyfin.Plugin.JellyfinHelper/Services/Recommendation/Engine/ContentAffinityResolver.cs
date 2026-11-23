@@ -36,9 +36,14 @@ internal static class ContentAffinityResolver
     /// <returns>The typed collection ID, or zero while evidence is insufficient.</returns>
     internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null)
     {
-        if (item is not Movie || !int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0)
+        if (item is not Movie)
         {
             return 0;
+        }
+
+        if (!int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0)
+        {
+            return ResolveLinkedCollectionId(item, collections, memberships);
         }
 
         if (!NeedsCollectionCorroboration(item))
@@ -51,6 +56,23 @@ internal static class ContentAffinityResolver
                 ? memberships.TryGetValue(item.Id, out var parents) && parents.Contains(boxset.Id)
                 : boxset.LinkedChildren.Any(child => child.Type == LinkedChildType.Manual && child.ItemId == item.Id))) == true;
         return supported ? id : 0;
+    }
+
+    private static int ResolveLinkedCollectionId(BaseItem item, IEnumerable<BoxSet>? collections, IReadOnlyDictionary<Guid, List<Guid>>? memberships)
+    {
+        if (memberships is not null && !memberships.ContainsKey(item.Id))
+        {
+            return 0;
+        }
+
+        // Only authoritative membership in one provider-backed BoxSet can
+        // supply a missing collection identity; names and ordering cannot.
+        var linked = (collections ?? []).Where(boxset => memberships is not null
+                ? memberships.TryGetValue(item.Id, out var parents) && parents.Contains(boxset.Id)
+                : boxset.LinkedChildren.Any(child => child.Type == LinkedChildType.Manual && child.ItemId == item.Id))
+            .Select(boxset => int.TryParse(boxset.ProviderIds.GetValueOrDefault("Tmdb"), out var collection) ? collection : 0)
+            .Where(collection => collection > 0).Distinct().Take(2).ToArray();
+        return linked.Length == 1 ? linked[0] : 0;
     }
 
     /// <summary>

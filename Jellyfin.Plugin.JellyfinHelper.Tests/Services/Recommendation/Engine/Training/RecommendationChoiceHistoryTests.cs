@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -12,6 +13,149 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 /// <summary>Actual choice evidence survives publication and restarts without becoming fresh or leaking held-out outcomes.</summary>
 public sealed class RecommendationChoiceHistoryTests
 {
+    [Fact]
+    public void ReplayEligibilityChecksReferencedCopiesRatherThanHashingEveryUsersEntireCatalog()
+    {
+        var catalog = Enumerable.Range(0, 100_000).Select(_ => Guid.NewGuid()).ToHashSet();
+        var chosenItem = catalog.First();
+        var alternativeItem = catalog.Last();
+        var now = DateTime.UtcNow;
+        var users = Enumerable.Range(0, 50).Select(_ => Guid.NewGuid()).ToHashSet();
+        var rows = users.Select(user => new TrainingExample
+        {
+            UserId = user, ObservationId = TrainingExample.CreateProviderObservationId(user, 77, "tv"), IsObserved = true, HasStableObservationId = true, Label = .8,
+            Features = new CandidateFeatures(), GeneratedAtUtc = now.AddDays(-2),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = TrainingExample.CreateProviderObservationId(user, 77, "tv"), ChosenItemId = chosenItem,
+                AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1), ChosenFeatures = new CandidateFeatures(),
+                Alternatives = [new(TrainingExample.CreateProviderObservationId(user, 88, "movie"), new CandidateFeatures()) { LibraryItemId = alternativeItem }]
+            }
+        }).ToArray();
+        var identities = new Dictionary<Guid, (int Id, string Type)> { [chosenItem] = (77, "tv"), [alternativeItem] = (88, "movie") };
+        var physicalChecks = 0;
+        var identityChecks = 0;
+        var history = new RecommendationChoiceHistory();
+        var eligible = history.CaptureEligibleReplayTitles(rows, users,
+            (_, item) => { physicalChecks++; return catalog.Contains(item); },
+            (user, item, observation) => { identityChecks++; return identities.TryGetValue(item, out var key) && observation == TrainingExample.CreateProviderObservationId(user, key.Id, key.Type); },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(100, eligible.Count);
+        Assert.Equal(100, physicalChecks);
+        Assert.Equal(100, identityChecks);
+    }
+
+    [Fact]
+    public void AnAllowedProviderDuplicateCannotCertifyTheCapturedPhysicalCopy()
+    {
+        var user = Guid.NewGuid();
+        var original = Guid.NewGuid();
+        var duplicate = Guid.NewGuid();
+        var alternative = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var chosen = TrainingExample.CreateProviderObservationId(user, 77, "tv");
+        var ignored = TrainingExample.CreateProviderObservationId(user, 88, "movie");
+        var row = new TrainingExample
+        {
+            UserId = user, ObservationId = chosen, Features = new CandidateFeatures(), IsObserved = true, HasStableObservationId = true, Label = .8, GeneratedAtUtc = now.AddDays(-2),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = chosen, ChosenItemId = original, ChosenFeatures = new CandidateFeatures(), AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1),
+                Alternatives = [new(ignored, new CandidateFeatures()) { LibraryItemId = alternative }]
+            }
+        };
+        var allowed = new HashSet<Guid> { duplicate, alternative };
+        var identities = new Dictionary<Guid, (int Id, string Type)> { [original] = (77, "tv"), [duplicate] = (77, "tv"), [alternative] = (88, "movie") };
+        bool Physical(Guid _, Guid item) => allowed.Contains(item);
+        bool Identity(Guid owner, Guid item, Guid observation) => identities.TryGetValue(item, out var key) && observation == TrainingExample.CreateProviderObservationId(owner, key.Id, key.Type);
+        var history = new RecommendationChoiceHistory();
+        var eligible = history.CaptureEligibleReplayTitles([row], new HashSet<Guid> { user }, Physical, Identity, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain((user, chosen), eligible);
+        Assert.Contains((user, ignored), eligible);
+        Assert.DoesNotContain(history.Merge([row], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: Physical, canUseCapturedItem: Identity), example => example.Choice is not null || example.IsContrastSample);
+        Assert.Equal(original, row.Choice!.ChosenItemId);
+    }
+
+    [Fact]
+    public void RemovedOwnersArePrunedBeforeAnyActiveProfilePermissionLookup()
+    {
+        var now = DateTime.UtcNow;
+        var removed = Guid.NewGuid();
+        var active = Guid.NewGuid();
+        var original = Observation(removed, Identity(false), now, true);
+        original.Choice = original.Choice! with
+        {
+            ChosenItemId = Guid.NewGuid(),
+            Alternatives = original.Choice.Alternatives.Select(alternative => alternative with { LibraryItemId = Guid.NewGuid() }).ToImmutableArray()
+        };
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("removed-owner-choices.json");
+        var history = new RecommendationChoiceHistory(fs, path);
+        history.Merge([original], new HashSet<Guid> { removed }, now);
+        Assert.True(history.Save());
+        var permissions = new Dictionary<Guid, HashSet<Guid>> { [active] = new HashSet<Guid>() };
+        Assert.Empty(history.Merge(
+            [],
+            new HashSet<Guid> { active },
+            now,
+            canUseLibraryItem: (user, item) => permissions[user].Contains(item),
+            canUseCapturedItem: (user, item, _) => permissions[user].Contains(item)));
+        Assert.True(history.Save());
+        var restarted = new RecommendationChoiceHistory(fs, path);
+        var current = original.Copy();
+        current.Choice = null;
+        Assert.DoesNotContain(restarted.Merge([current], new HashSet<Guid> { removed }, now), row => row.Choice is not null || row.IsContrastSample);
+    }
+
+    [Fact]
+    public void MissingLegacyPhysicalIdsStayDormantAcrossSavingRatherThanUsingAnAccessibleDuplicateOrErasingEvidence()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var fs = new MockFileSystem();
+        var path = Path.GetFullPath("legacy-physical-choice.json");
+        var history = new RecommendationChoiceHistory(fs, path);
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        Assert.True(history.Save());
+        var before = fs.File.ReadAllText(path);
+        var current = original.Copy();
+        current.Choice = null;
+        var eligible = new HashSet<(Guid User, Guid Title)> { (user, original.ObservationId), (user, original.Choice!.Alternatives[0].ObservationId) };
+        var fitting = history.Merge([current], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: (_, _) => true);
+        Assert.DoesNotContain(fitting, row => row.Choice is not null || row.IsContrastSample);
+        Assert.True(history.Save());
+        Assert.Equal(before, fs.File.ReadAllText(path));
+        var restarted = new RecommendationChoiceHistory(fs, path);
+        Assert.DoesNotContain(restarted.Merge([current], new HashSet<Guid> { user }, now, eligibleTitles: eligible, canUseLibraryItem: (_, _) => true), row => row.Choice is not null || row.IsContrastSample);
+    }
+    [Fact]
+    public void UnchosenPlaylistAlternativeKeepsItsRelativeSignalAcrossLaterRunsWithoutBecomingAPermanentBan()
+    {
+        var now = DateTime.UtcNow;
+        var user = Guid.NewGuid();
+        var original = Observation(user, Identity(false), now, true);
+        var alternative = Assert.Single(original.Choice!.Alternatives);
+        var history = new RecommendationChoiceHistory();
+        history.Merge([original], new HashSet<Guid> { user }, now);
+        foreach (var run in Enumerable.Range(1, 3))
+        {
+            var current = Observation(user, original.ObservationId, now.AddDays(run), false);
+            var merged = history.Merge([current], new HashSet<Guid> { user }, now.AddDays(run));
+            var retained = Assert.Single(merged, row => row.IsContrastSample && row.ObservationId == alternative.ObservationId);
+            Assert.False(retained.IsObserved);
+            Assert.Equal(original.GeneratedAtUtc, retained.GeneratedAtUtc);
+            Assert.Equal(alternative.Features.ToVector(), retained.Features.ToVector());
+            Assert.Equal(.25, retained.SampleWeight);
+            Assert.True(ScoringHelper.IsContentEligible(retained.Features));
+        }
+
+        var engaged = new HashSet<(Guid User, Guid Title)> { (user, alternative.ObservationId) };
+        var changed = history.Merge([Observation(user, original.ObservationId, now.AddDays(4), false)], new HashSet<Guid> { user }, now.AddDays(4), engaged);
+        Assert.DoesNotContain(changed, row => row.IsContrastSample && row.ObservationId == alternative.ObservationId);
+        Assert.True(ScoringHelper.IsContentEligible(alternative.Features));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,21 +170,22 @@ public sealed class RecommendationChoiceHistoryTests
         fs.SetupGet(value => value.File).Returns(file.Object);
         fs.SetupGet(value => value.Directory).Returns(new Mock<IDirectory>().Object);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var persisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         file.Setup(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>())).Callback(() =>
         {
             started.TrySetResult();
             release.Wait(TestContext.Current.CancellationToken);
         });
+        file.Setup(value => value.Move(It.IsAny<string>(), It.IsAny<string>(), true)).Callback(() => persisted.TrySetResult());
         var waitClock = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
         var history = new RecommendationChoiceHistory(fs.Object, Path.GetFullPath("bounded-choice-writer.json"))
         {
-            WaitTimeProvider = cancel ? waitClock : TimeProvider.System
+            WaitTimeProvider = waitClock
         };
         history.Merge([firstRow], new HashSet<Guid> { user }, now);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var first = history.SaveAsync(cancellation.Token);
-        var writer = (Task<bool>)typeof(RecommendationChoiceHistory).GetField("_pendingSave", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(history)!;
         try
         {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
@@ -51,25 +196,26 @@ public sealed class RecommendationChoiceHistoryTests
             }
             else
             {
+                waitClock.ExpireDeadlines();
                 Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             }
 
             history.Merge([firstRow, secondRow], new HashSet<Guid> { user }, now);
             var pendingWait = history.SaveAsync(TestContext.Current.CancellationToken);
-            if (cancel) waitClock.ExpireDeadlines();
+            waitClock.ExpireDeadlines();
             Assert.False(await pendingWait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.IsAny<byte[]>()), Times.Once);
             var joining = history.SaveAsync(TestContext.Current.CancellationToken);
             release.Set();
-            Assert.True(await writer);
             Assert.False(await joining);
+            await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.True(await history.SaveAsync(TestContext.Current.CancellationToken));
             file.Verify(value => value.WriteAllBytes(It.IsAny<string>(), It.Is<byte[]>(bytes => System.Text.Encoding.UTF8.GetString(bytes).Contains(secondRow.ObservationId.ToString(), StringComparison.OrdinalIgnoreCase))), Times.Once);
         }
         finally
         {
             release.Set();
-            await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await persisted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
     }
 

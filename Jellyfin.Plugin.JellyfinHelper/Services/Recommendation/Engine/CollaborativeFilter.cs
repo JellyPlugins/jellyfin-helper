@@ -84,7 +84,7 @@ internal static class CollaborativeFilter
         foreach (var w in profile.WatchedItems)
         {
             // Include every item the user meaningfully interacted with - played, favorited, re-watched (PlayCount) OR in-progress (PlaybackPositionTicks).
-            if (!w.HasMeaningfulInteraction())
+            if (!w.HasPositiveInteraction())
             {
                 continue;
             }

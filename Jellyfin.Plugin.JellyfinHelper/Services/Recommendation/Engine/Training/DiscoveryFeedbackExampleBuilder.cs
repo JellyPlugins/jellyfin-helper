@@ -36,6 +36,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         CancellationToken cancellationToken)
     {
         var examples = new List<TrainingExample>();
+        var passiveTitlesByUser = new Dictionary<Guid, HashSet<Guid>>();
 
         if (feedbackResults.Count == 0)
         {
@@ -52,9 +53,17 @@ internal static class DiscoveryFeedbackExampleBuilder
             }
 
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
-            AppendUserFeedbackExamples(examples, userFeedback, userProfile, seriesEpisodeCounts, featureMeans, cancellationToken);
+            if (!passiveTitlesByUser.TryGetValue(userFeedback.UserId, out var passiveTitles))
+            {
+                passiveTitles = [];
+                passiveTitlesByUser[userFeedback.UserId] = passiveTitles;
+            }
+
+            AppendUserFeedbackExamples(examples, userFeedback, userProfile, seriesEpisodeCounts, featureMeans, passiveTitles, cancellationToken);
         }
 
+        var observed = examples.Where(example => example.IsObserved).Select(example => (example.UserId, example.ObservationId)).ToHashSet();
+        examples.RemoveAll(example => example.IsPassiveSample && observed.Contains((example.UserId, example.ObservationId)));
         return (examples, examples.Count);
     }
 
@@ -64,6 +73,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         UserWatchProfile? userProfile,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         IReadOnlyList<double>? featureMeans,
+        HashSet<Guid> passiveTitles,
         CancellationToken cancellationToken)
     {
         foreach (var entry in userFeedback.Entries)
@@ -75,17 +85,25 @@ internal static class DiscoveryFeedbackExampleBuilder
                 continue;
             }
 
+            var passive = status == DiscoveryInteractionStatus.Shown;
+            var observation = TrainingExample.CreateProviderObservationId(userFeedback.UserId, entry.TmdbId, entry.MediaType);
+            if (passive && (HasCurrentEngagement(entry, userProfile) || passiveTitles.Count >= EngineConstants.DiscoveryMaximumPassiveSamplesPerUser || !passiveTitles.Add(observation)))
+            {
+                continue;
+            }
+
             var features = BuildFeedbackFeatures(entry, userProfile, seriesEpisodeCounts, featureMeans, out var hasLegacyPopularity);
             examples.Add(new TrainingExample
             {
                 Features = features,
                 Label = GetLabelForStatus(status),
                 GeneratedAtUtc = GetLatestInteractionUtc(entry),
-                SampleWeight = hasLegacyPopularity ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5 : EngineConstants.DiscoveryFeedbackSampleWeight,
+                SampleWeight = FeedbackSampleWeight(passive, hasLegacyPopularity),
                 UserId = userFeedback.UserId,
-                ObservationId = TrainingExample.CreateProviderObservationId(userFeedback.UserId, entry.TmdbId, entry.MediaType),
+                ObservationId = observation,
                 HasStableObservationId = true,
-                IsObserved = status != DiscoveryInteractionStatus.Shown || entry.ImpressionAtUtc.HasValue
+                IsObserved = !passive,
+                IsPassiveSample = passive
             });
         }
     }
@@ -94,6 +112,34 @@ internal static class DiscoveryFeedbackExampleBuilder
         => entry.PredictionInputsCompacted || status == DiscoveryInteractionStatus.Generated
             || (status == DiscoveryInteractionStatus.Shown && entry.ImpressionAtUtc.HasValue
                 && (DateTime.UtcNow - entry.ImpressionAtUtc.Value).TotalDays < EngineConstants.RecommendationInfluenceWindowDays);
+
+    private static bool HasCurrentEngagement(DiscoveryFeedbackEntry entry, UserWatchProfile? profile)
+        => profile?.WatchedItems.Any(row => row.HasMeaningfulInteraction() && MatchesTitle(entry, row)) == true;
+
+    private static bool MatchesTitle(DiscoveryFeedbackEntry entry, WatchedItemInfo row)
+    {
+        if (!string.Equals(entry.MediaType?.Trim(), "tv", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(row.ItemType, "Movie", StringComparison.OrdinalIgnoreCase) && row.TmdbId == entry.TmdbId;
+        }
+
+        if (row.SeriesId.GetValueOrDefault() != Guid.Empty)
+        {
+            return row.SeriesTmdbId == entry.TmdbId;
+        }
+
+        return string.Equals(row.ItemType, "Series", StringComparison.OrdinalIgnoreCase) && row.TmdbId == entry.TmdbId;
+    }
+
+    private static double FeedbackSampleWeight(bool passive, bool legacyPopularity)
+    {
+        if (passive)
+        {
+            return EngineConstants.DiscoveryPassiveSampleWeight;
+        }
+
+        return legacyPopularity ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5 : EngineConstants.DiscoveryFeedbackSampleWeight;
+    }
 
     private static CandidateFeatures BuildFeedbackFeatures(
         DiscoveryFeedbackEntry entry,
@@ -186,33 +232,17 @@ internal static class DiscoveryFeedbackExampleBuilder
     }
 
     /// <summary>
-    ///     Returns the most recent interaction timestamp for a feedback entry.
+    ///     Ages the classified outcome from its own action, never from later passive visibility or publication.
     /// </summary>
     private static DateTime GetLatestInteractionUtc(DiscoveryFeedbackEntry entry)
-    {
-        var latest = entry.ShownAtUtc;
-        if (entry.ImpressionAtUtc.HasValue && entry.ImpressionAtUtc.Value > latest)
+        => entry.GetStatus() switch
         {
-            latest = entry.ImpressionAtUtc.Value;
-        }
-
-        if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
-        {
-            latest = entry.DismissedAtUtc.Value;
-        }
-
-        if (entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value > latest)
-        {
-            latest = entry.RequestedAtUtc.Value;
-        }
-
-        if (entry.WatchedAtUtc.HasValue && entry.WatchedAtUtc.Value > latest)
-        {
-            latest = entry.WatchedAtUtc.Value;
-        }
-
-        return latest;
-    }
+            DiscoveryInteractionStatus.RequestedAndWatched => entry.WatchedAtUtc ?? entry.RequestedAtUtc.GetValueOrDefault(entry.ShownAtUtc),
+            DiscoveryInteractionStatus.Requested => entry.RequestedAtUtc.GetValueOrDefault(entry.ShownAtUtc),
+            DiscoveryInteractionStatus.Dismissed => entry.DismissedAtUtc.GetValueOrDefault(entry.ShownAtUtc),
+            DiscoveryInteractionStatus.Shown => entry.ImpressionAtUtc.GetValueOrDefault(entry.ShownAtUtc),
+            _ => entry.ShownAtUtc
+        };
 
     /// <summary>
     ///     Builds a CandidateFeatures vector from a discovery feedback entry.

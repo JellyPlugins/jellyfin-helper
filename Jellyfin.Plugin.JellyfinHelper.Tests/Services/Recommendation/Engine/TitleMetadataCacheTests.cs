@@ -19,6 +19,47 @@ public sealed class TitleMetadataCacheTests
     private readonly PluginConfiguration _config = new() { SeerrUrl = "https://seerr.example.test", SeerrApiKey = "encrypted-test-key" };
 
     [Fact]
+    public void SuppliedAliasesResolveTheirUniqueIntersectionEvenWhenNeitherAliasAloneIsUnique()
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "key");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, ImdbId = "tt0000123", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, ImdbId = "tt0000999", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 777, TvdbId = 888, ImdbId = "tt0000123", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Null(cache.Get(_config, 0, "tv", imdbId: "tt0000123"));
+        Assert.Equal(123, cache.Get(_config, 0, "tv", 456, "tt0000123")!.TmdbId);
+        Assert.Null(cache.Get(_config, 0, "tv", 456, "tt0000777"));
+    }
+
+    [Fact]
+    public void ASecondVerifiedAliasDisambiguatesCompatibleClaimsWithoutInventingATmdbAnchor()
+    {
+        _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        var source = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "key");
+        var cache = new TitleMetadataCache(clock: _clock);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, ImdbId = "tt0000123", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, ImdbId = "tt0000999", MediaType = "tv", FetchedAtUtc = _clock.Now }, source, null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Equal(123, cache.Get(_config, 0, "tv", 456, "tt0000123")!.TmdbId);
+        Assert.Equal(999, cache.Get(_config, 0, "tv", 456, "tt0000999")!.TmdbId);
+        Assert.Null(cache.Get(_config, 0, "movie", 456, "tt0000123"));
+    }
+
+    [Fact]
+    public void RejectedOlderIdentityCannotLeaveItsCopiedTmdbAnchorOnANewerAliasOnlyObservation()
+    {
+        var old = new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = _clock.Now.AddMinutes(-2), Overview = "old title" };
+        var corrected = new TitleMetadataSnapshot { TvdbId = 789, MediaType = "tv", FetchedAtUtc = _clock.Now.AddMinutes(-1), OriginalLanguage = "en" };
+        var result = TitleMetadataCache.ReconcileSourceObservations([old, corrected], _clock.Now)!;
+        Assert.Equal(0, result.TmdbId);
+        Assert.Equal(789, result.TvdbId);
+        Assert.Null(result.Overview);
+        Assert.Equal(123, TitleMetadataCache.ReconcileSourceObservations([old, corrected with { TvdbId = 456 }], _clock.Now)!.TmdbId);
+    }
+
+    [Fact]
     public void SeparateAliasesCannotReconcileContradictoryTitlesWithoutAnExactTmdbAnchor()
     {
         _config.SonarrInstances = [new ArrInstanceConfig { Url = "https://sonarr.example.test", ApiKey = "test-sonarr" }];
@@ -88,7 +129,10 @@ public sealed class TitleMetadataCacheTests
             started.TrySetResult();
             release.Wait(TestContext.Current.CancellationToken);
         });
-        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("metadata-generation.json"), clock: _clock);
+        var cache = new TitleMetadataCache(fileSystem: fs.Object, cachePath: Path.GetFullPath("metadata-generation.json"), clock: _clock)
+        {
+            WaitTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider()
+        };
         cache.Store(_config, Snapshot());
         var first = cache.SaveAsync(TestContext.Current.CancellationToken);
         try
@@ -108,6 +152,35 @@ public sealed class TitleMetadataCacheTests
             release.Set();
             await first;
         }
+    }
+
+    [Fact]
+    public void AmbiguousCurrentAliasInOneProviderCannotBeHiddenByAnUnambiguousOtherProvider()
+    {
+        _config.SonarrInstances = [new() { Url = "https://sonarr.example.test", ApiKey = "key" }];
+        _config.TraktSourcingEnabled = true;
+        var cache = new TitleMetadataCache(clock: _clock) { TraktMetadataAvailable = _ => true };
+        var now = _clock.Now;
+        var sonarr = new MetadataSourceScope("sonarr", "https://sonarr.example.test", "key");
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = now }, sonarr, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 999, TvdbId = 456, MediaType = "tv", FetchedAtUtc = now.AddDays(-29) }, sonarr, null);
+        cache.StoreSupplemental(_config, new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", FetchedAtUtc = now }, new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        Assert.Null(cache.Get(_config, 0, "tv", 456));
+        Assert.Equal(123, cache.Get(_config, 123, "tv", 456)!.TmdbId);
+        _clock.Now = now.AddDays(2);
+        Assert.Equal(123, cache.Get(_config, 0, "tv", 456)!.TmdbId);
+    }
+
+    [Fact]
+    public void CurrentObservationReconciliationDoesNotLaunderOldFieldsAcrossAnIdentityCorrection()
+    {
+        var old = new TitleMetadataSnapshot { TmdbId = 123, TvdbId = 456, MediaType = "tv", OriginalLanguage = "ja", ObservationScope = "same", Source = "trakt", FetchedAtUtc = _clock.Now.AddMinutes(-2) };
+        var corrected = old with { TvdbId = 789, OriginalLanguage = null, FetchedAtUtc = _clock.Now.AddMinutes(-1) };
+        var result = TitleMetadataMerger.CombineCurrentObservations([old, corrected], _clock.Now)!;
+        Assert.Equal(789, result.TvdbId);
+        Assert.Null(result.OriginalLanguage);
+        var compatible = TitleMetadataMerger.CombineCurrentObservations([old, corrected with { TvdbId = 456 }], _clock.Now)!;
+        Assert.Equal("ja", compatible.OriginalLanguage);
     }
 
     [Fact]

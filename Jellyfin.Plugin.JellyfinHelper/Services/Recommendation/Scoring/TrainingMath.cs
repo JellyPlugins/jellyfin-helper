@@ -14,7 +14,7 @@ internal static class TrainingMath
     /// <returns>The eligible examples in their original order.</returns>
     internal static IReadOnlyList<TrainingExample> FilterEffectiveExamples(
         IReadOnlyList<TrainingExample> examples, DateTime referenceTime, double minimumWeight)
-        => examples.Where(example => (example.IsObserved || example.IsContrastSample)
+        => examples.Where(example => (example.IsObserved || example.IsContrastSample || example.IsPassiveSample)
             && example.ComputeEffectiveWeight(referenceTime) >= minimumWeight).ToArray();
 
     /// <summary>Tests whether an observed evaluation slice contains distinguishable relevance outcomes.</summary>

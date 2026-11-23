@@ -342,6 +342,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── PathComparisonTests.cs      # PathComparison: comparison/comparer match the platform case convention
 │   ├── TmdbLibraryMapperTests.cs   # BuildTmdbKeySet/TryGetTmdbId: media-type keying, non-positive/invalid id rejection, dedup
 │   ├── VirtualItemDetectorTests.cs # IsVirtual: virtual flag, empty path, plugins-path containment with sibling-boundary and platform-casing guards, real library under data stays owned
+│   ├── LibraryUserAccessTests.cs # Real host tag initialization and library scope captured before bounded ID predicates
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   │   └── ArrIntegrationServiceTests.cs               # Timeout → LogWarning (not LogError); parity with TestConnectionAsync
@@ -480,6 +481,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
 │       │   ├── EngineFeatureSnapshotTests.cs           # Selected-only snapshots preserve exact scoring-time inputs without rescoring all candidates
 │       │   ├── EngineContentFitTests.cs               # Full-pipeline thematic ranking and long unseen series without private fixtures
+│       │   ├── MediaTypeBalanceTests.cs               # Completed-runtime mix, title-balanced fallback, sparse evidence and resume/duplicate invariance
+│       │   ├── MovieSequencePolicyTests.cs            # Verified movie prerequisites, selected-slot substitution, permission/progress boundaries and standalone exemptions
 │       │   ├── EngineRankingDiagnosticsTests.cs        # Bounded detached traces, never independent feedback
 │       │   ├── ContentFitProfileTests.cs              # Unclassified adult-family/children's interests, independent format checks and cutoff-safe genre provenance
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
@@ -507,10 +510,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
 │       │       ├── HistoricalRecencyTests.cs          # Prediction/watch-time recency, unchanged stored snapshots and separate temporal weight decay
 │       │       ├── HistoricalLanguageFeaturesTests.cs # Dated/self-excluded language evidence and organic train/serve units
-│       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
+│       │       ├── TrainingDataBuilderTests.cs        # Deterministic observed signals and no fabricated cross-user negatives
 │       │       ├── TrainingPipelineIntegrityTests.cs  # Prediction snapshots, historical leakage, shared permanent holdouts, model-specific imputation and independent baseline trust
 │       │       ├── RecommendationChoiceBuilderTests.cs # Saved prediction boundaries, orphan episode identities, cutoff-safe targets and never-engaged alternatives
-│       │       ├── RecommendationChoiceHistoryTests.cs # Identity aliases, latest outcomes, shared effective budgets and generation-aware bounded persistence
+│       │       ├── RecommendationChoiceHistoryTests.cs # Identity aliases, latest outcomes, shared budgets, bounded persistence and dormant legacy rows without physical provenance
+│       │       ├── ReplayIdentityRegressionTests.cs # Captured title/copy identity pairing, provider corrections and typed duplicate boundaries
 │       │       ├── TrainingHistoryCacheTests.cs       # Build-scoped historical reuse, target/series exclusion isolation, uncached parity, cutoff/row bounds and cancellation
 │       │       ├── TrainingNeighbourTimelineTests.cs   # Indexed overlap and neighbour-only intervals match exact-cutoff materialized sets
 │       │       ├── TrainingDataBuilderOrganicTests.cs # Organic-example construction: label/weighting and per-example feature derivation
@@ -653,6 +657,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ModelBindingLogFilter.cs        # IAsyncActionFilter (Order = int.MinValue) attached to endpoints via [ServiceFilter]. Surfaces model-binding failures (invalid field types, null request body) into IPluginLogService BEFORE [ApiController]'s auto-400 short-circuits the request - without this filter, the auto-400 makes it out but no plugin-log entry is written, leaving admins with a bare HTTP 400 and no server-side trace to debug against. Registered as Scoped in PluginServiceRegistrator; do NOT register globally (would rewrite responses of other Jellyfin controllers that have their own error contracts).
 │   ├── PingController.cs               # /JellyfinHelper/Ping liveness endpoint - no dependencies, returns { ok, plugin, version }. The Settings save flow probes this after a failed save to distinguish "backend unreachable" (Ping also fails) from "backend reachable, request rejected" (Ping succeeds). Uses the same [Authorize(RequiresElevation)] policy as the other admin endpoints so a successful ping proves the entire auth + routing + reverse-proxy chain is intact for admins.
 │   ├── RecommendationController.cs      # ML recommendations API
+│   ├── RecommendationPlaylistRecoveryController.cs # Administrator-only ambiguous creation recovery
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
@@ -733,6 +738,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   │   └── LibraryItemMetadata.cs       # Live-library item→(studios/tags/BoxSet ids) map threaded into training for serve parity
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
+│   │   │   ├── MediaTypeBalance.cs # Soft per-user movie/series selection targets from completed material, without altering model features or scores
+│   │   │   ├── MovieSequencePolicy.cs # Explicit provider-identified movie dependencies with eligible predecessor substitution and deduplicated backfill
 │   │   │   ├── GenreNormalizer.cs # i18n/provider genre identities and aliases, including broad semantic keyword classification
 │   │   │   ├── CollectionMembershipResolver.cs # Linked BoxSets with scoped fallback and unresolved-member sequence guards
 │   │   │   ├── CollectionContinuationCatalog.cs # Detached confirmed movie release sequences; no cached user outcomes
@@ -806,6 +813,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
 │   │   │   ├── IRecommendationPlaylistService.cs
 │   │   │   ├── RecommendationPlaylistService.cs
+│   │   │   ├── PlaylistLibraryServices.cs # Shared current library configuration and virtual-media detector for delivery
+│   │   │   ├── HostedPlaylistInventory.cs # Host-side owner-filtered playlist IDs without viewer visibility
+│   │   │   ├── PlaylistOwnerOperations.cs # Bounded per-owner creation, recovery and cleanup leases
+│   │   │   ├── PlaylistCreationJournal.cs # Durable pre-create ownership inventory and marking state
 │   │   │   └── PlaylistSyncResult.cs
 │   │   ├── IRecommendationEngine.cs
 │   │   ├── IRecommendationCacheService.cs
@@ -871,8 +882,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
 │   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
 │   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
+│   │       ├── DiscoveryFeedbackRecoveryJournal.cs # Bounded durable server-owned original feedback evidence
 │   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
 │   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
+│   │       ├── DiscoveryDismissedItem.cs    # Permanent typed dismissal identity, separate from bounded fitting history
 │   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
 │   │   ├── MediaStatisticsUserDataSource.cs # Local enabled-user and batch-first watch-data boundary; scan caches remain caller-owned
@@ -1033,6 +1046,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `I18nServiceTests.cs` - Tests I18nService translations, config-page key sync, and Lazy load concurrency
 - `PathValidatorTests.cs` - Tests PathValidator safe-path, filename sanitization, and sensitive-system-path checks
 - `VirtualItemDetectorTests.cs` - Tests virtual-flag/empty-path/plugins-path detection with sibling-boundary and platform-casing guards, and that a real library under the data directory stays owned
+- `LibraryUserAccessTests.cs` - Checks host tag initialization and preserves current library scope before attaching bounded IDs
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Activity/`
 
@@ -1276,6 +1290,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `PingController.cs`
 - `PingResponse.cs`
 - `RecommendationController.cs`
+- `RecommendationPlaylistRecoveryController.cs`
 - `RequestResult.cs`
 - `SeerrController.cs`
 - `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection
@@ -1386,6 +1401,7 @@ while the editor closes, including after Escape.
 - `JsonDefaults.cs` - Shared JSON serializer options (camelCase, indented, case-insensitive)
 - `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager; `IsUnderAllowedRoot` tests whether an item path sits under an allowed library root (directory-boundary aware, platform-cased), and `GetLibraryRootScope`/`IsAllowed` extend this so an excluded library nested under an allowed one is denied by the most specific matching root
 - `LibraryRootScope.cs` - Carries the allowed and excluded library roots resolved for a recommendation run so `LibraryPathResolver.IsAllowed` can deny nested exclusions
+- `LibraryUserAccess.cs` - Delegates per-user visibility to Jellyfin's configured access queries for history, cached recommendations and playlist delivery
 - `PathValidator.cs` - Path validation guarding traversal, sensitive system roots, and safe deletion
 - `PathComparison.cs` - Single source of truth for OS-appropriate file-system path comparison (StringComparison/StringComparer); macOS folds case, Linux is ordinal
 - `TmdbLibraryMapper.cs` - Maps library items to `(TmdbId, MediaType)` tuples; shared by the recommendation engine and Seerr discovery so "already in library" uses one implementation
@@ -1509,6 +1525,10 @@ while the editor closes, including after Escape.
 - `IRecommendationPlaylistService.cs`
 - `PlaylistSyncResult.cs`
 - `RecommendationPlaylistService.cs`
+- `PlaylistLibraryServices.cs`
+- `HostedPlaylistInventory.cs`
+- `PlaylistOwnerOperations.cs`
+- `PlaylistCreationJournal.cs`
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Scoring/`
 
@@ -1579,7 +1599,9 @@ the heuristic rules and ensemble blend limits are unchanged.
 - `DiscoveryCacheService.cs`
 - `DiscoveryFeedbackEntry.cs`
 - `DiscoveryFeedbackResult.cs`
+- `DiscoveryDismissedItem.cs`
 - `DiscoveryFeedbackStore.cs`
+- `DiscoveryFeedbackRecoveryJournal.cs`
 - `DiscoveryInteractionStatus.cs`
 - `DiscoveryRecommendation.cs`
 - `DiscoveryResult.cs`

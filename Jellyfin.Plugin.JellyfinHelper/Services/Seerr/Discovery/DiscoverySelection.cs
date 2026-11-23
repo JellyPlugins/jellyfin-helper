@@ -16,8 +16,9 @@ internal static class DiscoverySelection
     /// <param name="candidates">Final-scored candidates, already ordered by source rank when applicable.</param>
     /// <param name="count">Maximum pool size.</param>
     /// <param name="preserveSourceRank">Keeps Trakt's order and soft quality policy unchanged.</param>
+    /// <param name="targetSeriesShare">Optional captured soft personal movie/series mix.</param>
     /// <returns>A new selection; the candidates and their scores are never modified.</returns>
-    internal static List<DiscoveryRecommendation> Select(IReadOnlyList<DiscoveryRecommendation> candidates, int count, bool preserveSourceRank = false)
+    internal static List<DiscoveryRecommendation> Select(IReadOnlyList<DiscoveryRecommendation> candidates, int count, bool preserveSourceRank = false, double? targetSeriesShare = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         if (count <= 0)
@@ -43,15 +44,15 @@ internal static class DiscoverySelection
         var represented = new HashSet<Guid>();
         while (selected.Count < count && remaining.Count > 0)
         {
-            var best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, represented: represented);
+            var best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, represented: represented, targetSeriesShare: targetSeriesShare);
             if (best < 0)
             {
-                best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true);
+                best = BestCandidate(remaining, selected, genres, collections, coherentOnly: true, targetSeriesShare: targetSeriesShare);
             }
 
             if (best < 0)
             {
-                best = BestCandidate(remaining, selected, genres, collections);
+                best = BestCandidate(remaining, selected, genres, collections, targetSeriesShare: targetSeriesShare);
             }
 
             if (best < 0)
@@ -77,10 +78,11 @@ internal static class DiscoverySelection
         return selected.OrderByDescending(candidate => candidate.Score).ToList();
     }
 
-    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections, bool coherentOnly = false, HashSet<Guid>? represented = null)
+    private static int BestCandidate(List<DiscoveryRecommendation> remaining, List<DiscoveryRecommendation> selected, Dictionary<DiscoveryRecommendation, HashSet<string>> genres, Dictionary<int, int> collections, bool coherentOnly = false, HashSet<Guid>? represented = null, double? targetSeriesShare = null)
     {
         var best = -1;
         var bestUtility = double.NegativeInfinity;
+        var selectedSeries = selected.Count(candidate => candidate.MediaType == TmdbLibraryMapper.TvMediaType);
         for (var i = 0; i < remaining.Count; i++)
         {
             var candidate = remaining[i];
@@ -100,7 +102,8 @@ internal static class DiscoverySelection
             }
 
             var similarity = selected.Count == 0 ? 0.0 : selected.Max(previous => SimilarityComputer.ComputeJaccardFromSets(genres[candidate], genres[previous]));
-            var utility = (0.8 * candidate.Score) - (0.2 * similarity);
+            var utility = (0.8 * candidate.Score) - (0.2 * similarity)
+                + MediaTypeBalance.Adjustment(candidate.MediaType == TmdbLibraryMapper.TvMediaType, selected.Count, selectedSeries, targetSeriesShare);
             if (utility > bestUtility)
             {
                 best = i;

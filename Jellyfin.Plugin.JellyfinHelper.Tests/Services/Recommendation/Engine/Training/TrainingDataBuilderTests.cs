@@ -10,14 +10,14 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Training;
 
 /// <summary>
-///     Tests for BuildExamples. Cross-user random negatives must be reproducible across runs with identical input, otherwise training weights drift between runs and Regressions-Tests against the ensemble output become flaky.
+///     Tests for deterministic observed examples and qualified comparisons; other users' recommendations are not rejection evidence.
 /// </summary>
 public sealed class TrainingDataBuilderTests
 {
     [Fact]
-    public void BuildExamples_Phase3RandomNegatives_AreDeterministicAcrossRuns()
+    public void BuildExamples_ObservedSignalsAreDeterministicWithoutFabricatedCrossUserNegatives()
     {
-        // Two users, each with one recommendation of a unique item. Neither user has watched the OTHER's recommended item -> both are eligible cross-user negatives in Phase 3.
+        // Each user watched their own title. The other's unrelated title remains unknown.
         var userA = Guid.NewGuid();
         var userB = Guid.NewGuid();
         var itemA = Guid.NewGuid();
@@ -75,9 +75,10 @@ public sealed class TrainingDataBuilderTests
         var run1 = TrainingDataBuilder.BuildExamples(results1, profiles1, CancellationToken.None);
         var run2 = TrainingDataBuilder.BuildExamples(results2, profiles2, CancellationToken.None);
 
-        // Sanity: Phase 3 actually fired (would be 0 if the setup didn't produce eligible negatives).
-        Assert.True(run1.RandomNegativeCount > 0,
-            "Phase 3 must produce at least one negative for this test to guard determinism.");
+        Assert.Equal(0, run1.RandomNegativeCount);
+        Assert.Equal(2, run1.Examples.Count);
+        Assert.All(run1.Examples, example => Assert.True(example.IsObserved));
+        Assert.DoesNotContain(run1.Examples, example => example.IsContrastSample);
 
         // Same phase counts across runs.
         Assert.Equal(run1.OrganicCount, run2.OrganicCount);
@@ -411,7 +412,7 @@ public sealed class TrainingDataBuilderTests
     }
 
     [Fact]
-    public void BuildExamples_Phase3NegativesForUserWithoutOwnRecs_UseSeriesStudioAndBoxSetCounts()
+    public void BuildExamples_UserWithoutOwnRecommendationsKeepsRealHistoryButGetsNoInventedNegatives()
     {
         // Sampled user (B) has NO prior recommendations of their own, watches episodes whose studios resolve only via the series-level studio lookup, and watches an item belonging to a BoxSet.
         var userA = Guid.NewGuid();
@@ -486,13 +487,11 @@ public sealed class TrainingDataBuilderTests
         var (examples, _, randomNegativeCount, _) =
             TrainingDataBuilder.BuildExamples(results, profiles, CancellationToken.None);
 
-        Assert.True(randomNegativeCount > 0);
-
-        var negatives = examples.Where(e => e.Label.Equals(0.0) && Math.Abs(e.SampleWeight - 0.5) < 1e-9).ToList();
-        Assert.NotEmpty(negatives);
-        Assert.Contains(
-            negatives,
-            e => e.Features.ContentNearestNeighborScore > 0.0 || e.Features.CollectionProgressionBoost > 0.0);
+        Assert.Equal(0, randomNegativeCount);
+        var realHistory = examples.Where(example => example.UserId == userB).ToArray();
+        Assert.Equal(2, realHistory.Length);
+        Assert.All(realHistory, example => Assert.True(example.IsObserved));
+        Assert.DoesNotContain(examples, example => example.IsContrastSample);
     }
 
     [Fact]

@@ -6,6 +6,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 public sealed class ContentScoringGenreEngagementTests
 {
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(100, false)]
+    [InlineData(300, false)]
+    [InlineData(800, false)]
+    [InlineData(0, true)]
+    public void PartialPlaybackAndUnplayedFavoritesAreNotInferredRejections(long position, bool favorite)
+    {
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), Genres = ["Drama"], RuntimeTicks = 1000, PlaybackPositionTicks = position,
+            PlayCount = 7, IsFavorite = favorite, LastPlayedDate = DateTime.UtcNow.AddYears(-2)
+        }] };
+        var direct = ContentScoring.ComputeGenreEngagement(["Drama"], profile);
+        var cached = ContentScoring.ComputeGenreEngagement(["Drama"], ContentScoring.BuildGenreEngagementContext(profile));
+        Assert.Equal(direct, cached);
+        Assert.Equal(0, direct.AbandonRate);
+        Assert.Equal(position > 0 ? .5 + ((position / 1000.0 - .5) / 4) : .5, direct.AvgCompletion, 12);
+    }
+
     [Fact]
     public void CachedGenreSets_AreReusedAndRefreshedWhenProviderAliasesChange()
     {
@@ -67,7 +87,7 @@ public sealed class ContentScoringGenreEngagementTests
     public void ComputeGenreEngagement_AbandonedGenre_ReturnsAbandonRate()
     {
         var profile = new UserWatchProfile();
-        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action"], RuntimeTicks = 1000, PlaybackPositionTicks = 100 });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action"], RuntimeTicks = 1000, PlaybackPositionTicks = 100, UserRating = 2 });
         var (fam, avg, abandon) = ContentScoring.ComputeGenreEngagement(["Action"], profile);
 
         // A single abandoned sample is a low-confidence estimate: with shrinkage K=3 the raw abandon
@@ -85,7 +105,7 @@ public sealed class ContentScoringGenreEngagementTests
         var profile = new UserWatchProfile();
         for (var i = 0; i < 30; i++)
         {
-            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action"], RuntimeTicks = 1000, PlaybackPositionTicks = 100 });
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, Genres = ["Action"], RuntimeTicks = 1000, PlaybackPositionTicks = 100, UserRating = 2 });
         }
 
         var (_, avg, abandon) = ContentScoring.ComputeGenreEngagement(["Action"], profile);
@@ -120,6 +140,32 @@ public sealed class ContentScoringGenreEngagementTests
             context,
             new Dictionary<Guid, HashSet<string>>());
         Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void PlaybackStartsDoNotMakeAnUnwatchedSeriesThirtyPercentComplete()
+    {
+        var series = Guid.NewGuid();
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 3; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 99, RuntimeTicks = 1000, PlaybackPositionTicks = 0 });
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int> { [series] = 10 });
+        Assert.Empty(context.ProgressingSeriesIds);
+    }
+
+    [Theory]
+    [InlineData(300, true)]
+    [InlineData(800, true)]
+    [InlineData(100, false)]
+    [InlineData(900, false)]
+    public void ActualPartialMaterialDeterminesTheSeriesProgressBand(long playedTicks, bool progressing)
+    {
+        var series = Guid.NewGuid();
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 10; i++) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = series, ItemType = "Episode", PlayCount = 4, RuntimeTicks = 1000, PlaybackPositionTicks = playedTicks });
+        var context = ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int> { [series] = 10 });
+        Assert.Equal(progressing, context.ProgressingSeriesIds.Contains(series));
+        foreach (var row in profile.WatchedItems.ToArray()) profile.WatchedItems.Add(row);
+        Assert.Equal(progressing, ContentScoring.BuildSeriesAffinityContext(profile, new Dictionary<Guid, int> { [series] = 10 }).ProgressingSeriesIds.Contains(series));
     }
 
     [Fact]

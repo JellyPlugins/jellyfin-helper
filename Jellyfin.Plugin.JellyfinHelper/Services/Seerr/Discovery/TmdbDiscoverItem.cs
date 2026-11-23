@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -10,6 +11,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 internal sealed class TmdbDiscoverItem
 {
     private List<int> _genreIds = [];
+    private IReadOnlyList<string>? _independentSourceGenres;
+    private IReadOnlyList<string>? _projectedSourceGenres;
+    private IReadOnlyList<string>? _sourceGenres;
 
     /// <summary>
     ///     Gets or sets the TMDb ID.
@@ -153,7 +157,19 @@ internal sealed class TmdbDiscoverItem
 
     /// <summary>Gets or sets optional external-source genre labels, separate from provider keyword evidence.</summary>
     [JsonIgnore]
-    public IReadOnlyList<string>? SourceGenres { get; set; }
+    public IReadOnlyList<string>? SourceGenres
+    {
+        get
+        {
+            return _sourceGenres;
+        }
+
+        set
+        {
+            _independentSourceGenres = value?.ToArray();
+            _sourceGenres = CombinedSourceGenres();
+        }
+    }
 
     /// <summary>Gets or sets structured title metadata, independent of availability and parental certification.</summary>
     [JsonIgnore]
@@ -192,4 +208,17 @@ internal sealed class TmdbDiscoverItem
     /// <summary>Gets or sets the personal seed-title retrieval lane, never a keyword match, outcome or score bonus.</summary>
     [JsonIgnore]
     public string? PersonalSeedKey { get; set; }
+
+    /// <summary>Replaces only metadata-derived labels; overlapping independent source labels retain their provenance.</summary>
+    /// <param name="genres">Labels from the currently accepted metadata observations, or null when rejected.</param>
+    internal void ProjectSourceGenres(IEnumerable<string>? genres)
+    {
+        _projectedSourceGenres = genres?.ToArray();
+        _sourceGenres = CombinedSourceGenres();
+    }
+
+    private string[]? CombinedSourceGenres()
+        => _independentSourceGenres is null && _projectedSourceGenres is null
+            ? null
+            : (_independentSourceGenres ?? []).Concat(_projectedSourceGenres ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }

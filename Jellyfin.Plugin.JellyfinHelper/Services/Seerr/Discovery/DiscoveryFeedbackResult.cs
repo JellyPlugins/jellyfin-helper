@@ -27,4 +27,8 @@ public sealed class DiscoveryFeedbackResult
     /// </summary>
     [SuppressMessage("Usage", "CA1002:DoNotExposeGenericLists", Justification = "System.Text.Json round-trip")]
     public List<DiscoveryFeedbackEntry> Entries { get; set; } = [];
+
+    /// <summary>Gets or sets permanent typed dismissal identities independently of bounded training-history retention.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<DiscoveryDismissedItem>? DismissedItems { get; set; }
 }

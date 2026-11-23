@@ -3,16 +3,19 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Mime;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -33,8 +36,10 @@ public class RecommendationController : ControllerBase
     private readonly IPluginConfigurationService _configService;
     private readonly IRecommendationEngine _engine;
     private readonly IWatchHistoryService _watchHistoryService;
+    private readonly IPluginLogService? _pluginLog;
 
     private static readonly SemaphoreSlim CacheFillLock = new(1, 1);
+    private static readonly ConditionalWeakTable<IRecommendationEngine, BatchDeferral> BatchDeferrals = new();
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="RecommendationController" /> class.
@@ -43,16 +48,19 @@ public class RecommendationController : ControllerBase
     /// <param name="cacheService">The recommendation cache service.</param>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="configService">The plugin configuration service.</param>
+    /// <param name="pluginLog">Deferred-batch warnings.</param>
     public RecommendationController(
         IRecommendationEngine engine,
         IRecommendationCacheService cacheService,
         IWatchHistoryService watchHistoryService,
-        IPluginConfigurationService configService)
+        IPluginConfigurationService configService,
+        IPluginLogService? pluginLog = null)
     {
         _engine = engine;
         _cacheService = cacheService;
         _watchHistoryService = watchHistoryService;
         _configService = configService;
+        _pluginLog = pluginLog;
     }
 
     /// <summary>
@@ -102,8 +110,24 @@ public class RecommendationController : ControllerBase
                 return Ok(TrimRecommendations(cached, requestedMax));
             }
 
+            var deferred = BatchDeferrals.GetValue(_engine, _ => new BatchDeferral());
+            if (deferred.UntilUtc > DateTime.UtcNow)
+            {
+                return DeferredBatchResponse();
+            }
+
             // Generate at the configured max so the cache is not under-filled
-            var results = _engine.GetAllRecommendations(configuredMax, cancellationToken);
+            IReadOnlyList<RecommendationResult> results;
+            try
+            {
+                results = _engine.GetAllRecommendations(configuredMax, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                deferred.UntilUtc = DateTime.UtcNow.AddSeconds(30);
+                _pluginLog?.LogWarning("Recommendations", "Recommendation batch deferred; no complete cache is available and publication was not attempted.", ex, NullLogger<RecommendationController>.Instance);
+                return DeferredBatchResponse();
+            }
 
             // Only persist to disk when TaskMode is Activate (not DryRun).
             // DryRun results are cached in the browser by the UI JavaScript.
@@ -121,6 +145,16 @@ public class RecommendationController : ControllerBase
                 CacheFillLock.Release();
             }
         }
+    }
+
+    private ObjectResult DeferredBatchResponse()
+    {
+        if (HttpContext is not null)
+        {
+            Response.Headers.RetryAfter = "30";
+        }
+
+        return StatusCode(StatusCodes.Status503ServiceUnavailable, "Recommendation batch deferred; retry after 30 seconds. Existing caches and playlists were preserved.");
     }
 
     /// <summary>
@@ -400,5 +434,10 @@ public class RecommendationController : ControllerBase
         }
 
         return trimmed;
+    }
+
+    private sealed class BatchDeferral
+    {
+        internal DateTime UntilUtc { get; set; }
     }
 }

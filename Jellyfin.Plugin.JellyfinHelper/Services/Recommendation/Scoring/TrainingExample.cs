@@ -71,6 +71,10 @@ public sealed class TrainingExample
     /// <summary>Gets or initializes a value indicating whether an unobserved title is intentionally sampled as an implicit contrast.</summary>
     public bool IsContrastSample { get; init; }
 
+    /// <summary>Gets or initializes a value indicating whether this is bounded non-engagement after confirmed visibility, never an observed dislike or choice comparison.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsPassiveSample { get; init; }
+
     /// <summary>Gets or sets a detached relative choice, separate from absolute outcome labels and ML coordinates.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RecommendationChoiceEvidence? Choice { get; set; }
@@ -138,6 +142,7 @@ public sealed class TrainingExample
             HasStableObservationId = HasStableObservationId,
             IsObserved = IsObserved,
             IsContrastSample = IsContrastSample,
+            IsPassiveSample = IsPassiveSample,
             Label = Label,
             SampleWeight = SampleWeight,
             GeneratedAtUtc = GeneratedAtUtc,

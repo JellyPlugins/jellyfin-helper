@@ -73,11 +73,7 @@ internal static class ExternalCandidateFeatureBuilder
             preferredPeople = new HashSet<string>(preferredPeople, StringComparer.OrdinalIgnoreCase);
         }
 
-        var genres = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
-        if (genres.Count == 0 && candidate.SourceGenres is { } sourceGenres)
-        {
-            genres = GenreNormalizer.Set(sourceGenres).ToList();
-        }
+        var genres = ResolveGenres(candidate);
 
         // Genre-engagement package, computed on the same basis as discovery training so the model
         // scores the signal it was trained on. External candidates are never in the watch set, so no
@@ -144,6 +140,15 @@ internal static class ExternalCandidateFeatureBuilder
         ApplyMeanImputation(features, context.FeatureMeans);
 
         return features;
+    }
+
+    /// <summary>Uses mapped provider IDs first, with the same source-label fallback for scoring, display and reasons.</summary>
+    /// <param name="candidate">Actual candidate genre evidence.</param>
+    /// <returns>Canonical candidate genres; unknown remains empty.</returns>
+    internal static List<string> ResolveGenres(TmdbDiscoverItem candidate)
+    {
+        var mapped = GenreNormalizer.Set(TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds)).ToList();
+        return mapped.Count > 0 ? mapped : GenreNormalizer.Set(candidate.SourceGenres).ToList();
     }
 
     /// <summary>

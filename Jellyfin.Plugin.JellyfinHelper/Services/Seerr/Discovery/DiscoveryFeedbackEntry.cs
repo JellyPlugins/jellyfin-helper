@@ -23,8 +23,22 @@ public sealed class DiscoveryFeedbackEntry
     /// <summary>Gets or sets the first confirmed viewport impression, distinct from candidate generation.</summary>
     public DateTime? ImpressionAtUtc { get; set; }
 
-    /// <summary>Gets or sets when the first delivery-bound action or impression confirmed the prediction's provenance.</summary>
+    /// <summary>Gets or sets when the currently retained prediction inputs were confirmed by a delivery-bound action or impression.</summary>
     public DateTime? PredictionEvidenceAtUtc { get; set; }
+
+    /// <summary>Gets or sets the latest card-backed action that owns the prediction inputs; ID-only actions never establish this provenance.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? PredictionActionAtUtc { get; set; }
+
+    /// <summary>Gets or sets the durable receipt-order epoch that owns the prediction inputs.</summary>
+    public Guid? PredictionReceiptEpoch { get; set; }
+
+    /// <summary>Gets or sets the admission order within that epoch; legacy absent order preserves first committed inputs.</summary>
+    public long? PredictionReceiptOrder { get; set; }
+
+    /// <summary>Gets or sets the latest explicitly card-backed request that may supersede earlier dismissal or impression inputs.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CardRequestedAtUtc { get; set; }
 
     /// <summary>Gets or sets a value indicating whether size compaction erased prediction inputs; outcomes remain exclusion history, not training evidence.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

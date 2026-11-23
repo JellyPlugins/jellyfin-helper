@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,4 +27,10 @@ public interface IRecommendationPlaylistService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of playlists removed.</returns>
     Task<int> RemoveAllRecommendationPlaylistsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Resolves an administrator-acknowledged ambiguous creation attempt without deleting any playlist.</summary>
+    /// <param name="userId">The owner whose ambiguous attempt may resume; known rollback receipts remain independent.</param>
+    /// <param name="cancellationToken">Cancellation before durable preservation and release.</param>
+    /// <returns>Whether an ambiguous attempt was released.</returns>
+    Task<bool> ResolveDeferredCreationAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult(false);
 }

@@ -24,6 +24,21 @@ internal readonly record struct LibraryItemMetadata(
     IReadOnlyDictionary<Guid, int>? TmdbCollectionIds = null,
     bool BoxSetMembershipsComplete = true)
 {
+    /// <summary>Gets explicitly permitted library IDs when an excluded-library scope is active; null preserves legacy unscoped history.</summary>
+    public IReadOnlySet<Guid>? AllowedItemIds { get; init; }
+
+    /// <summary>Gets excluded library aliases that must not survive as historical choice alternatives.</summary>
+    public IReadOnlySet<Guid>? ExcludedItemIds { get; init; }
+
+    /// <summary>Gets provider movie/TV keys present only in excluded libraries, never keys with an allowed copy.</summary>
+    public IReadOnlySet<(int TmdbId, string MediaType)>? ExcludedTitleKeys { get; init; }
+
+    /// <summary>Gets current permitted provider identities when the complete library eligibility boundary was captured.</summary>
+    public IReadOnlySet<(int TmdbId, string MediaType)>? AllowedTitleKeys { get; init; }
+
+    /// <summary>Gets typed identities with physical-copy provenance for per-user library intersections.</summary>
+    public IReadOnlyDictionary<Guid, (int TmdbId, string MediaType)>? TitleKeysByItemId { get; init; }
+
     /// <summary>Gets the same authoritative movie release sequences used by inference; only metadata is reused across historical profiles.</summary>
     public CollectionContinuationCatalog? Continuation { get; init; }
 }

@@ -103,6 +103,30 @@ internal static class TrainingDataBuilder
         IReadOnlyList<double>? featureMeans,
         CancellationToken cancellationToken)
     {
+        return BuildExamplesCore(new(previousResults, allProfiles, discoveryFeedback), new(seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans), DateTime.UtcNow, cancellationToken);
+    }
+
+    /// <summary>Builds deterministic historical choice admission and contrast budgets against one supplied clock.</summary>
+    /// <param name="previousResults">Original prediction snapshots.</param>
+    /// <param name="allProfiles">Captured source outcomes.</param>
+    /// <param name="referenceTime">One fixed fitting boundary, never a replacement for prediction timestamps.</param>
+    /// <param name="cancellationToken">Cooperative cancellation.</param>
+    /// <returns>Examples and phase counts.</returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Collection<UserWatchProfile> allProfiles,
+        DateTime referenceTime,
+        CancellationToken cancellationToken)
+        => BuildExamplesCore(new(previousResults, allProfiles, null), new(null, null, null, null), DateTimeNormalization.ToUtc(referenceTime), cancellationToken);
+
+    private static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamplesCore(
+        TrainingSources sources,
+        TrainingFeatureInputs featureInputs,
+        DateTime referenceTime,
+        CancellationToken cancellationToken)
+    {
+        var (previousResults, allProfiles, discoveryFeedback) = sources;
+        var (seriesEpisodeCounts, genreStudioIdf, libraryItemMetadata, featureMeans) = featureInputs;
         cancellationToken.ThrowIfCancellationRequested();
 
         var profileLookup = BuildProfileLookup(allProfiles);
@@ -166,6 +190,7 @@ internal static class TrainingDataBuilder
             RecommendedItemIdsByUser = recommendedItemIdsByUser,
             Lookups = lookups,
             OrganicFallbackTimestamp = organicFallbackTimestamp,
+            ReferenceTime = referenceTime,
             Examples = examples,
             CancellationToken = cancellationToken,
             HistoryCache = new TrainingHistoryCache(allProfiles, cancellationToken),
@@ -179,7 +204,7 @@ internal static class TrainingDataBuilder
 
         AttachRecommendationChoices(ctx);
 
-        var randomNegativeCount = EmitRandomNegativeExamples(ctx);
+        EmitRandomNegativeExamples(ctx);
 
         // Discovery items are external. Requests are strong positives and dismissals are negatives.
         var discoveryCount = 0;
@@ -200,6 +225,16 @@ internal static class TrainingDataBuilder
         }
 
         NormalizeChoiceContrasts(ctx);
+        if (examples.Any(example => example.IsPassiveSample))
+        {
+            var observed = examples.Where(example => example.IsObserved).Select(example => (example.UserId, example.ObservationId)).ToHashSet();
+            observed.UnionWith(ctx.ProfileById.Values.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, ctx.Lookups.TmdbIds)
+                .Select(title => (profile.UserId, title))));
+            var removed = examples.RemoveAll(example => example.IsPassiveSample && observed.Contains((example.UserId, example.ObservationId)));
+            discoveryCount -= removed;
+        }
+
+        var randomNegativeCount = examples.Count(example => example.IsContrastSample);
         return (examples, organicCount, randomNegativeCount, discoveryCount);
     }
 
@@ -207,12 +242,15 @@ internal static class TrainingDataBuilder
     {
         if (ctx.Choices.Count == 0)
         {
+            // No current opportunity can qualify any fitting comparison. Avoid
+            // hashing every history title while still rejecting unshown candidates.
+            ctx.Examples.RemoveAll(example => example.IsContrastSample);
             return;
         }
 
         var engaged = ctx.ProfileById.Values.SelectMany(profile => RecommendationChoiceBuilder.EngagedTitles(profile, ctx.Lookups.TmdbIds)
             .Select(title => (profile.UserId, title))).ToHashSet();
-        RecommendationChoiceHistory.ApplyOpportunityContrasts(ctx.Examples, DateTime.UtcNow, engaged);
+        RecommendationChoiceHistory.ApplyOpportunityContrasts(ctx.Examples, ctx.ReferenceTime, engaged);
     }
 
     /// <summary>Uses the earliest known source instant, never the training clock, for undated organic outcomes.</summary>
@@ -520,7 +558,7 @@ internal static class TrainingDataBuilder
             return BuildRecommendationFeedbackExample(item, result, historical, ctx.Lookups);
         }
 
-        return RecommendationChoiceBuilder.Build(new(result, userCtx.UserProfile, ctx.Lookups.TmdbIds, DateTime.UtcNow), Capture);
+        return RecommendationChoiceBuilder.Build(new(result, userCtx.UserProfile, ctx.Lookups.TmdbIds, ctx.ReferenceTime), Capture);
     }
 
     private static RecommendedItem ProjectHistoricalChoice(WatchedItemInfo row, DateTime predictionAt)
@@ -563,7 +601,7 @@ internal static class TrainingDataBuilder
             pair.Example.Choice = pair.Choice!.Copy();
         }
 
-        var referenceTime = DateTime.UtcNow;
+        var referenceTime = ctx.ReferenceTime;
         foreach (var (key, choice) in ctx.Choices)
         {
             if (ctx.Examples.Any(row => row.UserId == key.User && row.ObservationId == key.Observation && row.Choice?.RecommendedAtUtc == key.Prediction))
@@ -1318,13 +1356,11 @@ internal static class TrainingDataBuilder
             };
 
     /// <summary>
-    ///     Phase 3: emits cross-user random-negative examples into <c>ctx.Examples</c>.
+    ///     Captures bounded candidate comparisons before chronological qualification; these are never independent observed rejections.
     /// </summary>
-    /// <returns>The number of random-negative examples emitted.</returns>
-    private static int EmitRandomNegativeExamples(TrainingContext ctx)
+    private static void EmitRandomNegativeExamples(TrainingContext ctx)
     {
-        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias); Phase 2 adds only positives.
-        var randomNegativeCount = 0;
+        // Phase 1 retains observed outcomes and unobserved opportunities; Phase 2 preserves independent watches.
         // Deduplicate by ItemId to prevent popular titles (recommended to multiple users) from appearing multiple times in candidateNegatives, which would overweight them as negatives purely because they were widely recommended elsewhere.
         var seenNegItemIds = new HashSet<Guid>();
         var allRecommendedItems = new List<RecommendedItem>();
@@ -1344,33 +1380,39 @@ internal static class TrainingDataBuilder
             {
                 ctx.CancellationToken.ThrowIfCancellationRequested();
 
-                randomNegativeCount += ProcessUserRandomNegatives(userProfile, allRecommendedItems, predictionTimes, ctx);
+                ProcessUserRandomNegatives(userProfile, allRecommendedItems, predictionTimes, ctx);
             }
         }
-
-        return randomNegativeCount;
     }
 
     /// <summary>
-    ///     Emits the Phase 3 cross-user random-negative examples for a single user. Returns the number of examples emitted.
+    ///     Captures optional candidate comparisons for a user with an actual chronological choice; final qualification determines fitting eligibility.
     /// </summary>
-    private static int ProcessUserRandomNegatives(
+    private static void ProcessUserRandomNegatives(
         UserWatchProfile userProfile,
         List<RecommendedItem> allRecommendedItems,
         Dictionary<Guid, DateTime> predictionTimes,
         TrainingContext ctx)
     {
+        if (!ctx.Choices.Keys.Any(choice => choice.User == userProfile.UserId))
+        {
+            // Publication and unrelated users' watches cannot authorize fitting
+            // negatives. Avoid even reconstructing their historical feature vectors.
+            return;
+        }
+
         var ownResult = ctx.PreviousResults.Where(result => result.UserId == userProfile.UserId).MaxBy(result => result.GeneratedAt);
         if (ownResult?.TrainingContrasts is not null)
         {
-            return EmitRecordedContrasts(ownResult, ctx);
+            EmitRecordedContrasts(ownResult, ctx);
+            return;
         }
 
         if (ownResult?.Recommendations.Any(item => item.ScoringFeatures is not null) == true)
         {
             // Old snapshot-aware caches lack contrast predictions. Phase 1's recorded unwatched
             // recommendations already provide contrasts; do not add mismatched full-history reconstructions.
-            return 0;
+            return;
         }
 
         // Per-user deterministic RNG: same cache + same user => same negatives.
@@ -1379,7 +1421,7 @@ internal static class TrainingDataBuilder
 
         if (!ctx.ProfileLookup.TryGetValue(userProfile.UserId, out var userWatchedIds))
         {
-            return 0;
+            return;
         }
 
         ctx.SeriesLookup.TryGetValue(userProfile.UserId, out var userWatchedSeriesIds);
@@ -1393,7 +1435,7 @@ internal static class TrainingDataBuilder
         var candidateNegatives = new List<RecommendedItem>();
         foreach (var rec in allRecommendedItems)
         {
-            if (userWatchedIds.Contains(rec.ItemId)
+            if (userProfile.AccessibleItemIds?.Contains(rec.ItemId) == false || userWatchedIds.Contains(rec.ItemId)
                 || userRecommendedIds.Contains(rec.ItemId)
                 || (userWatchedSeriesIds?.Contains(rec.ItemId) ?? false))
             {
@@ -1403,7 +1445,6 @@ internal static class TrainingDataBuilder
             candidateNegatives.Add(rec);
         }
 
-        var randomNegativeCount = 0;
         var sampleCount = Math.Min(EngineConstants.RandomNegativeSamplesPerUser, candidateNegatives.Count);
         for (var s = 0; s < sampleCount; s++)
         {
@@ -1414,15 +1455,11 @@ internal static class TrainingDataBuilder
 
             var neg = candidateNegatives[s];
             ctx.Examples.Add(BuildHistoricalNegativeExample(neg, userProfile.UserId, predictionTimes[neg.ItemId], ctx));
-            randomNegativeCount++;
         }
-
-        return randomNegativeCount;
     }
 
-    private static int EmitRecordedContrasts(RecommendationResult result, TrainingContext ctx)
+    private static void EmitRecordedContrasts(RecommendationResult result, TrainingContext ctx)
     {
-        var emitted = 0;
         var watched = ctx.ProfileLookup[result.UserId];
         var series = ctx.SeriesLookup[result.UserId];
         var recommended = ctx.RecommendedItemIdsByUser.GetValueOrDefault(result.UserId);
@@ -1446,10 +1483,7 @@ internal static class TrainingDataBuilder
                 IsObserved = false,
                 IsContrastSample = true
             });
-            emitted++;
         }
-
-        return emitted;
     }
 
     private static TrainingExample BuildHistoricalNegativeExample(RecommendedItem item, Guid userId, DateTime predictionTime, TrainingContext ctx)
@@ -1671,6 +1705,9 @@ internal static class TrainingDataBuilder
     /// </summary>
     private readonly record struct TrainingContext
     {
+        /// <summary>Gets the common choice-admission and normalization clock.</summary>
+        public DateTime ReferenceTime { get; init; }
+
         /// <summary>Gets the recommendation results from previous runs.</summary>
         public IReadOnlyList<RecommendationResult> PreviousResults { get; init; }
 
@@ -1710,6 +1747,10 @@ internal static class TrainingDataBuilder
         /// <summary>Gets captured revealed choices keyed by the same stable user/title identities as outcomes.</summary>
         public Dictionary<(Guid User, Guid Observation, DateTime Prediction), RecommendationChoiceEvidence> Choices { get; init; }
     }
+
+    private readonly record struct TrainingSources(IReadOnlyList<RecommendationResult> Previous, Collection<UserWatchProfile> Profiles, IReadOnlyList<DiscoveryFeedbackResult>? Discovery);
+
+    private readonly record struct TrainingFeatureInputs(IReadOnlyDictionary<Guid, int>? EpisodeCounts, IReadOnlyDictionary<string, double>? GenreIdf, LibraryItemMetadata? Metadata, IReadOnlyList<double>? FeatureMeans);
 
     /// <summary>
     ///     Per-user context for Phase 1 example building. Behaviour-neutral parameter aggregate.

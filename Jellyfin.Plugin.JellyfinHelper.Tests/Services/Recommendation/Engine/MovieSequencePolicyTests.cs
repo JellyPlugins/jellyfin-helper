@@ -1,0 +1,196 @@
+using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Persistence;
+using Moq;
+using Xunit;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
+
+public sealed class MovieSequencePolicyTests
+{
+    [Fact]
+    public void StandaloneMovieCopiesUseOneTitleSlotAndBackfillWithoutDiscardingTheFirstSelectedCopy()
+    {
+        var first = Movie(999001, 0, 8);
+        var secondCopy = Movie(999001, 0, 9);
+        var other = Movie(999002, 0, 7);
+        var pool = new[] { first, secondCopy, other }.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var selected = MovieSequencePolicy.Apply([pool[0], pool[1]], pool, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { first.Id, other.Id }, selected.Select(row => row.Item.Id));
+        Assert.Equal(.8, selected[0].Score);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SequenceSuitabilityAppliesWhenStandaloneCopyDeduplicationReachesASequelDuringBackfill(bool scarce)
+    {
+        var firstCopy = Movie(999001, 0, 9);
+        var secondCopy = Movie(999001, 0, 8.9f);
+        var sequel = Movie(121, 119, 8);
+        var other = Movie(999002, 0, 7);
+        var prerequisite = Movie(120, 119, 1);
+        var movies = scarce ? new[] { firstCopy, secondCopy, sequel, prerequisite } : [firstCopy, secondCopy, sequel, other, prerequisite];
+        var rows = movies.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var selected = MovieSequencePolicy.Apply([rows[0], rows[1]], rows, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { firstCopy.Id, scarce ? prerequisite.Id : other.Id }, selected.Select(row => row.Item.Id));
+        Assert.DoesNotContain(selected, row => row.Item.Id == sequel.Id);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ColdWarmLiveAndBatchSequenceChecksUseAuthoritativeBoxSetOnlyMembership(bool warm, bool batch)
+    {
+        var prerequisite = Movie(120, 0, .1f);
+        var sequel = Movie(121, 0, 10);
+        prerequisite.ProviderIds.Remove("TmdbCollection");
+        sequel.ProviderIds.Remove("TmdbCollection");
+        var collection = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "119" } };
+        var linked = new Mock<ILinkedChildrenService>();
+        linked.Setup(service => service.GetLinkedChildrenIds(collection.Id, (int)LinkedChildType.Manual)).Returns([prerequisite.Id, sequel.Id]);
+        var harness = EngineTestFactory.Create(linkedChildren: linked.Object);
+        using var engine = harness.Engine;
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        if (warm) profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] });
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) =>
+        {
+            if (query.IncludeItemTypes.Contains(BaseItemKind.Movie)) return [sequel, prerequisite];
+            return query.IncludeItemTypes.Contains(BaseItemKind.BoxSet) ? [collection] : [];
+        });
+        RecommendationResult Generate() => batch ? Assert.Single(engine.GetAllRecommendations(1, TestContext.Current.CancellationToken)) : engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!;
+        Assert.Equal(prerequisite.Id, Assert.Single(Generate().Recommendations).ItemId);
+        profile.WatchedItems.Add(new() { ItemId = prerequisite.Id, ItemType = "Movie", TmdbId = 120, Played = true, Genres = ["Action"] });
+        Assert.Equal(sequel.Id, Assert.Single(Generate().Recommendations).ItemId);
+    }
+
+    [Fact]
+    public void StandaloneDeduplicationDoesNotApplyTheSequelSuitabilityRuleToAnAlreadySelectedExplorationSlot()
+    {
+        var exploration = Movie(999001, 0, 1);
+        var suitable = Movie(999002, 0, 9);
+        var rows = new[] { exploration, suitable }.Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own", "own", (string?)null)).ToList();
+        var result = MovieSequencePolicy.Apply([rows[0]], rows, null, 1, TestContext.Current.CancellationToken);
+        Assert.Equal(exploration.Id, Assert.Single(result).Item.Id);
+        Assert.Equal(.1, result[0].Score);
+    }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    public void LowScoringPrerequisitesCannotOverrideEnoughSuitableDeliverableAlternatives(int alternativeCount, bool expectedPrerequisite)
+    {
+        var first = Movie(9737, 14890, 1);
+        var sequel = Movie(8961, 14890, 9);
+        var alternatives = Enumerable.Range(0, alternativeCount).Select(index => Movie(900000 + index, 0, 8 - index)).ToArray();
+        var eligible = new[] { sequel, first }.Concat(alternatives).Select(movie => ((BaseItem)movie, movie.CommunityRating!.Value / 10.0, "own reason", "own key", (string?)null)).ToList();
+        var ranked = DiversityReranker.ApplyDiversityReranking(eligible, 2, 1);
+        var selected = MovieSequencePolicy.Apply(ranked, eligible, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(2, selected.Count);
+        Assert.Equal(expectedPrerequisite, selected.Any(row => row.Item.Id == first.Id));
+        Assert.DoesNotContain(selected, row => row.Item.Id == sequel.Id);
+        Assert.All(selected, row => Assert.Equal(eligible.Single(original => original.Item1.Id == row.Item.Id).Item2, row.Score));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ActualColdWarmLiveAndBatchSelectionSubstitutesTheUnseenPredecessorInTheSelectedSlot(bool warm, bool batch)
+    {
+        var first = Movie(9737, 14890, .1f);
+        var second = Movie(8961, 14890, 10);
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid() };
+        if (warm) profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, Genres = ["Action"] });
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? [second, first] : []);
+        RecommendationResult Generate() => batch ? Assert.Single(engine.GetAllRecommendations(1, TestContext.Current.CancellationToken)) : engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!;
+        var delivered = Assert.Single(Generate().Recommendations);
+        Assert.Equal(first.Id, delivered.ItemId);
+        Assert.Equal(first.CommunityRating, delivered.CommunityRating);
+        if (warm) Assert.Equal(41, delivered.ScoringFeatures!.ToVector().Length);
+
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = first.Id, ItemType = "Movie", TmdbId = 9737, Played = true, Genres = ["Action"] });
+        Assert.Equal(second.Id, Assert.Single(Generate().Recommendations).ItemId);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("hidden")]
+    [InlineData("started")]
+    [InlineData("virtual")]
+    [InlineData("restricted")]
+    public void AnUnavailablePrerequisiteNeverOpensAHiddenCopyOrConsumesTheBackfillSlot(string boundary)
+    {
+        var first = Movie(9737, 14890, .1f);
+        var second = Movie(8961, 14890, 10);
+        var unrelated = Movie(999999, 0, .2f);
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), AccessibleItemIds = new HashSet<Guid> { first.Id, second.Id, unrelated.Id } };
+        if (boundary == "hidden") profile.AccessibleItemIds = new HashSet<Guid> { second.Id, unrelated.Id };
+        if (boundary == "started") profile.WatchedItems.Add(new WatchedItemInfo { ItemId = first.Id, ItemType = "Movie", TmdbId = 9737, PlaybackPositionTicks = 800, RuntimeTicks = 1000 });
+        if (boundary == "virtual") first.IsVirtualItem = true;
+        if (boundary == "restricted") { profile.MaxParentalRating = 12; first.InheritedParentalRatingValue = 18; }
+        var harness = EngineTestFactory.Create(virtualItems: TestMockFactory.CreateVirtualItemDetector());
+        using var engine = harness.Engine;
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
+        harness.WatchHistory.Setup(history => history.GetAllUserWatchProfiles()).Returns([profile]);
+        harness.LibraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IncludeItemTypes.Contains(BaseItemKind.Movie) ? boundary == "missing" ? [second, unrelated] : [first, second, unrelated] : []);
+        var result = engine.GetRecommendations(profile.UserId, 1, TestContext.Current.CancellationToken)!;
+        Assert.Equal(unrelated.Id, Assert.Single(result.Recommendations).ItemId);
+    }
+
+    [Fact]
+    public void DuplicateSubstitutionsUseOneSlotAndKeepThePredecessorsOwnScore()
+    {
+        var first = Movie(9737, 14890, 1);
+        var second = Movie(8961, 14890, 10);
+        var third = Movie(38700, 14890, 9);
+        var other = Movie(999999, 0, 2);
+        var eligible = new[] { first, second, third, other }.Select(movie => ((BaseItem)movie, (double)movie.CommunityRating!.Value / 10, "own reason", "own key", (string?)null)).ToList();
+        var selected = MovieSequencePolicy.Apply([eligible[1], eligible[2]], eligible, null, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { first.Id, other.Id }, selected.Select(row => row.Item.Id));
+        Assert.Equal(.1, selected[0].Score);
+        Assert.Equal(.2, selected[1].Score);
+    }
+
+    [Theory]
+    [InlineData(657, 645)]
+    [InlineData(8961, 0)]
+    [InlineData(999999, 14890)]
+    public void StandaloneUnknownAndUncorroboratedMembershipDoesNotInventADependency(int movie, int collection)
+    {
+        Assert.Equal(movie, MovieSequencePolicy.RequiredMovie(movie, collection, new HashSet<int>()));
+    }
+
+    [Fact]
+    public void TvProgressNeverCompletesTheMoviePrerequisiteAndPermittedCopiesRemainUsable()
+    {
+        var first = Movie(9737, 14890, 1);
+        var second = Movie(8961, 14890, 10);
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemType = "Series", TmdbId = 9737, Played = true }] };
+        var eligible = new[] { first, second }.Select(movie => ((BaseItem)movie, .5, string.Empty, string.Empty, (string?)null)).ToList();
+        Assert.Equal(first.Id, Assert.Single(MovieSequencePolicy.Apply([eligible[1]], eligible, profile, 1, TestContext.Current.CancellationToken)).Item.Id);
+        profile.WatchedItems[0].ItemType = "Movie";
+        Assert.Equal(second.Id, Assert.Single(MovieSequencePolicy.Apply([eligible[1]], eligible, profile, 1, TestContext.Current.CancellationToken)).Item.Id);
+    }
+
+    private static Movie Movie(int id, int collection, float rating) => new()
+    {
+        Id = Guid.NewGuid(), Name = "Provider movie " + id, Path = "/media/" + id + ".mkv", Genres = ["Action"],
+        CommunityRating = rating, ProductionYear = 2020, InheritedParentalRatingValue = 6,
+        ProviderIds = new() { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture), ["TmdbCollection"] = collection.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+    };
+}

@@ -164,6 +164,35 @@ public sealed class SeerrDiscoveryReconcileFailureTests : IDisposable
         _feedbackStore.Verify(f => f.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Reconcile_WhenPendingFeedbackReadFails_UsesOnlyVerifiedOwnCachedRequestsAndHonorsCancellation(bool cancel)
+    {
+        RegisterUserResolution();
+        SeedCache(100, "movie");
+        RegisterRequestPage((100, "movie"), (100, "tv"), (999, "movie"));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        _feedbackStore.Setup(store => store.GetPendingRequestedItems(JellyfinUserId)).Returns(() =>
+        {
+            if (cancel) throw new OperationCanceledException(cancellation.Token);
+            throw new IOException("pending evidence is unavailable");
+        });
+        if (cancel)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cancellation.Token));
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+        else
+        {
+            Assert.Equal(1, await _sut.ReconcileRequestedItemsAsync(JellyfinUserId, cancellation.Token));
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 100, "movie", It.IsAny<CancellationToken>()), Times.Once);
+            Assert.True(Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations).AlreadyRequested);
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 100, "tv", It.IsAny<CancellationToken>()), Times.Never);
+            _feedbackStore.Verify(store => store.RecordRequestedAsync(JellyfinUserId, 999, "movie", It.IsAny<CancellationToken>()), Times.Never);
+        }
+    }
+
     [Fact]
     public async Task Reconcile_WhenRecordRequestedThrows_SkipsItemAndLeavesCacheUnstamped()
     {

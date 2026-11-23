@@ -96,7 +96,7 @@ internal static class RecommendationChoiceBuilder
         // as an unobserved alternative, regardless of how late its last play was.
         var alternatives = recorded.Where(pair => pair.Key != group.Key && !prepared.Engaged.Contains(pair.Key))
             .Take(RecommendationChoiceEvidence.MaximumAlternatives)
-            .Select(pair => new RecommendationChoiceAlternative(pair.Key, pair.Value.ScoringFeatures!.Copy())).ToImmutableArray();
+            .Select(pair => new RecommendationChoiceAlternative(pair.Key, pair.Value.ScoringFeatures!.Copy()) { LibraryItemId = pair.Value.ItemId }).ToImmutableArray();
         if (alternatives.IsEmpty)
         {
             return null;
@@ -118,6 +118,7 @@ internal static class RecommendationChoiceBuilder
         return new RecommendationChoiceEvidence
         {
             ChosenObservationId = example.ObservationId,
+            ChosenItemId = selected.ItemId,
             RecommendedAtUtc = recommendedAt,
             AvailableAtUtc = AvailableAt(selected, recommendedAt, recorded.ContainsKey(example.ObservationId))!.Value,
             ChosenAtUtc = chosenAt,

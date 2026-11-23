@@ -41,6 +41,7 @@ public sealed class DiscoveryCacheService : IDisposable
     private readonly ILogger<DiscoveryCacheService> _logger;
     private Task<bool>? _pendingSave;
     private bool _disposed;
+    private int _activeOperations;
 
     /// <summary>
     ///     In-memory cache of discovery results. Avoids reading from disk on every API call.
@@ -91,12 +92,19 @@ public sealed class DiscoveryCacheService : IDisposable
         _filePath = Path.Join(dataPath, FileName);
     }
 
+    /// <summary>Gets the caller-wait clock; production retains the two-second save deadline.</summary>
+    internal TimeProvider WaitTimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>Gets or sets the test handoff immediately before an admitted asynchronous cache read waits on the file gate.</summary>
+    internal Action? BeforeLoadWait { get; set; }
+
     /// <summary>
     ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache if available, otherwise reads from disk and populates the cache first.
     /// </summary>
     /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
     {
+        using var operation = AdmitOperation();
         _fileLock.Wait();
         try
         {
@@ -133,6 +141,8 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>
     public async Task<IReadOnlyList<DiscoveryResult>> LoadAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = AdmitOperation();
+        BeforeLoadWait?.Invoke();
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -172,6 +182,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
+        using var operation = AdmitOperation();
         _fileLock.Wait();
         try
         {
@@ -195,6 +206,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <returns>A task that completes once the removal (and its persistence attempt) have finished.</returns>
     public async Task RemoveItemAsync(int tmdbId, string mediaType, Guid userId, CancellationToken cancellationToken = default)
     {
+        using var operation = AdmitOperation();
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -313,6 +325,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </remarks>
     public void MarkAsRequested(int tmdbId, string mediaType)
     {
+        using var operation = AdmitOperation();
         _fileLock.Wait();
         try
         {
@@ -349,6 +362,7 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <returns>A task that completes once the mark (and its persistence attempt) have finished.</returns>
     public async Task MarkAsRequestedAsync(int tmdbId, string mediaType, Guid? userId, CancellationToken cancellationToken = default)
     {
+        using var operation = AdmitOperation();
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -581,6 +595,12 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <returns><c>true</c> if the results were successfully persisted to disk; <c>false</c> if a write error occurred.</returns>
     public bool Save(IReadOnlyList<DiscoveryResult> results)
     {
+        using var operation = AdmitOperation();
+        return SaveCore(results);
+    }
+
+    private bool SaveCore(IReadOnlyList<DiscoveryResult> results, Action<IReadOnlyList<DiscoveryResult>>? beforeCommit = null)
+    {
         ArgumentNullException.ThrowIfNull(results);
 
         _fileLock.Wait();
@@ -595,6 +615,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 }
 
                 // Snapshot first so the serialized JSON and the in-memory cache are guaranteed to be the same object graph, even if the caller mutates one of the passed-in DiscoveryResult objects between Serialize and Clone.
+                beforeCommit?.Invoke(results);
                 var snapshot = results.Select(r => r.Clone()).ToList();
                 var json = JsonSerializer.Serialize(snapshot, JsonOptions);
 
@@ -638,7 +659,30 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="results">The results to persist.</param>
     /// <param name="cancellationToken">Cancels the caller wait, never an atomic write already in progress.</param>
     /// <returns>True only when this snapshot was persisted; false on timeout or while another snapshot is being written.</returns>
-    public async Task<bool> SaveAsync(IReadOnlyList<DiscoveryResult> results, CancellationToken cancellationToken = default)
+    public Task<bool> SaveAsync(IReadOnlyList<DiscoveryResult> results, CancellationToken cancellationToken = default)
+        => SaveManagedAsync(results, null, null, cancellationToken);
+
+    /// <summary>Owns one post-commit follow-up with the detached snapshot, even when its caller stops waiting.</summary>
+    /// <param name="results">The snapshot to persist.</param>
+    /// <param name="onCommitted">Bounded follow-up attempted only after this snapshot reaches disk.</param>
+    /// <param name="cancellationToken">Cancels this caller's wait, not the admitted write or its follow-up.</param>
+    /// <returns>Whether the managed operation completed within the wait budget.</returns>
+    internal Task<bool> SaveWithCompletionAsync(IReadOnlyList<DiscoveryResult> results, Func<IReadOnlyList<DiscoveryResult>, Task> onCommitted, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onCommitted);
+        return SaveManagedAsync(results, onCommitted, null, cancellationToken);
+    }
+
+    /// <summary>Revalidates a detached snapshot inside the file gate immediately before its atomic commit.</summary>
+    /// <param name="results">Detached server-owned results.</param>
+    /// <param name="onCommitted">Managed post-commit follow-up.</param>
+    /// <param name="beforeCommit">Synchronous validation without I/O or asynchronous handoffs.</param>
+    /// <param name="cancellationToken">Cancels only the caller wait.</param>
+    /// <returns>Whether this managed commit was confirmed within the wait budget.</returns>
+    internal Task<bool> SaveValidatedWithCompletionAsync(IReadOnlyList<DiscoveryResult> results, Func<IReadOnlyList<DiscoveryResult>, Task> onCommitted, Action<IReadOnlyList<DiscoveryResult>> beforeCommit, CancellationToken cancellationToken)
+        => SaveManagedAsync(results, onCommitted, beforeCommit, cancellationToken);
+
+    private async Task<bool> SaveManagedAsync(IReadOnlyList<DiscoveryResult> results, Func<IReadOnlyList<DiscoveryResult>, Task>? onCommitted, Action<IReadOnlyList<DiscoveryResult>>? beforeCommit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(results);
         cancellationToken.ThrowIfCancellationRequested();
@@ -654,18 +698,56 @@ public sealed class DiscoveryCacheService : IDisposable
             }
 
             var snapshot = results.Select(result => result.Clone()).ToArray();
-            writer = Task.Run(() => Save(snapshot), CancellationToken.None);
+            // Admission includes the write and its follow-up, independently of caller timeout.
+            _activeOperations++;
+            writer = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    var committed = SaveCore(snapshot, beforeCommit);
+                    return onCommitted is null || !committed
+                        ? committed
+                        : await CompleteSaveAsync(Task.FromResult(true), snapshot, onCommitted).ConfigureAwait(false);
+                }
+                finally
+                {
+                    CompleteOperation();
+                }
+            },
+            CancellationToken.None);
             _pendingSave = writer;
         }
 
         try
         {
-            return await writer.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            return await writer.WaitAsync(TimeSpan.FromSeconds(2), WaitTimeProvider, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             return false;
         }
+    }
+
+    private async Task<bool> CompleteSaveAsync(Task<bool> commit, IReadOnlyList<DiscoveryResult> snapshot, Func<IReadOnlyList<DiscoveryResult>, Task> onCommitted)
+    {
+        if (!await commit.ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        try
+        {
+            // This task owns the follow-up too: later submissions cannot build an
+            // unbounded continuation queue or attribute success to another snapshot.
+            await onCommitted(snapshot).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(LogCategory, "Discovery snapshot committed, but its optional follow-up failed.", ex, _logger);
+        }
+
+        return true;
     }
 
     /// <summary>Releases the cache lock after any safely abandoned writer finishes, without blocking plugin teardown.</summary>
@@ -679,14 +761,37 @@ public sealed class DiscoveryCacheService : IDisposable
             }
 
             _disposed = true;
-            if (_pendingSave is { IsCompleted: false } writer)
-            {
-                _ = writer.ContinueWith(_ => _fileLock.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-            }
-            else
+            if (_activeOperations == 0)
             {
                 _fileLock.Dispose();
             }
         }
+    }
+
+    private OperationLease AdmitOperation()
+    {
+        lock (_saveGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _activeOperations++;
+            return new OperationLease(this);
+        }
+    }
+
+    private void CompleteOperation()
+    {
+        lock (_saveGate)
+        {
+            _activeOperations--;
+            if (_disposed && _activeOperations == 0)
+            {
+                _fileLock.Dispose();
+            }
+        }
+    }
+
+    private sealed class OperationLease(DiscoveryCacheService owner) : IDisposable
+    {
+        public void Dispose() => owner.CompleteOperation();
     }
 }

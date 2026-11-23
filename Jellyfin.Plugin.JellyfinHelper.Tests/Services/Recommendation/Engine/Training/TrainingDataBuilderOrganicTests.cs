@@ -32,7 +32,8 @@ public sealed class TrainingDataBuilderOrganicTests
         var examples = TrainingDataBuilder.BuildExamples([], [profile], TestContext.Current.CancellationToken).Examples;
         var id = TrainingExample.CreateTitleObservationId(user, target.ItemId, 0, false);
         var example = Assert.Single(examples, row => row.ObservationId == id);
-        Assert.Equal(available ? 1 : null, example.Features.ContentFitSupport);
+        if (available) Assert.Equal(Math.Pow(.5, 5.0 / EngineConstants.GenreDecayHalfLifeDays), example.Features.ContentFitSupport!.Value, 12);
+        else Assert.Null(example.Features.ContentFitSupport);
         Assert.Equal(available, example.Features.ContentTasteKey.HasValue);
         Assert.Equal(Anchor, example.GeneratedAtUtc);
         Assert.Equal(41, example.Features.ToVector().Length);

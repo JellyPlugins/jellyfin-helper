@@ -94,6 +94,180 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     // SubmitRequestAsync
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnUncertainPostNeverAcknowledgesSuccessOrLosesTheUncertaintySignal(bool timeout)
+    {
+        Exception failure = timeout ? new TaskCanceledException("provider timeout") : new HttpRequestException("connection lost after POST");
+        _handler.ResponseOverride = (request, _) =>
+        {
+            if (request.Method == HttpMethod.Post) return Task.FromException<HttpResponseMessage>(failure);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"id":1234,"mediaInfo":null}""") });
+        };
+        var result = await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.True(result.SubmissionUncertain);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task AQueuedSubmissionCannotReuseTheOldSourceAfterWaitingForAnEarlierAcceptedPost()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(token);
+                return new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{}") };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"id":1234,"mediaInfo":null}""") };
+        };
+        var first = _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, TestContext.Current.CancellationToken);
+        Task<SeerrRequestResult>? queued = null;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            queued = _sut.SubmitRequestAsync(1234, "movie", 43, null, null, null, TestContext.Current.CancellationToken);
+            Assert.False(queued.IsCompleted);
+            Plugin.Instance!.Configuration.SeerrApiKey = "replacement-key";
+        }
+        finally
+        {
+            release.TrySetResult();
+            await first.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (queued is not null) await queued.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        Assert.True((await first).Success);
+        Assert.False((await queued).Success);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Single(_handler.Requests, request => request.Method == HttpMethod.Get);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task NativeReconciliationRestoresAnExpiredPreparedCardAfterRestartEvenForACompletedIdentityOnlyRequest(bool completedIdentity, bool failConfirmation)
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-native-prepared-" + Guid.NewGuid().ToString("N"));
+        var user = Guid.NewGuid();
+        var generated = DateTime.UtcNow.AddMinutes(-20);
+        var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+        DateTime? requested = null;
+        DateTime? watched = null;
+        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory))
+        {
+            var prepared = original.PrepareRequestedCard(user, new DiscoveryRecommendation { TmdbId = 700, MediaType = "movie", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, generated, scope);
+            original.MarkPreparedSubmission(prepared);
+            if (completedIdentity)
+            {
+                original.RecordRequested(user, 700, "movie");
+                original.MarkWatched(user, new HashSet<(int, string)> { (700, "movie") });
+                var entry = Assert.Single(original.LoadForUser(user)!.Entries);
+                requested = entry.RequestedAtUtc;
+                watched = entry.WatchedAtUtc;
+                Assert.True(entry.WasWatched);
+                Assert.Null(entry.CardRequestedAtUtc);
+            }
+        }
+
+        var retry = new ControlledWaitTimeProvider();
+        var offline = failConfirmation;
+        using var restored = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) =>
+            {
+                if (offline) throw new IOException("accepted original confirmation unavailable");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        try
+        {
+            Assert.True(await _cache.SaveAsync([], TestContext.Current.CancellationToken));
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, $$"""{"pageInfo":{"pages":1,"results":1},"results":[{"id":42,"jellyfinUserId":"{{user:N}}"}]}""");
+            _handler.RegisterResponse(HttpMethod.Get, "requestedBy=42", HttpStatusCode.OK, """{"pageInfo":{"pages":1,"results":1},"results":[{"id":70,"status":2,"media":{"tmdbId":700,"mediaType":"movie","status":3}}]}""");
+            var library = TestMockFactory.CreateLibraryManager();
+            library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+            var service = new SeerrDiscoveryService(_httpFactoryMock.Object, Mock.Of<IWatchHistoryService>(), Mock.Of<IArrIntegrationService>(), library.Object, _perUserRegistry, _cache, restored,
+                Mock.Of<IPluginLogService>(), TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>());
+            Assert.Equal(failConfirmation ? 0 : 1, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            if (failConfirmation)
+            {
+                Assert.Throws<IOException>(() => restored.LoadAll());
+                Assert.Contains((700, "movie"), restored.GetPendingRequestedItems(user));
+                Assert.Empty(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+                offline = false;
+                await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                retry.ExpireDeadlines();
+                var writer = (Task<bool>)typeof(DiscoveryFeedbackStore).GetField("_pendingGeneration", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(restored)!;
+                await writer.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            }
+
+            var recovered = Assert.Single(Assert.Single(restored.LoadAll()).Entries);
+            Assert.Equal(.2, recovered.ScoringFeatures!.GenreSimilarity);
+            Assert.Equal(generated, recovered.ShownAtUtc);
+            if (completedIdentity)
+            {
+                Assert.Equal(requested, recovered.RequestedAtUtc);
+                Assert.Equal(watched, recovered.WatchedAtUtc);
+                Assert.True(recovered.WasWatched);
+            }
+
+            Assert.Empty(restored.GetPreparedRequestItems(user, scope));
+            Assert.Empty(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.All(_handler.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+        }
+        finally
+        {
+            restored.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CapturedSubmissionCannotUseAWithdrawnSourceBeforeOrAfterItsBlockingStatusCheck(bool afterStatus)
+    {
+        var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handler.ResponseOverride = async (request, token) =>
+        {
+            if (request.Method != HttpMethod.Get) throw new InvalidOperationException("Withdrawn submissions must not POST.");
+            entered.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"id":1234,"mediaInfo":null}""") };
+        };
+        if (!afterStatus) Plugin.Instance.Configuration.SeerrApiKey = "changed-key";
+        var submission = _sut.SubmitCapturedRequestAsync(new SeerrDiscoveryService.CapturedSubmission(1234, "movie", 42, null, null, null, scope), TestContext.Current.CancellationToken);
+        try
+        {
+            if (afterStatus)
+            {
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+                Plugin.Instance.Configuration.SeerrApiKey = "changed-key";
+            }
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        var result = await submission.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.False(result.SubmissionUncertain);
+        Assert.DoesNotContain(_handler.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Equal(afterStatus ? 1 : 0, _handler.Requests.Count);
+    }
+
+    [Theory]
     [InlineData(2)]
     [InlineData(3)]
     public async Task SubmitRequestAsync_ConfirmedExistingRequest_IsSuccessfulWithoutPosting(int status)

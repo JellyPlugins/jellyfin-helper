@@ -5,6 +5,7 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ControlledTimer> _timers = [];
+    private readonly SemaphoreSlim _created = new(0);
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -14,8 +15,12 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
             _timers.Add(timer);
         }
 
+        _created.Release();
         return timer;
     }
+
+    internal Task WaitForDeadlineAsync(CancellationToken cancellationToken)
+        => _created.WaitAsync(cancellationToken);
 
     internal void ExpireDeadlines()
     {
@@ -26,6 +31,15 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
         }
 
         foreach (var timer in timers) timer.Fire();
+    }
+
+    /// <summary>Captures a callback already dispatched before disposal, independent of the timer's later disposed state.</summary>
+    internal Action CaptureLatestCallback()
+    {
+        lock (_gate)
+        {
+            return _timers[^1].CaptureCallback();
+        }
     }
 
     private sealed class ControlledTimer(TimerCallback callback, object? state) : ITimer
@@ -46,5 +60,7 @@ internal sealed class ControlledWaitTimeProvider : TimeProvider
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0) callback(state);
         }
+
+        internal Action CaptureCallback() => () => callback(state);
     }
 }
