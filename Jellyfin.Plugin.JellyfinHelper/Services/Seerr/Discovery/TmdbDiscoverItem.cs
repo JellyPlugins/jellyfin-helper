@@ -52,7 +52,11 @@ internal sealed class TmdbDiscoverItem
     [JsonPropertyName("genreIds")]
     public List<int> GenreIds
     {
-        get => _genreIds;
+        get
+        {
+            return _genreIds;
+        }
+
         set
         {
             _genreIds = value ?? [];
@@ -61,14 +65,6 @@ internal sealed class TmdbDiscoverItem
     }
 
     internal bool HasIndependentGenreIds => (_independentGenreIds ?? _genreIds).Count > 0;
-
-    /// <summary>Replaces provider projections without losing the original discover-list evidence on expiry.</summary>
-    /// <param name="genres">Validated metadata IDs; empty clears, null restores the independent input.</param>
-    internal void ProjectGenreIds(IEnumerable<int>? genres)
-    {
-        _independentGenreIds ??= _genreIds.ToList();
-        _genreIds = genres?.Distinct().ToList() ?? _independentGenreIds.ToList();
-    }
 
     /// <summary>
     ///     Gets or sets the observed vote score; missing or invalid source values remain unavailable.
@@ -251,6 +247,14 @@ internal sealed class TmdbDiscoverItem
     /// <summary>Gets or sets the personal seed-title retrieval lane, never a keyword match, outcome or score bonus.</summary>
     [JsonIgnore]
     public string? PersonalSeedKey { get; set; }
+
+    /// <summary>Replaces provider projections without losing the original discover-list evidence on expiry.</summary>
+    /// <param name="genres">Validated metadata IDs; empty clears, null restores the independent input.</param>
+    internal void ProjectGenreIds(IEnumerable<int>? genres)
+    {
+        _independentGenreIds ??= _genreIds.ToList();
+        _genreIds = genres?.Distinct().ToList() ?? _independentGenreIds.ToList();
+    }
 
     /// <summary>Replaces only metadata-derived labels; overlapping independent source labels retain their provenance.</summary>
     /// <param name="genres">Labels from the currently accepted metadata observations, or null when rejected.</param>

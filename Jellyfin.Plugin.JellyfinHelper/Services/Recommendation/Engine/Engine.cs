@@ -2048,7 +2048,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
             lookup[candidate.Id] = new CandidateContentAffinity(
                 ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-                credits.ProductionCountries?.ToArray() ?? [],
+                credits.ProductionCountries?.ToList() ?? [],
                 ContentAffinityResolver.ResolveInheritedTags(candidate),
                 ContentAffinityResolver.ResolveSeriesStatus(candidate),
                 ContentAffinityResolver.ResolveSeriesEndDate(candidate),
@@ -2119,7 +2119,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
         return new CandidateContentAffinity(
             ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-            credits.ProductionCountries?.ToArray() ?? [],
+            credits.ProductionCountries?.ToList() ?? [],
             ContentAffinityResolver.ResolveInheritedTags(candidate),
             ContentAffinityResolver.ResolveSeriesStatus(candidate),
             ContentAffinityResolver.ResolveSeriesEndDate(candidate),

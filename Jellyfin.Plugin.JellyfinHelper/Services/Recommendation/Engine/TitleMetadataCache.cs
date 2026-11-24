@@ -287,9 +287,10 @@ public sealed class TitleMetadataCache
 
         var scopes = ActiveSupplementalSources(config).Select(source => (source.Source, Scope: SourceDigest(source, source.Source == "trakt" ? null : language)))
             .Append((Source: "seerr", Scope: SeerrScope(config, language))).ToHashSet();
-        return TitleMetadataMerger.CombineCurrentObservations(TitleMetadataMerger.Observations(snapshot)
+        var observations = TitleMetadataMerger.Observations(snapshot)
             .Where(source => source.ObservationScope is not null && scopes.Contains((source.Source, source.ObservationScope)))
-            .ToArray(), Now);
+            .ToArray();
+        return TitleMetadataMerger.CombineCurrentObservations(observations, Now);
     }
 
     internal static string SeerrScope(PluginConfiguration config, string? language)

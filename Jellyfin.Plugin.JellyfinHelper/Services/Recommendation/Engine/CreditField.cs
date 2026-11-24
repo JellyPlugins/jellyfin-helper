@@ -27,5 +27,7 @@ public sealed record CreditField
     /// <returns>The original immutable field or unavailable.</returns>
     internal CreditField? At(DateTime cutoff, DateTime? oldest = null)
         => AcquiredAtUtc is { } acquired && acquired != default && DateTimeNormalization.ToUtc(acquired) <= cutoff
-            && (!oldest.HasValue || DateTimeNormalization.ToUtc(acquired) > oldest.Value) ? this : null;
+            && (!oldest.HasValue || DateTimeNormalization.ToUtc(acquired) > oldest.Value)
+                ? this
+                : null;
 }

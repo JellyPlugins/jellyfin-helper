@@ -328,6 +328,7 @@ public sealed class WatchedItemInfo
         {
             copy.Genres = GenreNormalizer.Set(labels).ToArray();
         }
+
         return copy;
     }
 }
