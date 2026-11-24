@@ -191,8 +191,10 @@ public sealed class CreditRootContractsTests
         Assert.Equal(new[] { "Guest", "Regular" }, combined.Cast!.People!.Value.Select(person => person.Name));
         Assert.True(combined.Cast.Complete);
         Assert.Equal(datedParent ? Clock.AddMinutes(-1) : (DateTime?)null, combined.Cast.AcquiredAtUtc);
-        Assert.Equal("Guest", Assert.Single(own.Cast.People.Value).Name);
-        Assert.Equal("Regular", Assert.Single(parent.Cast.People.Value).Name);
+        var ownPeople = Assert.IsType<ImmutableArray<PersonCredit>>(Assert.IsType<CreditField>(own.Cast).People);
+        var parentPeople = Assert.IsType<ImmutableArray<PersonCredit>>(Assert.IsType<CreditField>(parent.Cast).People);
+        Assert.Equal("Guest", Assert.Single(ownPeople).Name);
+        Assert.Equal("Regular", Assert.Single(parentPeople).Name);
 
         row.SeriesCredits = parent with { Cast = null };
         Assert.Same(own.Cast, CreditPreferenceProfile.Resolve(row)!.Cast);

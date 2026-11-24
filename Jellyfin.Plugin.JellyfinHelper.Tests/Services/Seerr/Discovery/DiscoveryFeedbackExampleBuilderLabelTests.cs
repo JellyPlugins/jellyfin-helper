@@ -86,8 +86,13 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         Assert.InRange(passive.Sum(example => example.SampleWeight), .19, .21);
         Assert.All(passive, example => { Assert.False(example.IsObserved); Assert.False(example.IsContrastSample); Assert.Equal(.45, example.Label); });
         Assert.Equal(2, built.Examples.Count(example => example.IsObserved));
-        Assert.Equal(.6, Assert.Single(built.Examples, example => example.IsObserved && example.Label == 0).SampleWeight);
-        Assert.Equal(EngineConstants.DiscoveryRequestedLabel, Assert.Single(built.Examples, example => example.IsObserved && example.Label > .5).Label);
+        var dismissalId = TrainingExample.CreateProviderObservationId(user, action.TmdbId, action.MediaType);
+        var requestId = TrainingExample.CreateProviderObservationId(user, requested.TmdbId, requested.MediaType);
+        var dismissal = Assert.Single(built.Examples, example => example.IsObserved && example.ObservationId == dismissalId);
+        var request = Assert.Single(built.Examples, example => example.IsObserved && example.ObservationId == requestId);
+        Assert.Equal(0d, dismissal.Label);
+        Assert.Equal(.6, dismissal.SampleWeight);
+        Assert.Equal(EngineConstants.DiscoveryRequestedLabel, request.Label);
         Assert.False(EnsembleAdmissionEvaluator.HasIndependentAcceptanceSupport(passive, DateTime.UtcNow));
     }
 

@@ -748,7 +748,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [InlineData(true, false, false)]
     [InlineData(true, true, false)]
     [InlineData(false, true, true)]
-    public async Task AJournaledRequestCanRecoverBefore64BlockedDependentWatchesWithoutExpandingTheNormalQueue(bool failsFirstReplay, bool preparedRequest, bool unrelatedImpressionFails)
+    public async Task AJournaledRequestCanRecoverBefore64BlockedDependentWatchesWithinTheReservedWriteBudget(bool failsFirstReplay, bool preparedRequest, bool unrelatedImpressionFails)
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
@@ -807,7 +807,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             offline = failsFirstReplay;
             retry.ExpireDeadlines();
-            await CompleteFirstPriorityFailureAsync(store, retry, failsFirstReplay, () => offline = false);
+            await CompleteFirstPriorityFailureAsync(store, retry, failsFirstReplay, () => offline = false, user, preparedRequest);
             if (unrelatedImpressionFails)
             {
                 Assert.False(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
@@ -821,6 +821,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             }
 
             Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            if (failsFirstReplay && !preparedRequest) store.RecordRequested(user, 9001, "movie");
+            if (failsFirstReplay) Assert.Contains((9001, "movie"), store.GetRequestedItems(user));
             var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 9000);
             Assert.True(entry.WasWatched);
             Assert.Equal(clock.Now, entry.RequestedAtUtc);
@@ -839,7 +841,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
     }
 
-    private static async Task CompleteFirstPriorityFailureAsync(DiscoveryFeedbackStore store, Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider retry, bool failsFirstReplay, Action restore)
+    private static async Task CompleteFirstPriorityFailureAsync(DiscoveryFeedbackStore store, Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider retry, bool failsFirstReplay, Action restore, Guid user, bool preparedRequest)
     {
         if (!failsFirstReplay)
         {
@@ -849,8 +851,24 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.False(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         var blocked = (System.Collections.ICollection)typeof(DiscoveryFeedbackStore).GetField("_retryWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
-        Assert.Equal(64, blocked.Count);
-        Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
+        Assert.Equal(preparedRequest ? 64 : 65, blocked.Count);
+        if (preparedRequest)
+        {
+            Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
+            // The priority owner cannot make a second admitted identity-only
+            // request disappear when its write fails behind these watches.
+            store.RecordRequested(user, 9001, "movie");
+            Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
+        }
+        else
+        {
+            // The original operation already owns the execution reservation.
+            // A new identity-only operation must be rejected before admission.
+            Assert.Throws<IOException>(() => store.RecordRequested(user, 9001, "movie"));
+        }
+
+        Assert.Equal(65, blocked.Count);
+        Assert.DoesNotContain((9001, "movie"), store.GetRequestedItems(user));
         restore();
         retry.ExpireDeadlines();
     }
@@ -910,6 +928,161 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var valid = journal.Admit(JournalTicket(payload) with { RequestSourceScope = "short-source" }, payload);
         Assert.Equal(payload, journal.Read(valid));
         Assert.Single(new DiscoveryFeedbackRecoveryJournal(directory, (_, _) => { }).Pending());
+    }
+
+    [Fact]
+    public void MergeBaseIntentReservationsRemainRecoverableAtTheirOriginalAggregateBudget()
+    {
+        var directory = Path.Join(_tempDir, "legacy-intent-reservations");
+        Directory.CreateDirectory(directory);
+        byte[] payload = [1, 2, 3];
+        var epoch = Guid.NewGuid();
+        var originals = Enumerable.Range(1, 4).Select(order => JournalTicket(payload) with
+        {
+            Kind = "RequestIntent", IntentSchemaVersion = 1, AdmissionEpoch = epoch, AdmissionOrder = order
+        }).ToArray();
+        var budget = DiscoveryFeedbackRecoveryJournal.MetadataReservationBytes + originals.Sum(ticket => MergeBaseIntentReservation(ticket, payload));
+        foreach (var original in originals)
+        {
+            File.WriteAllBytes(Path.Join(directory, original.Id.ToString("N") + ".json"), System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ticket = original, payload }, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+        }
+
+        var restored = new DiscoveryFeedbackRecoveryJournal(directory, (path, contents) => Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents), byteBudget: budget);
+        Assert.Equal(4, restored.Pending().Length);
+        Assert.All(restored.Pending(), ticket =>
+        {
+            Assert.Equal(1, ticket.IntentSchemaVersion);
+            Assert.Null(ticket.LastSubmissionAttempt);
+            Assert.Equal(payload, restored.Read(ticket));
+        });
+        var firstPath = Path.Join(directory, originals[0].Id.ToString("N") + ".json");
+        var originalBytes = File.ReadAllBytes(firstPath);
+        Assert.Throws<IOException>(() => restored.UpdateIntent(originals[0].Id, accepted: false, uncertain: true, DateTime.UtcNow, Guid.NewGuid()));
+        Assert.Equal(originalBytes, File.ReadAllBytes(firstPath));
+        Assert.Throws<IOException>(() => restored.Admit(JournalTicket(payload) with { Kind = "RequestIntent" }, payload));
+        restored.Complete(originals[0].Id);
+        restored.Complete(originals[1].Id);
+        var incoming = restored.Admit(JournalTicket(payload) with { Kind = "RequestIntent" }, payload);
+        Assert.Equal(2, incoming.IntentSchemaVersion);
+        Assert.True(incoming.ReservedBytes > MergeBaseIntentReservation(incoming with { IntentSchemaVersion = 1, LastSubmissionAttempt = null }, payload));
+        var restarted = new DiscoveryFeedbackRecoveryJournal(directory, (_, _) => { }, byteBudget: budget);
+        Assert.Equal(3, restarted.Pending().Length);
+        Assert.All(restarted.Pending(), ticket => Assert.Equal(payload, restarted.Read(ticket)));
+    }
+
+    private static long MergeBaseIntentReservation(DiscoveryFeedbackRecoveryJournal.Ticket ticket, byte[] payload)
+    {
+        var maximum = ticket with
+        {
+            Kind = "RequestIntent", SubmissionUncertain = false,
+            LastSubmissionAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc), LastSubmissionAttempt = null,
+            FirstNegativeAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)
+        };
+        return Math.Max(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ticket, payload }, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options).LongLength,
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ticket = maximum, payload }, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options).LongLength);
+    }
+
+    [Fact]
+    public void EmptySubmissionAttemptsCannotBeAdmittedOrReplaceTheOriginalButNullAndNonemptyAttemptsReopen()
+    {
+        var directory = Path.Join(_tempDir, "invalid-attempt-admission");
+        byte[] payload = [1];
+        var writes = 0;
+        var journal = new DiscoveryFeedbackRecoveryJournal(directory, (path, contents) =>
+        {
+            writes++;
+            Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+        });
+        Assert.Throws<IOException>(() => journal.Admit(JournalTicket(payload) with { Kind = "RequestIntent", LastSubmissionAttempt = Guid.Empty }, payload));
+        Assert.Empty(journal.Pending());
+        Assert.False(Directory.Exists(directory));
+        Assert.Equal(0, writes);
+        var original = journal.Admit(JournalTicket(payload) with { Kind = "RequestIntent" }, payload);
+        var path = Assert.Single(Directory.GetFiles(directory, "*.json"));
+        var contents = File.ReadAllBytes(path);
+        Assert.Throws<IOException>(() => journal.UpdateIntent(original.Id, accepted: false, uncertain: true, DateTime.UtcNow, Guid.Empty));
+        Assert.Equal(1, writes);
+        Assert.Equal(contents, File.ReadAllBytes(path));
+        var legacyMark = journal.UpdateIntent(original.Id, accepted: false, uncertain: true, DateTime.UtcNow, submissionAttempt: null);
+        Assert.Null(legacyMark.LastSubmissionAttempt);
+        Assert.Equal(payload, new DiscoveryFeedbackRecoveryJournal(directory, (_, _) => { }).Read(legacyMark));
+        var attempt = Guid.NewGuid();
+        var marked = journal.UpdateIntent(original.Id, accepted: false, uncertain: true, DateTime.UtcNow, attempt);
+        Assert.Equal(attempt, marked.LastSubmissionAttempt);
+        Assert.Equal(payload, new DiscoveryFeedbackRecoveryJournal(directory, (_, _) => { }).Read(marked));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void DefinitiveAndUnsentSiblingsRetireInEitherFinishOrderButActualUncertaintyKeepsTheOriginal(bool unsentFirst, bool uncertain)
+    {
+        using var store = CreateStore();
+        var user = Guid.NewGuid();
+        var sent = store.PrepareRequestedCard(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, DateTime.UtcNow.AddMinutes(-1), "source");
+        var unsent = store.PrepareRequestedCard(user, new() { TmdbId = 700, MediaType = "tv" }, DateTime.UtcNow, "source");
+        store.MarkPreparedSubmission(sent);
+        if (unsentFirst) store.FinishPreparedAttempt(unsent, submissionUncertain: false, definitelyUnaccepted: true);
+        store.FinishPreparedAttempt(sent, submissionUncertain: uncertain, definitelyUnaccepted: !uncertain);
+        if (!unsentFirst) store.FinishPreparedAttempt(unsent, submissionUncertain: false, definitelyUnaccepted: true);
+        Assert.Equal(uncertain, store.GetPreparedRequestItems(user, "source").Contains((700, "tv")));
+        Assert.Empty(store.GetRequestedItems(user));
+        Assert.Empty(store.LoadAll());
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public void TwoMarkedSiblingsRetainOnlyActualUncertaintyAcrossBothFinishOrdersAndRestart(bool latestFinishesFirst, bool firstUncertain, bool latestUncertain)
+    {
+        using var store = CreateStore();
+        var user = Guid.NewGuid();
+        var first = store.PrepareRequestedCard(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, DateTime.UtcNow.AddMinutes(-1), "source");
+        var latest = store.PrepareRequestedCard(user, new() { TmdbId = 700, MediaType = "tv" }, DateTime.UtcNow, "source");
+        store.MarkPreparedSubmission(first);
+        store.MarkPreparedSubmission(latest);
+        if (latestFinishesFirst)
+        {
+            store.FinishPreparedAttempt(latest, latestUncertain, definitelyUnaccepted: !latestUncertain);
+            var interrupted = new DiscoveryFeedbackRecoveryJournal(Path.Join(_tempDir, "jellyfin-helper-request-intents"), (_, _) => { }).Get(first.Id);
+            Assert.True(interrupted.SubmissionUncertain);
+            Assert.Equal(!latestUncertain, interrupted.LastSubmissionDefinitelyUnaccepted);
+        }
+        store.FinishPreparedAttempt(first, firstUncertain, definitelyUnaccepted: !firstUncertain);
+        if (!latestFinishesFirst) store.FinishPreparedAttempt(latest, latestUncertain, definitelyUnaccepted: !latestUncertain);
+        var retained = firstUncertain || latestUncertain;
+        Assert.Equal(retained, store.GetPreparedRequestItems(user, "source").Contains((700, "tv")));
+        store.Dispose();
+        using var restarted = CreateStore();
+        Assert.Equal(retained, restarted.GetPreparedRequestItems(user, "source").Contains((700, "tv")));
+        Assert.Empty(restarted.GetRequestedItems(user));
+        Assert.Empty(restarted.LoadAll());
+    }
+
+    [Fact]
+    public void DefinitiveJournalClearingCannotClearAnotherAttemptOrAnAcceptedRequest()
+    {
+        var directory = Path.Join(_tempDir, "conditional-definitive-mark");
+        byte[] payload = [1];
+        var journal = new DiscoveryFeedbackRecoveryJournal(directory, (path, contents) => Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents));
+        var original = journal.Admit(JournalTicket(payload) with { Kind = "RequestIntent" }, payload);
+        Assert.Throws<IOException>(() => journal.ClearDefinitivelyRejectedSubmission(original.Id, Guid.Empty));
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        journal.UpdateIntent(original.Id, accepted: false, uncertain: true, DateTime.UtcNow, first);
+        journal.UpdateIntent(original.Id, accepted: false, uncertain: true, DateTime.UtcNow, second);
+        Assert.True(journal.ClearDefinitivelyRejectedSubmission(original.Id, first).SubmissionUncertain);
+        Assert.False(journal.ClearDefinitivelyRejectedSubmission(original.Id, second).SubmissionUncertain);
+        var accepted = journal.UpdateIntent(original.Id, accepted: true, uncertain: true);
+        Assert.Equal(accepted, journal.ClearDefinitivelyRejectedSubmission(original.Id, second));
+        Assert.Equal(payload, new DiscoveryFeedbackRecoveryJournal(directory, (_, _) => { }).Read(accepted));
     }
 
     [Fact]
@@ -1238,6 +1411,202 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Equal(requestAt, saved.RequestedAtUtc);
         Assert.Equal(requestAt.AddMinutes(1), saved.WatchedAtUtc);
         Assert.True(saved.WasWatched);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EveryPendingWatchInTheEligibleIntervalProtectsTheRequestButAPreRequestWatchAloneDoesNot(bool eligibleWatch)
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-4) };
+        var requestAt = clock.Now;
+        var user = Guid.NewGuid();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider()
+        };
+        store.RecordRequested(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, requestAt.AddMinutes(-1));
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        var watches = new List<Task<bool>>();
+        lock (gate)
+        {
+            clock.Now = requestAt.AddMinutes(-1);
+            watches.Add(store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+            if (eligibleWatch)
+            {
+                clock.Now = requestAt.AddMinutes(1);
+                watches.Add(store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+            }
+
+            clock.Now = requestAt.AddMinutes(2);
+            store.RecordRequested(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, clock.Now.AddSeconds(-1));
+            Assert.Equal(eligibleWatch ? requestAt : clock.Now, Assert.Single(store.LoadForUser(user)!.Entries).RequestedAtUtc);
+        }
+
+        await Task.WhenAll(watches).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+        Assert.Equal(eligibleWatch ? requestAt : clock.Now, saved.RequestedAtUtc);
+        Assert.Equal(eligibleWatch, saved.WasWatched);
+        Assert.Equal(eligibleWatch ? requestAt.AddMinutes(1) : (DateTime?)null, saved.WatchedAtUtc);
+        Assert.Equal(eligibleWatch ? .2 : .9, saved.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Fact]
+    public async Task ALaterRejectedWatchCannotEraseTheEarlierOrderingEvidenceForARetainedCard()
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-5) };
+        var requestAt = clock.Now;
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var offline = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) =>
+            {
+                if (offline) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordRequested(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 } }, requestAt.AddMinutes(-1));
+        offline = true;
+        var gate = (System.Threading.Lock)typeof(DiscoveryFeedbackStore).GetField("_fileLock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
+        Task<bool[]> pressure;
+        lock (gate)
+        {
+            pressure = Task.WhenAll(Enumerable.Range(1000, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)));
+        }
+
+        await pressure.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        clock.Now = requestAt.AddMinutes(1);
+        Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        clock.Now = requestAt.AddMinutes(2);
+        store.RecordRequested(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, clock.Now.AddSeconds(-1));
+        clock.Now = requestAt.AddMinutes(3);
+        Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        offline = false;
+        retry.ExpireDeadlines();
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Equal(requestAt, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 700).RequestedAtUtc);
+        Assert.Throws<IOException>(() => store.LoadAll());
+        clock.Now = requestAt.AddMinutes(4);
+        store.MarkWatched(user, new HashSet<(int, string)> { (700, "tv") });
+        await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 700);
+        Assert.Equal(requestAt, saved.RequestedAtUtc);
+        Assert.Equal(clock.Now, saved.WatchedAtUtc);
+        Assert.Equal(.2, saved.ScoringFeatures!.GenreSimilarity);
+    }
+
+    [Fact]
+    public async Task RejectedWatchOrderingIsBoundedAndAnOverflowCannotAuthorizeReplacementOrFitting()
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var requestAt = clock.Now;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var stall = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider(),
+            WriteFeedback = (path, contents) =>
+            {
+                if (stall) { started.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); }
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordRequested(user, 700, "tv");
+        stall = true;
+        var first = store.RecordRequestedAsync(user, 1000, "movie", TestContext.Current.CancellationToken);
+        Task<bool[]>? pressure = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            pressure = Task.WhenAll(Enumerable.Range(1001, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)));
+            for (var index = 0; index < 4096; index++)
+            {
+                clock.Now = requestAt.AddMinutes(1).AddTicks(index);
+                Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+            }
+
+            Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+            clock.Now = clock.Now.AddTicks(1);
+            Assert.False(await store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken));
+            Assert.Equal(4096, (int)typeof(DiscoveryFeedbackStore).GetField("_rejectedWatchTimeCount", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
+            release.Set();
+            await pressure.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            // The untracked overflow remains fail-closed, even for a receipt
+            // earlier than all of the retained timestamps and after queue drainage.
+            clock.Now = requestAt.AddTicks(1);
+            store.RecordRequested(user, new() { TmdbId = 700, MediaType = "tv", ScoringFeatures = new CandidateFeatures { GenreSimilarity = .9 } }, requestAt);
+            Assert.Equal(requestAt, Assert.Single(store.LoadForUser(user)!.Entries, entry => entry.TmdbId == 700).RequestedAtUtc);
+            Assert.Throws<IOException>(() => store.LoadAll());
+        }
+        finally
+        {
+            release.Set();
+            Task admitted = pressure is null ? first : pressure;
+            await admitted.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task AnAdmittedWatchThatFailsBehind64UnrelatedWritesRetriesWithoutAnotherWatchSubmission()
+    {
+        var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-2) };
+        var requestAt = clock.Now;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var retry = new Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider();
+        var offline = false;
+        var stall = false;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            ReceiptTimeProvider = clock, RetryTimeProvider = retry,
+            WriteFeedback = (path, contents) =>
+            {
+                if (stall) { started.TrySetResult(); release.Wait(TestContext.Current.CancellationToken); }
+                if (offline) throw new IOException("offline");
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        store.RecordRequested(user, 700, "tv");
+        clock.Now = requestAt.AddMinutes(1);
+        stall = true;
+        var watch = store.MarkWatchedAsync(user, new HashSet<(int, string)> { (700, "tv") }, TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            stall = false;
+            offline = true;
+            var queued = Enumerable.Range(1000, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)).ToArray();
+            release.Set();
+            Assert.False(await watch);
+            await Task.WhenAll(queued).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(65, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
+            offline = false;
+            retry.ExpireDeadlines();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var saved = Assert.Single(Assert.Single(store.LoadAll()).Entries, entry => entry.TmdbId == 700);
+            Assert.Equal(requestAt, saved.RequestedAtUtc);
+            Assert.Equal(requestAt.AddMinutes(1), saved.WatchedAtUtc);
+            Assert.True(saved.WasWatched);
+            Assert.Equal(0, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
+        }
+        finally
+        {
+            release.Set();
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     [Fact]

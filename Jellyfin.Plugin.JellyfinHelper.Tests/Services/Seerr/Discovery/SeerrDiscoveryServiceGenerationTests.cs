@@ -62,26 +62,40 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly OffsetClock _metadataClock = new();
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task FreshGenerationCannotPersistAWithdrawnUserOrAnOldSeerrSource(bool sourceChanges)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task FreshGenerationCannotPersistAWithdrawnUserOrAnOldSeerrSource(bool enabledRoster, bool sourceChanges)
     {
         var profile = NewProfile();
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
-        _history.Setup(history => history.GetAllUserIds()).Returns(sourceChanges ? [profile.UserId] : []);
+        _history.Setup(history => history.GetAllUserIds()).Returns(enabledRoster ? [profile.UserId] : []);
         _history.Setup(history => history.GetUserWatchProfile(profile.UserId)).Returns(profile);
         RegisterGenreMovieResults(28, Enumerable.Range(601, 30).Select(id => Candidate(id, 8)).ToArray());
-        if (sourceChanges)
+        var saveReached = false;
+        if (enabledRoster)
         {
             var previous = new DiscoveryResult { UserId = profile.UserId, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 777, MediaType = "movie" }] };
             Assert.True(await _cache.SaveAsync([previous], TestContext.Current.CancellationToken));
-            _cache.BeforeSaveWait = () => Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+            _cache.BeforeSaveWait = () =>
+            {
+                saveReached = true;
+                if (sourceChanges) Plugin.Instance!.Configuration.SeerrUrl = "https://other.example.test";
+            };
         }
 
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(enabledRoster, saveReached);
         if (sourceChanges)
         {
             Assert.Equal(777, Assert.Single(Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken)).Recommendations).TmdbId);
+        }
+        else if (enabledRoster)
+        {
+            var generated = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
+            Assert.NotEmpty(generated.Recommendations);
+            Assert.DoesNotContain(generated.Recommendations, candidate => candidate.TmdbId == 777);
+            Assert.All(generated.Recommendations, candidate => Assert.InRange(candidate.TmdbId, 601, 630));
         }
         else
         {
@@ -89,7 +103,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             Assert.Empty(_handler.Requests);
         }
 
-        _feedbackStore.Verify(store => store.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedbackStore.Verify(store => store.RecordGeneratedAsync(profile.UserId, profile.UserName, It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), enabledRoster && !sourceChanges ? Times.Once() : Times.Never());
     }
 
     [Theory]

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net;
@@ -180,16 +181,17 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var directory = Path.Join(Path.GetTempPath(), "jfh-unknown-feedback-" + Guid.NewGuid().ToString("N"));
-        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
-        var clock = new ControlledWaitTimeProvider();
-        var fail = true;
-        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
-        {
-            RetryTimeProvider = clock,
-            OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
-        };
         try
         {
+            using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+            var clock = new ControlledWaitTimeProvider();
+            var fail = true;
+            using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+            {
+                RetryTimeProvider = clock,
+                OpenFeedbackRead = path => { if (fail) throw new IOException("unavailable initial read"); return File.OpenRead(path); }
+            };
+
             Assert.Throws<IOException>(() => store.RecordRequested(user, 77, "movie"));
             Assert.Contains((77, "movie"), store.GetPendingRequestedItems(user));
             SetupProfile(user);
@@ -209,7 +211,6 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
         finally
         {
-            store.Dispose();
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
@@ -219,13 +220,13 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
     {
         var user = Guid.NewGuid();
         var directory = Path.Join(Path.GetTempPath(), "jfh-oversized-evidence-" + Guid.NewGuid().ToString("N"));
-        var file = Path.Join(directory, "jellyfin-helper-discovery-feedback.json");
-        using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
-        var originalLength = new FileInfo(file).Length;
-        using (var stream = File.OpenWrite(file)) stream.SetLength(121L * 1024 * 1024);
-        using var unavailable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
         try
         {
+            var file = Path.Join(directory, "jellyfin-helper-discovery-feedback.json");
+            using (var original = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)) original.RecordDismissed(user, 700, "tv");
+            var originalLength = new FileInfo(file).Length;
+            using (var stream = File.OpenWrite(file)) stream.SetLength(121L * 1024 * 1024);
+            using var unavailable = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory);
             SetupProfile(user);
             var service = CreateService(feedbackStoreOverride: unavailable);
             var cached = new DiscoveryResult { UserId = user, GeneratedAt = DateTime.UtcNow.AddDays(-1), Recommendations = [new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 78, MediaType = "movie" }] };
@@ -241,8 +242,7 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         }
         finally
         {
-            unavailable.Dispose();
-            Directory.Delete(directory, recursive: true);
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -1539,9 +1539,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         };
         candidate.ProjectSourceGenres(["Kids"]);
         typeof(SeerrDiscoveryService).GetMethod("ApplySharedCandidateMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [candidate, config, null]);
-        Assert.Equal(22, candidate.TitleMetadata!.TvdbId);
-        Assert.Contains("pirate", candidate.TitleMetadata.Keywords!.Value);
-        Assert.Equal(!conflicts, candidate.TitleMetadata.Keywords.Value.Contains("friendship"));
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(candidate.TitleMetadata);
+        var keywords = Assert.IsType<ImmutableArray<string>>(metadata.Keywords);
+        Assert.Equal(22, metadata.TvdbId);
+        Assert.Contains("pirate", keywords);
+        Assert.Equal(!conflicts, keywords.Contains("friendship"));
         Assert.Contains("Drama", candidate.SourceGenres!);
         Assert.Equal(!conflicts, candidate.SourceGenres!.Contains("Kids"));
         Assert.Contains(16, candidate.GenreIds);

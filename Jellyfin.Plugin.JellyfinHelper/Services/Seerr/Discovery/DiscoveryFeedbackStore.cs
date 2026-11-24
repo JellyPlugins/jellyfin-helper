@@ -40,6 +40,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     /// </summary>
     private const int MaxEntryAgeDays = 365;
     private const int MaximumPendingWrites = 64;
+    private const int MaximumReservedWrites = MaximumPendingWrites + 1;
     private const int MaximumRejectedReceipts = 4096;
     private const long MaximumReplayPayloadBytes = 64 * 1024 * 1024;
     private const long MaximumPreparedRecoveryBytes = 64 * 1024 * 1024;
@@ -61,15 +62,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private readonly HashSet<Guid> _completedPreparedRequests = [];
     private readonly Queue<Guid> _preparedCompletionOrder = new();
     private readonly Dictionary<Guid, HashSet<Guid>> _preparedAttempts = [];
+    private readonly Dictionary<Guid, HashSet<Guid>> _submittedPreparedAttempts = [];
     private readonly HashSet<Guid> _uncertainPreparedIntents = [];
     private readonly Dictionary<TitleKey, int> _pendingRequests = new();
     private readonly Dictionary<TitleKey, int> _pendingDismissals = new();
     private readonly Dictionary<TitleKey, SortedDictionary<DateTime, int>> _pendingWatchTimes = [];
+    private readonly Dictionary<TitleKey, SortedSet<DateTime>> _rejectedWatchTimes = [];
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
     private readonly long _sizeLimit = MaxFileSizeBytes;
-    // Normal/blocked work retains its 64-write bound. One separate recovery
-    // slot can establish the request that makes all blocked dependents runnable.
+    // At most 64 queued operations plus their execution reservation are admitted.
+    // Failure retains that reservation; one separate journal recovery slot may
+    // establish the request that makes blocked dependents runnable.
     private PendingWrite? _priorityRecovery;
     private int _preparedAttemptCount;
     private PendingWrite? _retainedPriorityRecovery;
@@ -80,6 +84,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private Task<bool>? _pendingGeneration;
     private bool _writerRunning;
     private int _pendingObservedWrites;
+    private int _reservedWrites;
+    private int _rejectedWatchTimeCount;
+    private bool _untrackedWatchOrdering;
     private bool _untrackedRejection;
     private ITimer? _retryTimer;
     private long _retryTimerGeneration;
@@ -266,15 +273,28 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     internal void MarkPreparedSubmission(PreparedRequest prepared)
     {
-        lock (_writerGate)
+        lock (_preparedRequestGate)
         {
-            if (_completedPreparedRequests.Contains(prepared.Id))
+            lock (_writerGate)
             {
-                return;
+                if (_completedPreparedRequests.Contains(prepared.Id))
+                {
+                    return;
+                }
+            }
+
+            PreparedJournalContaining(prepared.Id).UpdateIntent(prepared.Id, accepted: false, uncertain: true, ReceiptTimeProvider.GetUtcNow().UtcDateTime, prepared.Attempt == Guid.Empty ? null : prepared.Attempt);
+            if (prepared.Attempt != Guid.Empty && _preparedAttempts.TryGetValue(prepared.Id, out var active) && active.Contains(prepared.Attempt))
+            {
+                if (!_submittedPreparedAttempts.TryGetValue(prepared.Id, out var submitted))
+                {
+                    submitted = [];
+                    _submittedPreparedAttempts.Add(prepared.Id, submitted);
+                }
+
+                submitted.Add(prepared.Attempt);
             }
         }
-
-        PreparedJournalContaining(prepared.Id).UpdateIntent(prepared.Id, accepted: false, uncertain: true, ReceiptTimeProvider.GetUtcNow().UtcDateTime, prepared.Attempt == Guid.Empty ? null : prepared.Attempt);
     }
 
     internal void AbandonPreparedRequest(PreparedRequest prepared)
@@ -284,11 +304,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     {
         lock (_preparedRequestGate)
         {
+            var submitted = _submittedPreparedAttempts.TryGetValue(prepared.Id, out var marks) && marks.Contains(prepared.Attempt);
             if (!ReleasePreparedAttemptLease(prepared))
             {
                 return;
             }
 
+            submissionUncertain |= submitted && !definitelyUnaccepted;
             lock (_writerGate)
             {
                 if (_completedPreparedRequests.Contains(prepared.Id))
@@ -298,7 +320,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 }
             }
 
-            var copies = PublishedRecoveryJournals().Select(journal => (Journal: journal, Ticket: journal.Find(prepared.Id))).Where(copy => copy.Ticket is not null).ToArray();
+            var copies = PreparedCopiesAtCompletion(prepared, submissionUncertain, definitelyUnaccepted);
             if (copies.Length == 0)
             {
                 // A late sibling may outlive the bounded completion acknowledgment.
@@ -362,6 +384,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
 
         _preparedAttemptCount--;
+        if (_submittedPreparedAttempts.TryGetValue(prepared.Id, out var submitted))
+        {
+            submitted.Remove(prepared.Attempt);
+            if (submitted.Count == 0)
+            {
+                _submittedPreparedAttempts.Remove(prepared.Id);
+            }
+        }
+
         if (attempts.Count == 0)
         {
             _preparedAttempts.Remove(prepared.Id);
@@ -373,6 +404,31 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     private bool HasUncertainJournalSubmission(PreparedRequest prepared, DiscoveryFeedbackRecoveryJournal.Ticket[] copies, bool definitelyUnaccepted)
         => !_preparedAttempts.ContainsKey(prepared.Id) && copies.Any(ticket => ticket.SubmissionUncertain
             && (!definitelyUnaccepted || prepared.Attempt == Guid.Empty || ticket.LastSubmissionAttempt != prepared.Attempt));
+
+    private (DiscoveryFeedbackRecoveryJournal Journal, DiscoveryFeedbackRecoveryJournal.Ticket? Ticket)[] PreparedCopiesAtCompletion(PreparedRequest prepared, bool uncertain, bool definitelyUnaccepted)
+    {
+        var copies = PublishedRecoveryJournals().Select(journal => (Journal: journal, Ticket: journal.Find(prepared.Id))).Where(copy => copy.Ticket is not null).ToArray();
+        if (!CanRecordDefinitiveSubmission(prepared, definitelyUnaccepted))
+        {
+            return copies;
+        }
+
+        var preserveUncertainty = uncertain || prepared.PreviouslyUncertain || _uncertainPreparedIntents.Contains(prepared.Id) || _submittedPreparedAttempts.ContainsKey(prepared.Id);
+        return copies.Select(copy => (copy.Journal, Ticket: (DiscoveryFeedbackRecoveryJournal.Ticket?)copy.Journal.ClearDefinitivelyRejectedSubmission(prepared.Id, prepared.Attempt, preserveUncertainty))).ToArray();
+    }
+
+    private bool CanRecordDefinitiveSubmission(PreparedRequest prepared, bool definitelyUnaccepted)
+    {
+        if (!definitelyUnaccepted || prepared.Attempt == Guid.Empty)
+        {
+            return false;
+        }
+
+        lock (_writerGate)
+        {
+            return !_knownAcceptedIntents.Contains(prepared.Id) && !_activeRecoveryTickets.Contains(prepared.Id) && !_completedPreparedRequests.Contains(prepared.Id);
+        }
+    }
 
     internal IReadOnlySet<(int TmdbId, string MediaType)> GetPreparedRequestItems(Guid user, string? sourceScope)
         => RecoveryJournals().SelectMany(journal => journal.Pending()).Where(ticket => ticket.User == user && ticket.Kind == nameof(ReceiptKind.RequestIntent) && ticket.RequestSourceScope == sourceScope)
@@ -667,7 +723,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 return false;
             }
 
-            if (_writes.Count + _retryWrites.Count >= MaximumPendingWrites)
+            if (_writes.Count + _retryWrites.Count >= MaximumPendingWrites || !TryReserveWriteSlot())
             {
                 if (observed)
                 {
@@ -754,6 +810,25 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
+    private bool TryReserveWriteSlot()
+    {
+        if (_reservedWrites >= MaximumReservedWrites)
+        {
+            return false;
+        }
+
+        _reservedWrites++;
+        return true;
+    }
+
+    private void ReleaseWriteSlot(PendingWrite write)
+    {
+        if (!write.PriorityRecovery)
+        {
+            _reservedWrites--;
+        }
+    }
+
     private void TrackRejectedReceipts(IEnumerable<Receipt> receipts)
     {
         Interlocked.Increment(ref _servingRevision);
@@ -764,12 +839,44 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 // A bounded identity ledger cannot prove recovery after losing identities.
                 // Keep training fail-closed rather than clearing on mere queue drainage.
                 _untrackedRejection = true;
+                _untrackedWatchOrdering |= receipt.Key.Kind == ReceiptKind.Watched;
                 continue;
             }
 
             _rejectedReceipts[receipt.Key] = RetainedReceiptTime(receipt);
+            if (receipt.Key.Kind == ReceiptKind.Watched)
+            {
+                RetainRejectedWatchTime(receipt);
+            }
+
             RetainRejectedPrediction(receipt);
         }
+    }
+
+    private void RetainRejectedWatchTime(Receipt receipt)
+    {
+        if (_rejectedWatchTimes.TryGetValue(receipt.Key.Title, out var times) && times.Contains(receipt.Acquired))
+        {
+            return;
+        }
+
+        if (_rejectedWatchTimeCount >= MaximumRejectedReceipts)
+        {
+            // Exhausted ordering evidence cannot authorize replacement of an
+            // unfinished request or restore fitting from merely drained queues.
+            _untrackedWatchOrdering = true;
+            _untrackedRejection = true;
+            return;
+        }
+
+        if (times is null)
+        {
+            times = [];
+            _rejectedWatchTimes.Add(receipt.Key.Title, times);
+        }
+
+        times.Add(receipt.Acquired);
+        _rejectedWatchTimeCount++;
     }
 
     private void RetainRejectedPrediction(Receipt receipt)
@@ -884,7 +991,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 continue;
             }
 
-            var priority = _writes.Count + _retryWrites.Count >= MaximumPendingWrites;
+            var priority = _writes.Count + _retryWrites.Count >= MaximumPendingWrites || _reservedWrites >= MaximumReservedWrites;
             if (priority && !CanAdmitPriorityRecovery())
             {
                 break;
@@ -916,6 +1023,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
         else
         {
+            _reservedWrites++;
             _writes.Enqueue(write);
         }
 
@@ -957,7 +1065,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         => ticket.Kind == nameof(ReceiptKind.Request) || (ticket.Kind == nameof(ReceiptKind.RequestIntent) && _knownAcceptedIntents.Contains(ticket.Id));
 
     private bool CanAdmitPriorityRecovery()
-        => _priorityRecoveryOwner is null && _priorityRecovery is null && _retainedPriorityRecovery is null && _writes.Count == 0 && _retryWrites.All(HasUndurableDependency);
+        => _priorityRecoveryOwner is null && _priorityRecovery is null && _retainedPriorityRecovery is null && _writes.Count == 0 && _retryWrites.Any(HasUndurableDependency);
 
     private bool ReplayPrediction(Receipt receipt)
     {
@@ -1051,16 +1159,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
 
     private bool HasEarlierPendingWatch(TitleKey title, DateTime requestAt)
     {
-        var watchedAt = _pendingWatchTimes.TryGetValue(title, out var times) ? times.Keys.First() : (DateTime?)null;
-        if (_rejectedReceipts.TryGetValue(new ReceiptKey(title, ReceiptKind.Watched), out var rejected)
-            && (!watchedAt.HasValue || rejected < watchedAt.Value))
-        {
-            watchedAt = rejected;
-        }
-
         var entry = Volatile.Read(ref _memoryCache)?.FirstOrDefault(user => user.UserId == title.User)?.Entries
             .FirstOrDefault(entry => entry.TmdbId == title.TmdbId && entry.MediaType == title.MediaType);
-        return watchedAt < requestAt && entry?.RequestedAtUtc <= watchedAt && entry?.WasWatched != true;
+        if (entry is not { WasWatched: false, RequestedAtUtc: { } existingAt } || existingAt >= requestAt)
+        {
+            return false;
+        }
+
+        return _untrackedWatchOrdering
+            || (_pendingWatchTimes.TryGetValue(title, out var pending) && pending.Keys.Any(at => at >= existingAt && at < requestAt))
+            || (_rejectedWatchTimes.TryGetValue(title, out var rejected) && rejected.Any(at => at >= existingAt && at < requestAt));
     }
 
     private bool ProcessWrites()
@@ -1154,6 +1262,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
     {
         if (!write.Observed)
         {
+            lock (_writerGate)
+            {
+                ReleaseWriteSlot(write);
+            }
+
             return;
         }
 
@@ -1182,22 +1295,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     // by the backoff timer, never an immediate failing replay loop.
                     _retainedPriorityRecovery = write;
                 }
-                else if (_writes.Count + _retryWrites.Count < MaximumPendingWrites)
-                {
-                    _retryWrites.Enqueue(write);
-                }
-                else if (_priorityRecoveryOwner is null && IsRequestDependencyBarrier(write))
-                {
-                    // An identity-only request has no journal payload to rebuild.
-                    // Retain its exact operation in the existing dependency slot.
-                    var retained = write with { PriorityRecovery = true };
-                    _priorityRecoveryOwner = retained;
-                    _retainedPriorityRecovery = retained;
-                }
                 else
                 {
-                    TrackRejectedReceipts(write.Receipts);
-                    RetireObservedWrite(write, recovered: false);
+                    // Admission reserved the queued/executing operation through
+                    // its entire persistence lifecycle, independent of finish order.
+                    _retryWrites.Enqueue(write);
                 }
             }
 
@@ -1220,10 +1322,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         _retryTimer = RetryTimeProvider.CreateTimer(_ => RetryRetainedWrites(generation), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _retryTimer.Change(delay, Timeout.InfiniteTimeSpan);
     }
-
-    private bool IsRequestDependencyBarrier(PendingWrite write)
-        => write.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request
-            && _writes.Concat(_retryWrites).Any(waiting => waiting.Dependencies.Contains(receipt.Key.Title)));
 
     private bool HasRunnableRetainedWrites()
         => _retainedPriorityRecovery is not null || _retryWrites.Any(write => !HasUndurableDependency(write))
@@ -1270,8 +1368,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private void RetireObservedWrite(PendingWrite write, bool recovered = true)
+    private void RetireObservedWrite(PendingWrite write)
     {
+        ReleaseWriteSlot(write);
         Interlocked.Increment(ref _servingRevision);
         Interlocked.Decrement(ref _pendingObservedWrites);
         if (_pendingObservedWrites == 0 && _retryWrites.Count == 0)
@@ -1286,17 +1385,19 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (receipt.RecoveryTicket is { } ticket)
             {
                 _activeRecoveryTickets.Remove(ticket.Id);
-                if (recovered)
-                {
-                    _knownAcceptedIntents.Remove(ticket.Id);
-                }
+                _knownAcceptedIntents.Remove(ticket.Id);
             }
 
             RetirePendingAction(receipt);
 
-            if (recovered && _rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
+            if (_rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
             {
                 _rejectedReceipts.Remove(receipt.Key);
+                if (receipt.Key.Kind == ReceiptKind.Watched && _rejectedWatchTimes.Remove(receipt.Key.Title, out var watchTimes))
+                {
+                    _rejectedWatchTimeCount -= watchTimes.Count;
+                }
+
                 if (_predictionReplays.Remove(receipt.Key, out var replay))
                 {
                     _replayPayloadBytes -= replay.Payload?.LongLength ?? 0;
@@ -1797,6 +1898,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         lock (_writerGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!TryReserveWriteSlot())
+            {
+                TrackRejectedReceipts(write.Receipts);
+                ReleaseUnadmittedRecovery(write.Receipts);
+                if (write.Receipts.Any(receipt => receipt.Key.Kind == ReceiptKind.Request && receipt.RecoveryTicket is null))
+                {
+                    throw new IOException("The bounded feedback writer could not admit this identity-only request. Please retry.");
+                }
+
+                return false;
+            }
+
             write = write with { Dependencies = PendingRequestDependencies(write.Receipts) };
             Interlocked.Increment(ref _pendingObservedWrites);
             AddPendingActions(write.Receipts);

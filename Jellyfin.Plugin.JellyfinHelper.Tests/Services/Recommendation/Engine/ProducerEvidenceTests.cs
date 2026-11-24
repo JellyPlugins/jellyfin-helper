@@ -149,9 +149,13 @@ public sealed class ProducerEvidenceTests
     public void ACacheRoundTripPreservesEntityKindsAndObservedEmptyWithoutTouchingLegacyLabels()
     {
         var snapshot = Snapshot(new("tmdb", ProducerEvidence.CompanyKind, 1, "Producer")) with { Networks = [new("tmdb", ProducerEvidence.NetworkKind, 1, "Producer")] };
-        var copied = JsonSerializer.Deserialize<TitleMetadataSnapshot>(JsonSerializer.Serialize(snapshot))!;
-        Assert.Equal<ProviderStudioReference>(snapshot.ProductionCompanies!.Value, copied.ProductionCompanies!.Value);
-        Assert.Equal<ProviderStudioReference>(snapshot.Networks.Value, copied.Networks!.Value);
+        var copied = Assert.IsType<TitleMetadataSnapshot>(JsonSerializer.Deserialize<TitleMetadataSnapshot>(JsonSerializer.Serialize(snapshot)));
+        var originalCompanies = Assert.IsType<ImmutableArray<ProviderStudioReference>>(snapshot.ProductionCompanies);
+        var copiedCompanies = Assert.IsType<ImmutableArray<ProviderStudioReference>>(copied.ProductionCompanies);
+        var originalNetworks = Assert.IsType<ImmutableArray<ProviderStudioReference>>(snapshot.Networks);
+        var copiedNetworks = Assert.IsType<ImmutableArray<ProviderStudioReference>>(copied.Networks);
+        Assert.Equal<ProviderStudioReference>(originalCompanies, copiedCompanies);
+        Assert.Equal<ProviderStudioReference>(originalNetworks, copiedNetworks);
     }
 
     [Fact]

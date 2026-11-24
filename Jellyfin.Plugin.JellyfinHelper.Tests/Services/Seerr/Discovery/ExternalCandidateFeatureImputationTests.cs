@@ -358,9 +358,8 @@ public sealed class ExternalCandidateFeatureImputationTests
         Assert.Null(features.HasRatingMetadata);
         Assert.Null(features.HasPopularityMetadata);
         Assert.Equal(original, features.ToVector());
-        foreach (var means in new[] { NumericMeans(.65, .2), NumericMeans(.25, .75) })
+        foreach (var vector in new[] { NumericMeans(.65, .2), NumericMeans(.25, .75) }.Select(features.ToModelVector))
         {
-            var vector = features.ToModelVector(means);
             Assert.Equal(.123, vector[2]);
             Assert.Equal(.456, vector[16]);
             Assert.Equal(.8 * .123, vector[7]);

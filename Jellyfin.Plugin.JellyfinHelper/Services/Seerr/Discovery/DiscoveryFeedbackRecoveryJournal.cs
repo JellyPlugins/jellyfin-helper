@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
@@ -19,6 +20,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     private const int MaximumTickets = 4096;
     private const string RequestKind = "Request";
     private const string IntentKind = "RequestIntent";
+    private const int CurrentIntentSchemaVersion = 2;
     private const long MaximumPayloadBytes = 16 * 1024 * 1024;
     private const long MaximumJournalBytes = 256 * 1024 * 1024;
     private readonly string _directory;
@@ -105,11 +107,6 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             return SameOriginal(existing, ticket) ? true : throw new IOException("A different original already occupies the destination identity.");
         }
 
-        if (ticket.Kind == IntentKind)
-        {
-            ticket = ticket with { IntentSchemaVersion = 1 };
-        }
-
         var length = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(new Envelope(ticket, payload), JsonDefaults.Options));
         var reservation = ReservedLength(ticket, payload, length);
         lock (_gate)
@@ -127,9 +124,8 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             throw new IOException("Original feedback evidence exceeds the bounded recovery admission limit.");
         }
 
-        if (ticket.Id == Guid.Empty || ticket.User == Guid.Empty || ticket.Tmdb <= 0 || ticket.Type is not ("movie" or "tv")
-            || ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind) || Convert.ToHexString(SHA256.HashData(payload)) != ticket.Hash
-            || ticket.AdmissionOrder < 0 || (ticket.AdmissionEpoch == Guid.Empty) != (ticket.AdmissionOrder == 0) || ticket.IntentSchemaVersion is < 0 or > 1)
+        ValidateTicket(ticket);
+        if (Convert.ToHexString(SHA256.HashData(payload)) != ticket.Hash)
         {
             throw new IOException("Original feedback recovery admission has invalid provenance.");
         }
@@ -144,9 +140,9 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
         try
         {
-            if (ticket.Kind == IntentKind)
+            if (ticket.Kind == IntentKind && !preserveOrder)
             {
-                ticket = ticket with { IntentSchemaVersion = 1 };
+                ticket = ticket with { IntentSchemaVersion = CurrentIntentSchemaVersion };
             }
 
             var admission = preserveOrder ? ReserveEnvelope(ticket, payload) : ReserveOrderedAdmission(ticket, payload);
@@ -270,7 +266,10 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         {
             Kind = IntentKind, SubmissionUncertain = false,
             LastSubmissionAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc),
-            LastSubmissionAttempt = ticket.Id,
+            // Version 1 inventories retain their original reservation on upgrade.
+            // New admissions, or an actual attempt added later, reserve its GUID.
+            LastSubmissionAttempt = ticket.IntentSchemaVersion >= CurrentIntentSchemaVersion || ticket.LastSubmissionAttempt.HasValue ? ticket.Id : null,
+            LastSubmissionDefinitelyUnaccepted = ticket.IntentSchemaVersion >= CurrentIntentSchemaVersion || ticket.LastSubmissionDefinitelyUnaccepted,
             FirstNegativeAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)
         };
         return Math.Max(length, Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(new Envelope(maximum, payload), JsonDefaults.Options)));
@@ -311,6 +310,11 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
     private Ticket UpdateIntentCore(Guid id, bool accepted, bool uncertain, DateTime? submittedAtUtc, Guid? submissionAttempt)
     {
+        if (submissionAttempt == Guid.Empty)
+        {
+            throw new IOException("A submission attempt identity cannot be empty.");
+        }
+
         var current = Get(id);
         if (current.Kind == RequestKind)
         {
@@ -328,9 +332,42 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             SubmissionUncertain = uncertain,
             LastSubmissionAtUtc = submittedAtUtc ?? current.LastSubmissionAtUtc,
             LastSubmissionAttempt = submittedAtUtc.HasValue ? submissionAttempt : current.LastSubmissionAttempt,
+            LastSubmissionDefinitelyUnaccepted = !submittedAtUtc.HasValue && current.LastSubmissionDefinitelyUnaccepted,
+            IntentSchemaVersion = submittedAtUtc.HasValue && submissionAttempt.HasValue ? CurrentIntentSchemaVersion : current.IntentSchemaVersion,
             FirstNegativeAtUtc = submittedAtUtc.HasValue ? null : current.FirstNegativeAtUtc
         };
         return SaveStatus(current, next);
+    }
+
+    /// <summary>Clears only the matching submitted attempt's proven rejection, atomically with other marks.</summary>
+    /// <param name="id">The original intent.</param>
+    /// <param name="submissionAttempt">The attempt proven not to have been accepted.</param>
+    /// <param name="preserveUncertainty">Whether another submitted or historically uncertain attempt remains possible.</param>
+    /// <returns>The current durable ticket, retaining uncertainty belonging to another attempt.</returns>
+    internal Ticket ClearDefinitivelyRejectedSubmission(Guid id, Guid submissionAttempt, bool preserveUncertainty = false)
+    {
+        if (submissionAttempt == Guid.Empty)
+        {
+            throw new IOException("A definitive submission outcome requires a nonempty attempt identity.");
+        }
+
+        lock (_intentGate)
+        {
+            var current = Get(id);
+            var matched = current.LastSubmissionAttempt == submissionAttempt;
+            if (current.Kind != IntentKind || (!matched && !current.LastSubmissionDefinitelyUnaccepted))
+            {
+                return current;
+            }
+
+            var next = current with
+            {
+                IntentSchemaVersion = CurrentIntentSchemaVersion,
+                LastSubmissionDefinitelyUnaccepted = true,
+                SubmissionUncertain = preserveUncertainty
+            };
+            return next == current ? current : SaveStatus(current, next);
+        }
     }
 
     internal Ticket ObserveNegative(Guid id, DateTime observedAtUtc)
@@ -346,6 +383,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
     private Ticket SaveStatus(Ticket current, Ticket next)
     {
+        ValidateTicket(next);
         var payload = Read(current);
         var contents = JsonSerializer.Serialize(new Envelope(next, payload), JsonDefaults.Options);
         var length = Encoding.UTF8.GetByteCount(contents);
@@ -390,6 +428,17 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         if (length > 2 * MaximumPayloadBytes)
         {
             throw new IOException("Original feedback evidence cannot be admitted beyond its envelope read limit.");
+        }
+    }
+
+    private static void ValidateTicket(Ticket ticket)
+    {
+        if (ticket.Id == Guid.Empty || ticket.User == Guid.Empty || ticket.Tmdb <= 0 || ticket.Type is not ("movie" or "tv")
+            || ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind)
+            || ticket.AdmissionOrder < 0 || (ticket.AdmissionEpoch == Guid.Empty) != (ticket.AdmissionOrder == 0)
+            || ticket.IntentSchemaVersion < 0 || ticket.IntentSchemaVersion > CurrentIntentSchemaVersion || ticket.LastSubmissionAttempt == Guid.Empty)
+        {
+            throw new IOException("Original feedback recovery ticket provenance is invalid.");
         }
     }
 
@@ -441,6 +490,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             || envelope.Ticket.Hash != ticket.Hash || envelope.Ticket.AdmissionEpoch != ticket.AdmissionEpoch || envelope.Ticket.AdmissionOrder != ticket.AdmissionOrder
             || envelope.Ticket.RequestSourceScope != ticket.RequestSourceScope || envelope.Ticket.SubmissionUncertain != ticket.SubmissionUncertain
             || envelope.Ticket.LastSubmissionAtUtc != ticket.LastSubmissionAtUtc || envelope.Ticket.LastSubmissionAttempt != ticket.LastSubmissionAttempt
+            || envelope.Ticket.LastSubmissionDefinitelyUnaccepted != ticket.LastSubmissionDefinitelyUnaccepted
             || envelope.Ticket.FirstNegativeAtUtc != ticket.FirstNegativeAtUtc || envelope.Ticket.IntentSchemaVersion != ticket.IntentSchemaVersion)
         {
             throw new IOException("Original feedback recovery provenance does not match its admitted receipt.");
@@ -598,15 +648,13 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             throw new IOException("A feedback recovery envelope is unavailable.");
         }
 
-        if (envelope.Ticket is null || envelope.Payload is null || envelope.Payload.LongLength > MaximumPayloadBytes || envelope.Ticket.Id == Guid.Empty || envelope.Ticket.User == Guid.Empty
-            || envelope.Ticket.Tmdb <= 0 || envelope.Ticket.Type is not ("movie" or "tv") || envelope.Ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind)
-            || Convert.ToHexString(SHA256.HashData(envelope.Payload)) != envelope.Ticket.Hash
-            || envelope.Ticket.AdmissionOrder < 0 || (envelope.Ticket.AdmissionEpoch == Guid.Empty) != (envelope.Ticket.AdmissionOrder == 0)
-            || envelope.Ticket.IntentSchemaVersion is < 0 or > 1 || envelope.Ticket.LastSubmissionAttempt == Guid.Empty)
+        if (envelope.Ticket is null || envelope.Payload is null || envelope.Payload.LongLength > MaximumPayloadBytes
+            || Convert.ToHexString(SHA256.HashData(envelope.Payload)) != envelope.Ticket.Hash)
         {
             throw new IOException("Original feedback recovery evidence is invalid.");
         }
 
+        ValidateTicket(envelope.Ticket);
         return envelope;
     }
 
@@ -625,6 +673,9 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         public DateTime? LastSubmissionAtUtc { get; init; }
 
         public Guid? LastSubmissionAttempt { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool LastSubmissionDefinitelyUnaccepted { get; init; }
 
         public DateTime? FirstNegativeAtUtc { get; init; }
 

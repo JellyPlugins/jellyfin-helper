@@ -146,10 +146,13 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         _history.Setup(h => h.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile> { quietUser });
         _history.Setup(history => history.GetAllUserIds()).Returns([quietUser.UserId]);
+        string[] routes = ["/api/v1/discover/movies?page=1", "/api/v1/discover/tv?page=1", "/api/v1/discover/trending?mediaType=all&timeWindow=week&page=1"];
+        foreach (var route in routes) _handler.RegisterResponse(HttpMethod.Get, route, HttpStatusCode.OK, """{"results":[]}""");
 
         await _sut.GenerateDiscoveryRecommendationsAsync(CancellationToken.None);
 
         _history.Verify(h => h.GetAllUserWatchProfiles(), Times.Once);
+        Assert.All(routes, route => Assert.Contains(_handler.Requests, request => request.Method == HttpMethod.Get && request.Path == route));
         _feedback.Verify(
             f => f.RecordGeneratedAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()),
             Times.Never);
