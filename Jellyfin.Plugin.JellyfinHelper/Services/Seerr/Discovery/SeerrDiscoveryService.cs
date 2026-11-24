@@ -2390,6 +2390,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
+    /// <summary>
+    ///     Validates the configured Seerr connection used by external candidate scoring, returning the
+    ///     reachable base URL and API key or null when the configuration cannot produce a valid connection.
+    /// </summary>
+    /// <param name="config">The Seerr configuration whose connection must be validated.</param>
+    /// <returns>The validated connection coordinates, or null when validation failed.</returns>
+    private (Uri BaseUri, string ApiKey)? TryResolveExternalSeerrCredentials(PluginConfiguration config)
+    {
+        try
+        {
+            return ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(LogCategory, $"External scoring: invalid Seerr configuration: {ex.Message}", logger: _logger);
+            return null;
+        }
+    }
+
     /// <inheritdoc />
     public async Task<DiscoveryResult?> ScoreExternalCandidatesAsync(
         Guid jellyfinUserId,
@@ -2431,17 +2450,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
         var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
 
-        Uri baseUri;
-        string apiKey;
-        try
+        var credentials = TryResolveExternalSeerrCredentials(config);
+        if (credentials is null)
         {
-            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
-        }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
-        {
-            _pluginLog.LogWarning(LogCategory, $"External scoring: invalid Seerr configuration: {ex.Message}", logger: _logger);
             return null;
         }
+
+        var (baseUri, apiKey) = credentials.Value;
 
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.

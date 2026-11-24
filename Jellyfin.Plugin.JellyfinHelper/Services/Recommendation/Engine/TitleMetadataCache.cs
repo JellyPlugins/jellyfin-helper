@@ -21,6 +21,7 @@ public sealed class TitleMetadataCache
     private const int MaximumEntries = 4096;
     private const int MaximumFileBytes = 16 * 1024 * 1024;
     private const string MovieMediaType = "movie";
+    private const string TraktSource = "trakt";
     private readonly Lock _gate = new();
     private readonly Lock _persistenceGate = new();
     private readonly Lock _writerGate = new();
@@ -161,7 +162,7 @@ public sealed class TitleMetadataCache
         var keys = IdentityKeys(Key(config, 0, mediaType, language).Split(':')[0], mediaType, tmdbId, tvdbId, imdbId).ToList();
         foreach (var source in ActiveSupplementalSources(config))
         {
-            keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == "trakt" ? null : language), mediaType, tmdbId, tvdbId, imdbId));
+            keys.AddRange(IdentityKeys(SourceDigest(source, source.Source == TraktSource ? null : language), mediaType, tmdbId, tvdbId, imdbId));
         }
 
         return keys;
@@ -285,7 +286,7 @@ public sealed class TitleMetadataCache
             return null;
         }
 
-        var scopes = ActiveSupplementalSources(config).Select(source => (source.Source, Scope: SourceDigest(source, source.Source == "trakt" ? null : language)))
+        var scopes = ActiveSupplementalSources(config).Select(source => (source.Source, Scope: SourceDigest(source, source.Source == TraktSource ? null : language)))
             .Append((Source: "seerr", Scope: SeerrScope(config, language))).ToHashSet();
         var observations = TitleMetadataMerger.Observations(snapshot)
             .Where(source => source.ObservationScope is not null && scopes.Contains((source.Source, source.ObservationScope)))
@@ -300,7 +301,7 @@ public sealed class TitleMetadataCache
     /// <param name="config">Current provider configuration.</param>
     /// <returns>Only hashed source identities, not credentials.</returns>
     internal string ProducerScope(PluginConfiguration config)
-        => string.Join(':', ActiveSupplementalSources(config).Select(source => SourceDigest(source, source.Source == "trakt" ? null : MetadataLanguage))
+        => string.Join(':', ActiveSupplementalSources(config).Select(source => SourceDigest(source, source.Source == TraktSource ? null : MetadataLanguage))
             .Append(SeerrScope(config, MetadataLanguage)).Order(StringComparer.Ordinal));
 
     /// <summary>Reserves a refresh slot, preventing duplicate title requests and rapid retries after failures.</summary>
@@ -488,7 +489,7 @@ public sealed class TitleMetadataCache
 
         if (config.TraktSourcingEnabled && TraktMetadataAvailable(config))
         {
-            yield return new("trakt", "https://api.trakt.tv", "public-metadata");
+            yield return new(TraktSource, "https://api.trakt.tv", "public-metadata");
         }
     }
 

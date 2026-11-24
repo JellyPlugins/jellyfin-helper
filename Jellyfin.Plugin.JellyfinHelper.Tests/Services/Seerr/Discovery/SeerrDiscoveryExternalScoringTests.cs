@@ -1357,6 +1357,17 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         Assert.True(selected.AvailabilityVerified);
     }
 
+    [Fact]
+    public async Task InvalidSeerrConfigurationCannotScoreExternalCandidates()
+    {
+        var user = Guid.NewGuid();
+        SetupProfile(user);
+        Plugin.Instance!.Configuration.SeerrUrl = "http://[invalid";
+        var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
+        Assert.Null(result);
+        Assert.Equal(0, _detailCalls);
+    }
+
     private static string CertifiedDetail(int id, int age) => $$"""{"id":{{id}},"genres":[{"id":28}],"releases":{"results":[{"iso_3166_1":"DE","release_dates":[{"certification":"{{age}}"}]}] } }""";
 
     [Fact]

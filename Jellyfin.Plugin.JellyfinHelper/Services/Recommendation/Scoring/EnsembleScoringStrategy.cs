@@ -485,28 +485,36 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
             var prediction = _acceptedPrediction;
             var learned = prediction?.Learned ?? _learned.CapturePredictionSnapshot();
             var means = learned.ExportParameters().FeatureMeans;
-            Func<CandidateFeatures, double> score;
-            if (prediction is not null)
-            {
-                score = features => prediction.Score(features, maximum, floor);
-            }
-            else
-            {
-                var alpha = _qualityGateFrozen ? 0 : _alpha;
-                if (Math.Abs(alphaOffset) >= 1e-10)
-                {
-                    alpha = ResolveOffsetAlpha(alphaOffset);
-                }
-
-                var beta = _neural is null ? 0 : _neuralBeta;
-                var neural = alpha > 0 && beta > 0 ? _neural?.CapturePredictionSnapshot() : null;
-                score = features => alpha > 0 && FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0)
-                    ? ComputePinnedBlendedScore(features, learned, neural, alpha, beta, floor)
-                    : ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(features), features, floor);
-            }
-
+            var score = CapturePinnedScore(prediction, learned, alphaOffset, maximum, floor);
             return new ServingSnapshot(new ServingScorer(score, Name, NameKey, floor), means is null ? null : Array.AsReadOnly(means));
         }
+    }
+
+    /// <summary>Captures the pinned score function for one complete ranking pass from the accepted prediction or the current blend coordinates.</summary>
+    /// <param name="prediction">The accepted prediction, when one is participating in serving.</param>
+    /// <param name="learned">The learned predictor snapshot used by the independent blend.</param>
+    /// <param name="alphaOffset">The captured cohort offset; independently accepted mixtures remain unchanged.</param>
+    /// <param name="maximum">The captured alpha maximum used by an accepted prediction.</param>
+    /// <param name="floor">The captured genre-penalty floor.</param>
+    /// <returns>A resource-free score function bound to one coherent serving configuration.</returns>
+    private Func<CandidateFeatures, double> CapturePinnedScore(AcceptedPrediction? prediction, LearnedScoringStrategy.PredictionSnapshot learned, double alphaOffset, double maximum, double floor)
+    {
+        if (prediction is not null)
+        {
+            return features => prediction.Score(features, maximum, floor);
+        }
+
+        var alpha = _qualityGateFrozen ? 0 : _alpha;
+        if (Math.Abs(alphaOffset) >= 1e-10)
+        {
+            alpha = ResolveOffsetAlpha(alphaOffset);
+        }
+
+        var beta = _neural is null ? 0 : _neuralBeta;
+        var neural = alpha > 0 && beta > 0 ? _neural?.CapturePredictionSnapshot() : null;
+        return features => alpha > 0 && FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0)
+            ? ComputePinnedBlendedScore(features, learned, neural, alpha, beta, floor)
+            : ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(features), features, floor);
     }
 
     /// <inheritdoc />
