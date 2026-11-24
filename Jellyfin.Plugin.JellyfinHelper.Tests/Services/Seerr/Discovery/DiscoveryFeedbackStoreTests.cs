@@ -807,7 +807,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             offline = failsFirstReplay;
             retry.ExpireDeadlines();
-            await CompleteFirstPriorityFailureAsync(store, retry, failsFirstReplay, () => offline = false, user, preparedRequest);
+            await CompleteFirstPriorityFailureAsync(store, retry, failsFirstReplay, () => offline = false, user);
             if (unrelatedImpressionFails)
             {
                 Assert.False(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
@@ -821,7 +821,6 @@ public class DiscoveryFeedbackStoreTests : IDisposable
             }
 
             Assert.True(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
-            if (failsFirstReplay && !preparedRequest) store.RecordRequested(user, 9001, "movie");
             if (failsFirstReplay) Assert.Contains((9001, "movie"), store.GetRequestedItems(user));
             var entry = Assert.Single(Assert.Single(store.LoadAll()).Entries, row => row.TmdbId == 9000);
             Assert.True(entry.WasWatched);
@@ -841,7 +840,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         }
     }
 
-    private static async Task CompleteFirstPriorityFailureAsync(DiscoveryFeedbackStore store, Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider retry, bool failsFirstReplay, Action restore, Guid user, bool preparedRequest)
+    private static async Task CompleteFirstPriorityFailureAsync(DiscoveryFeedbackStore store, Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.ControlledWaitTimeProvider retry, bool failsFirstReplay, Action restore, Guid user)
     {
         if (!failsFirstReplay)
         {
@@ -851,22 +850,12 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.False(await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
         await retry.WaitForDeadlineAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         var blocked = (System.Collections.ICollection)typeof(DiscoveryFeedbackStore).GetField("_retryWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!;
-        Assert.Equal(preparedRequest ? 64 : 65, blocked.Count);
-        if (preparedRequest)
-        {
-            Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
-            // The priority owner cannot make a second admitted identity-only
-            // request disappear when its write fails behind these watches.
-            store.RecordRequested(user, 9001, "movie");
-            Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
-        }
-        else
-        {
-            // The original operation already owns the execution reservation.
-            // A new identity-only operation must be rejected before admission.
-            Assert.Throws<IOException>(() => store.RecordRequested(user, 9001, "movie"));
-        }
-
+        Assert.Equal(64, blocked.Count);
+        Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
+        // The priority owner cannot make a second admitted identity-only
+        // request disappear when its write fails behind these watches.
+        store.RecordRequested(user, 9001, "movie");
+        Assert.NotNull(typeof(DiscoveryFeedbackStore).GetField("_retainedPriorityRecovery", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store));
         Assert.Equal(65, blocked.Count);
         Assert.DoesNotContain((9001, "movie"), store.GetRequestedItems(user));
         restore();

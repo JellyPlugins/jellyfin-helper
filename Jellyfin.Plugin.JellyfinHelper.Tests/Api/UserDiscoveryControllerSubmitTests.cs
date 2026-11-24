@@ -331,7 +331,15 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             typeof(UserDiscoveryController).GetMethod("FinishUpstreamAttempt", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .Invoke(request.Controller, [prepared, false, true]);
 
-            Assert.Equal(contents, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            using var before = System.Text.Json.JsonDocument.Parse(contents);
+            using var after = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            var originalTicket = Assert.IsType<DiscoveryFeedbackRecoveryJournal.Ticket>(System.Text.Json.JsonSerializer.Deserialize<DiscoveryFeedbackRecoveryJournal.Ticket>(before.RootElement.GetProperty("ticket").GetRawText(), Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+            var retainedTicket = Assert.IsType<DiscoveryFeedbackRecoveryJournal.Ticket>(System.Text.Json.JsonSerializer.Deserialize<DiscoveryFeedbackRecoveryJournal.Ticket>(after.RootElement.GetProperty("ticket").GetRawText(), Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options));
+            Assert.True(DiscoveryFeedbackRecoveryJournal.SameOriginal(originalTicket, retainedTicket));
+            Assert.Equal(before.RootElement.GetProperty("payload").GetString(), after.RootElement.GetProperty("payload").GetString());
+            Assert.False(retainedTicket.SubmissionUncertain);
+            Assert.True(retainedTicket.LastSubmissionDefinitelyUnaccepted);
+            Assert.Equal(prepared.Attempt, retainedTicket.LastSubmissionAttempt);
             Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
             Assert.Contains(_loggerMock.Invocations, invocation => invocation.Method.Name == "Log" && invocation.Arguments[0] is LogLevel.Warning && invocation.Arguments[3] is IOException);
             _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);

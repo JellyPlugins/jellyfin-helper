@@ -1295,6 +1295,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     // by the backoff timer, never an immediate failing replay loop.
                     _retainedPriorityRecovery = write;
                 }
+                else if (_writes.Count + _retryWrites.Count >= MaximumPendingWrites
+                    && write.Receipts.Length > 0 && write.Receipts.All(receipt => receipt.RecoveryTicket is not null))
+                {
+                    // Recoverable originals may release their execution reservation
+                    // into the durable journal. Identity-only requests and watches
+                    // have no such reconstruction path and retain their operation.
+                    TrackRejectedReceipts(write.Receipts);
+                    RetireObservedWrite(write, recovered: false);
+                }
                 else
                 {
                     // Admission reserved the queued/executing operation through
@@ -1368,7 +1377,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
     }
 
-    private void RetireObservedWrite(PendingWrite write)
+    private void RetireObservedWrite(PendingWrite write, bool recovered = true)
     {
         ReleaseWriteSlot(write);
         Interlocked.Increment(ref _servingRevision);
@@ -1385,24 +1394,37 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             if (receipt.RecoveryTicket is { } ticket)
             {
                 _activeRecoveryTickets.Remove(ticket.Id);
-                _knownAcceptedIntents.Remove(ticket.Id);
+                if (recovered)
+                {
+                    _knownAcceptedIntents.Remove(ticket.Id);
+                }
             }
 
             RetirePendingAction(receipt);
 
-            if (_rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) && CoversRejectedReceipt(receipt, rejectedAt))
+            if (recovered)
             {
-                _rejectedReceipts.Remove(receipt.Key);
-                if (receipt.Key.Kind == ReceiptKind.Watched && _rejectedWatchTimes.Remove(receipt.Key.Title, out var watchTimes))
-                {
-                    _rejectedWatchTimeCount -= watchTimes.Count;
-                }
-
-                if (_predictionReplays.Remove(receipt.Key, out var replay))
-                {
-                    _replayPayloadBytes -= replay.Payload?.LongLength ?? 0;
-                }
+                RetireCoveredRejection(receipt);
             }
+        }
+    }
+
+    private void RetireCoveredRejection(Receipt receipt)
+    {
+        if (!_rejectedReceipts.TryGetValue(receipt.Key, out var rejectedAt) || !CoversRejectedReceipt(receipt, rejectedAt))
+        {
+            return;
+        }
+
+        _rejectedReceipts.Remove(receipt.Key);
+        if (receipt.Key.Kind == ReceiptKind.Watched && _rejectedWatchTimes.Remove(receipt.Key.Title, out var watchTimes))
+        {
+            _rejectedWatchTimeCount -= watchTimes.Count;
+        }
+
+        if (_predictionReplays.Remove(receipt.Key, out var replay))
+        {
+            _replayPayloadBytes -= replay.Payload?.LongLength ?? 0;
         }
     }
 
