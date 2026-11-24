@@ -167,10 +167,15 @@ public sealed class TrainingDataBuilderTests
         };
 
         profiles[0].WatchedItems.Add(new WatchedItemInfo { ItemId = earlierItem, ItemType = "Movie", Played = true, LastPlayedDate = Anchor.AddDays(-1), Genres = ["Action"], PeopleNames = ["Keanu Reeves"] });
+        profiles[0].WatchedItems[^1].Credits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.Movies.Movie { Id = earlierItem },
+            [new MediaBrowser.Controller.Entities.PersonInfo { Name = "Keanu Reeves", Type = Jellyfin.Data.Enums.PersonKind.Actor, SortOrder = 0 }], Anchor.AddDays(-3));
         var metadata = new LibraryItemMetadata(
             new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["Lionsgate"] },
             new Dictionary<Guid, IReadOnlyList<string>> { [earlierItem] = ["heist"] },
-            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] });
+            new Dictionary<Guid, IReadOnlyList<Guid>> { [earlierItem] = [boxSet] })
+        {
+            ProducerMetadata = new Dictionary<Guid, TitleMetadataSnapshot?> { [earlierItem] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Lionsgate", fetchedAt: Anchor.AddDays(-2)) }
+        };
 
         var results = new List<RecommendationResult>
         {
@@ -188,6 +193,7 @@ public sealed class TrainingDataBuilderTests
                         PeopleNames = ["Keanu Reeves"],
                         PeopleWeights = [1.0],
                         Studios = ["Lionsgate"],
+                        TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Lionsgate", fetchedAt: Anchor.AddDays(-2)),
                         Tags = ["heist"],
                         BoxSetIds = [boxSet]
                     }
@@ -201,6 +207,8 @@ public sealed class TrainingDataBuilderTests
             GeneratedAt = Anchor.AddDays(-2),
             Recommendations = [new RecommendedItem { ItemId = earlierItem, ItemType = "Movie", Genres = ["Action"], PeopleNames = ["Keanu Reeves"] }]
         });
+        results[0].Recommendations[0].Credits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.Movies.Movie { Id = itemId },
+            [new MediaBrowser.Controller.Entities.PersonInfo { Name = "Keanu Reeves", Type = Jellyfin.Data.Enums.PersonKind.Actor, SortOrder = 0 }], Anchor.AddDays(-3));
 
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(results, profiles, null, null, null, metadata, null, CancellationToken.None);
 
@@ -595,7 +603,7 @@ public sealed class TrainingDataBuilderTests
                 {
                     // The SERIES carries the studio; the episode's own ItemId is absent from the
                     // studio lookup, so only the SeriesId fallback can supply "Marvel".
-                    new RecommendedItem { ItemId = seriesId, ItemType = "Series", Studios = ["Marvel"], Genres = ["Action"] },
+                    new RecommendedItem { ItemId = seriesId, ItemType = "Series", Studios = ["Marvel"], Genres = ["Action"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Marvel", "tv", Anchor.AddDays(-2)) },
                     // Exposure candidate: genres disjoint from watched ("Horror" vs "Action"), no
                     // cast, studio shared. Its only path to a positive score is studio overlap.
                     new RecommendedItem
@@ -603,7 +611,8 @@ public sealed class TrainingDataBuilderTests
                         ItemId = candidateId,
                         ItemType = "Movie",
                         Genres = ["Horror"],
-                        Studios = ["Marvel"]
+                        Studios = ["Marvel"],
+                        TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Marvel", "movie", Anchor.AddDays(-2))
                     }
                 }
             }

@@ -156,25 +156,6 @@ public sealed class TitleMetadataCache
         }
     }
 
-    /// <summary>Checks all current source claims before an alias-only physical copy establishes ownership.</summary>
-    /// <param name="config">Current configured metadata sources.</param>
-    /// <param name="mediaType">The typed title namespace.</param>
-    /// <param name="tvdbId">The independently observed television alias.</param>
-    /// <param name="imdbId">Optional independently observed IMDb corroboration.</param>
-    /// <returns>Whether the supplied aliases still admit competing current identities.</returns>
-    internal bool HasAmbiguousAliasClaims(PluginConfiguration config, string mediaType, int tvdbId, string? imdbId)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        var identity = new TitleMetadataSnapshot { MediaType = mediaType, TvdbId = tvdbId, ImdbId = TitleProviderIdentity.NormalizeImdb(imdbId) };
-        lock (_gate)
-        {
-            var now = Now;
-            var keys = LookupIdentityKeys(config, mediaType, 0, tvdbId, identity.ImdbId, MetadataLanguage);
-            return keys.Any(key => AliasIsAmbiguous(key, identity, now))
-                || ConflictingIdentities(keys.Select(key => ReadEntry(key, now, identity)).OfType<TitleMetadataSnapshot>());
-        }
-    }
-
     private List<string> LookupIdentityKeys(PluginConfiguration config, string mediaType, int tmdbId, int tvdbId, string? imdbId, string? language)
     {
         var keys = IdentityKeys(Key(config, 0, mediaType, language).Split(':')[0], mediaType, tmdbId, tvdbId, imdbId).ToList();
@@ -303,6 +284,13 @@ public sealed class TitleMetadataCache
 
     internal static string SeerrScope(PluginConfiguration config, string? language)
         => Key(config, 0, MovieMediaType, language).Split(':')[0];
+
+    /// <summary>Captures currently configured producer sources without exposing their credentials.</summary>
+    /// <param name="config">Current provider configuration.</param>
+    /// <returns>Only hashed source identities, not credentials.</returns>
+    internal string ProducerScope(PluginConfiguration config)
+        => string.Join(':', ActiveSupplementalSources(config).Select(source => SourceDigest(source, source.Source == "trakt" ? null : MetadataLanguage))
+            .Append(SeerrScope(config, MetadataLanguage)).Order(StringComparer.Ordinal));
 
     /// <summary>Reserves a refresh slot, preventing duplicate title requests and rapid retries after failures.</summary>
     /// <param name="config">The captured provider configuration.</param>
@@ -604,6 +592,8 @@ public sealed class TitleMetadataCache
             AnimeHint = Field(snapshot.AnimeHint, previous?.AnimeHint, nameof(TitleMetadataSnapshot.AnimeHint)),
             OriginCountries = Field(snapshot.OriginCountries, previous?.OriginCountries, nameof(TitleMetadataSnapshot.OriginCountries)),
             ProductionCountries = Field(snapshot.ProductionCountries, previous?.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries)),
+            ProductionCompanies = Field(snapshot.ProductionCompanies, previous?.ProductionCompanies, nameof(TitleMetadataSnapshot.ProductionCompanies)),
+            Networks = Field(snapshot.Networks, previous?.Networks, nameof(TitleMetadataSnapshot.Networks)),
             Overview = Field(snapshot.Overview, previous?.Overview, nameof(TitleMetadataSnapshot.Overview))
         };
         return merged with { FieldFetchedAtUtc = times.ToImmutable() };

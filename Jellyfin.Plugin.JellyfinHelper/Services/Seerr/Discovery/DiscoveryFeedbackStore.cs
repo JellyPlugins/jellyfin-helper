@@ -1408,6 +1408,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                     Genres = item.Genres?.ToArray() ?? [],
                     TmdbRating = item.TmdbRating,
                     Popularity = item.Popularity,
+                    HasRatingMetadata = item.HasRatingMetadata,
+                    HasPopularityMetadata = item.HasPopularityMetadata,
                     Score = item.Score,
                     // Exact card features already live in the recommendation cache and delivery evidence.
                     // An unseen generation is not training evidence and need not duplicate those features here.
@@ -1562,7 +1564,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         }
 
         // Zero is an exact missing-metadata sentinel; a small positive rating is still populated.
-        if (existing.TmdbRating.Equals(0.0) && item.TmdbRating > 0)
+        if (!existing.HasConfirmedPrediction && existing.HasRatingMetadata == false && item.HasRatingMetadata == true)
+        {
+            existing.TmdbRating = item.TmdbRating;
+            existing.HasRatingMetadata = true;
+            modified = true;
+        }
+        else if (!existing.HasConfirmedPrediction && existing.HasRatingMetadata is null && existing.TmdbRating.Equals(0.0) && item.TmdbRating > 0)
         {
             existing.TmdbRating = item.TmdbRating;
             modified = true;
@@ -1590,7 +1598,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
             modified = true;
         }
 
-        if (existing.Popularity.Equals(0.0) && item.Popularity > 0)
+        if (!existing.HasConfirmedPrediction && existing.HasPopularityMetadata == false && item.HasPopularityMetadata == true)
+        {
+            existing.Popularity = item.Popularity;
+            existing.HasPopularityMetadata = true;
+            modified = true;
+        }
+        else if (!existing.HasConfirmedPrediction && existing.HasPopularityMetadata is null && existing.Popularity.Equals(0.0) && item.Popularity > 0)
         {
             existing.Popularity = item.Popularity;
             modified = true;
@@ -1843,6 +1857,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
         entry.KnownPeople = item.KnownPeople?.ToList();
         entry.TmdbRating = item.TmdbRating;
         entry.Popularity = item.Popularity;
+        entry.HasRatingMetadata = item.HasRatingMetadata;
+        entry.HasPopularityMetadata = item.HasPopularityMetadata;
         entry.Score = item.Score;
         entry.ScoringFeatures = item.ScoringFeatures?.Copy();
         entry.TitleMetadata = item.TitleMetadata;
@@ -2075,6 +2091,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore, IDisposabl
                 Genres = e.Genres?.ToArray() ?? [],
                 TmdbRating = e.TmdbRating,
                 Popularity = e.Popularity,
+                HasRatingMetadata = e.HasRatingMetadata,
+                HasPopularityMetadata = e.HasPopularityMetadata,
                 Score = e.Score,
                 ScoringFeatures = e.ScoringFeatures?.Copy(),
                 TitleMetadata = e.TitleMetadata,

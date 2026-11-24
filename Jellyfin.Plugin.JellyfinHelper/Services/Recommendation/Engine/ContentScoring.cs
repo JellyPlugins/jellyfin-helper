@@ -33,7 +33,7 @@ internal static class ContentScoring
     internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
 
     /// <summary>
-    ///     Returns a normalized collaborative score (0-1) for a candidate item.
+    ///     Returns a bounded collaborative score without amplifying weak absolute neighbour support.
     /// </summary>
     /// <param name="itemId">The candidate item ID.</param>
     /// <param name="coOccurrence">The collaborative co-occurrence map.</param>
@@ -44,12 +44,15 @@ internal static class ContentScoring
         Dictionary<Guid, double> coOccurrence,
         double maxCoOccurrence)
     {
-        if (maxCoOccurrence <= 0 || !coOccurrence.TryGetValue(itemId, out var count))
+        if (maxCoOccurrence <= 0 || !double.IsFinite(maxCoOccurrence)
+            || !coOccurrence.TryGetValue(itemId, out var count) || !double.IsFinite(count))
         {
             return 0;
         }
 
-        return Math.Clamp(count / maxCoOccurrence, 0.0, 1.0);
+        // One unit is the upper bound of a single neighbour's weighted overlap.
+        // Strong aggregate maps retain relative normalization; weak maps keep their support.
+        return Math.Clamp(count / Math.Max(1.0, maxCoOccurrence), 0.0, 1.0);
     }
 
     /// <summary>

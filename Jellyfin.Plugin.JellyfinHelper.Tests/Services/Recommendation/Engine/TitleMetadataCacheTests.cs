@@ -18,6 +18,78 @@ public sealed class TitleMetadataCacheTests
     private readonly Clock _clock = new();
     private readonly PluginConfiguration _config = new() { SeerrUrl = "https://seerr.example.test", SeerrApiKey = "encrypted-test-key" };
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void MergingMetadataIgnoresMissingAndUninitializedConflictArrays(int conflictShape)
+    {
+        var conflicts = conflictShape switch
+        {
+            0 => null,
+            1 => ImmutableDictionary<string, ImmutableArray<string>>.Empty,
+            2 => ImmutableDictionary<string, ImmutableArray<string>>.Empty.Add(nameof(TitleMetadataSnapshot.Overview), ["alternative synopsis"]),
+            3 => ImmutableDictionary<string, ImmutableArray<string>>.Empty
+                .Add(nameof(TitleMetadataSnapshot.OriginalLanguage), default)
+                .Add(nameof(TitleMetadataSnapshot.SeriesType), default),
+            4 => ImmutableDictionary<string, ImmutableArray<string>>.Empty
+                .Add(nameof(TitleMetadataSnapshot.OriginalLanguage), [])
+                .Add(nameof(TitleMetadataSnapshot.SeriesType), []),
+            _ => throw new ArgumentOutOfRangeException(nameof(conflictShape))
+        };
+        var current = new TitleMetadataSnapshot
+        {
+            TmdbId = 123, MediaType = "tv", OriginalLanguage = "en", SeriesType = "Scripted",
+            Source = "seerr", FetchedAtUtc = _clock.Now
+        };
+        var supplemental = current with { Source = "trakt", FetchedAtUtc = _clock.Now.AddMinutes(-1), ConflictingValues = conflicts };
+
+        var merged = Assert.IsType<TitleMetadataSnapshot>(TitleMetadataMerger.CombineCurrentObservations([current, supplemental], _clock.Now));
+
+        Assert.Equal("en", merged.OriginalLanguage);
+        Assert.Equal("scripted", merged.SeriesType);
+        Assert.Null(merged.ConflictingValues);
+        Assert.Equal(_clock.Now, merged.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.OriginalLanguage)]);
+        Assert.Equal(_clock.Now, merged.FieldFetchedAtUtc[nameof(TitleMetadataSnapshot.SeriesType)]);
+        Assert.Equal(_clock.Now, merged.FetchedAtUtc);
+        Assert.Contains(supplemental, merged.SourceObservations!.Value);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AConflictInOneConsistentFieldDoesNotBreakTheOtherField(bool languageConflict)
+    {
+        var field = languageConflict ? nameof(TitleMetadataSnapshot.OriginalLanguage) : nameof(TitleMetadataSnapshot.SeriesType);
+        ImmutableArray<string> values = languageConflict ? ["en", "ru"] : ["Scripted", "Documentary"];
+        var current = new TitleMetadataSnapshot
+        {
+            TmdbId = 123, MediaType = "tv", OriginalLanguage = "en", SeriesType = "Scripted",
+            Source = "seerr", FetchedAtUtc = _clock.Now
+        };
+        var supplemental = current with
+        {
+            Source = "trakt", FetchedAtUtc = _clock.Now.AddMinutes(-1),
+            ConflictingValues = ImmutableDictionary<string, ImmutableArray<string>>.Empty.Add(field, values)
+        };
+
+        var merged = Assert.IsType<TitleMetadataSnapshot>(TitleMetadataMerger.WithSeerrObservation(current, supplemental, _clock.Now));
+
+        Assert.Equal(languageConflict ? null : "en", merged.OriginalLanguage);
+        Assert.Equal(languageConflict ? "scripted" : null, merged.SeriesType);
+        Assert.Equal(values, merged.ConflictingValues![field]);
+        Assert.False(merged.FieldFetchedAtUtc!.ContainsKey(field));
+        Assert.Equal(_clock.Now, merged.FetchedAtUtc);
+        Assert.Contains(supplemental, merged.SourceObservations!.Value);
+
+        var combinedAgain = Assert.IsType<TitleMetadataSnapshot>(TitleMetadataMerger.CombineCurrentObservations([merged, current], _clock.Now));
+        Assert.Equal(merged.OriginalLanguage, combinedAgain.OriginalLanguage);
+        Assert.Equal(merged.SeriesType, combinedAgain.SeriesType);
+        Assert.Equal(values, combinedAgain.ConflictingValues![field]);
+    }
+
     [Fact]
     public void SuppliedAliasesResolveTheirUniqueIntersectionEvenWhenNeitherAliasAloneIsUnique()
     {

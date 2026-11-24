@@ -21,7 +21,7 @@ public sealed class ExternalAvailableMetadataTests
     [InlineData(0, 0, true, "reasonStudioNamed")]
     public void MetadataReasons_UseObservedSignalsAndActualAnchors(double progress, double franchise, bool studio, string? expected)
     {
-        var candidate = new TmdbDiscoverItem { CollectionId = 123, CollectionName = "Actual saga", KnownStudios = ["Unrelated Studio", "Studio A"] };
+        var candidate = new TmdbDiscoverItem { CollectionId = 123, CollectionName = "Actual saga", KnownStudios = ["Unrelated Studio", "Studio A"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A") };
         var context = ExternalCandidateFeatureBuilder.PrepareUserContext(History());
         var features = new CandidateFeatures { CollectionProgressionBoost = progress, FranchiseAffinity = franchise, StudioMatch = studio };
         Assert.Null(SeerrDiscoveryService.DetermineMetadataReason(features, candidate, context));
@@ -41,6 +41,7 @@ public sealed class ExternalAvailableMetadataTests
         {
             Assert.Equal("Studio A", reason?.RelatedInfo);
             candidate.KnownStudios = ["Unrelated Studio"];
+            candidate.TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "Studio A");
             Assert.Null(SeerrDiscoveryService.DetermineMetadataReason(features, candidate, context));
         }
     }
@@ -86,7 +87,7 @@ public sealed class ExternalAvailableMetadataTests
     [Fact]
     public void KeywordsAndStudios_ArePersonalMetadataRatherThanGenreOrAgeGuesses()
     {
-        var candidate = new TmdbDiscoverItem { KnownKeywords = ["based on manga"], KnownStudios = ["Studio A"], GenreIds = [16] };
+        var candidate = new TmdbDiscoverItem { KnownKeywords = ["based on manga"], KnownStudios = ["Studio A"], GenreIds = [16], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A") };
         var features = Build(candidate, History());
         Assert.Equal(1, features.TagSimilarity);
         Assert.True(features.StudioMatch);
@@ -98,7 +99,7 @@ public sealed class ExternalAvailableMetadataTests
     [Fact]
     public void ExplicitlyEmptyMetadata_PreservesObservedZeroInsteadOfInventingAffinity()
     {
-        var candidate = new TmdbDiscoverItem { HasCollectionMetadata = true, KnownKeywords = [], KnownStudios = [] };
+        var candidate = new TmdbDiscoverItem { HasCollectionMetadata = true, KnownKeywords = [], KnownStudios = [], TitleMetadata = new TitleMetadataSnapshot { FetchedAtUtc = DateTime.UtcNow, ProductionCompanies = [] } };
         var features = Build(candidate, History());
         var vector = features.ToModelVector(Means());
         Assert.Equal(0, features.FranchiseAffinity);
@@ -183,7 +184,7 @@ public sealed class ExternalAvailableMetadataTests
     {
         WatchedItems =
         [
-            new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, TmdbCollectionId = 123, TmdbCollectionName = "Lokale Filmreihe", Genres = ["Animation"], Tags = ["based on manga"], InheritedTags = ["folder-only tag"], Studios = ["Studio A"] }
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, TmdbCollectionId = 123, TmdbCollectionName = "Lokale Filmreihe", Genres = ["Animation"], Tags = ["based on manga"], InheritedTags = ["folder-only tag"], Studios = ["Studio A"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A") }
         ]
     };
 

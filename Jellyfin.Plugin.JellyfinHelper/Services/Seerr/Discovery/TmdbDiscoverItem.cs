@@ -56,16 +56,40 @@ internal sealed class TmdbDiscoverItem
     }
 
     /// <summary>
-    ///     Gets or sets the average vote score (0-10).
+    ///     Gets or sets the observed vote score; missing or invalid source values remain unavailable.
     /// </summary>
     [JsonPropertyName("voteAverage")]
-    public double VoteAverage { get; set; }
+    public double? VoteAverageValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric projection without making absence a known zero.</summary>
+    [JsonIgnore]
+    public double VoteAverage { get => VoteAverageValue.GetValueOrDefault(); set => VoteAverageValue = value; }
+
+    /// <summary>Gets a value indicating whether a finite non-negative rating was actually supplied.</summary>
+    [JsonIgnore]
+    public bool HasRatingMetadata => VoteAverageValue.HasValue;
 
     /// <summary>
-    ///     Gets or sets the popularity score.
+    ///     Gets or sets observed popularity; explicit zero is distinct from unavailable metadata.
     /// </summary>
     [JsonPropertyName("popularity")]
-    public double Popularity { get; set; }
+    public double? PopularityValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric popularity projection.</summary>
+    [JsonIgnore]
+    public double Popularity { get => PopularityValue.GetValueOrDefault(); set => PopularityValue = value; }
+
+    /// <summary>Gets a value indicating whether finite non-negative popularity was actually supplied.</summary>
+    [JsonIgnore]
+    public bool HasPopularityMetadata => PopularityValue.HasValue;
 
     /// <summary>
     ///     Gets or sets the movie release date.
@@ -138,6 +162,10 @@ internal sealed class TmdbDiscoverItem
     /// </summary>
     [JsonIgnore]
     public List<string>? KnownPeople { get; set; }
+
+    /// <summary>Gets or sets immutable observed credits with provider-person identities and field acquisition.</summary>
+    [JsonIgnore]
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
 
     /// <summary>Gets or sets the collection identity supplied by a movie detail response.</summary>
     [JsonIgnore]

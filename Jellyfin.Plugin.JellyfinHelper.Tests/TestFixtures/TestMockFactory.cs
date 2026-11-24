@@ -4,6 +4,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -25,6 +26,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 /// </summary>
 public static class TestMockFactory
 {
+    /// <summary>Creates explicitly qualified production evidence without treating a native network name as a producer.</summary>
+    /// <param name="companyId">The provider company identity.</param>
+    /// <param name="name">The localized display label.</param>
+    /// <param name="mediaType">The actual title namespace.</param>
+    /// <param name="fetchedAt">An optional historical acquisition boundary.</param>
+    /// <returns>Immutable production-company metadata.</returns>
+    public static TitleMetadataSnapshot CreateProducerMetadata(int companyId, string name, string mediaType = "movie", DateTime? fetchedAt = null)
+        => new() { MediaType = mediaType, ProductionCompanies = [new("tmdb", ProducerEvidence.CompanyKind, companyId, name)], FetchedAtUtc = fetchedAt ?? DateTime.UtcNow.AddMinutes(-1) };
+
     /// <summary>Creates a new <see cref="Mock{ILibraryManager}"/> with GetVirtualFolders returning empty list.</summary>
     /// <returns>A new mock <see cref="ILibraryManager"/> instance.</returns>
     public static Mock<ILibraryManager> CreateLibraryManager()

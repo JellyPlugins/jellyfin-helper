@@ -131,6 +131,127 @@ public sealed class DiscoveryDismissalIdentityStoreTests : IDisposable
         Assert.Same(store.Snapshot(user), store.CachedSnapshot(user));
     }
 
+    [Theory]
+    [InlineData("permission")]
+    [InlineData("io")]
+    [InlineData("json")]
+    public void FailedNewOwnerInitializationReleasesItsSlotAndRetryLoadsFreshEvidence(string failure)
+    {
+        var durableOwner = Guid.NewGuid();
+        var newOwner = Guid.NewGuid();
+        new DiscoveryDismissalIdentityStore(_directory).Remember(durableOwner, [new(700, "tv")]);
+        var original = File.ReadAllText(PathFor(durableOwner));
+        var unavailable = true;
+        var reads = 0;
+        var store = new DiscoveryDismissalIdentityStore(_directory, read: path =>
+        {
+            if (path == PathFor(newOwner))
+            {
+                reads++;
+                if (unavailable)
+                {
+                    if (failure == "permission") throw new UnauthorizedAccessException("offline");
+                    if (failure == "io") throw new IOException("offline");
+                    return new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{"));
+                }
+            }
+
+            return File.OpenRead(path);
+        }, byteBudget: 1024, identityLimit: 2, userLimit: 2);
+        Assert.Throws<IOException>(() => store.Remember(newOwner, [new(800, "movie")]));
+        Assert.Empty(store.CachedSnapshot(newOwner));
+        Assert.Empty(store.Snapshot(newOwner));
+        Assert.Equal(1, reads);
+        Assert.False(File.Exists(PathFor(newOwner)));
+        Assert.Contains((700, "tv"), store.Snapshot(durableOwner).Keys);
+        Assert.Equal(original, File.ReadAllText(PathFor(durableOwner)));
+
+        unavailable = false;
+        // Evidence appearing after inventory must be read by a fresh lazy, not replaced by a stale empty index.
+        AtomicFile.WriteAllText(PathFor(newOwner), JsonSerializer.Serialize(new { UserId = newOwner, Identities = new[] { new { TmdbId = 801, MediaType = "tv" } } }));
+        store.Remember(newOwner, [new(800, "movie")]);
+        Assert.Equal(2, reads);
+        Assert.Equal(2, store.Snapshot(newOwner).Count);
+        Assert.Contains((801, "tv"), store.Snapshot(newOwner).Keys);
+        Assert.Contains((800, "movie"), store.Snapshot(newOwner).Keys);
+        Assert.Throws<IOException>(() => store.Remember(Guid.NewGuid(), [new(900, "movie")]));
+        var reloaded = new DiscoveryDismissalIdentityStore(_directory, byteBudget: 1024, identityLimit: 2, userLimit: 2);
+        Assert.Contains((700, "tv"), reloaded.Snapshot(durableOwner).Keys);
+        Assert.Equal(2, reloaded.Snapshot(newOwner).Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InterruptedColdLoadWaiterCannotMakeTheLoaderPublishAnUnregisteredOrStaleIndex(bool replacement)
+    {
+        var user = Guid.NewGuid();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var interrupted = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseRead = new ManualResetEventSlim();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var reads = 0;
+        var writes = 0;
+        var store = new DiscoveryDismissalIdentityStore(_directory, (path, contents) =>
+        {
+            Interlocked.Increment(ref writes);
+            AtomicFile.WriteAllText(path, contents);
+        }, read: path =>
+        {
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                entered.TrySetResult();
+                releaseRead.Wait(cancellationToken);
+                throw new FileNotFoundException("The cold read observed no user index.");
+            }
+
+            return File.OpenRead(path);
+        }, byteBudget: 1024, identityLimit: 2, userLimit: 1);
+        var loading = Task.Run(() => store.Remember(user, [new(800, "movie")]), CancellationToken.None);
+        var waiter = new Thread(() =>
+        {
+            started.TrySetResult();
+            try
+            {
+                store.Remember(user, [new(700, "tv")]);
+                interrupted.TrySetException(new InvalidOperationException("The blocked initialization waiter was not interrupted."));
+            }
+            catch (ThreadInterruptedException exception)
+            {
+                interrupted.TrySetResult(exception);
+            }
+        }) { IsBackground = true };
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            waiter.Start();
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            // Thread interruption is a recoverable failure of a waiter, not of the active lazy factory.
+            waiter.Interrupt();
+            Assert.IsType<ThreadInterruptedException>(await interrupted.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken));
+            Assert.Equal(1, Volatile.Read(ref reads));
+            Assert.Empty(store.CachedSnapshot(user));
+            Assert.False(File.Exists(PathFor(user)));
+            if (replacement) store.Remember(user, [new(801, "tv")]);
+            Assert.Equal(replacement ? 1 : 0, Volatile.Read(ref writes));
+        }
+        finally
+        {
+            releaseRead.Set();
+            await loading.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+
+        Assert.Equal(2, Volatile.Read(ref reads));
+        var snapshot = store.Snapshot(user);
+        Assert.Equal(replacement ? 2 : 1, snapshot.Count);
+        Assert.Contains((800, "movie"), snapshot.Keys);
+        Assert.DoesNotContain((700, "tv"), snapshot.Keys);
+        if (replacement) Assert.Contains((801, "tv"), snapshot.Keys);
+        var reloaded = new DiscoveryDismissalIdentityStore(_directory, byteBudget: 1024, identityLimit: 2, userLimit: 1);
+        Assert.Equal(snapshot.OrderBy(pair => pair.Key.MediaType), reloaded.Snapshot(user).OrderBy(pair => pair.Key.MediaType));
+    }
+
     [Fact]
     public void AFailedWriteDoesNotPublishOrSpendTheOldIndexAndItsRetryRemainsPossible()
     {

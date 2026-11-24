@@ -41,6 +41,11 @@ internal static class EnsembleAdmissionEvaluator
         Func<IReadOnlyCollection<Guid>, string?>? reserveEvidence = null)
     {
         ValidateAdmissionInputs(calibration, acceptance, models, alphaCap, neuralCap);
+        if (!FeatureDerivationContract.TryResolveUniformVersion(calibration.Concat(acceptance), out var derivationVersion))
+        {
+            return AdmissionDecision.Unknown("MixedOrUnsupportedFeatureDerivationEvidence", calibration.Count, acceptance.Count);
+        }
+
         var cal = CaptureEvidence(calibration, referenceTime);
         var test = CaptureEvidence(acceptance, referenceTime);
         if (cal.Select(row => (row.UserId, row.ObservationId)).Intersect(test.Select(row => (row.UserId, row.ObservationId))).Any())
@@ -51,7 +56,7 @@ internal static class EnsembleAdmissionEvaluator
         var plan = PrepareCalibration(cal, test.Length, models, alphaCap, neuralCap);
         if (plan.Limitation is { } limitation)
         {
-            return ResolveChoiceLimitation(limitation, calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence);
+            return ResolveChoiceLimitation(limitation, calibration, acceptance, models, referenceTime, (alphaCap, neuralCap), reserveEvidence) with { FeatureDerivationVersion = derivationVersion };
         }
 
         var availableAcceptanceTitles = test.Length;
@@ -77,7 +82,7 @@ internal static class EnsembleAdmissionEvaluator
             return AdmissionDecision.Unknown(reservationFailure, plan.Rows.Length, test.Length) with { Candidate = plan.Selected };
         }
 
-        return AssessSelectedMixture(plan, test, models.Incumbent is not null);
+        return AssessSelectedMixture(plan, test, models.Incumbent is not null) with { FeatureDerivationVersion = derivationVersion };
     }
 
     private static AdmissionDecision ResolveChoiceLimitation(AdmissionDecision limitation, IReadOnlyList<TrainingExample> calibration, IReadOnlyList<TrainingExample> acceptance, AdmissionModels models, DateTime referenceTime, (double Alpha, double Neural) caps, Func<IReadOnlyCollection<Guid>, string?>? reserve)
@@ -189,6 +194,11 @@ internal static class EnsembleAdmissionEvaluator
     /// <returns>Calibration metrics, or null if even the limited operational support is unavailable.</returns>
     internal static ServingCalibration? EvaluateServingCalibration(IReadOnlyList<TrainingExample> calibration, AdmissionModels models, AdmissionMixture mixture, DateTime referenceTime)
     {
+        if (!FeatureDerivationContract.TryResolveUniformVersion(calibration, out _))
+        {
+            return null;
+        }
+
         if (mixture.Neural > 0 && models.Neural is null)
         {
             return null;

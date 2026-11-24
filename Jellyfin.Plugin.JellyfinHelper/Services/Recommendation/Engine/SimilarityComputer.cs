@@ -400,7 +400,7 @@ internal sealed class SimilarityComputer
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
         double averagePreferredWeight)
     {
-        if (candidatePeople.Count == 0 || preferredPeopleWeights.Count == 0 || averagePreferredWeight <= 0.0)
+        if (candidatePeople.Count == 0 || preferredPeopleWeights.Count == 0 || !double.IsFinite(averagePreferredWeight) || averagePreferredWeight <= 0.0)
         {
             return 0;
         }
@@ -409,9 +409,9 @@ internal sealed class SimilarityComputer
         var matchedWeight = 0.0;
         foreach (var name in candidatePeople)
         {
-            if (preferredPeopleWeights.TryGetValue(name, out var weight) && weight > 0.0)
+            if (preferredPeopleWeights.TryGetValue(name, out var weight) && double.IsFinite(weight) && weight > 0.0)
             {
-                matchedWeight += weight;
+                matchedWeight += weight / averagePreferredWeight;
             }
         }
 
@@ -421,8 +421,7 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        var candidateBudget = candidatePeople.Count * averagePreferredWeight;
-        var denominator = Math.Max(candidateBudget, EngineConstants.WeightedPeopleSimilarityMinDenominator);
+        var denominator = Math.Max(candidatePeople.Count, EngineConstants.WeightedPeopleSimilarityMinDenominator / averagePreferredWeight);
 
         return Math.Clamp(matchedWeight / denominator, 0.0, 1.0);
     }
@@ -442,7 +441,7 @@ internal sealed class SimilarityComputer
 
         var positiveEntries = new List<double>(preferredPeopleWeights.Count);
         positiveEntries.AddRange(preferredPeopleWeights
-            .Where(kvp => kvp.Value > 0.0)
+            .Where(kvp => double.IsFinite(kvp.Value) && kvp.Value > 0.0)
             .Select(kvp => kvp.Value));
 
         if (positiveEntries.Count == 0)
@@ -456,10 +455,10 @@ internal sealed class SimilarityComputer
         var topKSum = 0.0;
         for (var i = 0; i < sampleSize; i++)
         {
-            topKSum += positiveEntries[i];
+            topKSum += positiveEntries[i] / positiveEntries[0];
         }
 
-        return topKSum / sampleSize;
+        return positiveEntries[0] * (topKSum / sampleSize);
     }
 
     /// <summary>
@@ -573,25 +572,9 @@ internal sealed class SimilarityComputer
             return 0.0;
         }
 
-        var matched = 0.0;
-        var counted = 0;
-        foreach (var country in candidateCountries)
-        {
-            if (string.IsNullOrWhiteSpace(country))
-            {
-                continue;
-            }
-
-            counted++;
-            if (preferredCountries.TryGetValue(country, out var weight) && weight > 0.0)
-            {
-                matched += weight;
-            }
-        }
-
-        // Average the matched preference weight over the candidate's own (whitespace-filtered) country
-        // count. counted == 0 (all-whitespace) short-circuits the division safely.
-        return counted > 0 ? Math.Clamp(matched / counted, 0.0, 1.0) : 0.0;
+        var countries = CountryIdentity.Set(candidateCountries);
+        var preferences = CountryIdentity.Weights(preferredCountries);
+        return countries.Count > 0 ? countries.Average(country => preferences.GetValueOrDefault(country)) : 0.0;
     }
 
     /// <summary>
@@ -674,19 +657,30 @@ internal sealed class SimilarityComputer
         }
 
         // matched = Σ over shared names of (candidate billing weight × user preference weight); normalized by the candidate's total billing budget so a top-billed match dominates a deep-cast match.
+        // Both scales are bounded independently: user counts are not candidate billing coverage.
+        // Rescale before summing, so even finite extreme inputs cannot overflow the reduction.
+        var personalMaximum = preferredBilledPeople.Values.Where(value => double.IsFinite(value) && value > 0).DefaultIfEmpty(0).Max();
+        var billingMaximum = candidateBilling.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && double.IsFinite(entry.Value) && entry.Value > 0)
+            .Select(entry => entry.Value).DefaultIfEmpty(0).Max();
+        if (personalMaximum <= 0 || billingMaximum <= 0)
+        {
+            return 0.0;
+        }
+
         var matched = 0.0;
         var billingBudget = 0.0;
         foreach (var (name, billing) in candidateBilling)
         {
-            if (billing <= 0.0 || string.IsNullOrWhiteSpace(name))
+            if (billing <= 0.0 || !double.IsFinite(billing) || string.IsNullOrWhiteSpace(name))
             {
                 continue;
             }
 
-            billingBudget += billing;
-            if (preferredBilledPeople.TryGetValue(name, out var pref) && pref > 0.0)
+            var normalizedBilling = billing / billingMaximum;
+            billingBudget += normalizedBilling;
+            if (preferredBilledPeople.TryGetValue(name, out var pref) && double.IsFinite(pref) && pref > 0.0)
             {
-                matched += billing * pref;
+                matched += normalizedBilling * (pref / personalMaximum);
             }
         }
 

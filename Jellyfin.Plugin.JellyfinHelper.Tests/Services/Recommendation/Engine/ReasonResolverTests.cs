@@ -361,11 +361,11 @@ public class ReasonResolverTests
     {
         var candidate = CreateMovie(studios: ["A24", "MGM"]);
         var explanation = Explain(dominant: "Studio", studio: AboveThreshold);
-        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MGM" };
+        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "producer:tmdb:production-company:1" };
 
         var (reason, key, related) = ReasonResolver.DetermineReason(
-            candidate, explanation, new Dictionary<string, double>(),
-            preferredStudios: preferredStudios);
+            candidate, explanation, new Dictionary<string, double>(), default(ReasonAnchorContext),
+            new ReasonResolver.ReasonPeopleContext(PreferredStudios: preferredStudios, ProducerMetadata: Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "MGM")));
 
         Assert.Equal("reasonStudioNamed", key);
         Assert.Contains("MGM", reason);

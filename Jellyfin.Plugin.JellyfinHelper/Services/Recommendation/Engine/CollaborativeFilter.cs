@@ -178,9 +178,11 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            var jaccardWeight = ComputeJaccardWeight(target, otherCombinedIds);
-            if (jaccardWeight <= 0.0)
+            var jaccardWeight = ComputeJaccardWeight(target, otherCombinedIds, out var hasUnseenItems);
+            if (jaccardWeight <= 0.0 || !hasUnseenItems)
             {
+                // A fully contained watch set supplies no unseen endorsement. Keep its
+                // population/trust contribution, but do not allocate an empty difference.
                 continue;
             }
 
@@ -205,9 +207,11 @@ internal static class CollaborativeFilter
     /// </summary>
     /// <param name="userCombinedIds">The target user's combined watch set.</param>
     /// <param name="otherCombinedIds">The neighbour's combined watch set.</param>
+    /// <param name="hasUnseenItems">Whether the neighbour contains an actual item absent from the target set.</param>
     /// <returns>The Jaccard weight in [0, 1], or <c>0.0</c> when overlap is below the minimum.</returns>
-    private static double ComputeJaccardWeight(IReadOnlySet<Guid> userCombinedIds, IReadOnlySet<Guid> otherCombinedIds)
+    private static double ComputeJaccardWeight(IReadOnlySet<Guid> userCombinedIds, IReadOnlySet<Guid> otherCombinedIds, out bool hasUnseenItems)
     {
+        hasUnseenItems = false;
         // Compute overlap count by enumerating the smaller set for efficiency
         var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
             ? (userCombinedIds, otherCombinedIds)
@@ -221,6 +225,7 @@ internal static class CollaborativeFilter
             return 0.0;
         }
 
+        hasUnseenItems = overlap < otherCombinedIds.Count;
         // Jaccard similarity: |A ∩ B| / |A ∪ B|
         var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
         return union > 0 ? (double)overlap / union : 0.0;

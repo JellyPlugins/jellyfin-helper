@@ -81,10 +81,11 @@ public class TrainingFeatureComputerTests
             [seriesId] = new[] { "SeriesStudio" }
         };
 
-        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup);
+        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup,
+            new Dictionary<Guid, TitleMetadataSnapshot?> { [seriesId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "SeriesStudio", "tv") });
 
-        Assert.Contains("ItemStudio", result);
-        Assert.Contains("SeriesStudio", result);
+        Assert.DoesNotContain("ItemStudio", result);
+        Assert.Contains("producer:tmdb:production-company:2", result);
     }
 
     [Fact]
@@ -99,10 +100,11 @@ public class TrainingFeatureComputerTests
             [itemId] = new[] { "  ", "", "Real Studio", "\t" }
         };
 
-        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup);
+        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup,
+            new Dictionary<Guid, TitleMetadataSnapshot?> { [itemId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Real Studio") });
 
         Assert.Single(result);
-        Assert.Contains("Real Studio", result);
+        Assert.Contains("producer:tmdb:production-company:1", result);
     }
 
     [Fact]
@@ -121,7 +123,8 @@ public class TrainingFeatureComputerTests
             [i2] = new[] { "STUDIO A", "studio a" }
         };
 
-        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup);
+        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup,
+            new Dictionary<Guid, TitleMetadataSnapshot?> { [i1] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A"), [i2] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "STUDIO A") });
 
         Assert.Single(result);
     }
@@ -145,10 +148,11 @@ public class TrainingFeatureComputerTests
             [seriesId] = new[] { "SeriesOnly" }
         };
 
-        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup);
+        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup,
+            new Dictionary<Guid, TitleMetadataSnapshot?> { [seriesId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "SeriesOnly", "tv") });
 
         Assert.Single(result);
-        Assert.Contains("SeriesOnly", result);
+        Assert.Contains("producer:tmdb:production-company:2", result);
     }
 
     [Fact]
@@ -162,10 +166,11 @@ public class TrainingFeatureComputerTests
             [itemId] = new[] { "ItemStudio" }
         };
 
-        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup);
+        var result = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, lookup,
+            new Dictionary<Guid, TitleMetadataSnapshot?> { [itemId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "ItemStudio") });
 
         Assert.Single(result);
-        Assert.Contains("ItemStudio", result);
+        Assert.Contains("producer:tmdb:production-company:1", result);
     }
 
     // BuildTagPreferenceSetFromCache
@@ -345,6 +350,7 @@ public class TrainingFeatureComputerTests
     public void ComputeBestLanguageAffinity_Tier(string[] candidate, string? primaryLang, string[] preferred, string[] tolerated, string[] profileKeys, double expected)
     {
         Assert.NotNull(profileKeys);
+        Assert.NotNull(preferred);
         var preferredLangs = new HashSet<string>(preferred, StringComparer.OrdinalIgnoreCase);
         var toleratedLangs = new HashSet<string>(tolerated, StringComparer.OrdinalIgnoreCase);
         var profile = new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase);
@@ -352,6 +358,14 @@ public class TrainingFeatureComputerTests
         {
             profile[key] = new LanguageProfileEntry();
         }
+
+        // Primary/preferred tiers need real active-choice evidence. Descriptive
+        // primary usage alone no longer grants a positive preference tier.
+        foreach (var key in preferred)
+        {
+            profile[key] = new LanguageProfileEntry { ChosenCount = 1 };
+        }
+        if (primaryLang is not null) profile[primaryLang] = new LanguageProfileEntry { ChosenCount = 2 };
 
         var result = TrainingFeatureComputer.ComputeBestLanguageAffinity(candidate, primaryLang, preferredLangs, toleratedLangs, profile);
         Assert.Equal(expected, result);
@@ -368,7 +382,7 @@ public class TrainingFeatureComputerTests
             primaryLang: "en",
             preferred,
             toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
+            languageProfile: new Dictionary<string, LanguageProfileEntry> { ["en"] = new() { ChosenCount = 2 }, ["de"] = new() { ChosenCount = 1 } });
         Assert.Equal(1.0, result);
     }
 
@@ -382,7 +396,7 @@ public class TrainingFeatureComputerTests
             primaryLang: "en",
             preferred,
             toleratedLangs: new HashSet<string>(),
-            languageProfile: new Dictionary<string, LanguageProfileEntry>());
+            languageProfile: new Dictionary<string, LanguageProfileEntry> { ["en"] = new() { ChosenCount = 2 }, ["de"] = new() { ChosenCount = 1 } });
         Assert.Equal(1.0, result);
     }
 
@@ -548,7 +562,7 @@ public class TrainingFeatureComputerTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = saturday.AddMinutes(i + 1),
+                LastPlayedDate = saturday.AddDays(-7).AddMinutes(i + 1),
                 Genres = new[] { "Action" }
             });
         }
@@ -581,7 +595,7 @@ public class TrainingFeatureComputerTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = saturday.AddMinutes(i + 1),
+                LastPlayedDate = saturday.AddDays(-7).AddMinutes(i + 1),
                 Genres = new[] { "Action" }
             });
         }
@@ -593,7 +607,7 @@ public class TrainingFeatureComputerTests
             {
                 ItemId = Guid.NewGuid(),
                 IsFavorite = true,
-                LastPlayedDate = saturday.AddMinutes(i + 4),
+                LastPlayedDate = saturday.AddDays(-7).AddMinutes(i + 4),
                 Genres = new[] { "Horror" }
             });
         }
@@ -627,7 +641,7 @@ public class TrainingFeatureComputerTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = saturday12h.AddMinutes(i + 1),
+                LastPlayedDate = saturday12h.AddDays(-7).AddMinutes(i + 1),
                 Genres = new[] { "Action" }
             });
         }
@@ -639,7 +653,7 @@ public class TrainingFeatureComputerTests
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = saturday20h.AddMinutes(i),
+                LastPlayedDate = saturday20h.AddDays(-7).AddMinutes(i),
                 Genres = new[] { "Horror" }
             });
         }
@@ -828,7 +842,7 @@ public class TrainingFeatureComputerTests
         {
             [seriesId] = new[] { "SlowBurn", "PrestigeTV" }
         };
-        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "PremiumStudio" };
+        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "producer:tmdb:production-company:1" };
         var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SlowBurn" };
         var peopleLookup = new Dictionary<Guid, HashSet<string>>
         {
@@ -843,8 +857,14 @@ public class TrainingFeatureComputerTests
         profile.WatchedItems.Add(new WatchedItemInfo
         {
             ItemId = Guid.NewGuid(), Played = true, Genres = ["Mystery"], Tags = ["SlowBurn", "PrestigeTV"],
-            LastPlayedDate = DateTime.UtcNow.AddDays(-10)
+            LastPlayedDate = episodes.Min(episode => episode.LastPlayedDate!.Value).AddDays(-10)
         });
+        var creditTime = episodes.Min(episode => episode.LastPlayedDate!.Value).AddDays(-11);
+        var parentCredits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.TV.Series { Id = seriesId },
+            [new MediaBrowser.Controller.Entities.PersonInfo { Name = "AliceDirector", Type = Jellyfin.Data.Enums.PersonKind.Director }], creditTime);
+        foreach (var episode in episodes) episode.SeriesCredits = parentCredits;
+        profile.WatchedItems[^1].Credits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.Movies.Movie { Id = profile.WatchedItems[^1].ItemId },
+            [new MediaBrowser.Controller.Entities.PersonInfo { Name = "AliceDirector", Type = Jellyfin.Data.Enums.PersonKind.Director }], creditTime);
 
         TrainingFeatureComputer.AddAggregatedSeriesExample(
             examples,
@@ -867,7 +887,8 @@ public class TrainingFeatureComputerTests
             preferredInheritedTags: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             preferredWriterWeights: new Dictionary<string, double>(),
             genreStudioIdf: null,
-            organicFallbackTimestamp: DateTime.UtcNow);
+            organicFallbackTimestamp: DateTime.UtcNow,
+            seriesMetadata: new TrainingFeatureComputer.SeriesMetadata(ProducerMetadata: new Dictionary<Guid, TitleMetadataSnapshot?> { [seriesId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "PremiumStudio", "tv", episodes.Max(episode => episode.LastPlayedDate)!.Value.AddMinutes(-1)) }));
 
         var ex = Assert.Single(examples);
 
@@ -918,7 +939,7 @@ public class TrainingFeatureComputerTests
                 cachedPeopleLookup: [], preferredPeopleWeights: new Dictionary<string, double>(), itemStudiosLookup: [], preferredStudios: [],
                 itemTagsLookup: tags, preferredTags: [], preferredFranchises: new Dictionary<string, double>(), preferredCountries: new Dictionary<string, double>(),
                 preferredInheritedTags: [], preferredWriterWeights: new Dictionary<string, double>(), genreStudioIdf: null,
-                organicFallbackTimestamp: DateTime.UtcNow, preparedContentFit: content);
+                organicFallbackTimestamp: DateTime.UtcNow, seriesMetadata: new TrainingFeatureComputer.SeriesMetadata(ContentFit: content));
             return Assert.Single(output);
         }
 
@@ -1199,6 +1220,19 @@ public class TrainingFeatureComputerTests
         episodes[1].InheritedTags = new[] { "Sequel" };
         episodes[0].WriterNames = new[] { "WriterA" };
         episodes[1].WriterNames = new[] { "WriterB" };
+        var creditTime = episodes.Min(episode => episode.LastPlayedDate!.Value).AddDays(-11);
+        var parentCredits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.TV.Series { Id = seriesId, ProductionLocations = ["US", "GB"] },
+            [new MediaBrowser.Controller.Entities.PersonInfo { Name = "WriterA", Type = Jellyfin.Data.Enums.PersonKind.Writer }, new MediaBrowser.Controller.Entities.PersonInfo { Name = "WriterB", Type = Jellyfin.Data.Enums.PersonKind.Writer }], creditTime);
+        foreach (var episode in episodes)
+        {
+            episode.SeriesCredits = parentCredits;
+            episode.Credits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.TV.Episode { Id = episode.ItemId, ProductionLocations = episode.ProductionCountries.ToArray() }, null, creditTime);
+        }
+
+        var priorId = Guid.NewGuid();
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = priorId, ItemType = "Movie", Played = true, LastPlayedDate = creditTime.AddDays(1),
+            Credits = CreditMetadataCapture.Native(new MediaBrowser.Controller.Entities.Movies.Movie { Id = priorId },
+                [new MediaBrowser.Controller.Entities.PersonInfo { Name = "WriterA", Type = Jellyfin.Data.Enums.PersonKind.Writer }], creditTime) });
 
         var examples = new List<TrainingExample>();
         var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };

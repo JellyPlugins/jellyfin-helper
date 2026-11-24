@@ -165,7 +165,7 @@ describe('selected-user effective ensemble diagnostics', () => {
 
   test('cold-start priors show the selected user’s own operative composition and explicit inherited scope', () => {
     ui.renderEnsembleDiagnostics(host, { Available: true, Alpha: .75, EffectiveAlpha: .3, EffectiveNeuralBeta: .4,
-      NeuralEnabled: true, IsPerUser: false, UserName: 'Cold user', TrainingExampleCount: 0, ValidationLevel: 'GlobalPrior' });
+      NeuralEnabled: true, IsPerUser: false, UserName: 'Cold user', TrainingExampleCount: 0, ValidationLevel: 'GlobalPrior', FeatureDerivationStatus: 'Current' });
     expect(shares(host)).toEqual(['70%', '18%', '12%']);
     expect(host.querySelector('.recs-ensemble-label')!.textContent).toBe('Recommendation strategy for Cold user — Global priors, personal mixture:');
     expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('Starting mixture from global priors');
@@ -179,10 +179,18 @@ describe('selected-user effective ensemble diagnostics', () => {
   ])('personal %s status does not manufacture a frozen or verified claim', (ValidationLevel, expected) => {
     ui.renderEnsembleDiagnostics(host, { Available: true, EffectiveAlpha: .65, EffectiveNeuralBeta: .12,
       NeuralEnabled: true, IsPerUser: true, UserName: 'Warm user', TrainingExampleCount: 72,
-      Trend: 'InsufficientData', ValidationLevel });
+      Trend: 'InsufficientData', ValidationLevel, FeatureDerivationStatus: 'Current' });
     expect(shares(host)).toEqual(['35%', '57.2%', '7.8%']);
     expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain(expected);
     expect(host.querySelector('.recs-ensemble-label')!.textContent).toContain('Warm user — Personal model:');
+  });
+
+  test.each([undefined, 'LegacyOrUnknownPrior', 'DifferentDerivationPrior'])('older or missing derivation %s never advertises current ranking verification', (FeatureDerivationStatus) => {
+    ui.renderEnsembleDiagnostics(host, { Available: true, EffectiveAlpha: .65, EffectiveNeuralBeta: .12,
+      NeuralEnabled: true, ValidationLevel: 'Verified', FeatureDerivationStatus });
+    expect(shares(host)).toEqual(['35%', '57.2%', '7.8%']);
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('Older feature-derivation prior — current ranking not verified');
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).not.toContain('Independently verified');
   });
 
   test('actual withdrawal overrides stale provisional metadata and suppresses all ML', () => {

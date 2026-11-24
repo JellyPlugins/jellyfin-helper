@@ -217,7 +217,7 @@ public sealed class EngineInstanceTests
         using var ensemble = new EnsembleScoringStrategy();
         var harness = EngineTestFactory.Create(ensemble);
         var userId = new Guid(6, 0, 0, new byte[8]);
-        var snapshot = new EnsembleDiagnostics { Alpha = 0.5, AlphaMin = 0.3, AlphaMax = 0.75 };
+        var snapshot = new EnsembleDiagnostics { Alpha = 0.5, AlphaMin = 0.3, AlphaMax = 0.75, ModelFeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion };
         harness.PerUserRegistry.Setup(r => r.GetUserModelDiagnostics(userId)).Returns((snapshot, personal));
         harness.StrategySelector.Setup(s => s.GetAlphaOffset(userId, snapshot)).Returns(0.12);
 

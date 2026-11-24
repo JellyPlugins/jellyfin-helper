@@ -161,6 +161,70 @@ public sealed class EngineFullPipelineTests
         Assert.Contains(boxset.Id, recommendation.BoxSetIds);
     }
 
+    [Theory]
+    [InlineData(false, .3)]
+    [InlineData(true, .5)]
+    public void CanonicalCollectionProgressionUsesTitlesAndUnionsVerifiedBoxSetAliases(bool splitAliases, double expected)
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var user = Guid.NewGuid();
+        var first = MakeMovie("First physical copy");
+        var copy = MakeMovie("Another physical copy");
+        var target = MakeMovie("Unseen sibling");
+        first.ProviderIds["Tmdb"] = "701";
+        copy.ProviderIds["Tmdb"] = splitAliases ? "702" : "701";
+        target.ProviderIds["Tmdb"] = "703";
+        var firstBox = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" }, LinkedChildren = [LinkedChild.Create(first), LinkedChild.Create(target)] };
+        var secondBox = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" }, LinkedChildren = [LinkedChild.Create(copy), LinkedChild.Create(target)] };
+        var profile = new UserWatchProfile
+        {
+            UserId = user,
+            WatchedItems =
+            [
+                new() { ItemId = first.Id, ItemType = "Movie", TmdbId = 701, Played = true, Genres = ["Action"] },
+                new() { ItemId = copy.Id, ItemType = "Movie", TmdbId = splitAliases ? 702 : 701, Played = true, Genres = ["Action"] }
+            ]
+        };
+        if (!splitAliases) firstBox.LinkedChildren = [LinkedChild.Create(first), LinkedChild.Create(copy), LinkedChild.Create(target)];
+        WireLibrary(harness, [first, copy, target]);
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns(splitAliases ? [firstBox, secondBox] : [firstBox]);
+        harness.WatchHistory.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
+        var recommendation = Assert.Single(engine.GetRecommendations(user, cancellationToken: TestContext.Current.CancellationToken)!.Recommendations);
+        Assert.Equal(target.Id, recommendation.ItemId);
+        Assert.Equal(expected, recommendation.ScoringFeatures!.CollectionProgressionBoost, 12);
+        Assert.Equal(41, recommendation.ScoringFeatures.ToVector().Length);
+        Assert.Equal(991, recommendation.TmdbCollectionId);
+    }
+
+    [Fact]
+    public void CanonicalCollectionCaptureSharesDetachedProviderMembershipWithNativeFallbackAndTraining()
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var missing = MakeMovie("Missing collection metadata");
+        missing.ProviderIds["Tmdb"] = "701";
+        var direct = MakeMovie("Already verified metadata");
+        direct.ProviderIds["TmdbCollection"] = "992";
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" }, LinkedChildren = [LinkedChild.Create(missing)] };
+        harness.LibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([box]);
+        var metadata = engine.BuildTrainingLibraryMetadata([missing, direct], []);
+        Assert.Equal(991, metadata.TmdbCollectionIds![missing.Id]);
+        Assert.Equal(992, metadata.TmdbCollectionIds[direct.Id]);
+        Assert.Equal([box.Id], metadata.BoxSetIds[missing.Id]);
+        Assert.Equal(991, metadata.BoxSetProviderIds![box.Id]);
+        Assert.True(metadata.BoxSetMembershipsComplete);
+        var fallback = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("LoadCollectionIds", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var ids = (Dictionary<Guid, int>)fallback.Invoke(engine, [new BaseItem[] { missing, direct }])!;
+        Assert.Equal(991, ids[missing.Id]);
+        Assert.Equal(992, ids[direct.Id]);
+        box.ProviderIds["Tmdb"] = "993";
+        box.LinkedChildren = [];
+        Assert.Equal(991, metadata.TmdbCollectionIds[missing.Id]);
+        Assert.Equal(991, metadata.BoxSetProviderIds[box.Id]);
+        Assert.Equal([box.Id], metadata.BoxSetIds[missing.Id]);
+    }
+
     [Fact]
     public void GetRecommendations_ColdStartUser_EmptyLibrary_ReturnsResultWithEmptyRecommendations()
     {
@@ -313,7 +377,7 @@ public sealed class EngineFullPipelineTests
     private static TrainingExample[] OperatingExamples(int count, short partition)
         => Enumerable.Range(1, count).Select(index => new TrainingExample
         {
-            Features = new CandidateFeatures { GenreSimilarity = .8, CombinedCriticScore = .7, GenreCount = 2 },
+            Features = new CandidateFeatures { FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion, GenreSimilarity = .8, CombinedCriticScore = .7, GenreCount = 2 },
             ObservationId = new Guid(index, partition, 0, new byte[8]),
             HasStableObservationId = true,
             Label = .85,

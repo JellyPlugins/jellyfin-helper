@@ -109,7 +109,22 @@ internal static class DiversityReranker
             IReadOnlyDictionary<Guid, Guid>? tasteLanes = null,
             double? targetSeriesShare = null,
             IReadOnlySet<Guid>? retainedInterests = null)
+        => ApplyDiversityWithMetadata(candidates, count, new SelectionMetadata(seed, contentSupported, tasteLanes, targetSeriesShare, retainedInterests));
+
+    /// <summary>Runs the same MMR and bounded exploration selection with one metadata boundary.</summary>
+    /// <param name="candidates">The scored candidates.</param>
+    /// <param name="count">The bounded result count.</param>
+    /// <param name="metadata">The captured interest and producer inputs.</param>
+    /// <returns>The diversified selected candidates.</returns>
+    internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> ApplyDiversityWithMetadata(
+        List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> candidates, int count, SelectionMetadata metadata)
     {
+        var seed = metadata.Seed;
+        var contentSupported = metadata.ContentSupported;
+        var tasteLanes = metadata.TasteLanes;
+        var targetSeriesShare = metadata.TargetSeriesShare;
+        var retainedInterests = metadata.RetainedInterests;
+        var producerMetadata = metadata.ProducerMetadata;
         if (count <= 0)
         {
             return [];
@@ -138,7 +153,7 @@ internal static class DiversityReranker
         var remaining = ranked.Where((candidate, rank) => rank < mmrPoolSize || contentSupported?.Contains(candidate.Item.Id) == true).ToList();
 
         // Multi-dimensional similarity caches: genre (50% weight), studio (30% weight), production year (20% weight).
-        var similarity = new SimilarityCache();
+        var similarity = new SimilarityCache(producerMetadata);
 
         // Fill most slots via MMR, reserving the last few slots for random exploration picks. This guarantees the model receives diverse feedback while keeping the list relevance-dominated.
         var proportionalCap = Math.Max(1, count / EngineConstants.ExplorationSlotDivisor);
@@ -323,9 +338,21 @@ internal static class DiversityReranker
     /// </summary>
     private sealed class SimilarityCache
     {
+        private readonly Func<BaseItem, TitleMetadataSnapshot?>? _producerMetadata;
+
         private readonly Dictionary<Guid, HashSet<string>> _genreSetCache = new();
         private readonly Dictionary<Guid, HashSet<string>> _studioSetCache = new();
         private readonly Dictionary<Guid, int?> _yearCache = new();
+
+        public SimilarityCache()
+            : this(null)
+        {
+        }
+
+        internal SimilarityCache(Func<BaseItem, TitleMetadataSnapshot?>? producerMetadata)
+        {
+            _producerMetadata = producerMetadata;
+        }
 
         /// <summary>
         ///     Multi-dimensional similarity between two items. Dimensions: genre (50%), studio (30%), era (20%, Gaussian with σ=10yr).
@@ -409,9 +436,7 @@ internal static class DiversityReranker
         {
             if (!_studioSetCache.TryGetValue(item.Id, out var set))
             {
-                set = item.Studios is { Length: > 0 }
-                    ? new HashSet<string>(item.Studios, StringComparer.OrdinalIgnoreCase)
-                    : [];
+                set = new HashSet<string>(ProducerEvidence.Keys(_producerMetadata?.Invoke(item)) ?? [], StringComparer.Ordinal);
                 _studioSetCache[item.Id] = set;
             }
 
@@ -429,4 +454,7 @@ internal static class DiversityReranker
             return y;
         }
     }
+
+    /// <summary>Groups captured interest and producer evidence without changing the selection algorithm.</summary>
+    internal sealed record SelectionMetadata(int? Seed = null, IReadOnlySet<Guid>? ContentSupported = null, IReadOnlyDictionary<Guid, Guid>? TasteLanes = null, double? TargetSeriesShare = null, IReadOnlySet<Guid>? RetainedInterests = null, Func<BaseItem, TitleMetadataSnapshot?>? ProducerMetadata = null);
 }

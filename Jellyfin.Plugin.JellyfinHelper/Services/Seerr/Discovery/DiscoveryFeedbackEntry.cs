@@ -88,6 +88,14 @@ public sealed class DiscoveryFeedbackEntry
     /// </summary>
     public double TmdbRating { get; set; }
 
+    /// <summary>Gets or sets prediction-time rating availability; absent legacy provenance remains null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRatingMetadata { get; set; }
+
+    /// <summary>Gets or sets prediction-time popularity availability, distinct from its numeric projection.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasPopularityMetadata { get; set; }
+
     /// <summary>
     ///     Gets or sets the raw TMDb popularity value at the time of discovery. Persisted so the training pipeline can reconstruct the exact PopularityScore feature used at inference via ExternalCandidateFeatureBuilder.NormalizePopularity.
     /// </summary>

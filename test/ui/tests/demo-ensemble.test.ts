@@ -52,7 +52,10 @@ describe('GitHub Pages demo ensemble diagnostics', () => {
     ui.renderEnsembleDiagnostics(host, data);
     expect(Array.from(host.querySelectorAll('.recs-ensemble-blend strong'), el => el.textContent)).toEqual(shares);
     expect(host.querySelector('.recs-ensemble-label')!.textContent).toContain(label);
-    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain(status);
+    // The shipped legacy demo has no derivation marker. Historical model
+    // verification must not be presented as approval of current feature semantics.
+    expect(data.FeatureDerivationStatus).toBeUndefined();
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain('Older feature-derivation prior — current ranking not verified');
     const title = host.querySelector('.recs-ensemble-blend')!.getAttribute('title')!;
     expect(title).toContain('Neural model v6: 41 features');
     expect(title).toContain('ContentFitAffinity, ContentFitSupport, AudienceMismatch');
@@ -60,6 +63,8 @@ describe('GitHub Pages demo ensemble diagnostics', () => {
       expect(data.AcceptanceTitleCount).toBe(0);
       expect(data.CandidateValidationLoss).toBeNull();
     }
+    ui.renderEnsembleDiagnostics(host, { ...data, ModelFeatureDerivationVersion: 1, CurrentFeatureDerivationVersion: 1, FeatureDerivationStatus: 'Current' });
+    expect(host.querySelector('.recs-ensemble-status')!.textContent).toContain(status);
   });
 
   test('demo route responses detach feature lists and personal evidence from subsequent callers', async () => {

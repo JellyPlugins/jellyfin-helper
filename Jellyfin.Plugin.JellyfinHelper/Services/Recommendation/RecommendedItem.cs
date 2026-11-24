@@ -100,6 +100,9 @@ public sealed class RecommendedItem
     /// <summary>Gets or sets metadata captured with this recommendation, never substituted into a saved prediction later.</summary>
     public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot? TitleMetadata { get; set; }
 
+    /// <summary>Gets or sets immutable credits captured with the prediction; later reads never retimestamp them.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
+
     /// <summary>
     ///     Gets or sets the premiere date.
     /// </summary>

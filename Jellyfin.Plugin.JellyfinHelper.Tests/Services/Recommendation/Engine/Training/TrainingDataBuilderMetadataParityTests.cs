@@ -65,6 +65,7 @@ public sealed class TrainingDataBuilderMetadataParityTests
                         ItemType = "Movie",
                         Genres = ["Action"],
                         Studios = ["A24"],
+                        TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "A24", fetchedAt: Anchor.AddDays(-2)),
                         Tags = ["heist"]
                     }
                 }
@@ -74,7 +75,10 @@ public sealed class TrainingDataBuilderMetadataParityTests
         var libraryMetadata = new LibraryItemMetadata(
             new Dictionary<Guid, IReadOnlyList<string>> { [watchedItemId] = ["A24"] },
             new Dictionary<Guid, IReadOnlyList<string>> { [watchedItemId] = ["heist"] },
-            new Dictionary<Guid, IReadOnlyList<Guid>>());
+            new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            ProducerMetadata = new Dictionary<Guid, TitleMetadataSnapshot?> { [watchedItemId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "A24", fetchedAt: Anchor.AddDays(-2)) }
+        };
 
         var withLibrary = BuildRecExample(results, profiles, libraryMetadata);
         Assert.True(withLibrary.Features.StudioMatch);
@@ -153,9 +157,9 @@ public sealed class TrainingDataBuilderMetadataParityTests
                 Recommendations =
                 {
                     // Cache entry for itemId: stale studio "OldStudio".
-                    new RecommendedItem { ItemId = itemId, ItemType = "Movie", Genres = ["Action"], Studios = ["OldStudio"] },
+                    new RecommendedItem { ItemId = itemId, ItemType = "Movie", Genres = ["Action"], Studios = ["OldStudio"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "OldStudio", fetchedAt: Anchor.AddDays(-2)) },
                     // Probe recommendation (distinct GenreCount==2) matches the LIBRARY studio, not the cached one.
-                    new RecommendedItem { ItemId = recItemId, ItemType = "Movie", Genres = ["Comedy", "Indie"], Studios = ["NewStudio"] }
+                    new RecommendedItem { ItemId = recItemId, ItemType = "Movie", Genres = ["Comedy", "Indie"], Studios = ["NewStudio"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "NewStudio", fetchedAt: Anchor.AddDays(-2)) }
                 }
             }
         };
@@ -163,7 +167,10 @@ public sealed class TrainingDataBuilderMetadataParityTests
         var libraryMetadata = new LibraryItemMetadata(
             new Dictionary<Guid, IReadOnlyList<string>> { [itemId] = ["NewStudio"] },
             new Dictionary<Guid, IReadOnlyList<string>>(),
-            new Dictionary<Guid, IReadOnlyList<Guid>>());
+            new Dictionary<Guid, IReadOnlyList<Guid>>())
+        {
+            ProducerMetadata = new Dictionary<Guid, TitleMetadataSnapshot?> { [itemId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "NewStudio", fetchedAt: Anchor.AddDays(-2)) }
+        };
 
         var (examples, _, _, _) = TrainingDataBuilder.BuildExamples(
             results, profiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, libraryMetadata, featureMeans: null, CancellationToken.None);

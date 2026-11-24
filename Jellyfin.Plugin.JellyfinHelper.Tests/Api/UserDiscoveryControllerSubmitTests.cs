@@ -126,6 +126,148 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         finally { store.Dispose(); if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedDurableSubmissionMarkCannotCallSeerrAndADeferredRetirementPreservesTheOriginal(bool retirementUnavailable)
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-prepared-mark-" + Guid.NewGuid().ToString("N"));
+        var markUnavailable = true;
+        var failRetirement = retirementUnavailable;
+        string? originalPath = null;
+        string? originalContents = null;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            WriteRecovery = (path, contents) =>
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(contents);
+                if (document.RootElement.TryGetProperty("ticket", out var ticket))
+                {
+                    if (markUnavailable && ticket.GetProperty("submissionUncertain").GetBoolean())
+                    {
+                        throw new IOException("durable pre-submission mark unavailable");
+                    }
+
+                    originalPath ??= path;
+                    originalContents ??= contents;
+                }
+
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            },
+            DeleteRecovery = path =>
+            {
+                if (failRetirement) throw new IOException("unsubmitted intent retirement unavailable");
+                File.Delete(path);
+            }
+        };
+        try
+        {
+            var prepared = await PrepareConcreteCardRequestAsync(user, store);
+            var response = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+
+            Assert.Equal(503, Assert.IsType<ObjectResult>(response.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+            Assert.Empty(store.GetRequestedItems(user));
+            var path = Assert.IsType<string>(originalPath);
+            var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration);
+            if (retirementUnavailable)
+            {
+                Assert.Equal(originalContents, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+                Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
+            }
+            else
+            {
+                Assert.False(File.Exists(path));
+                Assert.Empty(store.GetPreparedRequestItems(user, scope));
+            }
+
+            markUnavailable = false;
+            failRetirement = false;
+            var limited = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(429, Assert.IsType<ObjectResult>(limited.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+            // Advance only this user's rate-limit evidence; keep the delivered
+            // card and durable original intact for a retry after the real window.
+            _memoryCache.Set(UserDiscoveryController.BuildRateLimitKey(user), DateTime.UtcNow.AddMinutes(-1));
+            var retry = await prepared.Controller.SubmitMyRequest(prepared.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(201, Assert.IsType<ObjectResult>(retry.Result).StatusCode);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(700, "movie", 42, null, null, null, It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal(.2, Assert.Single(Assert.Single(store.LoadAll()).Entries).ScoringFeatures!.GenreSimilarity);
+            Assert.Empty(store.GetPreparedRequestItems(user, scope));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BestEffortCompletionReleasesItsLeaseButKeepsTheOriginalWhenRetirementStorageFails()
+    {
+        var user = Guid.NewGuid();
+        var directory = Path.Join(Path.GetTempPath(), "jfh-completion-retirement-" + Guid.NewGuid().ToString("N"));
+        var retirementUnavailable = false;
+        string? originalPath = null;
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            PreparedAttemptLimit = 1,
+            WriteRecovery = (path, contents) =>
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(contents);
+                if (document.RootElement.TryGetProperty("ticket", out _)) originalPath = path;
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            },
+            DeleteRecovery = path =>
+            {
+                if (retirementUnavailable) throw new IOException("terminal intent retirement unavailable");
+                File.Delete(path);
+            }
+        };
+        try
+        {
+            var request = await PrepareConcreteCardRequestAsync(user, store);
+            var generated = DateTime.UtcNow.AddMinutes(-5);
+            var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+            var original = new DiscoveryRecommendation
+            {
+                TmdbId = 700, MediaType = "movie", Title = "original delivered card", Score = .7,
+                KnownPeople = ["original person"], ScoringFeatures = new CandidateFeatures { GenreSimilarity = .4 }
+            };
+            var prepared = store.PrepareRequestedCard(user, original, generated, scope);
+            store.MarkPreparedSubmission(prepared);
+            var path = Assert.IsType<string>(originalPath);
+            var contents = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+            retirementUnavailable = true;
+
+            // Exercise the best-effort completion boundary with a real durable
+            // prepared original and a failed filesystem retirement, not a mock store.
+            typeof(UserDiscoveryController).GetMethod("FinishUpstreamAttempt", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(request.Controller, [prepared, false]);
+
+            Assert.Equal(contents, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
+            Assert.Contains(_loggerMock.Invocations, invocation => invocation.Method.Name == "Log" && invocation.Arguments[0] is LogLevel.Warning && invocation.Arguments[3] is IOException);
+            _discoveryMock.Verify(service => service.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+
+            retirementUnavailable = false;
+            var retry = await request.Controller.SubmitMyRequest(request.Request, TestContext.Current.CancellationToken);
+            Assert.Equal(201, Assert.IsType<ObjectResult>(retry.Result).StatusCode);
+            var recovered = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+            Assert.Equal("original delivered card", recovered.Title);
+            Assert.Equal(.4, recovered.ScoringFeatures!.GenreSimilarity);
+            Assert.Equal(generated, recovered.ShownAtUtc);
+            Assert.Equal(new[] { "original person" }, recovered.KnownPeople);
+            Assert.Empty(store.GetPreparedRequestItems(user, scope));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private async Task<(UserDiscoveryController Controller, DiscoveryRequestDto Request)> PrepareConcreteCardRequestAsync(Guid user, DiscoveryFeedbackStore store)
     {
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.test";

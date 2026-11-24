@@ -36,6 +36,29 @@ public sealed class EngineLibraryMetadataTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void CapturedLibraryCreditsKeepUnavailableReadsUnknownAndPropagateCancellation(bool cancelled)
+    {
+        var harness = EngineTestFactory.Create();
+        using var engine = harness.Engine;
+        var movie = new Movie { Id = Guid.NewGuid(), Path = "/synthetic/credits.mkv" };
+        Exception failure = cancelled ? new OperationCanceledException() : new IOException("credit source unavailable");
+        harness.LibraryManager.Setup(manager => manager.GetPeople(movie)).Throws(failure);
+        var capture = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("BuildTrainingLibraryMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        if (cancelled)
+        {
+            Assert.IsType<OperationCanceledException>(Assert.Throws<TargetInvocationException>(() => capture.Invoke(engine, [new BaseItem[] { movie }, Array.Empty<BaseItem>()])).InnerException);
+        }
+        else
+        {
+            var metadata = Assert.IsType<LibraryItemMetadata>(capture.Invoke(engine, [new BaseItem[] { movie }, Array.Empty<BaseItem>()]));
+            Assert.Null(metadata.Credits![movie.Id].Cast);
+            Assert.Null(metadata.Credits[movie.Id].Crew);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void GlobalCohortCalibrationUsesTheSameCurrentPerUserAccessScopeAndProfileCompletenessAsFitting(bool missingEnabledProfile)
     {
         using var global = new EnsembleScoringStrategy();

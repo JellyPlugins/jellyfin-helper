@@ -124,7 +124,8 @@ public sealed class MultilingualGenreRegressionTests
     public void TemporalTraining_ListAndRawSetOverloadsAgree(bool isDay)
     {
         var profile = Profile("Krimi", 12);
-        var target = profile.WatchedItems[0];
+        var target = profile.WatchedItems[0].CopyPlaybackHistory();
+        target.LastPlayedDate = target.LastPlayedDate?.AddDays(7);
         var list = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, (IReadOnlyList<string>)["Crime"], profile, isDay);
         var raw = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, new HashSet<string> { "Krimi" }, profile, isDay);
         Assert.Equal(1, list);

@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "Genel model",
   "recsEnsembleModelPrior": "Genel modeller, kişisel karışım",
   "recsEnsembleStatusPrior": "Genel modellerden başlangıç karışımı",
+  "recsEnsembleStatusOlderDerivation": "Önceki özellik türetiminden önsel model — mevcut sıralama doğrulanmadı",
   "recsEnsembleStatusProvisional": "Geçici — sıralama henüz doğrulanmadı",
   "recsEnsembleStatusVerified": "Bağımsız olarak doğrulandı",
   "recsEnsembleStatusChoiceRanking": "Tercih sıralaması bağımsız olarak doğrulandı",

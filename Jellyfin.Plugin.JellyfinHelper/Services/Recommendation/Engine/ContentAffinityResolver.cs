@@ -29,6 +29,13 @@ internal static class ContentAffinityResolver
             && int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var collection) && collection > 0
             && int.TryParse(item.ProviderIds.GetValueOrDefault("Tmdb"), out var title) && collection == title;
 
+    /// <summary>Requires authoritative membership for missing IDs as well as ambiguous copied-title IDs.</summary>
+    /// <param name="item">The library item whose collection identity is captured.</param>
+    /// <returns>Whether optional BoxSet evidence can resolve this movie's collection identity.</returns>
+    internal static bool NeedsCollectionEvidence(BaseItem item)
+        => item is Movie && (NeedsCollectionCorroboration(item)
+            || !int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0);
+
     /// <summary>Resolves a collection ID without turning suspicious migration metadata into a verified franchise.</summary>
     /// <param name="item">The library movie; BoxSet libraries are optional.</param>
     /// <param name="collections">Optional corroboration for ambiguous self-valued IDs.</param>
@@ -50,6 +57,11 @@ internal static class ContentAffinityResolver
         if (!NeedsCollectionCorroboration(item))
         {
             return id;
+        }
+
+        if (!membershipsComplete)
+        {
+            return 0;
         }
 
         var supported = collections?.Any(boxset => int.TryParse(boxset.ProviderIds.GetValueOrDefault("Tmdb"), out var boxsetId) && boxsetId == id

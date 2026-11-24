@@ -53,16 +53,40 @@ internal sealed class SeerrMediaDetailResponse
     public string? Overview { get; set; }
 
     /// <summary>
-    ///     Gets or sets the average vote score. Zero when omitted.
+    ///     Gets or sets observed rating, preserving unavailable metadata separately from zero.
     /// </summary>
     [JsonPropertyName("voteAverage")]
-    public double VoteAverage { get; set; }
+    public double? VoteAverageValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric rating projection.</summary>
+    [JsonIgnore]
+    public double VoteAverage { get => VoteAverageValue.GetValueOrDefault(); set => VoteAverageValue = value; }
+
+    /// <summary>Gets a value indicating whether a finite non-negative rating was supplied.</summary>
+    [JsonIgnore]
+    public bool HasRatingMetadata => VoteAverageValue.HasValue;
 
     /// <summary>
-    ///     Gets or sets the popularity score. Zero when omitted.
+    ///     Gets or sets observed popularity, preserving unavailable metadata separately from zero.
     /// </summary>
     [JsonPropertyName("popularity")]
-    public double Popularity { get; set; }
+    public double? PopularityValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric popularity projection.</summary>
+    [JsonIgnore]
+    public double Popularity { get => PopularityValue.GetValueOrDefault(); set => PopularityValue = value; }
+
+    /// <summary>Gets a value indicating whether finite non-negative popularity was supplied.</summary>
+    [JsonIgnore]
+    public bool HasPopularityMetadata => PopularityValue.HasValue;
 
     /// <summary>
     ///     Gets or sets whether this is adult content. Null when the endpoint omits the flag;
@@ -92,6 +116,10 @@ internal sealed class SeerrMediaDetailResponse
     /// <summary>Gets or sets production companies, available independently of genre or age classifications.</summary>
     [JsonPropertyName("productionCompanies")]
     public List<GenreRef>? ProductionCompanies { get; set; }
+
+    /// <summary>Gets or sets separately identified broadcast networks, never production-company evidence.</summary>
+    [JsonPropertyName("networks")]
+    public List<GenreRef>? Networks { get; set; }
 
     /// <summary>Gets or sets the original language; it does not establish available audio tracks.</summary>
     [JsonPropertyName("originalLanguage")]

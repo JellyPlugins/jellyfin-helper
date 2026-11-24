@@ -302,6 +302,82 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     }
 
     [Theory]
+    [InlineData("trakt-withdrawn", false)]
+    [InlineData("trakt-withdrawn", true)]
+    [InlineData("seerr-reconfigured", false)]
+    [InlineData("seerr-reconfigured", true)]
+    [InlineData("reassigned", false)]
+    [InlineData("reassigned", true)]
+    [InlineData("unknown", false)]
+    [InlineData("unknown", true)]
+    public void ARetainedCardAliasCannotOverrideCurrentConfiguredOwnershipAndDirectTmdbStillWins(string boundary, bool directMatch)
+    {
+        var user = Guid.NewGuid();
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns((true, (int?)null));
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = true;
+        var source = new MetadataSourceScope("trakt", "https://api.trakt.tv", "public-metadata");
+        var sourceCache = new TitleMetadataCache();
+        var metadata = new TitleMetadataSnapshot { TmdbId = 700, TvdbId = 901, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-2) };
+        if (boundary == "seerr-reconfigured") sourceCache.Store(config, metadata);
+        else sourceCache.StoreSupplemental(config, metadata, source, null);
+        var original = sourceCache.Get(config, 700, "tv")!;
+        if (boundary == "trakt-withdrawn") config.TraktSourcingEnabled = false;
+        else if (boundary == "seerr-reconfigured") config.SeerrUrl = "https://replacement.example.test";
+        else if (boundary == "reassigned") _titleMetadata.StoreSupplemental(config,
+            new TitleMetadataSnapshot { TmdbId = 701, TvdbId = 901, MediaType = "tv", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, source, null);
+
+        Assert.Equal(boundary == "reassigned" ? 701 : (int?)null, _titleMetadata.Get(config, 0, "tv", 901)?.TmdbId);
+        var local = new Series { Id = Guid.NewGuid(), Path = "/media/owned", ProviderIds = directMatch ? new() { ["Tmdb"] = "700", ["Tvdb"] = "999" } : new() { ["Tvdb"] = "901" } };
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([local]);
+        var features = new CandidateFeatures { GenreSimilarity = .6, ContentFitSupport = .4 };
+        var vector = features.ToVector();
+        var card = new DiscoveryRecommendation { TmdbId = 700, MediaType = "tv", Score = .8, TitleMetadata = original, ScoringFeatures = features };
+        var generated = DateTime.UtcNow.AddDays(-2);
+        var pool = new DiscoveryResult { UserId = user, GeneratedAt = generated, Recommendations = [card, new() { TmdbId = 800, MediaType = "movie" }] };
+        var delivered = _sut.FilterConsumedItems(user, pool);
+        Assert.Equal(directMatch ? 1 : 2, delivered.Recommendations.Count);
+        Assert.Equal(!directMatch, delivered.Recommendations.Any(item => item.TmdbId == 700));
+        Assert.Contains(delivered.Recommendations, item => item.TmdbId == 800);
+        Assert.Equal(2, pool.Recommendations.Count);
+        Assert.Equal(generated, delivered.GeneratedAt);
+        Assert.Same(original, card.TitleMetadata);
+        Assert.Same(features, card.ScoringFeatures);
+        Assert.Equal(vector, card.ScoringFeatures.ToVector());
+        Assert.Equal(.8, card.Score);
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("corroborated")]
+    [InlineData("ambiguous")]
+    [InlineData("conflicting")]
+    [InlineData("virtual")]
+    public void CurrentCompatibleAliasesCanEstablishUniqueOwnershipButUnknownConflictingOrVirtualCopiesCannot(string boundary)
+    {
+        var user = Guid.NewGuid();
+        _history.Setup(history => history.GetUserParentalPolicy(user)).Returns((true, (int?)null));
+        var config = Plugin.Instance!.Configuration;
+        config.TraktSourcingEnabled = true;
+        var source = new MetadataSourceScope("trakt", "https://api.trakt.tv", "public-metadata");
+        _titleMetadata.StoreSupplemental(config,
+            new TitleMetadataSnapshot { TmdbId = 700, TvdbId = 901, ImdbId = "tt0000700", MediaType = "tv", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, source, null);
+        _titleMetadata.StoreSupplemental(config,
+            new TitleMetadataSnapshot { TmdbId = 701, TvdbId = 901, ImdbId = "tt0000701", MediaType = "tv", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1) }, source, null);
+        var providers = new Dictionary<string, string> { ["Tvdb"] = "901" };
+        if (boundary != "ambiguous") providers["Imdb"] = boundary == "conflicting" ? "tt0000999" : "tt0000700";
+        var local = new Series { Id = Guid.NewGuid(), Path = "/media/owned", ProviderIds = providers, IsVirtualItem = boundary == "virtual" };
+        _libraryManager.Setup(library => library.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([local]);
+        var pool = new DiscoveryResult { UserId = user, Recommendations = [new() { TmdbId = 700, MediaType = "tv" }, new() { TmdbId = 800, MediaType = "movie" }] };
+        var delivered = _sut.FilterConsumedItems(user, pool);
+        Assert.Equal(boundary == "corroborated" ? 1 : 2, delivered.Recommendations.Count);
+        Assert.Equal(boundary != "corroborated", delivered.Recommendations.Any(item => item.TmdbId == 700));
+        Assert.Contains(delivered.Recommendations, item => item.TmdbId == 800);
+        Assert.Equal(2, pool.Recommendations.Count);
+        Assert.Empty(_handler.Requests);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task AnArrRosterRemovedDuringLoadingCannotEraseAStillEnabledUsersRetainedMovie(bool removed)
@@ -1546,13 +1622,13 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     {
         var profile = NewProfile();
         profile.GenreDistribution.Clear();
-        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Studios = ["Studio A"] });
+        profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Studios = ["Studio A"], TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A") });
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         var candidates = Enumerable.Range(9800, 25).Select(id => Candidate(id, id < 9820 ? 9 : 8.5)).ToArray();
         RegisterMovieRoute("/api/v1/discover/movies?page=1", candidates);
         foreach (var id in Enumerable.Range(9800, 20))
         {
-            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}},"productionCompanies":[{"name":"Studio A"}]}""");
+            _handler.RegisterResponse(HttpMethod.Get, $"/api/v1/movie/{id}", HttpStatusCode.OK, $$"""{"id":{{id}},"productionCompanies":[{"id":1,"name":"Studio A"}]}""");
         }
 
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
@@ -1579,12 +1655,30 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
         profile.GenreDistribution.Clear();
         var row = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true };
         profile.WatchedItems.Add(row);
-        if (signal == "studio") row.Studios = ["Studio A"];
+        if (signal == "studio")
+        {
+            row.Studios = ["Studio A"];
+            row.TitleMetadata = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "Studio A");
+        }
         if (signal == "franchise") row.TmdbCollectionId = 123;
-        if (signal == "person") profile.PeopleProfile["Director A"] = 5;
+        if (signal == "person")
+        {
+            profile.PeopleProfile["Director A"] = 5;
+            row.Credits = new CreditMetadataSnapshot
+            {
+                SourceItemId = row.ItemId,
+                Cast = new CreditField { Complete = true, AcquiredAtUtc = DateTime.UtcNow.AddMinutes(-1), People = [] },
+                Crew = new CreditField { Complete = true, AcquiredAtUtc = DateTime.UtcNow.AddMinutes(-1), People = [new() { Name = "Director A", Kind = Jellyfin.Data.Enums.PersonKind.Director }] }
+            };
+            for (var index = 0; index < 4; index++)
+            {
+                var id = Guid.NewGuid();
+                profile.WatchedItems.Add(new WatchedItemInfo { ItemId = id, ItemType = "Movie", Played = true, Credits = row.Credits with { SourceItemId = id } });
+            }
+        }
         _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(profile));
         RegisterMovieRoute("/api/v1/discover/movies?page=1", [Candidate(9700, 9)]);
-        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9700", HttpStatusCode.OK, """{"id":9700,"collection":{"id":123,"name":"Actual saga"},"productionCompanies":[{"name":"Studio A"}],"credits":{"crew":[{"name":"Director A","job":"Director"}]}}""");
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/movie/9700", HttpStatusCode.OK, """{"id":9700,"collection":{"id":123,"name":"Actual saga"},"productionCompanies":[{"id":1,"name":"Studio A"}],"credits":{"crew":[{"name":"Director A","job":"Director"}]}}""");
         await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
         var result = Assert.Single(await _cache.LoadAsync(TestContext.Current.CancellationToken));
         var recommendation = Assert.Single(result.Recommendations);

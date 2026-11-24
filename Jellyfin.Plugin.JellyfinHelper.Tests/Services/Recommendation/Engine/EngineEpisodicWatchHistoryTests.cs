@@ -231,6 +231,7 @@ public sealed class EngineEpisodicWatchHistoryTests
         var childEpisode = new Mock<Episode> { CallBase = true };
         childEpisode.Object.Id = Guid.NewGuid();
         childEpisode.Object.SeriesId = seriesId;
+        childEpisode.Object.Path = $"/media/series/{seriesId:N}/1.mkv";
         childEpisode.Setup(e => e.GetMediaStreams()).Returns(
         [
             new MediaStream { Type = MediaStreamType.Audio, Language = "eng" },
@@ -270,9 +271,13 @@ public sealed class EngineEpisodicWatchHistoryTests
             .Returns(new List<PersonInfo>());
 
         // Warm user with a matching English language profile and a watched movie so the warm path runs.
+        var allowedSamples = new HashSet<Guid> { seriesId, movieId, watchedMovieId, indexEpisode.Id, childEpisode.Object.Id };
+        harness.WatchHistory.Setup(history => history.GetCurrentAccessibleItemIds(userId)).Returns(allowedSamples);
+        harness.WatchHistory.Setup(history => history.GetUserParentalPolicy(userId)).Returns((true, (int?)null));
         var profile = new UserWatchProfile
         {
             UserId = userId,
+            AccessibleItemIds = allowedSamples,
             UserName = "lang-user",
             LanguageProfile = new Dictionary<string, LanguageProfileEntry>
             {

@@ -2647,7 +2647,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var alias = new TitleMetadataSnapshot { MediaType = item is Series ? "tv" : MediaTypeMovie, TvdbId = TitleProviderIdentity.Tvdb(item), ImdbId = TitleProviderIdentity.Imdb(item) };
             var matches = identities.Where(identity => TitleProviderIdentity.Compatible(identity, alias) && TitleProviderIdentity.SharesIdentity(identity, alias))
                 .Select(identity => (identity.TmdbId, identity.MediaType)).Distinct().Take(2).ToArray();
-            if (matches.Length == 1 && !(_titleMetadataCache?.HasAmbiguousAliasClaims(config, alias.MediaType, alias.TvdbId, alias.ImdbId) ?? false))
+            if (matches.Length != 1)
+            {
+                continue;
+            }
+
+            // Retained card metadata can locate a copy, but only a unique current
+            // configured alias may establish ownership of its typed title.
+            var current = _titleMetadataCache?.Get(config, 0, alias.MediaType, alias.TvdbId, alias.ImdbId);
+            if (current is not null && (current.TmdbId, current.MediaType) == matches[0])
             {
                 excluded.Add(matches[0]);
             }
@@ -2817,8 +2825,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             GenreIds = [.. c.GenreIds],
             SourceGenres = c.SourceGenres?.ToArray(),
             TitleMetadata = c.TitleMetadata,
-            VoteAverage = c.VoteAverage,
-            Popularity = c.Popularity,
+            VoteAverageValue = c.VoteAverageValue,
+            PopularityValue = c.PopularityValue,
             PosterPath = c.PosterPath,
             Overview = c.Overview,
             Adult = c.Adult,
@@ -3397,8 +3405,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             RelatedInfo = relatedInfo,
             Genres = genres,
             TmdbRating = item.VoteAverage,
+            HasRatingMetadata = item.HasRatingMetadata,
             // Raw TMDb popularity carried through so RecordShown can persist it for training.
             Popularity = item.Popularity,
+            HasPopularityMetadata = item.HasPopularityMetadata,
             PosterPath = item.PosterPath,
             Overview = item.Overview,
             AlreadyRequested = false,
@@ -4519,20 +4529,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc) with { ObservationScope = scope };
         candidate.TitleMetadata = TitleMetadataMerger.WithSeerrObservation(candidate.SeerrTitleMetadata, previous, DateTime.UtcNow);
         ProjectWinningSeerrGenres(candidate, scope);
-        if (detail.Genres is not null)
-        {
-            foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())
-            {
-                GenreNormalizer.RegisterProviderGenre(genre.Id, genre.Name);
-            }
-        }
-
-        if (detail.HasCollectionMetadata)
-        {
-            candidate.HasCollectionMetadata = true;
-            candidate.CollectionId = detail.Collection?.Id > 0 ? detail.Collection.Id : 0;
-            candidate.CollectionName = detail.Collection?.Name;
-        }
+        RegisterDetailGenres(detail);
+        ApplyDetailCollection(candidate, detail);
 
         if (detail.Keywords is not null && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
         {
@@ -4552,12 +4550,41 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var certificationCountry = CurrentCertificationCountry();
         candidate.CertificationScore = CertificationResolver.Resolve(detail, _localization, candidate.Adult, certificationCountry == "*" ? null : certificationCountry);
         candidate.CertificationPolicyCountry = candidate.CertificationScore.HasValue ? certificationCountry : null;
-        if (detail.Credits is not null)
+        ApplyDetailCredits(candidate, detail, acquiredAtUtc);
+        return true;
+    }
+
+    private static void RegisterDetailGenres(SeerrMediaDetailResponse detail)
+    {
+        foreach (var genre in detail.Genres?.OfType<SeerrMediaDetailResponse.GenreRef>() ?? [])
         {
-            candidate.KnownPeople = ExtractTopPeople(detail.Credits);
+            GenreNormalizer.RegisterProviderGenre(genre.Id, genre.Name);
+        }
+    }
+
+    private static void ApplyDetailCollection(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    {
+        if (!detail.HasCollectionMetadata)
+        {
+            return;
         }
 
-        return true;
+        candidate.HasCollectionMetadata = true;
+        candidate.CollectionId = detail.Collection?.Id > 0 ? detail.Collection.Id : 0;
+        candidate.CollectionName = detail.Collection?.Name;
+    }
+
+    private static void ApplyDetailCredits(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, DateTime acquiredAtUtc)
+    {
+        if (detail.Credits is not null)
+        {
+            candidate.Credits = CreditMetadataCapture.External(detail.Credits, acquiredAtUtc, candidate.Id, candidate.MediaType)
+                .WithFallback(candidate.Credits);
+            var names = candidate.Credits.People().OrderBy(person => person.Kind == PersonKind.Director ? 0 : 1)
+                .ThenByDescending(person => person.BillingWeight).Select(person => person.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCastPerCandidate).ToList();
+            candidate.KnownPeople = names.Count > 0 || candidate.Credits.PeopleComplete ? names : null;
+        }
     }
 
     private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached, string? scope)
@@ -4656,60 +4683,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.Overview = detail.Overview;
         }
 
-        if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
+        if (!candidate.HasRatingMetadata && detail.HasRatingMetadata)
         {
-            candidate.VoteAverage = detail.VoteAverage;
+            candidate.VoteAverageValue = detail.VoteAverageValue;
         }
 
-        if (candidate.Popularity <= 0 && detail.Popularity > 0)
+        if (!candidate.HasPopularityMetadata && detail.HasPopularityMetadata)
         {
-            candidate.Popularity = detail.Popularity;
+            candidate.PopularityValue = detail.PopularityValue;
         }
 
         if (detail.MediaInfo is not null)
         {
             candidate.MediaInfo = detail.MediaInfo;
         }
-    }
-
-    /// <summary>
-    ///     Extracts up to <see cref="MaxCastPerCandidate"/> top-billed people (directors first,
-    ///     then top-ordered cast) from the given credits payload.
-    /// </summary>
-    private static List<string> ExtractTopPeople(SeerrCredits credits)
-    {
-        var people = new List<string>(MaxCastPerCandidate);
-
-        if (credits.Crew is { Count: > 0 })
-        {
-            foreach (var crew in credits.Crew.Where(
-                c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                     && !string.IsNullOrWhiteSpace(c.Name)))
-            {
-                if (people.Count >= MaxCastPerCandidate)
-                {
-                    break;
-                }
-
-                people.Add(crew.Name);
-            }
-        }
-
-        if (credits.Cast is { Count: > 0 })
-        {
-            var actorsToTake = MaxCastPerCandidate - people.Count;
-            if (actorsToTake > 0)
-            {
-                var topActors = credits.Cast
-                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-                    .OrderBy(c => c.Order)
-                    .Take(actorsToTake)
-                    .Select(c => c.Name);
-                people.AddRange(topActors);
-            }
-        }
-
-        return people;
     }
 
     /// <summary>
@@ -4759,7 +4746,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         if (features.IsExternalFeatureKnown(FeatureIndex.StudioMatch) && features.StudioMatch)
         {
-            var studio = candidate.KnownStudios?.FirstOrDefault(userContext.Studios.Contains);
+            var studio = ProducerEvidence.MatchedName(candidate.TitleMetadata, userContext.Studios);
             if (!string.IsNullOrWhiteSpace(studio))
             {
                 return ("reasonStudioNamed", studio);

@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "Globales Modell",
   "recsEnsembleModelPrior": "Globale Priors, eigene Mischung",
   "recsEnsembleStatusPrior": "Startmischung aus globalen Priors",
+  "recsEnsembleStatusOlderDerivation": "Prior aus älterer Merkmalsableitung — aktuelles Ranking nicht bestätigt",
   "recsEnsembleStatusProvisional": "Vorläufig — Ranking noch nicht verifiziert",
   "recsEnsembleStatusVerified": "Unabhängig verifiziert",
   "recsEnsembleStatusChoiceRanking": "Auswahl-Ranking unabhängig verifiziert",

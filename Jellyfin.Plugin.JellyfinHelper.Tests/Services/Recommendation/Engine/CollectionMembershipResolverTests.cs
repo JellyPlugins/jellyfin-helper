@@ -243,4 +243,66 @@ public sealed class CollectionMembershipResolverTests
         Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.Merge([], null!, []));
         Assert.Throws<ArgumentNullException>(() => CollectionMembershipResolver.Merge([], [], null!));
     }
+
+    [Fact]
+    public void CanonicalCollectionCountsIntersectPhysicalCopiesBeforeDedupAndKeepMovieTvNamespaces()
+    {
+        var denied = Guid.NewGuid();
+        var allowed = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        var seriesCopy = Guid.NewGuid();
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" } };
+        var rows = new[]
+        {
+            new WatchedItemInfo { ItemId = denied, ItemType = "Movie", TmdbId = 701, Played = true },
+            new WatchedItemInfo { ItemId = allowed, ItemType = "Movie", TmdbId = 701, Played = true },
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, TmdbId = 701, Played = true },
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", SeriesId = series, SeriesTmdbId = 701, Played = true },
+            new WatchedItemInfo { ItemId = series, ItemType = "Series", TmdbId = 701, IsFavorite = true },
+            new WatchedItemInfo { ItemId = seriesCopy, ItemType = "Series", TmdbId = 701, Played = true },
+            new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 702 }
+        };
+        var snapshot = CollectionMembershipResolver.CaptureMemberships([box], [allowed, series, seriesCopy], _ => [denied, allowed, series, seriesCopy]);
+        var native = CollectionMembershipResolver.WatchedCounts(rows, snapshot.Memberships, allowedItems: new HashSet<Guid> { allowed, series, seriesCopy });
+        Assert.Equal(2, Assert.Single(native).Value);
+        Assert.Equal(2, CollectionMembershipResolver.ExternalCounts(rows, snapshot)![991]);
+        Assert.Equal(2, CollectionMembershipResolver.WatchedCounts(rows.Reverse(), snapshot.Memberships, allowedItems: new HashSet<Guid> { allowed, series, seriesCopy })[box.Id]);
+        Assert.DoesNotContain(denied, snapshot.Memberships.Keys);
+        Assert.DoesNotContain(rows[2].ItemId, snapshot.Memberships.Keys);
+    }
+
+    [Fact]
+    public void CanonicalCollectionFallbackDoesNotMergeNamesAndOnlyVerifiedProviderAliasesShareCounts()
+    {
+        var orphan = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Episode", TmdbId = 701, Played = true };
+        Assert.Equal($"tv:item:{orphan.ItemId:N}", CollectionMembershipResolver.EngagedTitle(orphan).Key);
+        var first = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Name = "Same display name", Played = true };
+        var second = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Name = "Same display name", Played = true };
+        var unlinked = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true };
+        var firstBox = Guid.NewGuid();
+        var secondBox = Guid.NewGuid();
+        var otherBox = Guid.NewGuid();
+        var emptyAlias = Guid.NewGuid();
+        var memberships = new Dictionary<Guid, IReadOnlyList<Guid>> { [first.ItemId] = [firstBox, firstBox, Guid.Empty], [second.ItemId] = [firstBox, otherBox] };
+        var providers = new Dictionary<Guid, int> { [firstBox] = 991, [secondBox] = 991, [otherBox] = 992, [emptyAlias] = 993, [Guid.Empty] = 991 };
+        var counts = CollectionMembershipResolver.WatchedCounts([first, second, unlinked], memberships, providers);
+        Assert.Equal(2, counts[firstBox]);
+        Assert.Equal(2, counts[secondBox]);
+        Assert.Equal(1, counts[otherBox]);
+        Assert.DoesNotContain(emptyAlias, counts.Keys);
+        Assert.DoesNotContain(Guid.Empty, counts.Keys);
+        Assert.Empty(CollectionMembershipResolver.WatchedCounts([first, second], memberships, providers, new HashSet<Guid>()));
+        Assert.Equal(2, CollectionMembershipResolver.WatchedCounts([first, second], memberships)[firstBox]);
+        Assert.Equal(first.ItemId, CollectionMembershipResolver.EngagedTitle(first).ItemId);
+    }
+
+    [Fact]
+    public void CanonicalCollectionIncompleteRosterCannotCorroborateSelfIdsEvenWithLegacyPositiveLinks()
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "701", ["TmdbCollection"] = "701" } };
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "701" }, LinkedChildren = [LinkedChild.Create(item)] };
+        Assert.Equal(0, CollectionMembershipResolver.CollectionIds([item], [box], _ => null)[item.Id]);
+        Assert.Equal(0, CollectionMembershipResolver.CollectionIds([item], [box], _ => throw new IOException("offline"))[item.Id]);
+        Assert.Equal(701, CollectionMembershipResolver.CollectionIds([item], [box], _ => [item.Id])[item.Id]);
+    }
 }

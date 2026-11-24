@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -7,6 +8,10 @@ internal sealed class AcceptedModelBundle
 {
     /// <summary>Gets or sets the compound-model metadata version.</summary>
     public int Version { get; set; } = 1;
+
+    /// <summary>Gets or sets the uniform feature-derivation cohort of this publication, outside v6 parameter dimensions. Missing old metadata remains unknown.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int FeatureDerivationVersion { get; set; }
 
     /// <summary>Gets or sets a value indicating whether the checkpoint is allowed for bounded serving but has no verified ranking approval.</summary>
     public bool IsProvisional { get; set; }

@@ -231,6 +231,104 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task FailedNegativeObservationAndDormantCopyRetainTheOriginalUntilACompleteRequestGetConfirmsIt()
+    {
+        var directory = Path.Join(Path.GetTempPath(), "jfh-negative-snapshot-" + Guid.NewGuid().ToString("N"));
+        var user = Guid.NewGuid();
+        var clock = new RequestReceiptClock { Now = DateTime.UtcNow.AddMinutes(-40) };
+        var generated = clock.Now.AddMinutes(-1);
+        var scope = SeerrDiscoveryService.RequestSourceScope(Plugin.Instance!.Configuration)!;
+        var failObservation = false;
+        var failArchive = false;
+        var archiveDirectory = Path.Join(directory, "jellyfin-helper-deferred-request-intents");
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), directory)
+        {
+            ReceiptTimeProvider = clock,
+            WriteRecovery = (path, contents) =>
+            {
+                if (failObservation || (failArchive && Path.GetDirectoryName(path) == archiveDirectory))
+                {
+                    throw new IOException("unresolved intent transition unavailable");
+                }
+
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        try
+        {
+            var prepared = store.PrepareRequestedCard(user, new DiscoveryRecommendation
+            {
+                TmdbId = 700, MediaType = "movie", Title = "unresolved original", KnownPeople = ["original person"],
+                ScoringFeatures = new CandidateFeatures { GenreSimilarity = .2 }
+            }, generated, scope);
+            store.MarkPreparedSubmission(prepared);
+            store.FinishPreparedAttempt(prepared, submissionUncertain: true);
+            var preparedDirectory = Path.Join(directory, "jellyfin-helper-request-intents");
+            var originalPath = Assert.Single(Directory.GetFiles(preparedDirectory, "*.json"));
+            var originalContents = await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken);
+            _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, $$"""{"pageInfo":{"pages":1,"results":1},"results":[{"id":42,"jellyfinUserId":"{{user:N}}"}]}""");
+            _handler.RegisterResponse(HttpMethod.Get, "requestedBy=42", HttpStatusCode.OK, """{"pageInfo":{"pages":1,"results":0},"results":[]}""");
+            var library = TestMockFactory.CreateLibraryManager();
+            library.Setup(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([]);
+            var log = new Mock<IPluginLogService>();
+            var service = new SeerrDiscoveryService(_httpFactoryMock.Object, Mock.Of<IWatchHistoryService>(), Mock.Of<IArrIntegrationService>(), library.Object, _perUserRegistry, _cache, store,
+                log.Object, TestMockFactory.CreateSecretProtector(), TestMockFactory.CreateVirtualItemDetector(), Mock.Of<ILogger<SeerrDiscoveryService>>());
+
+            clock.Now = clock.Now.AddMinutes(20);
+            failObservation = true;
+            Assert.Equal(0, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            Assert.Equal(originalContents, await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
+            Assert.Null(new DiscoveryFeedbackRecoveryJournal(preparedDirectory, (_, _) => { }).Get(prepared.Id).FirstNegativeAtUtc);
+            Assert.Empty(store.LoadAll());
+
+            failObservation = false;
+            clock.Now = clock.Now.AddMinutes(5);
+            Assert.Equal(0, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            var observed = await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken);
+            Assert.NotNull(new DiscoveryFeedbackRecoveryJournal(preparedDirectory, (_, _) => { }).Get(prepared.Id).FirstNegativeAtUtc);
+            failArchive = true;
+            clock.Now = clock.Now.AddMinutes(5);
+            Assert.Equal(0, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            Assert.Equal(observed, await File.ReadAllTextAsync(originalPath, TestContext.Current.CancellationToken));
+            Assert.Contains((700, "movie"), store.GetPreparedRequestItems(user, scope));
+            Assert.Empty(store.GetRequestedItems(user));
+            Assert.Empty(store.LoadAll());
+            log.Verify(value => value.LogWarning(It.IsAny<string>(), It.Is<string>(message => message.Contains("bounded dormancy transition", StringComparison.Ordinal)), It.IsAny<Exception?>(), It.IsAny<ILogger?>()), Times.Exactly(2));
+
+            failArchive = false;
+            clock.Now = clock.Now.AddMinutes(5);
+            Assert.Equal(0, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            Assert.False(File.Exists(originalPath));
+            Assert.Single(Directory.GetFiles(archiveDirectory, "*.json"));
+            Assert.Empty(store.LoadAll());
+
+            _handler.RegisterResponse(HttpMethod.Get, "requestedBy=42", HttpStatusCode.OK, """{"pageInfo":{"pages":1,"results":1},"results":[{"id":70,"status":2,"media":{"tmdbId":700,"mediaType":"movie","status":3}}]}""");
+            Assert.Equal(1, await service.ReconcileRequestedItemsAsync(user, TestContext.Current.CancellationToken));
+            var recovered = Assert.Single(Assert.Single(store.LoadAll()).Entries);
+            Assert.Equal("unresolved original", recovered.Title);
+            Assert.Equal(.2, recovered.ScoringFeatures!.GenreSimilarity);
+            Assert.Equal(generated, recovered.ShownAtUtc);
+            Assert.Equal(new[] { "original person" }, recovered.KnownPeople);
+            Assert.Empty(store.GetPreparedRequestItems(user, scope));
+            Assert.Empty(Directory.GetFiles(archiveDirectory, "*.json"));
+            Assert.All(_handler.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+            Assert.Equal(5, _handler.Requests.Count(request => request.Path.Contains("requestedBy=42", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            store.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private sealed class RequestReceiptClock : TimeProvider
+    {
+        internal DateTime Now { get; set; }
+
+        public override DateTimeOffset GetUtcNow() => new(Now, TimeSpan.Zero);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

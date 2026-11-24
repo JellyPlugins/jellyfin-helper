@@ -501,9 +501,12 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     private void LoadCore()
     {
         string[] paths;
+        var directoryObserved = false;
         try
         {
-            if ((File.GetAttributes(_directory) & FileAttributes.Directory) == 0)
+            var attributes = File.GetAttributes(_directory);
+            directoryObserved = true;
+            if ((attributes & FileAttributes.Directory) == 0)
             {
                 throw new IOException("The original feedback recovery path is not a directory.");
             }
@@ -512,8 +515,13 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
-            // Only a positively missing directory is empty. Permission and I/O
-            // failures must prevent publication so the next read can restore it.
+            // Only initial absence is empty; a failed observed inventory must
+            // remain unpublished so restoration can recover its original evidence.
+            if (directoryObserved)
+            {
+                throw;
+            }
+
             return;
         }
 

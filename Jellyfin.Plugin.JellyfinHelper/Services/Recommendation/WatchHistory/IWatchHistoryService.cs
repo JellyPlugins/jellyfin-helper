@@ -25,6 +25,11 @@ public interface IWatchHistoryService
         return (profile is not null, profile?.MaxParentalRating);
     }
 
+    /// <summary>Reads the current user's permitted physical media identities without granting access from an administrative snapshot.</summary>
+    /// <param name="userId">The authenticated owner.</param>
+    /// <returns>Current permitted identities, or null when current access cannot be observed.</returns>
+    IReadOnlySet<Guid>? GetCurrentAccessibleItemIds(Guid userId) => GetUserWatchProfile(userId)?.AccessibleItemIds;
+
     /// <summary>Reads a current media-mix aggregate without rebuilding a watch profile; unavailable or invalidated evidence stays neutral.</summary>
     /// <param name="userId">The authenticated owner.</param>
     /// <returns>A current bounded series-share target, or null until current evidence is available.</returns>

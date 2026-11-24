@@ -197,17 +197,22 @@ internal sealed class PlaylistCreationJournal
     private void LoadCore()
     {
         string[] paths;
+        var directoryObserved = false;
         try
         {
-            if ((File.GetAttributes(_directory) & FileAttributes.Directory) == 0)
+            var attributes = File.GetAttributes(_directory);
+            directoryObserved = true;
+            if ((attributes & FileAttributes.Directory) == 0)
             {
                 throw new IOException("Playlist recovery path is not a directory.");
             }
 
             paths = _enumerate(_directory).Take(MaximumAttempts + 1).ToArray();
         }
-        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        catch (Exception exception) when (!directoryObserved && exception is FileNotFoundException or DirectoryNotFoundException)
         {
+            // An observed inventory failure cannot release a durable attempt
+            // into an empty journal that may overwrite it after restoration.
             return;
         }
 

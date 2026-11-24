@@ -236,6 +236,12 @@ public sealed class WatchedItemInfo
         set => _peopleWeights = value ?? [];
     }
 
+    /// <summary>Gets or sets detached own credits/countries with actual field acquisition; null is legacy unknown.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? Credits { get; set; }
+
+    /// <summary>Gets or sets detached parent-series credits/countries, never queried per episode.</summary>
+    public Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditMetadataSnapshot? SeriesCredits { get; set; }
+
     /// <summary>
     ///     Checks if the user meaningfully interacted with this item.
     /// </summary>
@@ -291,13 +297,26 @@ public sealed class WatchedItemInfo
 
     internal WatchedItemInfo AtMetadataCutoff(DateTime cutoff)
     {
-        if (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
-            && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff))))
+        if (Credits is null && SeriesCredits is null && ProductionCountries.Count == 0
+            && (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
+                && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff)))))
         {
+            // Training's detached rows are immutable. A metadata-free prefix
+            // needs no second row allocation for every historical cutoff.
             return this;
         }
 
         var copy = (WatchedItemInfo)MemberwiseClone();
+        copy.Credits = Credits?.At(cutoff);
+        copy.SeriesCredits = SeriesCredits?.At(cutoff);
+        var countrySource = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditPreferenceProfile.Resolve(copy);
+        copy.ProductionCountries = countrySource?.ProductionCountries is { IsDefault: false } countries ? countries.ToArray() : [];
+        if (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
+            && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff))))
+        {
+            return copy;
+        }
+
         copy.Genres = LocalGenres?.ToArray() ?? [];
         copy.TitleMetadata = null;
         return copy;

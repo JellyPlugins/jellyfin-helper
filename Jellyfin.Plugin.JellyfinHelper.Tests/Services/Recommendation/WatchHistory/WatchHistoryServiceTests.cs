@@ -58,6 +58,23 @@ public sealed class WatchHistoryServiceTests
         Assert.Null(_service.GetUserWatchProfile(userId));
     }
 
+    [Fact]
+    public void ASeriesFavoriteRetainsItsKnownWriterWithoutFabricatingPlayback()
+    {
+        var user = CreateTestUser("favorite credits");
+        var series = new Series { Id = Guid.NewGuid(), Path = "/synthetic/favorite", Name = "Favorite", Genres = ["Drama"] };
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, series)).Returns(new UserItemData { Key = "favorite", IsFavorite = true });
+        _mockLibraryManager.Setup(manager => manager.GetPeople(series)).Returns([new PersonInfo { Name = "Writer A", Type = PersonKind.Writer }]);
+        var profile = _service.BuildProfile(user, [], [series], collectionIds: []);
+        var favorite = Assert.Single(profile.WatchedItems);
+        Assert.Equal(new[] { "Writer A" }, favorite.WriterNames);
+        Assert.NotNull(favorite.Credits!.Crew);
+        Assert.True(favorite.IsFavorite);
+        Assert.False(favorite.Played);
+        Assert.Null(favorite.LastPlayedDate);
+        Assert.Equal(0, favorite.PlayCount);
+    }
+
     [Theory]
     [InlineData(2, false)]
     [InlineData(9, false)]
@@ -226,6 +243,47 @@ public sealed class WatchHistoryServiceTests
         _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
         Assert.Equal((true, maximum), _service.GetUserParentalPolicy(user.Id));
         _mockLibraryManager.Verify(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Never);
+    }
+
+    [Fact]
+    public void CurrentAccessReadsAuthoritativeUserQueriesWithoutRebuildingPlaybackHistory()
+    {
+        var user = CreateTestUser("current access");
+        var episode = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(user);
+        _mockLibraryManager.Setup(manager => manager.GetItemIds(It.IsAny<InternalItemsQuery>())).Returns((InternalItemsQuery query) => query.IsFolder == true ? [series] : [episode]);
+
+        var allowed = Assert.IsType<IReadOnlySet<Guid>>(_service.GetCurrentAccessibleItemIds(user.Id), exactMatch: false);
+
+        Assert.Equal(2, allowed.Count);
+        Assert.Contains(episode, allowed);
+        Assert.Contains(series, allowed);
+        _mockLibraryManager.Verify(manager => manager.ConfigureUserAccess(It.Is<InternalItemsQuery>(query => query.User == user && !query.GroupByPresentationUniqueKey), user), Times.Exactly(2));
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.IsAny<InternalItemsQuery>()), Times.Never);
+        _mockUserDataManager.Verify(manager => manager.GetUserData(It.IsAny<User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MissingOrDisabledAccountsCannotAuthorizeEpisodeSamples(bool disabled)
+    {
+        var user = CreateTestUser("unavailable access");
+        user.SetPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsDisabled, true);
+        _mockUserManager.Setup(manager => manager.GetUserById(user.Id)).Returns(disabled ? user : null);
+        Assert.Null(_service.GetCurrentAccessibleItemIds(user.Id));
+        _mockLibraryManager.Verify(manager => manager.GetItemIds(It.IsAny<InternalItemsQuery>()), Times.Never);
+    }
+
+    [Fact]
+    public void InterfaceDefaultAccessKeepsAnUnavailableScopeUnknown()
+    {
+        IWatchHistoryService unavailable = new LegacyHistoryProvider(new UserWatchProfile());
+        Assert.Null(unavailable.GetCurrentAccessibleItemIds(Guid.NewGuid()));
+        var allowed = new HashSet<Guid> { Guid.NewGuid() };
+        IWatchHistoryService observed = new LegacyHistoryProvider(new UserWatchProfile { AccessibleItemIds = allowed });
+        Assert.Same(allowed, observed.GetCurrentAccessibleItemIds(Guid.NewGuid()));
     }
 
     [Theory]
@@ -849,6 +907,26 @@ public sealed class WatchHistoryServiceTests
         var watched = Assert.Single(_service.GetUserWatchProfile(user.Id)!.WatchedItems);
         Assert.Equal(0, watched.TmdbCollectionId);
         Assert.True(watched.Played);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanonicalCollectionCaptureInfersMissingIdsWithoutDependingOnAnUnrelatedSelfValuedMovie(bool unrelatedSelfId)
+    {
+        var user = CreateTestUser("collection inference");
+        var movie = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "701" } };
+        var other = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "702" } };
+        if (unrelatedSelfId) other.ProviderIds["TmdbCollection"] = "702";
+        var box = new BoxSet { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "991" }, LinkedChildren = [LinkedChild.Create(movie)] };
+        _mockLibraryManager.Setup(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet)))).Returns([box]);
+        _mockUserDataManager.Setup(manager => manager.GetUserData(user, movie)).Returns(new UserItemData { Key = "watched", Played = true, LastPlayedDate = new DateTime(2026, 11, 20, 0, 0, 0, DateTimeKind.Utc) });
+        var row = Assert.Single(_service.BuildProfile(user, [movie, other], []).WatchedItems);
+        Assert.Equal(991, row.TmdbCollectionId);
+        Assert.Equal(701, row.TmdbId);
+        Assert.Null(row.TmdbCollectionName);
+        Assert.Equal(new DateTime(2026, 11, 20, 0, 0, 0, DateTimeKind.Utc), row.LastPlayedDate);
+        _mockLibraryManager.Verify(manager => manager.GetItemList(It.Is<InternalItemsQuery>(query => query.IncludeItemTypes.Contains(BaseItemKind.BoxSet))), Times.Once);
     }
 
     [Theory]

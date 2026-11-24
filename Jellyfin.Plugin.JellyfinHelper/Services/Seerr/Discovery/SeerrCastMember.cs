@@ -29,5 +29,5 @@ internal sealed class SeerrCastMember
     ///     Gets or sets the cast order (0 = top-billed).
     /// </summary>
     [JsonPropertyName("order")]
-    public int Order { get; set; }
+    public int? Order { get; set; }
 }
