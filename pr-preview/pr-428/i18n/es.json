@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "Modelo global",
   "recsEnsembleModelPrior": "Modelos globales, mezcla personal",
   "recsEnsembleStatusPrior": "Mezcla inicial de modelos globales",
+  "recsEnsembleStatusOlderDerivation": "Modelo previo con una derivación anterior de características — clasificación actual sin verificar",
   "recsEnsembleStatusProvisional": "Provisional — clasificación aún no verificada",
   "recsEnsembleStatusVerified": "Verificado de forma independiente",
   "recsEnsembleStatusChoiceRanking": "Clasificación de preferencias verificada de forma independiente",
