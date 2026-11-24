@@ -314,6 +314,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
             Plugin.Instance!.Configuration.SeerrUrl = "https://replacement.example.com";
             var current = service.GetSeerrUsersAsync(TestContext.Current.CancellationToken);
             Assert.False(current.IsCompleted);
+            Assert.Equal(1, handler.RequestCount("/api/v1/user"));
             release.TrySetResult();
             Assert.Empty(await old.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
             Assert.Equal("new-account", (await current.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))[0].DisplayName);

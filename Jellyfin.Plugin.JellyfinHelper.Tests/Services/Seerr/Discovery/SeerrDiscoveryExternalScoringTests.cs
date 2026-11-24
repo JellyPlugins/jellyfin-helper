@@ -1713,11 +1713,33 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var row = new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true };
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [row] };
         if (signal == "franchise") { row.TmdbCollectionId = 123; }
-        if (signal == "studio") { row.Studios = ["Studio A"]; }
+        if (signal == "studio")
+        {
+            row.Studios = ["Studio A"];
+            row.TitleMetadata = new TitleMetadataSnapshot
+            {
+                MediaType = "movie", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1),
+                ProductionCompanies = [new("tmdb", "production-company", 1, "Studio A")]
+            };
+        }
         if (signal == "tag") { row.Tags = ["own tag"]; }
-        if (signal == "person") { profile.PeopleProfile["Director A"] = 5; }
+        if (signal == "person")
+        {
+            profile.PeopleProfile["Director A"] = 5;
+            row.Credits = new CreditMetadataSnapshot
+            {
+                SourceItemId = row.ItemId,
+                Cast = new CreditField { Complete = true, AcquiredAtUtc = DateTime.UtcNow.AddMinutes(-1), People = [] },
+                Crew = new CreditField { Complete = true, AcquiredAtUtc = DateTime.UtcNow.AddMinutes(-1), People = [new() { Name = "Director A", Kind = Jellyfin.Data.Enums.PersonKind.Director }] }
+            };
+            for (var index = 0; index < 4; index++)
+            {
+                var id = Guid.NewGuid();
+                profile.WatchedItems.Add(new WatchedItemInfo { ItemId = id, ItemType = "Movie", Played = true, Credits = row.Credits with { SourceItemId = id } });
+            }
+        }
         _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
-        _detailById[101] = """{"id":101,"collection":{"id":123,"name":"Actual saga"},"keywords":[{"name":"own tag"}],"productionCompanies":[{"name":"Studio A"}],"credits":{"crew":[{"name":"Director A","job":"Director"}]}}""";
+        _detailById[101] = """{"id":101,"collection":{"id":123,"name":"Actual saga"},"keywords":[{"name":"own tag"}],"productionCompanies":[{"id":1,"name":"Studio A"}],"credits":{"crew":[{"name":"Director A","job":"Director"}]}}""";
         var result = await CreateService().ScoreExternalCandidatesAsync(user, [Candidate(101)], TestContext.Current.CancellationToken);
         var recommendation = Assert.Single(result!.Recommendations);
         Assert.True(recommendation.IsPersonalized);
@@ -1889,6 +1911,11 @@ public sealed class SeerrDiscoveryExternalScoringTests : IDisposable
         var user = Guid.NewGuid();
         SetupProfile(user);
         var profile = new UserWatchProfile { UserId = user, WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1, LastPlayedDate = DateTime.UtcNow.AddDays(-1), Genres = ["Action"], TmdbCollectionId = 123, Tags = ["based on manga"], Studios = ["Studio A"] }] };
+        profile.WatchedItems[0].TitleMetadata = new TitleMetadataSnapshot
+        {
+            MediaType = "movie", FetchedAtUtc = DateTime.UtcNow.AddMinutes(-1),
+            ProductionCompanies = [new("tmdb", "production-company", 1, "Studio A")]
+        };
         _history.Setup(history => history.GetUserWatchProfile(user)).Returns(profile);
         _detailById[101] = """{"id":101,"genres":[{"id":28,"name":"Action"}],"collection":{"id":123,"name":"Localized Collection"},"keywords":[{"id":210024,"name":"based on manga"}],"productionCompanies":[{"id":1,"name":"Studio A"}]}""";
         var configuration = new ServerConfiguration { MetadataCountryCode = "DE", PreferredMetadataLanguage = "de" };

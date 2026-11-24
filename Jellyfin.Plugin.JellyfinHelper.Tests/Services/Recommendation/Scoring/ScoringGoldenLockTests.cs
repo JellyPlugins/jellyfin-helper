@@ -44,7 +44,9 @@ public class ScoringGoldenLockTests
         var last = Weights(24, 1, final: true);
         using var model = new NeuralScoringStrategy();
         var properties = typeof(CandidateFeatures).GetProperties().Where(property => property.CanWrite && property.Name != nameof(CandidateFeatures.IsExternalCandidate)
-            && property.Name != nameof(CandidateFeatures.HasGenreEvidence)).OrderBy(property => property.Name, StringComparer.Ordinal).ToArray();
+            && property.Name != nameof(CandidateFeatures.HasGenreEvidence)
+            && property.Name != nameof(CandidateFeatures.FeatureDerivationVersion)
+            && property.Name != nameof(CandidateFeatures.MediaLanguageIsEpisodeSample)).OrderBy(property => property.Name, StringComparer.Ordinal).ToArray();
         for (var seed = 1; seed <= 500; seed++)
         {
             var features = BuildDeterministicFeatures(properties, seed);
@@ -82,7 +84,9 @@ public class ScoringGoldenLockTests
         var settableDoubles = Array.FindAll(
             typeof(CandidateFeatures).GetProperties(BindingFlags.Public | BindingFlags.Instance),
             static p => p.CanWrite && p.Name != nameof(CandidateFeatures.IsExternalCandidate)
-                && p.Name != nameof(CandidateFeatures.HasGenreEvidence));
+                && p.Name != nameof(CandidateFeatures.HasGenreEvidence)
+                && p.Name != nameof(CandidateFeatures.FeatureDerivationVersion)
+                && p.Name != nameof(CandidateFeatures.MediaLanguageIsEpisodeSample));
 
         // Availability is policy metadata, not a numerical signal: adding its boolean must not consume
         // another RNG value and silently change the seed-to-feature mapping. The original known-genre

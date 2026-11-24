@@ -224,14 +224,8 @@ public sealed class EngineBoxSetTests
     private static Dictionary<Guid, int> InvokeBuildWatchedBoxSetCounts(
         HashSet<Guid> watchedIds,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
-    {
-        var method = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine)
-            .GetMethod(
-                "BuildWatchedBoxSetCounts",
-                BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        return (Dictionary<Guid, int>)method!.Invoke(null, [watchedIds, candidateBoxSetLookup])!;
-    }
+        => Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine.BuildWatchedBoxSetCounts(
+            watchedIds.Select(id => new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory.WatchedItemInfo { ItemId = id, ItemType = "Movie", Played = true }), candidateBoxSetLookup);
 
     private static double InvokeComputeCollectionProgressionBoostLive(
         List<Guid> candidateBoxSetIds,

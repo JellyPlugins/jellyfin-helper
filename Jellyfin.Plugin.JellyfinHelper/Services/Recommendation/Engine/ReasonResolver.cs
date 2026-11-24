@@ -64,7 +64,7 @@ internal static class ReasonResolver
         // Resolve concrete names for richer reasons
         var topGenre = ResolveTopGenre(candidate, genrePreferences);
         var matchedPerson = ResolveMatchedPerson(candidate, people.PreferredPeople, people.PeopleLookup, people.PreferredPeopleWeights);
-        var matchedStudio = ResolveMatchedStudio(candidate, people.PreferredStudios);
+        var matchedStudio = ProducerEvidence.MatchedName(people.ProducerMetadata, people.PreferredStudios);
 
         // Anchored franchise/collection reasons first: when the strategy already elected one of these as the
         // dominant signal, it is the strongest "complete the set" driver and must not be masked by a two-signal
@@ -434,21 +434,6 @@ internal static class ReasonResolver
     }
 
     /// <summary>
-    ///     Resolves a concrete studio name from the candidate that matches the user's preferred studios.
-    /// </summary>
-    private static string? ResolveMatchedStudio(BaseItem candidate, HashSet<string>? preferredStudios)
-    {
-        if (preferredStudios is null || preferredStudios.Count == 0
-                                     || candidate.Studios is not { Length: > 0 })
-        {
-            return null;
-        }
-
-        return candidate.Studios
-            .FirstOrDefault(s => !string.IsNullOrEmpty(s) && preferredStudios.Contains(s));
-    }
-
-    /// <summary>
     ///     Creates a copy of the profile without the full watched items list (for the API response),
     ///     keeping only aggregated stats.
     /// </summary>
@@ -488,9 +473,11 @@ internal static class ReasonResolver
     /// <param name="PreferredStudios">Preferred studio names for concrete studio reasons.</param>
     /// <param name="PeopleLookup">Pre-built people lookup (item id to person names) for resolving names on candidates.</param>
     /// <param name="PreferredPeopleWeights">Per-name weights; when supplied the reason surfaces the highest-weighted matching person.</param>
+    /// <param name="ProducerMetadata">Captured typed production metadata; names alone never establish a studio reason.</param>
     internal readonly record struct ReasonPeopleContext(
         HashSet<string>? PreferredPeople = null,
         HashSet<string>? PreferredStudios = null,
         Dictionary<Guid, HashSet<string>>? PeopleLookup = null,
-        IReadOnlyDictionary<string, double>? PreferredPeopleWeights = null);
+        IReadOnlyDictionary<string, double>? PreferredPeopleWeights = null,
+        TitleMetadataSnapshot? ProducerMetadata = null);
 }

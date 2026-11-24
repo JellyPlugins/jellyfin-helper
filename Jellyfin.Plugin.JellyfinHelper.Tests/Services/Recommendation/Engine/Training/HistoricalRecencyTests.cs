@@ -139,6 +139,62 @@ public sealed class HistoricalRecencyTests
         Assert.NotEmpty(control.Examples);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    public void WriterSemanticsHistoricalFeaturesUsePredictionNotFittingClock(int earlierRows)
+    {
+        var user = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var rows = Enumerable.Range(1, earlierRows).Select(i => new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(-i), Genres = ["Drama"], WriterNames = ["Writer A"], IsFavorite = true, UserRating = 9 }).ToList();
+        rows.Add(new() { ItemId = target, ItemType = "Movie", Played = true, LastPlayedDate = Prediction, Genres = ["Drama"], WriterNames = ["Writer A"] });
+        foreach (var row in rows)
+        {
+            // This fixture explicitly observed these credits at the historical
+            // boundary; undated current credits must not repair an older sample.
+            row.Credits = new CreditMetadataSnapshot
+            {
+                SourceItemId = row.ItemId,
+                Crew = new CreditField { Complete = true, AcquiredAtUtc = row.LastPlayedDate, People = [new() { Name = "Writer A", Kind = Jellyfin.Data.Enums.PersonKind.Writer }] }
+            };
+        }
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = new System.Collections.ObjectModel.Collection<WatchedItemInfo>(rows) };
+        var expectedWeight = Enumerable.Range(1, earlierRows).Sum(i => Math.Exp(-Math.Log(2) / 180 * i));
+        var expected = SimilarityComputer.ComputeWriterAffinity(["Writer A"], new Dictionary<string, double> { ["Writer A"] = expectedWeight });
+        var key = TrainingExample.CreateLibraryObservationId(user, target);
+        foreach (var fitting in new[] { Prediction.AddDays(2), Prediction.AddDays(182) })
+        {
+            var example = Assert.Single(TrainingDataBuilder.BuildExamples([], [profile], fitting, TestContext.Current.CancellationToken).Examples, value => value.ObservationId == key);
+            Assert.Equal(Prediction, example.GeneratedAtUtc);
+            Assert.Equal(expected, example.Features.WriterAffinity, 10);
+            Assert.Equal(41, example.Features.ToVector().Length);
+        }
+        Assert.All(rows.Take(earlierRows), row => Assert.True(row.IsFavorite));
+    }
+
+    [Fact]
+    public void WriterSemanticsDirectWeightsUseOneProvidedUtcClockAndRecordedVectorsStayImmutable()
+    {
+        var user = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = user, WatchedItems = [new() { ItemId = Guid.NewGuid(), ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(-1).ToLocalTime(), WriterNames = ["Writer A"] }] };
+        var initial = PreferenceBuilder.BuildWriterPreferenceWeights(profile, Prediction)["Writer A"];
+        var later = PreferenceBuilder.BuildWriterPreferenceWeights(profile, Prediction.AddDays(180))["Writer A"];
+        Assert.Equal(Math.Exp(-Math.Log(2) / 180), initial, 10);
+        Assert.Equal(initial * .5, later, 10);
+        var item = Guid.NewGuid();
+        var stored = new CandidateFeatures { WriterAffinity = .72, DayOfWeekAffinity = .31, HourOfDayAffinity = .41, CombinedCriticScore = .123, PopularityScore = .456 };
+        var raw = stored.ToVector();
+        var result = new RecommendationResult { UserId = user, GeneratedAt = Prediction, Recommendations = [new() { ItemId = item, ItemType = "Movie", ScoringFeatures = stored }] };
+        profile.WatchedItems.Add(new() { ItemId = item, ItemType = "Movie", Played = true, LastPlayedDate = Prediction.AddDays(1) });
+        foreach (var fitting in new[] { Prediction.AddDays(2), Prediction.AddDays(182) })
+        {
+            var example = Assert.Single(TrainingDataBuilder.BuildExamples([result], [profile], fitting, TestContext.Current.CancellationToken).Examples, value => value.ObservationId == TrainingExample.CreateLibraryObservationId(user, item));
+            Assert.Equal(raw, example.Features.ToVector());
+            Assert.Equal(Prediction, example.GeneratedAtUtc);
+        }
+        Assert.Equal(raw, stored.ToVector());
+    }
+
     private static void AssertRecency(TrainingExample example, DateTime release, DateTime added, DateTime reference)
     {
         Assert.Equal(reference, example.GeneratedAtUtc);

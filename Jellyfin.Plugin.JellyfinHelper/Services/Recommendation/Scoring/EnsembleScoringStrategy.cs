@@ -391,12 +391,14 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     ///     read across fields; this method reads every field in one lock acquisition. Purely diagnostic - it never
     ///     mutates state or triggers persistence.
     /// </summary>
-    /// <returns>An <see cref="EnsembleDiagnostics"/> record with the current blending factors, quality-gate state, sigmoid midpoint, trend, and counts.</returns>
-    internal EnsembleDiagnostics GetDiagnosticsSnapshot()
+    /// <param name="inputDerivationVersion">The scored input contract; null reports the retained model's own cohort without claiming current-input compatibility.</param>
+    /// <returns>A coherent model/cohort diagnostic snapshot; API serving explicitly requests current inputs.</returns>
+    internal EnsembleDiagnostics GetDiagnosticsSnapshot(int? inputDerivationVersion = null)
     {
         lock (_syncRoot)
         {
             var neuralSchema = GetNeuralSchema();
+            var inputVersion = inputDerivationVersion ?? _acceptedPrediction?.FeatureDerivationVersion ?? 0;
             return new EnsembleDiagnostics
             {
                 Alpha = _alpha,
@@ -413,11 +415,13 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
                 NeuralModelVersion = neuralSchema?.Version,
                 NeuralInputFeatureCount = neuralSchema?.InputCount,
                 NeuralFeatures = neuralSchema.HasValue ? ModelInputFeatures.Names(neuralSchema.Value.InputCount) : [],
-                AdmittedAlpha = _acceptedPrediction?.Resolve(_alphaMax).Alpha,
-                AdmittedNeuralBeta = _acceptedPrediction?.Resolve(_alphaMax).Beta,
+                AdmittedAlpha = FeatureDerivationContract.IsCompatible(inputVersion, _acceptedPrediction?.FeatureDerivationVersion ?? 0) ? _acceptedPrediction?.Resolve(_alphaMax).Alpha : 0,
+                AdmittedNeuralBeta = FeatureDerivationContract.IsCompatible(inputVersion, _acceptedPrediction?.FeatureDerivationVersion ?? 0) ? _acceptedPrediction?.Resolve(_alphaMax).Beta : 0,
                 AllowsExploration = !_independentAdmissionEnabled,
                 ModelRevision = _acceptedBundle?.Revision ?? 0,
                 ValidationLevel = GetOperatingValidationLevel(),
+                ModelFeatureDerivationVersion = _acceptedPrediction?.FeatureDerivationVersion ?? 0,
+                InputFeatureDerivationVersion = inputVersion,
                 HasOwnOperatingModel = HasOwnOperatingModel,
                 AdmissionReason = _lastAdmission?.Reason,
                 IndependentAdmissionReason = _lastAdmission?.ProvisionalServing?.IndependentReason ?? _lastAdmission?.Reason,
@@ -507,6 +511,11 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
     private double ComputeBlendedScore(CandidateFeatures features, double alpha, double beta, double floor)
     {
+        if (!FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0))
+        {
+            alpha = 0;
+        }
+
         var heuristicScore = HeuristicScoringStrategy.ScoreRaw(features);
         if (alpha <= 0.0)
         {
@@ -638,6 +647,11 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
     /// <returns>A detailed score explanation including per-feature contributions.</returns>
     private ScoreExplanation ComputeBlendedExplanation(CandidateFeatures features, double alpha, double beta, double floor)
     {
+        if (!FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0))
+        {
+            alpha = 0;
+        }
+
         if (features.ContentFitSupport is > 0 || features.AudienceMismatch is > 0 || features.CollectionContinuationSupport is > 0 || features.ContentFamilyMismatch is > 0)
         {
             var contextual = ScoringHelper.BuildMarginalExplanation(features, CaptureContextualScore(alpha, beta, floor), Name);

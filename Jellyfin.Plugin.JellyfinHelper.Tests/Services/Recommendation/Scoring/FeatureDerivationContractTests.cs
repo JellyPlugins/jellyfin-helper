@@ -1,0 +1,357 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Xunit;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
+
+/// <summary>Generic provenance/cohort checks only; no model fitting, live requests or personal outcome labels.</summary>
+public class FeatureDerivationContractTests
+{
+    private static readonly DateTime Boundary = new(2026, 11, 23, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly JsonSerializerOptions NamedNumberOptions = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(1, 1, true)]
+    [InlineData(1, 0, false)]
+    [InlineData(0, 1, false)]
+    [InlineData(-1, -1, false)]
+    [InlineData(99, 99, false)]
+    public void OnlyMatchingSupportedInputContractsMayUseTheSameWeights(int input, int model, bool compatible)
+        => Assert.Equal(compatible, FeatureDerivationContract.IsCompatible(input, model));
+
+    [Fact]
+    public void MissingFeatureObjectCannotQualifyAUniformAdmissionCohort()
+    {
+        Assert.False(FeatureDerivationContract.TryResolveUniformVersion([new TrainingExample { Features = null! }], out var version));
+        Assert.Equal(0, version);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void RetainedPriorCannotApplyDifferentDerivationWeightsOrOffsets(int modelVersion)
+    {
+        var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
+        {
+            Version = 6, Weights = new double[41], Bias = .9, TrainingGeneration = 1
+        });
+        var prior = new AcceptedPrediction(new HeuristicScoringStrategy(1), learned.CapturePredictionSnapshot(), null, new AdmissionMixture(.6, 0), 0, modelVersion);
+        using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, null, .3, .75, 1, ownsNeural: false);
+        ensemble.InitializeOperatingPrior(prior);
+        var current = new CandidateFeatures { FeatureDerivationVersion = 1, GenreSimilarity = .4, CombinedCriticScore = .5 };
+        var original = current.ToVector();
+        var heuristic = ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(current), current, 1);
+        var score = ensemble.Score(current);
+        if (modelVersion == 0)
+        {
+            Assert.Equal(heuristic, score, 12);
+            Assert.Equal(0, ensemble.GetDiagnosticsSnapshot(1).EffectiveAlpha);
+            Assert.Equal(heuristic, prior.Score(current, .75, 1), 12);
+        }
+        else
+        {
+            Assert.True(score > heuristic);
+            Assert.Equal(.3, ensemble.GetDiagnosticsSnapshot(1).EffectiveAlpha);
+        }
+
+        Assert.Equal(score, ensemble.ScoreWithOffset(current, .2), 12);
+        Assert.Equal(score, ensemble.ScoreWithExplanation(current).FinalScore, 12);
+        Assert.Equal(score, ensemble.ScoreWithExplanationAndOffset(current, .2).FinalScore, 12);
+        Assert.Equal(original, current.ToVector());
+        Assert.Equal(modelVersion, ensemble.GetOperatingPrior()!.FeatureDerivationVersion);
+        Assert.Equal(new AdmissionMixture(.6, 0), prior.Resolve(.75));
+        var legacy = current.Copy();
+        legacy.FeatureDerivationVersion = 0;
+        if (modelVersion == 0) Assert.True(prior.Score(legacy, .75, 1) > heuristic);
+        else Assert.Equal(heuristic, prior.Score(legacy, .75, 1), 12);
+    }
+
+    [Fact]
+    public void MissingFeatureMarker_RemainsUnknownAndDoesNotChangeVector()
+    {
+        var old = JsonSerializer.Deserialize<CandidateFeatures>("{\"GenreSimilarity\":0.4,\"CollaborativeScore\":0.2,\"CompletionRatio\":0.7}")!;
+        var current = old.Copy();
+        current.FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion;
+
+        Assert.Equal(0, old.FeatureDerivationVersion);
+        Assert.Equal(41, old.ToVector().Length);
+        Assert.Equal(old.ToVector(), current.ToVector());
+        Assert.DoesNotContain(nameof(CandidateFeatures.FeatureDerivationVersion), JsonSerializer.Serialize(old));
+        Assert.Equal(1, current.FeatureDerivationVersion);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void CapturedCopies_PreserveMarkerValuesLabelsAndPredictionTime(int version)
+    {
+        var original = Example(1, version, 1);
+        original.Features.CollaborativeScore = .023;
+        var copy = original.Copy();
+
+        Assert.NotSame(original.Features, copy.Features);
+        Assert.Equal(version, copy.Features.FeatureDerivationVersion);
+        Assert.Equal(original.Features.ToVector(), copy.Features.ToVector());
+        Assert.Equal(original.GeneratedAtUtc, copy.GeneratedAtUtc);
+        Assert.Equal(original.ObservationId, copy.ObservationId);
+        Assert.Equal(original.Label, copy.Label);
+        copy.Features.FeatureDerivationVersion = 9;
+        copy.Features.CollaborativeScore = .9;
+        Assert.Equal(version, original.Features.FeatureDerivationVersion);
+        Assert.Equal(.023, original.Features.CollaborativeScore);
+    }
+
+    [Fact]
+    public void CurrentCohort_DoesNotRelabelOrUseLegacyPadding()
+    {
+        var old = Example(1, 0, 1);
+        var current = Example(2, 1, 0);
+        var fitting = new[] { old, current };
+        var holdout = new[] { Example(3, 0, 0), Example(4, 1, 1) };
+        var version = FeatureDerivationContract.SelectTrainingVersion(fitting, holdout);
+
+        Assert.Equal(1, version);
+        Assert.Same(current, Assert.Single(FeatureDerivationContract.SelectCohort(fitting, version)));
+        Assert.Same(holdout[1], Assert.Single(FeatureDerivationContract.SelectCohort(holdout, version)));
+        Assert.Equal(0, old.Features.FeatureDerivationVersion);
+        Assert.Equal(Boundary, old.GeneratedAtUtc);
+        Assert.Equal(0, FeatureDerivationContract.SelectTrainingVersion([old], [holdout[0]]));
+    }
+
+    [Fact]
+    public void SparseCurrentCohort_IsNotPaddedByManyOlderTitles()
+    {
+        var old = Enumerable.Range(1, 100).Select(id => Example(id, 0, id % 2)).ToArray();
+        var current = Example(200, 1, 1);
+        var version = FeatureDerivationContract.SelectTrainingVersion(old.Append(current).ToArray(), []);
+
+        Assert.Equal(1, version);
+        Assert.Same(current, Assert.Single(FeatureDerivationContract.SelectCohort(old.Append(current), version)));
+        Assert.All(old, row => Assert.Equal(0, row.Features.FeatureDerivationVersion));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    [InlineData(1, 2)]
+    public void MixedOrUnsupportedDerivations_CannotClaimIndependentAdmission(int calibrationVersion, int acceptanceVersion)
+    {
+        var calibration = Samples(1, calibrationVersion);
+        var acceptance = Samples(101, acceptanceVersion);
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, Models(), Boundary, .75, 0);
+
+        Assert.False(decision.Accepted);
+        Assert.Equal("MixedOrUnsupportedFeatureDerivationEvidence", decision.Reason);
+        Assert.Equal(0, decision.FeatureDerivationVersion);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void UniformNaturalCohort_PreservesOrdinaryIndependentAdmission(int version)
+    {
+        var calibration = Samples(1, version);
+        var acceptance = Samples(101, version);
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, Models(), Boundary, .75, 0);
+
+        Assert.True(decision.Accepted);
+        Assert.Equal(version, decision.FeatureDerivationVersion);
+        Assert.All(calibration.Concat(acceptance), row => Assert.Equal(version, row.Features.FeatureDerivationVersion));
+    }
+
+    [Fact]
+    public void CurrentHomogeneousCohort_DoesNotInventRankingApproval()
+    {
+        var calibration = Enumerable.Range(1, 30).Select(id => Example(id, 1, 1)).ToArray();
+        var acceptance = Enumerable.Range(101, 30).Select(id => Example(id, 1, 1)).ToArray();
+        var decision = EnsembleAdmissionEvaluator.Evaluate(calibration, acceptance, Models(), Boundary, .75, 0);
+
+        Assert.False(decision.Accepted);
+        Assert.Equal("HomogeneousObservedOutcomes", decision.Reason);
+        Assert.Equal(1, decision.FeatureDerivationVersion);
+    }
+
+    [Fact]
+    public void MixedCalibration_CannotSupplyOneProvisionalDerivation()
+    {
+        var mixed = Samples(1, 0).Concat(Samples(101, 1)).ToArray();
+        Assert.Null(EnsembleAdmissionEvaluator.EvaluateServingCalibration(mixed, Models(), new AdmissionMixture(.5, 0), Boundary));
+    }
+
+    [Theory]
+    [InlineData(0, "Verified", false, "LegacyOrUnknownPrior")]
+    [InlineData(1, "Provisional", false, "Current")]
+    [InlineData(1, "GlobalPrior", false, "Current")]
+    [InlineData(1, "Verified", true, "Current")]
+    [InlineData(1, "ChoiceRanking", true, "Current")]
+    [InlineData(2, "Verified", false, "DifferentDerivationPrior")]
+    public void Diagnostics_SeparateHistoricalLevelFromCurrentDerivationApproval(int version, string level, bool verified, string status)
+    {
+        var diagnostics = new EnsembleDiagnostics { ModelFeatureDerivationVersion = version, ValidationLevel = level };
+        var response = EnsembleDiagnosticsResponse.FromDiagnostics(diagnostics);
+
+        Assert.Equal(version, response.ModelFeatureDerivationVersion);
+        Assert.Equal(1, response.CurrentFeatureDerivationVersion);
+        Assert.Equal(status, response.FeatureDerivationStatus);
+        Assert.Equal(verified, response.HasCurrentFeatureDerivationRankingValidation);
+    }
+
+    [Fact]
+    public void CalibrationOnlyRetention_DoesNotUpgradeOlderParameterProvenance()
+    {
+        Assert.Equal(0, FeatureDerivationContract.PublicationVersion(1, retainedParameters: true, priorVersion: 0));
+        Assert.Equal(1, FeatureDerivationContract.PublicationVersion(1, retainedParameters: false, priorVersion: 0));
+        Assert.Equal(1, FeatureDerivationContract.PublicationVersion(1, retainedParameters: true, priorVersion: 1));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void GlobalPrior_PropagatesMarkerWithoutChangingItsMixtureOrClaimingPersonalValidation(int version)
+    {
+        var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
+        {
+            Version = 6, Weights = new double[41], Bias = .8, TrainingGeneration = 1
+        });
+        var prior = new AcceptedPrediction(new HeuristicScoringStrategy(1), learned.CapturePredictionSnapshot(), null, new AdmissionMixture(.6, 0), 0, version);
+        using var personal = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, null, .3, .75, .1, ownsNeural: false);
+        personal.InitializeOperatingPrior(prior);
+        var diagnostics = personal.GetDiagnosticsSnapshot(CandidateFeatures.CurrentFeatureDerivationVersion);
+
+        Assert.Equal("GlobalPrior", diagnostics.ValidationLevel);
+        Assert.Equal(version, diagnostics.ModelFeatureDerivationVersion);
+        Assert.False(diagnostics.HasCurrentFeatureDerivationRankingValidation);
+        Assert.False(personal.HasOwnOperatingModel);
+        Assert.Equal(version == CandidateFeatures.CurrentFeatureDerivationVersion ? .3 : 0, diagnostics.EffectiveAlpha);
+        Assert.Equal(version, personal.GetOperatingPrior()!.FeatureDerivationVersion);
+    }
+
+    [Fact]
+    public void LegacyV6Bundle_LoadsAsUnknownWithoutRewritingItsFile()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "opencode", "feature-derivation-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var state = Path.Combine(directory, "ensemble_state.json");
+        var path = AcceptedModelStore.GetBundlePath(state)!;
+        var legacy = new AcceptedModelBundle
+        {
+            Version = 2, IsProvisional = true, CalibrationLoss = .1, CalibrationTitleCount = 5,
+            Revision = 1, TrainedAtUtc = Boundary, Mixture = new AdmissionMixture(.6, 0), AlphaCap = .75, NeuralCap = 0,
+            Learned = new LearnedScoringStrategy.WeightsData { Version = 6, Weights = new double[41], Bias = .8, TrainingGeneration = 1 },
+            State = new EnsembleScoringStrategy.EnsembleStateData { TrainingExampleCount = 80, Alpha = .75, MetricsHistory = [] }
+        };
+        try
+        {
+            File.WriteAllText(path, JsonSerializer.Serialize(legacy, NamedNumberOptions));
+            var before = File.ReadAllBytes(path);
+            var bundle = new AcceptedModelStore(state, logger: null).Read();
+
+            Assert.NotNull(bundle);
+            Assert.Equal(0, bundle.FeatureDerivationVersion);
+            Assert.Equal(6, bundle.Learned.Version);
+            Assert.Equal(41, bundle.Learned.Weights.Length);
+            Assert.True(bundle.IsProvisional);
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public void SerializedOldBundleAndFeatures_DoNotAcquireCurrentMarkers()
+    {
+        var bundle = JsonSerializer.Deserialize<AcceptedModelBundle>("{\"Version\":2,\"IsProvisional\":true}")!;
+        Assert.Equal(0, bundle.FeatureDerivationVersion);
+        Assert.DoesNotContain(nameof(AcceptedModelBundle.FeatureDerivationVersion), JsonSerializer.Serialize(bundle, NamedNumberOptions));
+    }
+
+    [Fact]
+    public void NewlyBuiltExternalInference_ExplicitlyMarksCurrentDerivation()
+    {
+        var profile = new UserWatchProfile();
+        var preferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(preferences, profile);
+        var features = ExternalCandidateFeatureBuilder.Build(new TmdbDiscoverItem { Id = 1, MediaType = "movie", GenreIds = [18] },
+            preferences, new HashSet<string>(), 0, exposure, profile);
+
+        Assert.Equal(1, features.FeatureDerivationVersion);
+        Assert.Equal(41, features.ToVector().Length);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void FeedbackFeatures_NewReconstructionIsCurrentButCapturedVersionIsPreserved(int capturedVersion)
+    {
+        var user = new Guid(9000, 0, 0, new byte[8]);
+        var profile = new UserWatchProfile { UserId = user };
+        var captured = capturedVersion < 0 ? null : new CandidateFeatures { FeatureDerivationVersion = capturedVersion, GenreSimilarity = .4, CollaborativeScore = .023 };
+        var result = new RecommendationResult
+        {
+            UserId = user, GeneratedAt = Boundary,
+            Recommendations = new Collection<RecommendedItem>
+            {
+                new() { ItemId = new Guid(501, 0, 0, new byte[8]), TmdbId = 501, ItemType = "Movie", Genres = ["Drama"], ScoringFeatures = captured }
+            }
+        };
+        var built = TrainingDataBuilder.BuildExamples([result], new Collection<UserWatchProfile> { profile }, Boundary.AddDays(8), CancellationToken.None);
+        var example = Assert.Single(built.Examples);
+
+        Assert.Equal(capturedVersion < 0 ? 1 : capturedVersion, example.Features.FeatureDerivationVersion);
+        Assert.Equal(Boundary, example.GeneratedAtUtc);
+        Assert.Equal(Boundary, result.GeneratedAt);
+        if (captured is not null)
+        {
+            Assert.NotSame(captured, example.Features);
+            Assert.Equal(captured.ToVector(), example.Features.ToVector());
+            Assert.Equal(capturedVersion, captured.FeatureDerivationVersion);
+        }
+    }
+
+    private static TrainingExample[] Samples(int start, int version)
+        => Enumerable.Range(start, 30).Select(id => Example(id, version, id % 2)).ToArray();
+
+    private static TrainingExample Example(int id, int version, double label)
+        => new()
+        {
+            Features = new CandidateFeatures { FeatureDerivationVersion = version, GenreSimilarity = label, HasGenreEvidence = true },
+            Label = label, GeneratedAtUtc = Boundary, UserId = new Guid(9000, 0, 0, new byte[8]),
+            ObservationId = new Guid(id, 0, 0, new byte[8]), HasStableObservationId = true, IsObserved = true, SampleWeight = 1
+        };
+
+    private static AdmissionModels Models() => new(new ConstantStrategy(.5), new FeatureStrategy());
+
+    private sealed class ConstantStrategy(double value) : IScoringStrategy
+    {
+        public string Name => "Generic diagnostic constant";
+        public string NameKey => "genericDiagnostic";
+        public double Score(CandidateFeatures features) => value;
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features) => new() { FinalScore = value };
+    }
+
+    private sealed class FeatureStrategy : IScoringStrategy
+    {
+        public string Name => "Generic diagnostic feature";
+        public string NameKey => "genericDiagnostic";
+        public double Score(CandidateFeatures features) => features.GenreSimilarity;
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features) => new() { FinalScore = Score(features) };
+    }
+}

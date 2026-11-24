@@ -163,7 +163,8 @@ public sealed class EngineIdfRarityTests
     [Fact]
     public void BuildGenreStudioIdfTable_DuplicateAndBlankTerms_DoNotChangeDocumentFrequency()
     {
-        var harness = EngineTestFactory.Create();
+        var cache = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: cache);
         List<BaseItem> cleanItems =
         [
             MakeMovie("A", ["Common", "OnlyA"], ["StudioCommon", "StudioA"]),
@@ -177,14 +178,22 @@ public sealed class EngineIdfRarityTests
                 ["StudioCommon", "STUDIOCOMMON", "StudioB", "StudioB", "", " ", null!])
         ];
 
+        for (var index = 0; index < cleanItems.Count; index++)
+        {
+            var titleId = index + 1;
+            cleanItems[index].ProviderIds["Tmdb"] = titleId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            noisyItems[index].ProviderIds["Tmdb"] = titleId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            cache.Store(harness.ConfigService.Object.GetConfiguration(), new TitleMetadataSnapshot { TmdbId = titleId, FetchedAtUtc = DateTime.UtcNow, ProductionCompanies = [new("tmdb", ProducerEvidence.CompanyKind, 1, "StudioCommon"), new("tmdb", ProducerEvidence.CompanyKind, titleId + 1, "Studio" + titleId), new("tmdb", ProducerEvidence.CompanyKind, titleId + 1, "Translated duplicate")] });
+        }
+
         var clean = harness.Engine.BuildGenreStudioIdfTable(cleanItems);
         var noisy = harness.Engine.BuildGenreStudioIdfTable(noisyItems);
 
         Assert.Equal(clean.Count, noisy.Count);
         Assert.All(clean, entry => Assert.Equal(entry.Value, noisy[entry.Key]));
         Assert.Equal(0.0, noisy["Common"]);
-        Assert.Equal(0.0, noisy["StudioCommon"]);
+        Assert.Equal(0.0, noisy["producer:tmdb:production-company:1"]);
         Assert.Equal(1.0, noisy["OnlyA"]);
-        Assert.Equal(1.0, noisy["StudioA"]);
+        Assert.Equal(1.0, noisy["producer:tmdb:production-company:2"]);
     }
 }

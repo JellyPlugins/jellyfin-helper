@@ -90,6 +90,14 @@ public sealed class DiscoveryRecommendation
         set => field = double.IsFinite(value) ? Math.Clamp(value, 0.0, 10.0) : 0.0;
     }
 
+    /// <summary>Gets or sets rating availability captured with this prediction; null is unknown legacy provenance.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasRatingMetadata { get; set; }
+
+    /// <summary>Gets or sets popularity availability captured with this prediction.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasPopularityMetadata { get; set; }
+
     /// <summary>
     ///     Gets or sets the poster path (relative to TMDb CDN).
     /// </summary>
@@ -154,6 +162,8 @@ public sealed class DiscoveryRecommendation
         RelatedInfo = RelatedInfo,
         Genres = Genres?.ToArray() ?? [],
         TmdbRating = TmdbRating,
+        HasRatingMetadata = HasRatingMetadata,
+        HasPopularityMetadata = HasPopularityMetadata,
         PosterPath = PosterPath,
         Overview = Overview,
         AlreadyRequested = AlreadyRequested,

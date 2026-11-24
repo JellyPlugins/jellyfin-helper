@@ -22,9 +22,11 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     private const long MaximumPayloadBytes = 16 * 1024 * 1024;
     private const long MaximumJournalBytes = 256 * 1024 * 1024;
     private readonly string _directory;
+    private readonly string _counterDirectory;
     private readonly Lock _gate = new();
     private readonly Lock _intentGate = new();
     private readonly Dictionary<Guid, Ticket> _tickets = [];
+    private readonly HashSet<Guid> _reservedIds = [];
     private readonly Action<string, string> _write;
     private readonly Action<string> _delete;
     private readonly Func<string, IEnumerable<string>> _enumerate;
@@ -33,11 +35,12 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     private int _reserved;
     private CounterState? _lastCounter;
 
-    internal DiscoveryFeedbackRecoveryJournal(string directory, Action<string, string> write, Action<string>? delete = null, Func<string, IEnumerable<string>>? enumerate = null, long byteBudget = MaximumJournalBytes)
+    internal DiscoveryFeedbackRecoveryJournal(string directory, Action<string, string> write, Action<string>? delete = null, Func<string, IEnumerable<string>>? enumerate = null, long byteBudget = MaximumJournalBytes, string? counterDirectory = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(byteBudget, MetadataReservationBytes);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(byteBudget, MaximumJournalBytes);
         _directory = directory;
+        _counterDirectory = counterDirectory ?? directory;
         _write = write;
         _delete = delete ?? File.Delete;
         _enumerate = enumerate ?? (path => Directory.EnumerateFiles(path, "*.json"));
@@ -50,6 +53,9 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
     /// <summary>Gets the original-envelope read boundary; unavailable evidence cannot become an empty journal.</summary>
     internal Func<string, Stream> OpenEnvelopeRead { get; init; } = path => File.OpenRead(path);
+
+    /// <summary>Gets the other bounded journals sharing the same durable admission counter.</summary>
+    internal Func<Ticket[]>? CounterPeers { get; init; }
 
     internal bool HasPending
     {
@@ -71,6 +77,50 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     }
 
     internal Ticket Admit(Ticket ticket, byte[] payload)
+        => AdmitCore(ticket, payload, preserveOrder: false);
+
+    /// <summary>Copies original evidence without renewing its acquisition, prediction hash, or admission order.</summary>
+    /// <param name="ticket">The validated original receipt, including its existing order.</param>
+    /// <param name="payload">The exact server-owned prediction payload.</param>
+    /// <returns>The same original indexed durably in this journal.</returns>
+    internal Ticket Import(Ticket ticket, byte[] payload)
+    {
+        var existing = Find(ticket.Id);
+        if (existing is not null)
+        {
+            return SameOriginal(existing, ticket) ? existing : throw new IOException("A different original already owns this recovery identity.");
+        }
+
+        return AdmitCore(ticket, payload, preserveOrder: true);
+    }
+
+    internal static bool SameOriginal(Ticket left, Ticket right)
+        => left.Id == right.Id && left.User == right.User && left.Tmdb == right.Tmdb && left.Type == right.Type && left.Acquired == right.Acquired
+            && left.Hash == right.Hash && left.AdmissionEpoch == right.AdmissionEpoch && left.AdmissionOrder == right.AdmissionOrder && left.RequestSourceScope == right.RequestSourceScope;
+
+    internal bool HasImportCapacity(Ticket ticket, byte[] payload)
+    {
+        if (Find(ticket.Id) is { } existing)
+        {
+            return SameOriginal(existing, ticket) ? true : throw new IOException("A different original already occupies the destination identity.");
+        }
+
+        if (ticket.Kind == IntentKind)
+        {
+            ticket = ticket with { IntentSchemaVersion = 1 };
+        }
+
+        var length = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(new Envelope(ticket, payload), JsonDefaults.Options));
+        var reservation = ReservedLength(ticket, payload, length);
+        lock (_gate)
+        {
+            // Import still performs the atomic reservation; this is only a
+            // destination-selection hint and never authorizes a source deletion.
+            return _tickets.Count + _reserved < MaximumTickets && _bytes + reservation <= _byteBudget;
+        }
+    }
+
+    private Ticket AdmitCore(Ticket ticket, byte[] payload, bool preserveOrder)
     {
         if (payload.LongLength > MaximumPayloadBytes)
         {
@@ -78,41 +128,65 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
 
         if (ticket.Id == Guid.Empty || ticket.User == Guid.Empty || ticket.Tmdb <= 0 || ticket.Type is not ("movie" or "tv")
-            || ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind) || Convert.ToHexString(SHA256.HashData(payload)) != ticket.Hash)
+            || ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind) || Convert.ToHexString(SHA256.HashData(payload)) != ticket.Hash
+            || ticket.AdmissionOrder < 0 || (ticket.AdmissionEpoch == Guid.Empty) != (ticket.AdmissionOrder == 0) || ticket.IntentSchemaVersion is < 0 or > 1)
         {
             throw new IOException("Original feedback recovery admission has invalid provenance.");
         }
 
-        var admission = ReserveOrderedAdmission(ticket, payload);
-        ticket = admission.Ticket;
-        var contents = admission.Contents;
-        var length = ticket.FileBytes;
+        lock (_gate)
+        {
+            if (_tickets.ContainsKey(ticket.Id) || !_reservedIds.Add(ticket.Id))
+            {
+                throw new IOException("The original feedback identity is already admitted or being persisted.");
+            }
+        }
+
         try
         {
-            _write(PathFor(ticket.Id), contents);
-            lock (_gate)
+            if (ticket.Kind == IntentKind)
             {
-                _tickets.Add(ticket.Id, ticket);
-                _reserved--;
+                ticket = ticket with { IntentSchemaVersion = 1 };
             }
 
-            return ticket;
+            var admission = preserveOrder ? ReserveEnvelope(ticket, payload) : ReserveOrderedAdmission(ticket, payload);
+            ticket = admission.Ticket;
+            try
+            {
+                _write(PathFor(ticket.Id), admission.Contents);
+                lock (_gate)
+                {
+                    _tickets.Add(ticket.Id, ticket);
+                    _reserved--;
+                }
+
+                return ticket;
+            }
+            catch
+            {
+                ReleaseReservation(ticket.ReservedBytes);
+                throw;
+            }
         }
-        catch
+        finally
         {
-            ReleaseReservation(length);
-            throw;
+            lock (_gate)
+            {
+                _reservedIds.Remove(ticket.Id);
+            }
         }
     }
 
     private (Ticket Ticket, string Contents) ReserveOrderedAdmission(Ticket ticket, byte[] payload)
     {
         Directory.CreateDirectory(_directory);
+        Directory.CreateDirectory(_counterDirectory);
         using var admission = OpenAdmissionLease();
         var counter = ReadCounter();
+        var peers = CounterPeers?.Invoke() ?? [];
         lock (_gate)
         {
-            var existing = _tickets.Values.Where(value => value.AdmissionEpoch != Guid.Empty).ToArray();
+            var existing = _tickets.Values.Concat(peers).Where(value => value.AdmissionEpoch != Guid.Empty).ToArray();
             if (counter is null)
             {
                 var epochs = existing.Select(value => value.AdmissionEpoch).Distinct().ToArray();
@@ -144,19 +218,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
 
         ticket = ticket with { AdmissionEpoch = counter.Epoch, AdmissionOrder = counter.Order };
-        var contents = JsonSerializer.Serialize(new Envelope(ticket, payload), JsonDefaults.Options);
-        var length = Encoding.UTF8.GetByteCount(contents);
-        ticket = ticket with { FileBytes = length };
-        lock (_gate)
-        {
-            if (_tickets.Count + _reserved >= MaximumTickets || _bytes + length > _byteBudget)
-            {
-                throw new IOException("The bounded feedback recovery journal is full; new evidence was not admitted.");
-            }
-
-            _reserved++;
-            _bytes += length;
-        }
+        var envelope = ReserveEnvelope(ticket, payload);
 
         try
         {
@@ -168,13 +230,48 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
                 _lastCounter = counter;
             }
 
-            return (ticket, contents);
+            return envelope;
         }
         catch
         {
-            ReleaseReservation(length);
+            ReleaseReservation(envelope.Ticket.ReservedBytes);
             throw;
         }
+    }
+
+    private (Ticket Ticket, string Contents) ReserveEnvelope(Ticket ticket, byte[] payload)
+    {
+        var contents = JsonSerializer.Serialize(new Envelope(ticket, payload), JsonDefaults.Options);
+        var length = Encoding.UTF8.GetByteCount(contents);
+        var reservation = ReservedLength(ticket, payload, length);
+        lock (_gate)
+        {
+            if (_tickets.Count + _reserved >= MaximumTickets || _bytes + reservation > _byteBudget)
+            {
+                throw new IOException("The bounded feedback recovery journal is full; new evidence was not admitted.");
+            }
+
+            _reserved++;
+            _bytes += reservation;
+        }
+
+        return (ticket with { FileBytes = length, ReservedBytes = reservation }, contents);
+    }
+
+    private static long ReservedLength(Ticket ticket, byte[] payload, long length)
+    {
+        if (ticket.IntentSchemaVersion == 0)
+        {
+            return length;
+        }
+
+        var maximum = ticket with
+        {
+            Kind = IntentKind, SubmissionUncertain = false,
+            LastSubmissionAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc),
+            FirstNegativeAtUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)
+        };
+        return Math.Max(length, Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(new Envelope(maximum, payload), JsonDefaults.Options)));
     }
 
     private void ReleaseReservation(long length)
@@ -194,15 +291,23 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
     }
 
-    internal Ticket UpdateIntent(Guid id, bool accepted, bool uncertain)
+    internal Ticket? Find(Guid id)
     {
-        lock (_intentGate)
+        lock (_gate)
         {
-            return UpdateIntentCore(id, accepted, uncertain);
+            return _tickets.GetValueOrDefault(id);
         }
     }
 
-    private Ticket UpdateIntentCore(Guid id, bool accepted, bool uncertain)
+    internal Ticket UpdateIntent(Guid id, bool accepted, bool uncertain, DateTime? submittedAtUtc = null)
+    {
+        lock (_intentGate)
+        {
+            return UpdateIntentCore(id, accepted, uncertain, submittedAtUtc);
+        }
+    }
+
+    private Ticket UpdateIntentCore(Guid id, bool accepted, bool uncertain, DateTime? submittedAtUtc)
     {
         var current = Get(id);
         if (current.Kind == RequestKind)
@@ -215,11 +320,34 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             throw new IOException("Only prepared original request evidence can be confirmed.");
         }
 
+        var next = current with
+        {
+            Kind = accepted ? RequestKind : IntentKind,
+            SubmissionUncertain = uncertain,
+            LastSubmissionAtUtc = submittedAtUtc ?? current.LastSubmissionAtUtc,
+            FirstNegativeAtUtc = submittedAtUtc.HasValue ? null : current.FirstNegativeAtUtc
+        };
+        return SaveStatus(current, next);
+    }
+
+    internal Ticket ObserveNegative(Guid id, DateTime observedAtUtc)
+    {
+        lock (_intentGate)
+        {
+            var current = Get(id);
+            return current.Kind != IntentKind || current.FirstNegativeAtUtc.HasValue
+                ? current
+                : SaveStatus(current, current with { FirstNegativeAtUtc = observedAtUtc });
+        }
+    }
+
+    private Ticket SaveStatus(Ticket current, Ticket next)
+    {
         var payload = Read(current);
-        var next = current with { Kind = accepted ? RequestKind : IntentKind, SubmissionUncertain = uncertain };
         var contents = JsonSerializer.Serialize(new Envelope(next, payload), JsonDefaults.Options);
         var length = Encoding.UTF8.GetByteCount(contents);
-        var growth = Math.Max(0, length - current.FileBytes);
+        var reservation = ReservedLength(next, payload, length);
+        var growth = Math.Max(0, reservation - current.ReservedBytes);
         lock (_gate)
         {
             if (_bytes + growth > _byteBudget)
@@ -232,12 +360,12 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
         try
         {
-            _write(PathFor(id), contents);
+            _write(PathFor(current.Id), contents);
             lock (_gate)
             {
-                _tickets[id] = next with { FileBytes = length };
-                _bytes -= current.FileBytes + growth - length;
-                return _tickets[id];
+                _tickets[current.Id] = next with { FileBytes = length, ReservedBytes = reservation };
+                _bytes -= current.ReservedBytes + growth - reservation;
+                return _tickets[current.Id];
             }
         }
         catch
@@ -251,7 +379,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
     }
 
-    private string CounterPath() => Path.Join(_directory, ".admission-order");
+    private string CounterPath() => Path.Join(_counterDirectory, ".admission-order");
 
     private FileStream OpenAdmissionLease()
     {
@@ -259,7 +387,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         {
             try
             {
-                return File.Open(Path.Join(_directory, ".admission-lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                return File.Open(Path.Join(_counterDirectory, ".admission-lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             }
             catch (IOException)
             {
@@ -267,7 +395,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             }
         }
 
-        return File.Open(Path.Join(_directory, ".admission-lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        return File.Open(Path.Join(_counterDirectory, ".admission-lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     }
 
     private CounterState? ReadCounter()
@@ -299,7 +427,8 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         if (envelope.Ticket.Id != ticket.Id || envelope.Ticket.User != ticket.User || envelope.Ticket.Tmdb != ticket.Tmdb
             || envelope.Ticket.Type != ticket.Type || envelope.Ticket.Kind != ticket.Kind || envelope.Ticket.Acquired != ticket.Acquired
             || envelope.Ticket.Hash != ticket.Hash || envelope.Ticket.AdmissionEpoch != ticket.AdmissionEpoch || envelope.Ticket.AdmissionOrder != ticket.AdmissionOrder
-            || envelope.Ticket.RequestSourceScope != ticket.RequestSourceScope || envelope.Ticket.SubmissionUncertain != ticket.SubmissionUncertain)
+            || envelope.Ticket.RequestSourceScope != ticket.RequestSourceScope || envelope.Ticket.SubmissionUncertain != ticket.SubmissionUncertain
+            || envelope.Ticket.LastSubmissionAtUtc != ticket.LastSubmissionAtUtc || envelope.Ticket.FirstNegativeAtUtc != ticket.FirstNegativeAtUtc || envelope.Ticket.IntentSchemaVersion != ticket.IntentSchemaVersion)
         {
             throw new IOException("Original feedback recovery provenance does not match its admitted receipt.");
         }
@@ -350,7 +479,7 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         {
             if (_tickets.Remove(id))
             {
-                _bytes -= ticket.FileBytes;
+                _bytes -= ticket.ReservedBytes;
             }
         }
     }
@@ -372,9 +501,12 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
     private void LoadCore()
     {
         string[] paths;
+        var directoryObserved = false;
         try
         {
-            if ((File.GetAttributes(_directory) & FileAttributes.Directory) == 0)
+            var attributes = File.GetAttributes(_directory);
+            directoryObserved = true;
+            if ((attributes & FileAttributes.Directory) == 0)
             {
                 throw new IOException("The original feedback recovery path is not a directory.");
             }
@@ -383,8 +515,13 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
-            // Only a positively missing directory is empty. Permission and I/O
-            // failures must prevent publication so the next read can restore it.
+            // Only initial absence is empty; a failed observed inventory must
+            // remain unpublished so restoration can recover its original evidence.
+            if (directoryObserved)
+            {
+                throw;
+            }
+
             return;
         }
 
@@ -397,13 +534,19 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
             }
 
             var envelope = ReadEnvelope(path);
-            var ticket = envelope.Ticket with { FileBytes = length };
+            var reservation = ReservedLength(envelope.Ticket, envelope.Payload, length);
+            if (_bytes + reservation > _byteBudget)
+            {
+                throw new IOException("Existing feedback intent status reservations exceed the bounded journal limit.");
+            }
+
+            var ticket = envelope.Ticket with { FileBytes = length, ReservedBytes = reservation };
             if (Path.GetFileName(path) != ticket.Id.ToString("N") + ".json" || !_tickets.TryAdd(ticket.Id, ticket))
             {
                 throw new IOException("Feedback recovery journal identities are inconsistent.");
             }
 
-            _bytes += length;
+            _bytes += reservation;
         }
     }
 
@@ -445,7 +588,8 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
         if (envelope.Ticket is null || envelope.Payload is null || envelope.Payload.LongLength > MaximumPayloadBytes || envelope.Ticket.Id == Guid.Empty || envelope.Ticket.User == Guid.Empty
             || envelope.Ticket.Tmdb <= 0 || envelope.Ticket.Type is not ("movie" or "tv") || envelope.Ticket.Kind is not (RequestKind or "Dismissal" or "Impression" or IntentKind)
             || Convert.ToHexString(SHA256.HashData(envelope.Payload)) != envelope.Ticket.Hash
-            || envelope.Ticket.AdmissionOrder < 0 || (envelope.Ticket.AdmissionEpoch == Guid.Empty) != (envelope.Ticket.AdmissionOrder == 0))
+            || envelope.Ticket.AdmissionOrder < 0 || (envelope.Ticket.AdmissionEpoch == Guid.Empty) != (envelope.Ticket.AdmissionOrder == 0)
+            || envelope.Ticket.IntentSchemaVersion is < 0 or > 1)
         {
             throw new IOException("Original feedback recovery evidence is invalid.");
         }
@@ -463,7 +607,15 @@ internal sealed class DiscoveryFeedbackRecoveryJournal
 
         public bool SubmissionUncertain { get; init; }
 
+        public int IntentSchemaVersion { get; init; }
+
+        public DateTime? LastSubmissionAtUtc { get; init; }
+
+        public DateTime? FirstNegativeAtUtc { get; init; }
+
         internal long FileBytes { get; init; }
+
+        internal long ReservedBytes { get; init; }
     }
 
     private sealed record CounterState(Guid Epoch, long Order);

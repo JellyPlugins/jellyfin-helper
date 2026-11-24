@@ -41,9 +41,10 @@ internal static class ModelInputFeatures
     internal static double[] FitImputation(IReadOnlyList<TrainingExample> examples, IReadOnlyList<int> fitting, double[]? prior)
     {
         var language = LanguageFeatureImputation.Fit(examples, fitting, prior) ?? prior;
+        var credits = CreditFeatureImputation.Fit(examples, fitting, language) ?? language;
         var means = new double[FeatureCount];
         var defaults = new CandidateFeatures { IsExternalCandidate = true, HasPeopleMetadata = false }.ToModelVector(null);
-        Array.Copy(language ?? defaults, means, CandidateFeatures.FeatureCount);
+        Array.Copy(credits ?? defaults, means, CandidateFeatures.FeatureCount);
         foreach (var index in Enumerable.Range((int)FeatureIndex.ContentFitAffinity, 3))
         {
             var values = fitting.Order().Select(row => Value(examples[row].Features, index)).Where(value => value.HasValue).Select(value => value!.Value).ToArray();
@@ -57,6 +58,7 @@ internal static class ModelInputFeatures
     internal static void ApplyMissing(IReadOnlyList<TrainingExample> examples, double[][] vectors, double[] means)
     {
         LanguageFeatureImputation.Apply(examples, vectors, means);
+        CreditFeatureImputation.Apply(examples, vectors, means);
         for (var index = 0; index < examples.Count; index++)
         {
             WriteContext(examples[index].Features, vectors[index], means);

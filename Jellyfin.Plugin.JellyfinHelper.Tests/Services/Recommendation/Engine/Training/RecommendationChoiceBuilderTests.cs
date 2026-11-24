@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -112,6 +113,36 @@ public sealed class RecommendationChoiceBuilderTests
         Assert.Equal(.25, contrast.SampleWeight);
         Assert.Equal(.05, contrast.Label);
         Assert.True(positive.Label > .5);
+    }
+
+    [Fact]
+    public void ARealLegacyChoiceMayInspectOtherCandidatesWithoutTurningUnavailableTitlesIntoDislikes()
+    {
+        var user = Guid.NewGuid();
+        var otherUser = Guid.NewGuid();
+        var chosen = Title(user, heldout: false);
+        var alternative = Title(user, heldout: false);
+        var unoffered = Guid.NewGuid();
+        var result = Result(user, Item(chosen, .8), Item(alternative, .7));
+        foreach (var item in result.Recommendations) item.ScoringFeatures = null;
+        var earlierObservedChoice = Result(user, Item(chosen, .8), Item(alternative, .7));
+        earlierObservedChoice.GeneratedAt = Prediction.AddDays(-1);
+        var profile = Profile(user, Watch(chosen, Prediction.AddDays(-10), Prediction.AddDays(1)));
+        var credits = new CreditMetadataSnapshot
+        {
+            SourceItemId = unoffered, MediaType = "tv",
+            Cast = new CreditField { Complete = true, AcquiredAtUtc = Prediction.AddDays(-1), People = [] },
+            Crew = new CreditField { Complete = true, AcquiredAtUtc = Prediction.AddDays(-1), People = [] }
+        };
+        var unseen = new RecommendedItem { ItemId = unoffered, ItemType = "Series", Genres = ["Drama"], DateCreated = Prediction.AddDays(2), Credits = credits };
+        var otherResult = Result(otherUser, unseen);
+        var counts = new Dictionary<Guid, int> { [unoffered] = 5 };
+        var built = TrainingDataBuilder.BuildExamples([earlierObservedChoice, result, otherResult], [profile, new UserWatchProfile { UserId = otherUser }], null, counts, null, null, null, TestContext.Current.CancellationToken);
+        Assert.Contains(built.Examples, row => row.UserId == user && row.IsObserved && row.ObservationId == TrainingExample.CreateLibraryObservationId(user, chosen));
+        Assert.DoesNotContain(built.Examples, row => row.UserId == user && row.ObservationId == TrainingExample.CreateLibraryObservationId(user, unoffered));
+        Assert.Equal(1, built.RandomNegativeCount);
+        Assert.Equal(TrainingExample.CreateLibraryObservationId(user, alternative), Assert.Single(built.Examples, row => row.UserId == user && row.IsContrastSample).ObservationId);
+        Assert.Same(credits, unseen.Credits);
     }
 
     [Theory]

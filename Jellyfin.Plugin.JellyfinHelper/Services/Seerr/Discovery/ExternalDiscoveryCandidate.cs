@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -25,11 +26,37 @@ public sealed class ExternalDiscoveryCandidate
     /// <summary>Gets or sets the overview/synopsis.</summary>
     public string? Overview { get; set; }
 
-    /// <summary>Gets or sets the community rating (0-10).</summary>
-    public double VoteAverage { get; set; }
+    /// <summary>Gets or sets observed rating; null, omitted and invalid source values are unavailable.</summary>
+    [JsonPropertyName("voteAverage")]
+    public double? VoteAverageValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
 
-    /// <summary>Gets or sets the popularity signal.</summary>
-    public double Popularity { get; set; }
+    /// <summary>Gets or sets the compatible numeric rating projection.</summary>
+    [JsonIgnore]
+    public double VoteAverage { get => VoteAverageValue.GetValueOrDefault(); set => VoteAverageValue = value; }
+
+    /// <summary>Gets a value indicating whether the source actually supplied a finite non-negative rating.</summary>
+    [JsonIgnore]
+    public bool HasRatingMetadata => VoteAverageValue.HasValue;
+
+    /// <summary>Gets or sets observed popularity; explicit zero remains known metadata.</summary>
+    [JsonPropertyName("popularity")]
+    public double? PopularityValue
+    {
+        get;
+        set => field = value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+    }
+
+    /// <summary>Gets or sets the compatible numeric popularity projection.</summary>
+    [JsonIgnore]
+    public double Popularity { get => PopularityValue.GetValueOrDefault(); set => PopularityValue = value; }
+
+    /// <summary>Gets a value indicating whether the source actually supplied finite non-negative popularity.</summary>
+    [JsonIgnore]
+    public bool HasPopularityMetadata => PopularityValue.HasValue;
 
     /// <summary>Gets or sets the TMDb genre ids (used by the parental filter and genre features).</summary>
     public IReadOnlyList<int> GenreIds { get; set; } = [];

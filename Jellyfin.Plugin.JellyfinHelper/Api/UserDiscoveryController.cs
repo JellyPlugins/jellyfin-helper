@@ -620,8 +620,16 @@ public sealed class UserDiscoveryController : ControllerBase
             }
 
             var prepared = durable.PrepareRequestedCard(user, delivery.Item, delivery.GeneratedAtUtc, scope);
-            durable.MarkPreparedSubmission(prepared);
-            return (prepared, null);
+            try
+            {
+                durable.MarkPreparedSubmission(prepared);
+                return (prepared, null);
+            }
+            catch
+            {
+                durable.AbandonPreparedRequest(prepared);
+                throw;
+            }
         }
         catch (Exception exception) when (!exception.IsFatal())
         {
@@ -639,27 +647,53 @@ public sealed class UserDiscoveryController : ControllerBase
             return admission.Error;
         }
 
-        var result = _discovery is SeerrDiscoveryService native
-            ? await native.SubmitCapturedRequestAsync(submission, cancellationToken).ConfigureAwait(false)
-            : await _discovery.SubmitRequestAsync(submission.TmdbId, submission.MediaType, submission.SeerrUserId, submission.ServerId, submission.ProfileId, submission.RootFolder, cancellationToken).ConfigureAwait(false);
-
-        if (!result.Success)
+        SeerrRequestResult? result = null;
+        try
         {
-            RetireUnacceptedRequest(admission.Prepared, result);
-            return StatusCode(502, new RequestResult { Success = false, Message = result.Message });
+            result = _discovery is SeerrDiscoveryService native
+                ? await native.SubmitCapturedRequestAsync(submission, cancellationToken).ConfigureAwait(false)
+                : await _discovery.SubmitRequestAsync(submission.TmdbId, submission.MediaType, submission.SeerrUserId, submission.ServerId, submission.ProfileId, submission.RootFolder, cancellationToken).ConfigureAwait(false);
+
+            if (!result.Success)
+            {
+                RetireUnacceptedRequest(admission.Prepared, result);
+                return StatusCode(502, new RequestResult { Success = false, Message = result.Message });
+            }
+
+            var confirmationError = await ConfirmAcceptedRequestAsync(user, admission.Prepared, submission.SourceScope).ConfigureAwait(false);
+            if (confirmationError is not null)
+            {
+                await PersistRequestBookkeepingAsync(dto, submission.MediaType, user, delivery, feedbackConfirmed: true).ConfigureAwait(false);
+                return confirmationError;
+            }
+
+            await PersistRequestBookkeepingAsync(dto, submission.MediaType, user, delivery, admission.Prepared is not null).ConfigureAwait(false);
+
+            return StatusCode(
+                result.AlreadyRequested ? StatusCodes.Status200OK : StatusCodes.Status201Created,
+                new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
+        }
+        finally
+        {
+            FinishUpstreamAttempt(admission.Prepared, result is null || result.SubmissionUncertain);
+        }
+    }
+
+    private void FinishUpstreamAttempt(DiscoveryFeedbackStore.PreparedRequest? prepared, bool uncertain)
+    {
+        if (prepared is null)
+        {
+            return;
         }
 
-        var confirmationError = await ConfirmAcceptedRequestAsync(user, admission.Prepared, submission.SourceScope).ConfigureAwait(false);
-        if (confirmationError is not null)
+        try
         {
-            return confirmationError;
+            ((DiscoveryFeedbackStore)_feedbackStore).FinishPreparedAttempt(prepared, uncertain);
         }
-
-        await PersistRequestBookkeepingAsync(dto, submission.MediaType, user, delivery, admission.Prepared is not null).ConfigureAwait(false);
-
-        return StatusCode(
-            result.AlreadyRequested ? StatusCodes.Status200OK : StatusCodes.Status201Created,
-            new RequestResult { Success = true, AlreadyRequested = result.AlreadyRequested, Message = result.Message });
+        catch (Exception exception) when (!exception.IsFatal())
+        {
+            _logger.LogWarning(exception, "[Discovery] Upstream attempt ended; original evidence remains pending safe retirement");
+        }
     }
 
     private void RetireUnacceptedRequest(DiscoveryFeedbackStore.PreparedRequest? prepared, SeerrRequestResult result)

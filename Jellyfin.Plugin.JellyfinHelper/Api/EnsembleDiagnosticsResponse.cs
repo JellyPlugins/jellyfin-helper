@@ -43,8 +43,23 @@ public sealed class EnsembleDiagnosticsResponse
     /// <summary>Gets or sets the accepted model revision, separate from fitting attempts.</summary>
     public long ModelRevision { get; set; }
 
-    /// <summary>Gets or sets the operating evidence level; provisional participation is not verified ranking approval.</summary>
+    /// <summary>Gets or sets the captured model/cohort's evidence level; consult current-derivation validation before interpreting historical verification as current approval.</summary>
     public string ValidationLevel { get; set; } = "Legacy";
+
+    /// <summary>Gets or sets the retained model's actual input-cohort provenance; absent legacy provenance remains zero.</summary>
+    public int ModelFeatureDerivationVersion { get; set; }
+
+    /// <summary>Gets or sets the input cohort to which the displayed operative mixture applies.</summary>
+    public int InputFeatureDerivationVersion { get; set; }
+
+    /// <summary>Gets or sets the current feature-builder derivation, independent of the v6 parameter version.</summary>
+    public int CurrentFeatureDerivationVersion { get; set; }
+
+    /// <summary>Gets or sets whether this is a current or legacy/different-derivation prior.</summary>
+    public string FeatureDerivationStatus { get; set; } = "LegacyOrUnknownPrior";
+
+    /// <summary>Gets or sets a value indicating whether this scope has independent ranking approval under current feature derivation.</summary>
+    public bool HasCurrentFeatureDerivationRankingValidation { get; set; }
 
     /// <summary>Gets or sets the latest independent admission/retention reason.</summary>
     public string? AdmissionReason { get; set; }
@@ -166,6 +181,11 @@ public sealed class EnsembleDiagnosticsResponse
             NeuralShare = diagnostics.NeuralShare,
             ModelRevision = diagnostics.ModelRevision,
             ValidationLevel = diagnostics.ValidationLevel,
+            ModelFeatureDerivationVersion = diagnostics.ModelFeatureDerivationVersion,
+            InputFeatureDerivationVersion = diagnostics.InputFeatureDerivationVersion,
+            CurrentFeatureDerivationVersion = diagnostics.CurrentFeatureDerivationVersion,
+            FeatureDerivationStatus = diagnostics.FeatureDerivationStatus,
+            HasCurrentFeatureDerivationRankingValidation = diagnostics.HasCurrentFeatureDerivationRankingValidation,
             AdmissionReason = diagnostics.AdmissionReason,
             IndependentAdmissionReason = diagnostics.IndependentAdmissionReason,
             ProvisionalCalibrationLoss = diagnostics.ProvisionalCalibrationLoss,

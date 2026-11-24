@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>Assessment only; rejecting it leaves the incumbent selection and its files untouched.</summary>
@@ -5,6 +7,10 @@ internal sealed record AdmissionDecision(bool Accepted, string Reason, Admission
 {
     /// <summary>Gets the separate calibration-only serving trace; it cannot turn a failed admission into independent approval.</summary>
     public ProvisionalServingAssessment? ProvisionalServing { get; init; }
+
+    /// <summary>Gets the actual uniform evaluation cohort, never inferred from v6 dimensions or outcome labels.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int FeatureDerivationVersion { get; init; }
 
     /// <summary>Creates a non-admission without inventing zero loss or positive quality.</summary>
     /// <param name="reason">The evidence limitation.</param>

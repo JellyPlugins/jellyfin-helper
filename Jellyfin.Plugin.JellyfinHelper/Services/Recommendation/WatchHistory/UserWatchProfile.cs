@@ -32,6 +32,9 @@ public sealed class UserWatchProfile
     /// <summary>Gets or sets the current host-authorized item IDs; absent only for legacy/custom profile providers.</summary>
     internal IReadOnlySet<Guid>? AccessibleItemIds { get; set; }
 
+    /// <summary>Gets or sets the exclusive historical credit boundary; null denotes current metadata use.</summary>
+    internal DateTime? CreditMetadataCutoffUtc { get; set; }
+
     /// <summary>
     ///     Gets or sets the user's display name.
     /// </summary>

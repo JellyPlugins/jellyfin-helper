@@ -11,6 +11,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class CollaborativeFilterTests
 {
+    [Fact]
+    public void IdenticalPowerUserHasNoUnseenEndorsementsButStillDefinesSparseNeighbourTrust()
+    {
+        var shared = Enumerable.Range(0, 20).Select(_ => Guid.NewGuid()).ToArray();
+        var target = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        var identical = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        Assert.Empty(CollaborativeFilter.BuildCollaborativeMap(target, [target, identical]));
+
+        var unseen = Guid.NewGuid();
+        var sparse = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = new Collection<WatchedItemInfo>(shared.Take(3).Append(unseen).Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList()) };
+        var actual = CollaborativeFilter.BuildCollaborativeMap(target, [target, identical, sparse]);
+        var expected = (3.0 / 21) * Math.Sqrt(1 - Math.Exp(-4.0 / EngineConstants.CollaborativeTrustScale));
+        Assert.Equal(unseen, Assert.Single(actual).Key);
+        Assert.Equal(expected, actual[unseen], 12);
+    }
+
     [Theory]
     [InlineData(2, false)]
     [InlineData(5, false)]

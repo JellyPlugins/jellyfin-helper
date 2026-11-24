@@ -94,8 +94,8 @@ internal static class TraktMapper
 
             // Trakt rating is 0-10 like TMDb's voteAverage, so it carries straight through as the rating
             // signal - clamped so a malformed payload cannot push a negative or >10 value into the scorer.
-            VoteAverage = Math.Clamp(item.Rating ?? 0, 0d, 10d),
-            Popularity = 0,
+            VoteAverageValue = item.Rating is { } rating && double.IsFinite(rating) && rating >= 0 ? Math.Clamp(rating, 0d, 10d) : null,
+            PopularityValue = null,
             GenreIds = [],
             SourceGenres = item.Genres?.ToArray(),
             TitleMetadata = Metadata(item, mediaType, acquiredAtUtc),

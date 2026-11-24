@@ -1605,6 +1605,11 @@ public sealed class ValidatedEnsembleLifecycleTests : IDisposable
         var method = typeof(EnsembleScoringStrategy).GetMethod("CalibrateHistoricalCandidate", flags | System.Reflection.BindingFlags.Instance)!;
         var candidate = method.Invoke(ensemble, [original, context, penalized, current]);
         Assert.Equal(selected, candidate is not null);
+        var retainedWeights = (double[])original.Learned.Weights.Clone();
+        foreach (var row in calibration) row.Features.FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion;
+        Assert.Null(method.Invoke(ensemble, [original, context, penalized, current]));
+        Assert.Equal(0, original.FeatureDerivationVersion);
+        Assert.Equal(retainedWeights, original.Learned.Weights);
     }
 
     [Fact]

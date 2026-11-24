@@ -21,8 +21,8 @@ internal static class CollectionMembershipResolver
         var candidates = items.DistinctBy(item => item.Id).ToArray();
         var boxsets = collections.ToArray();
         var membership = new Dictionary<Guid, List<Guid>>();
-        Merge(membership, candidates.OfType<Movie>().Select(item => item.Id).ToHashSet(), boxsets, linkedChildren);
-        return candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, boxsets, membership));
+        var complete = Merge(membership, candidates.OfType<Movie>().Select(item => item.Id).ToHashSet(), boxsets, linkedChildren);
+        return candidates.ToDictionary(item => item.Id, item => ContentAffinityResolver.ResolveTmdbCollectionId(item, boxsets, membership, complete));
     }
 
     /// <summary>Captures one membership read for the allowed history population of a complete generation run.</summary>
@@ -91,19 +91,111 @@ internal static class CollectionMembershipResolver
         return counts;
     }
 
-    private static (Guid ItemId, string Key) EngagedTitle(WatchedItemInfo item)
+    /// <summary>Resolves the shared movie/TV title identity, retaining physical-copy provenance until eligibility is applied.</summary>
+    /// <param name="item">A captured history row.</param>
+    /// <returns>The physical title ID and its typed provider/native fallback key.</returns>
+    internal static (Guid ItemId, string Key) EngagedTitle(WatchedItemInfo item)
     {
         var parent = item.SeriesId.GetValueOrDefault();
-        var isSeries = parent != Guid.Empty || string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+        var episode = string.Equals(item.ItemType, "Episode", StringComparison.OrdinalIgnoreCase);
+        var isSeries = parent != Guid.Empty || episode || string.Equals(item.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
         var id = parent != Guid.Empty ? parent : item.ItemId;
         var tmdb = parent != Guid.Empty ? item.SeriesTmdbId : item.TmdbId;
+        if (episode && parent == Guid.Empty)
+        {
+            tmdb = 0;
+        }
+
         var type = isSeries ? "tv" : "movie";
         return (id, tmdb > 0 ? $"{type}:tmdb:{tmdb}" : $"{type}:item:{id:N}");
     }
 
-    private static List<(Guid ItemId, string Key)> EngagedTitles(IEnumerable<WatchedItemInfo> history)
+    /// <summary>Coalesces episode/parent rows per physical copy before distinct provider titles are counted.</summary>
+    /// <param name="history">Already-scoped captured history.</param>
+    /// <returns>Physical copies retaining their best known typed title key.</returns>
+    internal static List<(Guid ItemId, string Key)> EngagedTitles(IEnumerable<WatchedItemInfo> history)
         => history.Where(item => item.HasMeaningfulInteraction()).Select(EngagedTitle).GroupBy(title => title.ItemId)
             .Select(group => group.FirstOrDefault(title => title.Key.Contains(":tmdb:", StringComparison.Ordinal), group.First())).ToList();
+
+    /// <summary>Counts scoped typed titles per BoxSet, unioning BoxSet aliases only with observed matching provider identities.</summary>
+    /// <typeparam name="TMemberships">The captured membership-list type.</typeparam>
+    /// <param name="history">Current allowed rows, or an already cutoff/self-excluded historical view.</param>
+    /// <param name="memberships">Detached item-to-BoxSet memberships.</param>
+    /// <param name="providerIds">Optional observed BoxSet-to-provider collection identities.</param>
+    /// <param name="allowedItems">Optional current permitted physical title IDs; intersected before title deduplication.</param>
+    /// <returns>Distinct-title counts keyed by native BoxSet ID.</returns>
+    internal static Dictionary<Guid, int> WatchedCounts<TMemberships>(
+        IEnumerable<WatchedItemInfo> history,
+        IReadOnlyDictionary<Guid, TMemberships> memberships,
+        IReadOnlyDictionary<Guid, int>? providerIds = null,
+        IReadOnlySet<Guid>? allowedItems = null)
+        where TMemberships : IReadOnlyList<Guid>
+    {
+        if (memberships.Count == 0)
+        {
+            return [];
+        }
+
+        var byBoxSet = new Dictionary<Guid, HashSet<string>>();
+        var scoped = history.Where(row => allowedItems?.Contains(EngagedTitle(row).ItemId) != false);
+        foreach (var title in EngagedTitles(scoped))
+        {
+            if (!memberships.TryGetValue(title.ItemId, out var boxes))
+            {
+                continue;
+            }
+
+            AddTitleMemberships(byBoxSet, boxes, title.Key);
+        }
+
+        var counts = byBoxSet.ToDictionary(pair => pair.Key, pair => pair.Value.Count);
+        if (providerIds is null)
+        {
+            return counts;
+        }
+
+        MergeProviderAliases(byBoxSet, counts, providerIds);
+        return counts;
+    }
+
+    private static void AddTitleMemberships(Dictionary<Guid, HashSet<string>> byBoxSet, IReadOnlyList<Guid> boxes, string title)
+    {
+        foreach (var box in boxes.Where(id => id != Guid.Empty))
+        {
+            if (!byBoxSet.TryGetValue(box, out var titles))
+            {
+                titles = new HashSet<string>(StringComparer.Ordinal);
+                byBoxSet.Add(box, titles);
+            }
+
+            titles.Add(title);
+        }
+    }
+
+    private static void MergeProviderAliases(Dictionary<Guid, HashSet<string>> byBoxSet, Dictionary<Guid, int> counts, IReadOnlyDictionary<Guid, int> providerIds)
+    {
+        foreach (var aliases in providerIds.Where(pair => pair.Key != Guid.Empty && pair.Value > 0).GroupBy(pair => pair.Value))
+        {
+            var titles = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var alias in aliases)
+            {
+                if (byBoxSet.TryGetValue(alias.Key, out var members))
+                {
+                    titles.UnionWith(members);
+                }
+            }
+
+            if (titles.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var alias in aliases)
+            {
+                counts[alias.Key] = titles.Count;
+            }
+        }
+    }
 
     /// <summary>Merges linked collection memberships into the parent lookup, scoped to allowed candidates.</summary>
     /// <param name="lookup">The parent-hierarchy fallback, updated in place.</param>

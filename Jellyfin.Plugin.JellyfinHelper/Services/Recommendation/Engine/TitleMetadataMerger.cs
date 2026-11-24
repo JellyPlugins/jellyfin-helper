@@ -40,7 +40,7 @@ internal static class TitleMetadataMerger
         string? Consistent(Func<TitleMetadataSnapshot, string?> selector, string name, Func<string?, string?> normalize)
         {
             var values = ordered.Select(selector).OfType<string>()
-                .Concat(ordered.SelectMany(snapshot => snapshot.ConflictingValues?.GetValueOrDefault(name) ?? []))
+                .Concat(ordered.SelectMany(snapshot => ConflictValuesFor(snapshot, name)))
                 .Select(value => value.Trim()).Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray();
             var identities = values.Select(normalize).Distinct(StringComparer.Ordinal).ToArray();
             if (identities.Length > 1 || identities.Contains(null))
@@ -102,6 +102,8 @@ internal static class TitleMetadataMerger
             AnimeHint = animeHint?.AnimeHint,
             OriginCountries = Union(snapshot => snapshot.OriginCountries, nameof(TitleMetadataSnapshot.OriginCountries), StringComparer.OrdinalIgnoreCase),
             ProductionCountries = Union(snapshot => snapshot.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries), StringComparer.OrdinalIgnoreCase),
+            ProductionCompanies = Union(snapshot => snapshot.ProductionCompanies, nameof(TitleMetadataSnapshot.ProductionCompanies)),
+            Networks = Union(snapshot => snapshot.Networks, nameof(TitleMetadataSnapshot.Networks)),
             Overview = Select(snapshot => snapshot.Overview, nameof(TitleMetadataSnapshot.Overview)),
             FetchedAtUtc = ordered.Max(snapshot => snapshot.FetchedAtUtc),
             Source = string.Join('+', ordered.Select(snapshot => snapshot.Source).Distinct(StringComparer.Ordinal)),
@@ -137,6 +139,16 @@ internal static class TitleMetadataMerger
 
     private static ImmutableDictionary<string, ImmutableArray<string>>? NonEmptyConflicts(ImmutableDictionary<string, ImmutableArray<string>> conflicts)
         => conflicts.IsEmpty ? null : conflicts;
+
+    private static ImmutableArray<string> ConflictValuesFor(TitleMetadataSnapshot snapshot, string field)
+    {
+        if (snapshot.ConflictingValues is { } conflicts && conflicts.TryGetValue(field, out var values) && !values.IsDefault)
+        {
+            return values;
+        }
+
+        return [];
+    }
 
     private static DateTime AcquiredAt(TitleMetadataSnapshot snapshot, string field)
         => snapshot.FieldFetchedAtUtc?.GetValueOrDefault(field, snapshot.FetchedAtUtc) ?? snapshot.FetchedAtUtc;

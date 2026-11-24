@@ -626,7 +626,7 @@ public class DiversityRerankerTests
             score -= 0.01;
         }
 
-        var result = DiversityReranker.ApplyDiversityReranking(candidates, 20, seed: 42);
+        var result = DiversityReranker.ApplyDiversityWithMetadata(candidates, 20, new DiversityReranker.SelectionMetadata(Seed: 42, ProducerMetadata: item => Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(item.Studios[0] == "StudioA" ? 1 : 2, item.Studios[0])));
 
         // Only assert on the MMR head (first mmrSlotCount picks) so exploration randomness cannot
         // influence the result. mmrSlotCount = count - explorationSlots.

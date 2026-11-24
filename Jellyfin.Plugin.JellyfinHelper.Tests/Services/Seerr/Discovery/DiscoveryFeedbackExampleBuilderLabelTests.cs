@@ -264,7 +264,16 @@ public sealed class DiscoveryFeedbackExampleBuilderLabelTests
         {
             [sharedPerson] = 3
         };
-        foreach (var watch in profile.WatchedItems.Take(3)) watch.PeopleNames = [sharedPerson];
+        foreach (var watch in profile.WatchedItems.Take(3))
+        {
+            watch.PeopleNames = [sharedPerson];
+            watch.Credits = new CreditMetadataSnapshot
+            {
+                SourceItemId = watch.ItemId,
+                Cast = new CreditField { Complete = true, AcquiredAtUtc = watch.LastPlayedDate, People = [new() { Name = sharedPerson, Kind = Jellyfin.Data.Enums.PersonKind.Actor }] },
+                Crew = new CreditField { Complete = true, AcquiredAtUtc = watch.LastPlayedDate, People = [] }
+            };
+        }
 
         var entry = ShownEntry();
         entry.KnownPeople = [sharedPerson, "Someone Else"];

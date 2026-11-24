@@ -1242,6 +1242,61 @@ public class PreferenceBuilderTests
     }
 
     [Fact]
+    public void CanonicalCountryPreferencesDoNotGainWeightFromDuplicateFactsOrPhysicalCopies()
+    {
+        var first = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new() { ItemId = first, ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = now, ProductionCountries = ["US", "US"] },
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 701, Played = true, LastPlayedDate = now, ProductionCountries = ["US"] },
+                new() { ItemId = Guid.NewGuid(), ItemType = "Movie", TmdbId = 702, Played = true, LastPlayedDate = now, ProductionCountries = ["GB"] }
+            ]
+        };
+        var raw = profile.WatchedItems[0].ProductionCountries.ToArray();
+        var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        Assert.Equal(1, vector["US"], 7);
+        Assert.Equal(1, vector["GB"], 7);
+        Assert.Equal(2, vector.Count);
+        Assert.Equal(raw, profile.WatchedItems[0].ProductionCountries);
+        Assert.Equal(now, profile.WatchedItems[0].LastPlayedDate);
+    }
+
+    [Fact]
+    public void CanonicalCountrySeriesCopiesEpisodesAndParentFactsCountOneTitleWithTypedNativeFallback()
+    {
+        var series = Guid.NewGuid();
+        var secondSeries = Guid.NewGuid();
+        var denied = Guid.NewGuid();
+        var episode = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            AccessibleItemIds = new HashSet<Guid> { series, secondSeries, episode },
+            WatchedItems =
+            [
+                new() { ItemId = denied, ItemType = "Movie", TmdbId = 701, IsFavorite = true, ProductionCountries = ["US"] },
+                new() { ItemId = episode, ItemType = "Episode", SeriesId = series, SeriesTmdbId = 701, IsFavorite = true, ProductionCountries = ["US", "USA"] },
+                new() { ItemId = series, ItemType = "Series", TmdbId = 701, IsFavorite = true, ProductionCountries = ["United States of America"] },
+                new() { ItemId = secondSeries, ItemType = "Series", TmdbId = 701, IsFavorite = true, ProductionCountries = ["US"] }
+            ]
+        };
+        var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        Assert.Equal(1, Assert.Single(vector).Value);
+        Assert.Equal("US", Assert.Single(vector).Key);
+        var nativeMovie = new WatchedItemInfo { ItemId = Guid.NewGuid(), ItemType = "Movie", IsFavorite = true, ProductionCountries = ["GB"] };
+        profile.AccessibleItemIds = new HashSet<Guid> { series, secondSeries, episode, nativeMovie.ItemId };
+        profile.WatchedItems.Add(nativeMovie);
+        Assert.Equal(1, PreferenceBuilder.BuildProductionCountryPreferenceVector(profile)["GB"]);
+        nativeMovie.AudioLanguages = ["jpn"];
+        nativeMovie.ProductionCountries = ["Tokyo"];
+        Assert.DoesNotContain("JP", PreferenceBuilder.BuildProductionCountryPreferenceVector(profile).Keys);
+        Assert.Equal("Tokyo", Assert.Single(nativeMovie.ProductionCountries));
+        Assert.Equal(1, PreferenceBuilder.BuildProductionCountryPreferenceVector(profile, countryRows: [profile.WatchedItems[1]])["US"]);
+    }
+
+    [Fact]
     public void BuildProductionCountryPreferenceVector_AggregatesAndNormalizes()
     {
         var profile = new UserWatchProfile
@@ -1253,8 +1308,8 @@ public class PreferenceBuilderTests
             ]
         };
         var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
-        Assert.Equal(1.0, vector["Japan"], 10);   // appears twice -> dominant -> normalized to 1.0
-        Assert.True(vector["Japan"] > vector["USA"]);
+        Assert.Equal(1.0, vector["JP"], 10);   // two distinct titles -> dominant; name/code aliases do not add mass
+        Assert.True(vector["JP"] > vector["US"]);
     }
 
     [Fact]
@@ -1403,9 +1458,9 @@ public class PreferenceBuilderTests
         };
         var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = true }] };
 
-        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup, new Dictionary<Guid, TitleMetadataSnapshot?> { [movieId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(1, "A24") });
 
-        Assert.Contains("A24", result);
+        Assert.Contains("producer:tmdb:production-company:1", result);
         Assert.Single(result); // whitespace/empty studios filtered out
     }
 
@@ -1424,9 +1479,9 @@ public class PreferenceBuilderTests
             WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
         };
 
-        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup);
+        var result = PreferenceBuilder.BuildStudioPreferenceSet(profile, lookup, new Dictionary<Guid, TitleMetadataSnapshot?> { [seriesId] = Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures.TestMockFactory.CreateProducerMetadata(2, "HBO producer", "tv") });
 
-        Assert.Contains("HBO", result);
+        Assert.Contains("producer:tmdb:production-company:2", result);
         Assert.Single(result); // blank series studio excluded
     }
 

@@ -82,7 +82,7 @@ internal static class DiscoverySelection
     {
         var best = -1;
         var bestUtility = double.NegativeInfinity;
-        var selectedSeries = selected.Count(candidate => candidate.MediaType == TmdbLibraryMapper.TvMediaType);
+        var selectedSeries = selected.Count(candidate => string.Equals(candidate.MediaType, TmdbLibraryMapper.TvMediaType, StringComparison.OrdinalIgnoreCase));
         for (var i = 0; i < remaining.Count; i++)
         {
             var candidate = remaining[i];
@@ -103,7 +103,7 @@ internal static class DiscoverySelection
 
             var similarity = selected.Count == 0 ? 0.0 : selected.Max(previous => SimilarityComputer.ComputeJaccardFromSets(genres[candidate], genres[previous]));
             var utility = (0.8 * candidate.Score) - (0.2 * similarity)
-                + MediaTypeBalance.Adjustment(candidate.MediaType == TmdbLibraryMapper.TvMediaType, selected.Count, selectedSeries, targetSeriesShare);
+                + MediaTypeBalance.Adjustment(string.Equals(candidate.MediaType, TmdbLibraryMapper.TvMediaType, StringComparison.OrdinalIgnoreCase), selected.Count, selectedSeries, targetSeriesShare);
             if (utility > bestUtility)
             {
                 best = i;

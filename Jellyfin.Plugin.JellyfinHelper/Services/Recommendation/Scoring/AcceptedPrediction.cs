@@ -11,13 +11,15 @@ internal sealed class AcceptedPrediction
     /// <param name="neural">Pinned neural inference, when present.</param>
     /// <param name="mixture">The independently accepted score-space mixture.</param>
     /// <param name="neuralCap">The absolute Neural ceiling at acceptance.</param>
-    internal AcceptedPrediction(HeuristicScoringStrategy heuristic, LearnedScoringStrategy.PredictionSnapshot learned, NeuralScoringStrategy.PredictionSnapshot? neural, AdmissionMixture mixture, double neuralCap)
+    /// <param name="featureDerivationVersion">Captured input-cohort provenance; legacy constructors retain zero/unknown.</param>
+    internal AcceptedPrediction(HeuristicScoringStrategy heuristic, LearnedScoringStrategy.PredictionSnapshot learned, NeuralScoringStrategy.PredictionSnapshot? neural, AdmissionMixture mixture, double neuralCap, int featureDerivationVersion = 0)
     {
         ArgumentNullException.ThrowIfNull(heuristic);
         Learned = learned;
         Neural = neural;
         Mixture = mixture;
         NeuralCap = neuralCap;
+        FeatureDerivationVersion = featureDerivationVersion;
     }
 
     /// <summary>Gets pinned learned coordinates.</summary>
@@ -31,6 +33,9 @@ internal sealed class AcceptedPrediction
 
     /// <summary>Gets the accepted absolute Neural ceiling.</summary>
     internal double NeuralCap { get; }
+
+    /// <summary>Gets the captured input-cohort derivation; changing a personal mixture does not upgrade its prior's provenance.</summary>
+    internal int FeatureDerivationVersion { get; }
 
     /// <summary>Conservatively applies a new configuration cap without raising tiny admitted coefficients to alpha-min.</summary>
     /// <param name="alphaMax">The current configured ML ceiling.</param>
@@ -51,7 +56,7 @@ internal sealed class AcceptedPrediction
     internal double Score(CandidateFeatures features, double alphaMax, double genrePenaltyFloor)
     {
         ArgumentNullException.ThrowIfNull(features);
-        var mixture = Resolve(alphaMax);
+        var mixture = FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, FeatureDerivationVersion) ? Resolve(alphaMax) : default;
         var h = HeuristicScoringStrategy.ScoreRaw(features);
         if (mixture.Alpha <= 0)
         {

@@ -148,7 +148,7 @@ internal static class DiscoveryFeedbackExampleBuilder
         IReadOnlyList<double>? featureMeans,
         out bool hasLegacyPopularity)
     {
-        hasLegacyPopularity = entry.Popularity <= 0;
+        hasLegacyPopularity = entry.HasPopularityMetadata is null && entry.Popularity <= 0;
         // Recorded inputs belong to the prediction, not to the user's later request/watch state.
         if (entry.HasConfirmedPrediction && entry.ScoringFeatures is not null)
         {
@@ -166,6 +166,18 @@ internal static class DiscoveryFeedbackExampleBuilder
         features.CompletionRatio = completion;
         features.IsAbandoned = abandonment;
         features.UserRatingScore = featureProfile is not null ? ContentScoring.ComputeGenreRatingScore(entryGenres, featureProfile) : 0.5;
+        var cutoff = DateTimeNormalization.ToUtc(entry.ShownAtUtc);
+        var credits = entry.ScoringFeatures?.Credits?.At(cutoff);
+        if (credits is not null)
+        {
+            var creditProfile = featureProfile ?? new UserWatchProfile { CreditMetadataCutoffUtc = cutoff };
+            CreditPreferenceProfile.Create(creditProfile, new Dictionary<Guid, CreditMetadataSnapshot> { [Guid.Empty] = credits }, cutoff)
+                .Apply(features, credits);
+        }
+
+        // A legacy KnownPeople list already distinguishes observed empty from
+        // missing. Do not erase that evidence merely because typed IDs were absent.
+        ExternalCandidateFeatureBuilder.ApplyMeanImputation(features, featureMeans);
         return features;
     }
 
@@ -261,7 +273,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         var genreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences);
 
-        var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore((float?)entry.TmdbRating, null);
+        var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(entry.HasRatingMetadata == false ? null : (float?)entry.TmdbRating, null);
 
         var recencyScore = entry.Year is { } year and >= 1 and <= 9999
             ? ContentScoring.ComputeRecencyScore(new DateTime(year, 7, 1, 0, 0, 0, DateTimeKind.Utc), DateTimeNormalization.ToUtc(entry.ShownAtUtc))
@@ -277,16 +289,18 @@ internal static class DiscoveryFeedbackExampleBuilder
         }
 
         var popularityScore = ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity);
-        hasLegacyPopularity = entry.Popularity <= 0;
+        hasLegacyPopularity = entry.HasPopularityMetadata is null && entry.Popularity <= 0;
 
         var isSeries = string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
 
         var features = new CandidateFeatures
         {
+            FeatureDerivationVersion = CandidateFeatures.CurrentFeatureDerivationVersion,
             IsExternalCandidate = true,
             HasGenreEvidence = genreSet.Count > 0 && genrePreferences.Count > 0,
             GenreSimilarity = genreSimilarity,
             CombinedCriticScore = combinedCriticScore,
+            HasRatingMetadata = entry.HasRatingMetadata,
             RecencyScore = recencyScore,
             YearProximityScore = yearProximityScore,
             GenreCount = genreSet.Count,
@@ -294,6 +308,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             PeopleSimilarity = peopleSimilarity,
             HasPeopleMetadata = entry.KnownPeople is not null,
             PopularityScore = popularityScore,
+            HasPopularityMetadata = entry.HasPopularityMetadata,
 
             CollaborativeScore = 0.5,
             StudioMatch = false,
@@ -328,6 +343,16 @@ internal static class DiscoveryFeedbackExampleBuilder
         if (entry.KnownPeople is not null)
         {
             features.MarkExternalFeatureKnown(FeatureIndex.PeopleSimilarity);
+        }
+
+        if (entry.HasRatingMetadata == true)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.CombinedCriticScore);
+        }
+
+        if (entry.HasPopularityMetadata == true)
+        {
+            features.MarkExternalFeatureKnown(FeatureIndex.PopularityScore);
         }
 
         ExternalCandidateFeatureBuilder.ApplyMeanImputation(features, featureMeans);

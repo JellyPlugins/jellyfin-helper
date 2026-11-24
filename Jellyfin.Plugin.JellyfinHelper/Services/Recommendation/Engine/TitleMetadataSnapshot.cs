@@ -52,6 +52,12 @@ public sealed record TitleMetadataSnapshot
     /// <summary>Gets the production country codes.</summary>
     public ImmutableArray<string>? ProductionCountries { get; init; }
 
+    /// <summary>Gets provider-qualified production companies; null is unknown, empty is verified absence.</summary>
+    public ImmutableArray<ProviderStudioReference>? ProductionCompanies { get; init; }
+
+    /// <summary>Gets separately qualified broadcasters; these never count as production companies.</summary>
+    public ImmutableArray<ProviderStudioReference>? Networks { get; init; }
+
     /// <summary>Gets the localized synopsis. It is metadata, never executable classification instructions.</summary>
     public string? Overview { get; init; }
 
@@ -90,6 +96,8 @@ public sealed record TitleMetadataSnapshot
             SeriesType = detail.SeriesType,
             OriginCountries = detail.OriginCountry?.OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray(),
             ProductionCountries = detail.ProductionCountries?.OfType<SeerrMediaDetailResponse.CountryRef>().Select(country => country.Code).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray(),
+            ProductionCompanies = ProducerEvidence.Capture(detail.ProductionCompanies, ProducerEvidence.CompanyKind),
+            Networks = ProducerEvidence.Capture(detail.Networks, ProducerEvidence.NetworkKind),
             Overview = detail.Overview,
             FetchedAtUtc = fetchedAtUtc
         };

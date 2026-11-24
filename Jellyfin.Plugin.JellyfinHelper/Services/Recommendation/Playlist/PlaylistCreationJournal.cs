@@ -16,23 +16,27 @@ internal sealed class PlaylistCreationJournal
     private const int MaximumAttempts = 4096;
     private const int MaximumOwnerIds = 4096;
     private const long MaximumEnvelopeBytes = 256 * 1024;
-    private const long MaximumJournalBytes = 64 * 1024 * 1024;
+    internal const long MaximumJournalBytes = 64 * 1024 * 1024;
     private readonly string _directory;
     private readonly Action<string, string> _write;
     private readonly Action<string> _delete;
     private readonly Func<string, IEnumerable<string>> _enumerate;
+    private readonly long _byteBudget;
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, Attempt> _entries = [];
     private readonly HashSet<Guid> _writingOwners = [];
     private long _bytes;
     private int _reservedNew;
 
-    internal PlaylistCreationJournal(string directory, Action<string, string>? write = null, Action<string>? delete = null, Func<string, IEnumerable<string>>? enumerate = null)
+    internal PlaylistCreationJournal(string directory, Action<string, string>? write = null, Action<string>? delete = null, Func<string, IEnumerable<string>>? enumerate = null, long byteBudget = MaximumJournalBytes)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(byteBudget);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(byteBudget, MaximumJournalBytes);
         _directory = directory;
         _write = write ?? ((path, contents) => AtomicFile.WriteAllText(path, contents));
         _delete = delete ?? File.Delete;
         _enumerate = enumerate ?? (path => Directory.EnumerateFiles(path, "*.json"));
+        _byteBudget = byteBudget;
         Load();
     }
 
@@ -85,7 +89,7 @@ internal sealed class PlaylistCreationJournal
             lock (_gate)
             {
                 _entries.Remove(owner);
-                _bytes -= current.FileBytes;
+                _bytes -= current.ReservedBytes;
             }
 
             return true;
@@ -115,8 +119,9 @@ internal sealed class PlaylistCreationJournal
         Validate(attempt);
         var contents = JsonSerializer.Serialize(attempt, JsonDefaults.Options);
         var length = Encoding.UTF8.GetByteCount(contents);
-        // The validated fixed-Guid schema with at most 4096 IDs fits below the
-        // envelope read limit; aggregate admission still uses actual UTF-8 bytes.
+        var reservation = MaximumStateBytes(attempt);
+        // The returned Guid and false (longer than true) marker state are charged
+        // before the host can register anything. Rewrites never release that lease.
 
         long previous;
         long growth;
@@ -128,9 +133,10 @@ internal sealed class PlaylistCreationJournal
                 throw new IOException("The playlist owner already has a different creation attempt.");
             }
 
-            previous = current?.FileBytes ?? 0;
-            growth = Math.Max(0, length - previous);
-            if ((creating && _entries.Count + _reservedNew >= MaximumAttempts) || _bytes + growth > MaximumJournalBytes || !_writingOwners.Add(attempt.Owner))
+            previous = current?.ReservedBytes ?? 0;
+            reservation = Math.Max(previous, reservation);
+            growth = Math.Max(0, reservation - previous);
+            if ((creating && _entries.Count + _reservedNew >= MaximumAttempts) || _bytes + growth > _byteBudget || !_writingOwners.Add(attempt.Owner))
             {
                 throw new IOException("The bounded playlist creation journal is unavailable or full.");
             }
@@ -147,7 +153,7 @@ internal sealed class PlaylistCreationJournal
         try
         {
             _write(PathFor(attempt.Owner), contents);
-            attempt = attempt with { FileBytes = length };
+            attempt = attempt with { FileBytes = length, ReservedBytes = reservation };
             lock (_gate)
             {
                 _entries[attempt.Owner] = attempt;
@@ -166,14 +172,15 @@ internal sealed class PlaylistCreationJournal
                     _reservedNew--;
                 }
 
-                // A shrinking rewrite releases bytes only after its durable
-                // success. Another owner's admission cannot spend a failed shrink.
-                _bytes -= saved ? previous + growth - length : growth;
+                _bytes -= saved ? previous + growth - reservation : growth;
             }
         }
     }
 
     private string PathFor(Guid owner) => Path.Join(_directory, owner.ToString("N") + ".json");
+
+    private static long MaximumStateBytes(Attempt attempt)
+        => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(attempt with { ReturnedId = attempt.Id, Marked = false }, JsonDefaults.Options));
 
     private void Load()
     {
@@ -190,24 +197,29 @@ internal sealed class PlaylistCreationJournal
     private void LoadCore()
     {
         string[] paths;
+        var directoryObserved = false;
         try
         {
-            if ((File.GetAttributes(_directory) & FileAttributes.Directory) == 0)
+            var attributes = File.GetAttributes(_directory);
+            directoryObserved = true;
+            if ((attributes & FileAttributes.Directory) == 0)
             {
                 throw new IOException("Playlist recovery path is not a directory.");
             }
 
             paths = _enumerate(_directory).Take(MaximumAttempts + 1).ToArray();
         }
-        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        catch (Exception exception) when (!directoryObserved && exception is FileNotFoundException or DirectoryNotFoundException)
         {
+            // An observed inventory failure cannot release a durable attempt
+            // into an empty journal that may overwrite it after restoration.
             return;
         }
 
         foreach (var path in paths)
         {
             var length = new FileInfo(path).Length;
-            if (_entries.Count >= MaximumAttempts || length > MaximumEnvelopeBytes || _bytes + length > MaximumJournalBytes)
+            if (_entries.Count >= MaximumAttempts || length > MaximumEnvelopeBytes)
             {
                 throw new IOException("Existing playlist creation evidence exceeds its bounded recovery limit.");
             }
@@ -224,12 +236,18 @@ internal sealed class PlaylistCreationJournal
             }
 
             Validate(value);
-            if (Path.GetFileName(path) != value.Owner.ToString("N") + ".json" || !_entries.TryAdd(value.Owner, value with { FileBytes = length }))
+            var reservation = Math.Max(length, MaximumStateBytes(value));
+            if (_bytes + reservation > _byteBudget)
+            {
+                throw new IOException("Existing playlist creation attempts exceed their fully reserved lifecycle budget.");
+            }
+
+            if (Path.GetFileName(path) != value.Owner.ToString("N") + ".json" || !_entries.TryAdd(value.Owner, value with { FileBytes = length, ReservedBytes = reservation }))
             {
                 throw new IOException("Playlist creation identities are inconsistent.");
             }
 
-            _bytes += length;
+            _bytes += reservation;
         }
     }
 
@@ -246,5 +264,7 @@ internal sealed class PlaylistCreationJournal
     internal sealed record Attempt(Guid Id, Guid Owner, ImmutableArray<Guid> BeforeIds, Guid? ReturnedId = null, bool Marked = false)
     {
         internal long FileBytes { get; init; }
+
+        internal long ReservedBytes { get; init; }
     }
 }

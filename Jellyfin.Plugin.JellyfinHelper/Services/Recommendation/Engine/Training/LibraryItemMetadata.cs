@@ -24,6 +24,9 @@ internal readonly record struct LibraryItemMetadata(
     IReadOnlyDictionary<Guid, int>? TmdbCollectionIds = null,
     bool BoxSetMembershipsComplete = true)
 {
+    /// <summary>Gets already observed own-title credits; absent/partial fields retain their availability and acquisition.</summary>
+    public IReadOnlyDictionary<Guid, CreditMetadataSnapshot>? Credits { get; init; }
+
     /// <summary>Gets explicitly permitted library IDs when an excluded-library scope is active; null preserves legacy unscoped history.</summary>
     public IReadOnlySet<Guid>? AllowedItemIds { get; init; }
 
@@ -41,4 +44,10 @@ internal readonly record struct LibraryItemMetadata(
 
     /// <summary>Gets the same authoritative movie release sequences used by inference; only metadata is reused across historical profiles.</summary>
     public CollectionContinuationCatalog? Continuation { get; init; }
+
+    /// <summary>Gets current provider-scoped producer snapshots; a present null withdraws stale cached evidence.</summary>
+    public IReadOnlyDictionary<Guid, TitleMetadataSnapshot?>? ProducerMetadata { get; init; }
+
+    /// <summary>Gets detached provider identities for actual BoxSets, so aliases use the same distinct-title union as external progression.</summary>
+    public IReadOnlyDictionary<Guid, int>? BoxSetProviderIds { get; init; }
 }

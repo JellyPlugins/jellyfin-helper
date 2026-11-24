@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities.Movies;
 using Xunit;
@@ -377,6 +378,49 @@ public class TemporalFeaturesTests
         Assert.InRange(result, 0.0, 1.0);
     }
 
+    [Theory]
+    [InlineData("native", 1)]
+    [InlineData("provider", 1)]
+    [InlineData("empty", .5)]
+    [InlineData("unavailable", .5)]
+    public void TemporalSemanticsCapturedEffectiveGenresMatchHistoricalReconstruction(string source, double expected)
+    {
+        var prediction = new DateTime(2026, 11, 23, 20, 0, 0, DateTimeKind.Utc);
+        var candidate = new Movie { Id = Guid.NewGuid(), Genres = source == "native" ? ["Drama"] : [] };
+        var genreIds = source == "provider" ? new[] { 18 } : [];
+        var metadata = source == "unavailable" ? null : new TitleMetadataSnapshot { MediaType = "movie", GenreIds = [.. genreIds], FetchedAtUtc = prediction.AddDays(-1) };
+        var effective = (IReadOnlyList<string>)typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ResolveEffectiveGenres", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.Invoke(null, [candidate, metadata])!;
+        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7 * (i - 1)), ["Drama"]))] };
+        var target = new WatchedItemInfo { ItemId = candidate.Id, LastPlayedDate = prediction };
+        Assert.Equal(expected, TemporalFeatures.ComputeDayOfWeekAffinity(effective, profile, prediction, candidate.Id));
+        Assert.Equal(expected, TemporalFeatures.ComputeHourOfDayAffinity(effective, profile, prediction, candidate.Id));
+        Assert.Equal(expected, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, effective, profile, true, prediction));
+        Assert.Equal(expected, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, effective, profile, false, prediction));
+        Assert.Equal(source == "native" ? 1 : 0, candidate.Genres.Length);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TemporalSemanticsUtcCutoffTargetSeriesAndPlaybackPresenceStayExcluded(bool isDay)
+    {
+        var prediction = new DateTime(2026, 11, 23, 20, 0, 0, DateTimeKind.Utc);
+        var target = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        var profile = new UserWatchProfile { WatchedItems = [.. Enumerable.Range(1, 10).Select(i => WI(prediction.AddDays(-7 * i), ["Drama"]))] };
+        profile.WatchedItems.Add(new() { ItemId = target, Played = true, LastPlayedDate = prediction.AddDays(-7), Genres = ["Horror"] });
+        profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = prediction.AddDays(-7), Genres = ["Horror"] });
+        profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = prediction, Genres = ["Horror"] });
+        profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = prediction.AddDays(7), Genres = ["Horror"] });
+        profile.WatchedItems.Add(new() { ItemId = Guid.NewGuid(), IsFavorite = true, LastPlayedDate = prediction.AddDays(-7), Genres = ["Horror"] });
+        var genres = new HashSet<string> { "Drama" };
+        var watched = new WatchedItemInfo { ItemId = target, SeriesId = series, LastPlayedDate = prediction };
+        Assert.Equal(1, TemporalFeatures.ComputeTemporalAffinity(genres, profile, prediction, isDay, target, series));
+        Assert.Equal(1, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(watched, genres, profile, isDay, prediction));
+        Assert.Equal(1, TemporalFeatures.ComputeTemporalAffinity(genres, profile, prediction.ToLocalTime(), isDay, target, series));
+        Assert.Equal(.5, TemporalFeatures.ComputeTemporalAffinity(genres, profile, prediction.AddDays(1).AddHours(-12), isDay, target, series));
+    }
+
     // Helpers
 
     private static WatchedItemInfo WI(DateTime playedAt, string[] genres)
@@ -385,7 +429,7 @@ public class TemporalFeaturesTests
             ItemId = Guid.NewGuid(),
             Played = true,
             PlayCount = 1,
-            LastPlayedDate = playedAt,
+            LastPlayedDate = playedAt.AddDays(-7),
             Genres = genres
         };
 

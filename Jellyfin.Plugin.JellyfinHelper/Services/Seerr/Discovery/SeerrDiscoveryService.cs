@@ -522,16 +522,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // The live provider excludes deleted/disabled accounts. Enabled users without history
         // still need a metadata-only cold-start pool, not fabricated personal preferences.
+        var policyEpoch = (_watchHistoryService as WatchHistoryService)?.PolicyEpoch;
         var activeProfiles = _watchHistoryService.GetAllUserWatchProfiles().ToList();
+        var enabledUsers = _watchHistoryService.GetAllUserIds();
 
         if (activeProfiles.Count == 0)
         {
-            _pluginLog.LogInfo(LogCategory, "No enabled user profiles found. Skipping.", _logger);
+            await ReconcileZeroProfilePoolsAsync(enabledUsers, policyEpoch, dryRun, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         var profiledUsers = activeProfiles.Select(profile => profile.UserId).ToHashSet();
-        var unavailableProfiles = (_watchHistoryService.GetAllUserIds() ?? []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
+        var unavailableProfiles = (enabledUsers ?? []).Where(user => !profiledUsers.Contains(user)).Distinct().ToArray();
 
         // Build exclusion set from the Jellyfin library plus the configured Arr instances
         ExclusionCommitStamp? exclusionScope = null;
@@ -614,24 +616,60 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private void FilterCarriedPoolsAtCommit(IReadOnlyList<DiscoveryResult> snapshots, HashSet<Guid> carriedUsers, HashSet<(int TmdbId, string MediaType)> excluded, ExclusionCommitStamp? sourceScope)
     {
-        if (sourceScope is null || !IsExclusionCommitStampCurrent(sourceScope))
+        if (sourceScope is null)
         {
-            // Arr ownership and library aliases share this captured exclusion set.
-            // Withdrawn or changed evidence cannot permanently prune a carried card.
             return;
         }
 
+        var current = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var effective = excluded;
+        if (!IsExclusionCommitStampCurrent(sourceScope))
+        {
+            effective = ExclusionSourceScope(current) == sourceScope.ArrScope ? sourceScope.ArrExclusions : [];
+        }
+
+        // A metadata revision/expiry can invalidate library aliases without
+        // withdrawing still-configured Arr ownership. Never discard both together.
         foreach (var pool in snapshots.Where(pool => carriedUsers.Contains(pool.UserId)))
         {
-            pool.Recommendations.RemoveAll(item => excluded.Contains((item.TmdbId, NormalizeReconcileMediaType(item.MediaType))));
+            pool.Recommendations.RemoveAll(item => effective.Contains((item.TmdbId, NormalizeReconcileMediaType(item.MediaType))));
         }
     }
 
-    private ExclusionCommitStamp CaptureExclusionCommitStamp(string arrScope, PluginConfiguration config)
-        => new(arrScope, UserSourceScope(config), _titleMetadataCache?.MetadataLanguage, IsTraktAliasSourceAvailable(config), (_watchHistoryService as WatchHistoryService)?.LibraryEpoch, _titleMetadataCache?.CaptureExclusionStamp());
+    private async Task ReconcileZeroProfilePoolsAsync(IReadOnlyCollection<Guid>? enabledUsers, long? policyEpoch, bool dryRun, CancellationToken cancellationToken)
+    {
+        if (enabledUsers is null)
+        {
+            _pluginLog.LogWarning(LogCategory, "Discovery roster is unavailable; retaining cached pools while all profiles are deferred.", null, _logger);
+            return;
+        }
 
-    private ExclusionCommitStamp? CaptureExclusionCommitStampIfNeeded(Action<ExclusionCommitStamp>? capture, string arrScope, PluginConfiguration config)
-        => capture is null ? null : CaptureExclusionCommitStamp(arrScope, config);
+        var previous = await _cache.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var enabled = enabledUsers.ToHashSet();
+        var retained = previous.Where(pool => enabled.Contains(pool.UserId)).ToArray();
+        if (dryRun || retained.Length == previous.Count)
+        {
+            return;
+        }
+
+        await _cache.SaveValidatedWithCompletionAsync(
+            retained,
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                if (policyEpoch != (_watchHistoryService as WatchHistoryService)?.PolicyEpoch)
+                {
+                    throw new IOException("The roster changed before zero-profile pool reconciliation could commit.");
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private ExclusionCommitStamp CaptureExclusionCommitStamp(string arrScope, PluginConfiguration config, HashSet<(int TmdbId, string MediaType)> arrExclusions)
+        => new(arrScope, UserSourceScope(config), _titleMetadataCache?.MetadataLanguage, IsTraktAliasSourceAvailable(config), (_watchHistoryService as WatchHistoryService)?.LibraryEpoch, _titleMetadataCache?.CaptureExclusionStamp(), arrExclusions);
+
+    private ExclusionCommitStamp? CaptureExclusionCommitStampIfNeeded(Action<ExclusionCommitStamp>? capture, string arrScope, PluginConfiguration config, HashSet<(int TmdbId, string MediaType)> arrExclusions)
+        => capture is null ? null : CaptureExclusionCommitStamp(arrScope, config, arrExclusions.ToHashSet());
 
     private static void PublishExclusionCommitStamp(Action<ExclusionCommitStamp>? capture, ExclusionCommitStamp? stamp)
     {
@@ -677,7 +715,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var requestedKeys = await FetchRequestedKeysForSeerrUserAsync(
             config, seerrUserId.Value, cancellationToken).ConfigureAwait(false);
-        if (requestedKeys is null || requestedKeys.Count == 0 || UserSourceScope(Plugin.Instance?.Configuration) != UserSourceScope(config))
+        if (requestedKeys is null || UserSourceScope(Plugin.Instance?.Configuration) != UserSourceScope(config))
         {
             return 0;
         }
@@ -704,6 +742,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             return 0;
         }
+
+        ObservePreparedRequestSnapshot(jellyfinUserId, requestedKeys, sourceScope);
 
         var candidates = (userResult?.Recommendations ?? []).Where(rec => rec.TmdbId > 0)
             .Select(rec => (rec.TmdbId, MediaType: NormalizeReconcileMediaType(rec.MediaType))).ToHashSet();
@@ -769,6 +809,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return reconciled;
+    }
+
+    private void ObservePreparedRequestSnapshot(Guid jellyfinUserId, IReadOnlySet<(int TmdbId, string MediaType)> requestedKeys, string? sourceScope)
+    {
+        if (_feedbackStore is not DiscoveryFeedbackStore originalStore)
+        {
+            return;
+        }
+
+        try
+        {
+            originalStore.ObserveCompleteRequestSnapshot(jellyfinUserId, requestedKeys, sourceScope);
+        }
+        catch (Exception exception) when (!exception.IsFatal() && exception is not OperationCanceledException)
+        {
+            _pluginLog.LogWarning(LogCategory, "Unresolved request originals remain retained because their bounded dormancy transition could not complete.", exception, _logger);
+        }
     }
 
     /// <summary>
@@ -2448,6 +2505,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var libraryEpoch = (_watchHistoryService as WatchHistoryService)?.LibraryEpoch;
+        var ownershipConfig = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var ownershipStamp = CaptureExclusionCommitStamp(ExclusionSourceScope(ownershipConfig), ownershipConfig, []);
         AddCurrentLibraryOwnership(result.Recommendations, excluded);
         var targetSeriesShare = result.TargetSeriesShare.HasValue ? CurrentMediaTarget(jellyfinUserId) : null;
         var feedbackRevision = (_feedbackStore as DiscoveryFeedbackStore)?.ServingRevision;
@@ -2468,7 +2527,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         if (feedbackRevision != (_feedbackStore as DiscoveryFeedbackStore)?.ServingRevision
             || policyEpoch != (_watchHistoryService as WatchHistoryService)?.PolicyEpoch
-            || libraryEpoch != (_watchHistoryService as WatchHistoryService)?.LibraryEpoch)
+            || libraryEpoch != (_watchHistoryService as WatchHistoryService)?.LibraryEpoch
+            || !IsExclusionCommitStampCurrent(ownershipStamp))
         {
             // These cheap versions close the last cross-lookup handoff. A changed
             // view defers delivery instead of alternating unbounded rereads.
@@ -2566,7 +2626,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 HasAnyProviderIds = providerIds.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray())
             });
             excluded.UnionWith(TitleProviderIdentity.ResolveTmdbKeys(items.Where(item => !_virtualItemDetector.IsVirtual(item)), _titleMetadataCache, config, cancellationToken).Where(requested.Contains));
-            AddCandidateAliasOwnership(items, identities, excluded, cancellationToken);
+            AddCandidateAliasOwnership(items, identities, excluded, config, cancellationToken);
         }
         catch (Exception exception) when (!exception.IsFatal() && exception is not OperationCanceledException)
         {
@@ -2574,7 +2634,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private void AddCandidateAliasOwnership(IEnumerable<BaseItem> items, TitleMetadataSnapshot[] identities, HashSet<(int TmdbId, string MediaType)> excluded, CancellationToken cancellationToken)
+    private void AddCandidateAliasOwnership(IEnumerable<BaseItem> items, TitleMetadataSnapshot[] identities, HashSet<(int TmdbId, string MediaType)> excluded, PluginConfiguration config, CancellationToken cancellationToken)
     {
         foreach (var item in items.Where(item => item is Movie or Series && !_virtualItemDetector.IsVirtual(item)))
         {
@@ -2585,9 +2645,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             var alias = new TitleMetadataSnapshot { MediaType = item is Series ? "tv" : MediaTypeMovie, TvdbId = TitleProviderIdentity.Tvdb(item), ImdbId = TitleProviderIdentity.Imdb(item) };
-            foreach (var candidate in identities.Where(identity => TitleProviderIdentity.Compatible(identity, alias) && TitleProviderIdentity.SharesIdentity(identity, alias)))
+            var matches = identities.Where(identity => TitleProviderIdentity.Compatible(identity, alias) && TitleProviderIdentity.SharesIdentity(identity, alias))
+                .Select(identity => (identity.TmdbId, identity.MediaType)).Distinct().Take(2).ToArray();
+            if (matches.Length != 1)
             {
-                excluded.Add((candidate.TmdbId, candidate.MediaType));
+                continue;
+            }
+
+            // Retained card metadata can locate a copy, but only a unique current
+            // configured alias may establish ownership of its typed title.
+            var current = _titleMetadataCache?.Get(config, 0, alias.MediaType, alias.TvdbId, alias.ImdbId);
+            if (current is not null && (current.TmdbId, current.MediaType) == matches[0])
+            {
+                excluded.Add(matches[0]);
             }
         }
     }
@@ -2755,8 +2825,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             GenreIds = [.. c.GenreIds],
             SourceGenres = c.SourceGenres?.ToArray(),
             TitleMetadata = c.TitleMetadata,
-            VoteAverage = c.VoteAverage,
-            Popularity = c.Popularity,
+            VoteAverageValue = c.VoteAverageValue,
+            PopularityValue = c.PopularityValue,
             PosterPath = c.PosterPath,
             Overview = c.Overview,
             Adult = c.Adult,
@@ -3335,8 +3405,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             RelatedInfo = relatedInfo,
             Genres = genres,
             TmdbRating = item.VoteAverage,
+            HasRatingMetadata = item.HasRatingMetadata,
             // Raw TMDb popularity carried through so RecordShown can persist it for training.
             Popularity = item.Popularity,
+            HasPopularityMetadata = item.HasPopularityMetadata,
             PosterPath = item.PosterPath,
             Overview = item.Overview,
             AlreadyRequested = false,
@@ -3723,7 +3795,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 cached = new HashSet<(int TmdbId, string MediaType)>(fresh);
             }
 
-            var commitStamp = CaptureExclusionCommitStampIfNeeded(captureScope, scope, Plugin.Instance?.Configuration ?? config);
+            var commitStamp = CaptureExclusionCommitStampIfNeeded(captureScope, scope, Plugin.Instance?.Configuration ?? config, cached);
             AddOptionalLibraryExclusions(cached, includeLibrary, cancellationToken);
             if (ExclusionSourceScope(Plugin.Instance?.Configuration ?? config) == scope)
             {
@@ -4457,20 +4529,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         candidate.SeerrTitleMetadata = TitleMetadataSnapshot.FromDetail(detail, candidate.MediaType, acquiredAtUtc) with { ObservationScope = scope };
         candidate.TitleMetadata = TitleMetadataMerger.WithSeerrObservation(candidate.SeerrTitleMetadata, previous, DateTime.UtcNow);
         ProjectWinningSeerrGenres(candidate, scope);
-        if (detail.Genres is not null)
-        {
-            foreach (var genre in detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>())
-            {
-                GenreNormalizer.RegisterProviderGenre(genre.Id, genre.Name);
-            }
-        }
-
-        if (detail.HasCollectionMetadata)
-        {
-            candidate.HasCollectionMetadata = true;
-            candidate.CollectionId = detail.Collection?.Id > 0 ? detail.Collection.Id : 0;
-            candidate.CollectionName = detail.Collection?.Name;
-        }
+        RegisterDetailGenres(detail);
+        ApplyDetailCollection(candidate, detail);
 
         if (detail.Keywords is not null && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
         {
@@ -4490,12 +4550,41 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var certificationCountry = CurrentCertificationCountry();
         candidate.CertificationScore = CertificationResolver.Resolve(detail, _localization, candidate.Adult, certificationCountry == "*" ? null : certificationCountry);
         candidate.CertificationPolicyCountry = candidate.CertificationScore.HasValue ? certificationCountry : null;
-        if (detail.Credits is not null)
+        ApplyDetailCredits(candidate, detail, acquiredAtUtc);
+        return true;
+    }
+
+    private static void RegisterDetailGenres(SeerrMediaDetailResponse detail)
+    {
+        foreach (var genre in detail.Genres?.OfType<SeerrMediaDetailResponse.GenreRef>() ?? [])
         {
-            candidate.KnownPeople = ExtractTopPeople(detail.Credits);
+            GenreNormalizer.RegisterProviderGenre(genre.Id, genre.Name);
+        }
+    }
+
+    private static void ApplyDetailCollection(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail)
+    {
+        if (!detail.HasCollectionMetadata)
+        {
+            return;
         }
 
-        return true;
+        candidate.HasCollectionMetadata = true;
+        candidate.CollectionId = detail.Collection?.Id > 0 ? detail.Collection.Id : 0;
+        candidate.CollectionName = detail.Collection?.Name;
+    }
+
+    private static void ApplyDetailCredits(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, DateTime acquiredAtUtc)
+    {
+        if (detail.Credits is not null)
+        {
+            candidate.Credits = CreditMetadataCapture.External(detail.Credits, acquiredAtUtc, candidate.Id, candidate.MediaType)
+                .WithFallback(candidate.Credits);
+            var names = candidate.Credits.People().OrderBy(person => person.Kind == PersonKind.Director ? 0 : 1)
+                .ThenByDescending(person => person.BillingWeight).Select(person => person.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCastPerCandidate).ToList();
+            candidate.KnownPeople = names.Count > 0 || candidate.Credits.PeopleComplete ? names : null;
+        }
     }
 
     private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached, string? scope)
@@ -4594,60 +4683,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             candidate.Overview = detail.Overview;
         }
 
-        if (candidate.VoteAverage <= 0 && detail.VoteAverage > 0)
+        if (!candidate.HasRatingMetadata && detail.HasRatingMetadata)
         {
-            candidate.VoteAverage = detail.VoteAverage;
+            candidate.VoteAverageValue = detail.VoteAverageValue;
         }
 
-        if (candidate.Popularity <= 0 && detail.Popularity > 0)
+        if (!candidate.HasPopularityMetadata && detail.HasPopularityMetadata)
         {
-            candidate.Popularity = detail.Popularity;
+            candidate.PopularityValue = detail.PopularityValue;
         }
 
         if (detail.MediaInfo is not null)
         {
             candidate.MediaInfo = detail.MediaInfo;
         }
-    }
-
-    /// <summary>
-    ///     Extracts up to <see cref="MaxCastPerCandidate"/> top-billed people (directors first,
-    ///     then top-ordered cast) from the given credits payload.
-    /// </summary>
-    private static List<string> ExtractTopPeople(SeerrCredits credits)
-    {
-        var people = new List<string>(MaxCastPerCandidate);
-
-        if (credits.Crew is { Count: > 0 })
-        {
-            foreach (var crew in credits.Crew.Where(
-                c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                     && !string.IsNullOrWhiteSpace(c.Name)))
-            {
-                if (people.Count >= MaxCastPerCandidate)
-                {
-                    break;
-                }
-
-                people.Add(crew.Name);
-            }
-        }
-
-        if (credits.Cast is { Count: > 0 })
-        {
-            var actorsToTake = MaxCastPerCandidate - people.Count;
-            if (actorsToTake > 0)
-            {
-                var topActors = credits.Cast
-                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-                    .OrderBy(c => c.Order)
-                    .Take(actorsToTake)
-                    .Select(c => c.Name);
-                people.AddRange(topActors);
-            }
-        }
-
-        return people;
     }
 
     /// <summary>
@@ -4697,7 +4746,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         if (features.IsExternalFeatureKnown(FeatureIndex.StudioMatch) && features.StudioMatch)
         {
-            var studio = candidate.KnownStudios?.FirstOrDefault(userContext.Studios.Contains);
+            var studio = ProducerEvidence.MatchedName(candidate.TitleMetadata, userContext.Studios);
             if (!string.IsNullOrWhiteSpace(studio))
             {
                 return ("reasonStudioNamed", studio);
@@ -4849,7 +4898,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     internal sealed record CapturedSubmission(int TmdbId, string MediaType, int? SeerrUserId, int? ServerId, int? ProfileId, string? RootFolder, string? SourceScope);
 
-    private sealed record ExclusionCommitStamp(string ArrScope, string? SeerrScope, string? Language, bool TraktAvailable, long? LibraryEpoch, (long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc)? Metadata);
+    private sealed record ExclusionCommitStamp(string ArrScope, string? SeerrScope, string? Language, bool TraktAvailable, long? LibraryEpoch, (long Revision, DateTime CapturedAtUtc, DateTime ValidUntilUtc)? Metadata, HashSet<(int TmdbId, string MediaType)> ArrExclusions);
 
     private sealed record CachedMediaDetail(SeerrMediaDetailResponse Detail, DateTime ExpiresAtUtc);
 

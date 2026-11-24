@@ -3,6 +3,7 @@
   "recsEnsembleModelGlobal": "Global modell",
   "recsEnsembleModelPrior": "Globala modeller, personlig blandning",
   "recsEnsembleStatusPrior": "Startblandning från globala modeller",
+  "recsEnsembleStatusOlderDerivation": "Prior från äldre egenskapshärledning — aktuell rankning ej verifierad",
   "recsEnsembleStatusProvisional": "Preliminär — rankningen ännu inte verifierad",
   "recsEnsembleStatusVerified": "Oberoende verifierad",
   "recsEnsembleStatusChoiceRanking": "Oberoende verifierad preferensrankning",

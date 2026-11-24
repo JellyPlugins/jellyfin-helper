@@ -29,12 +29,20 @@ internal static class ContentAffinityResolver
             && int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var collection) && collection > 0
             && int.TryParse(item.ProviderIds.GetValueOrDefault("Tmdb"), out var title) && collection == title;
 
+    /// <summary>Requires authoritative membership for missing IDs as well as ambiguous copied-title IDs.</summary>
+    /// <param name="item">The library item whose collection identity is captured.</param>
+    /// <returns>Whether optional BoxSet evidence can resolve this movie's collection identity.</returns>
+    internal static bool NeedsCollectionEvidence(BaseItem item)
+        => item is Movie && (NeedsCollectionCorroboration(item)
+            || !int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0);
+
     /// <summary>Resolves a collection ID without turning suspicious migration metadata into a verified franchise.</summary>
     /// <param name="item">The library movie; BoxSet libraries are optional.</param>
     /// <param name="collections">Optional corroboration for ambiguous self-valued IDs.</param>
     /// <param name="memberships">An optional pre-resolved authoritative item-to-BoxSet lookup.</param>
+    /// <param name="membershipsComplete">Whether every authoritative membership read completed; partial reads cannot establish an inferred identity.</param>
     /// <returns>The typed collection ID, or zero while evidence is insufficient.</returns>
-    internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null)
+    internal static int ResolveTmdbCollectionId(BaseItem item, IEnumerable<BoxSet>? collections = null, IReadOnlyDictionary<Guid, List<Guid>>? memberships = null, bool membershipsComplete = true)
     {
         if (item is not Movie)
         {
@@ -43,12 +51,17 @@ internal static class ContentAffinityResolver
 
         if (!int.TryParse(item.ProviderIds.GetValueOrDefault("TmdbCollection"), out var id) || id <= 0)
         {
-            return ResolveLinkedCollectionId(item, collections, memberships);
+            return membershipsComplete ? ResolveLinkedCollectionId(item, collections, memberships) : 0;
         }
 
         if (!NeedsCollectionCorroboration(item))
         {
             return id;
+        }
+
+        if (!membershipsComplete)
+        {
+            return 0;
         }
 
         var supported = collections?.Any(boxset => int.TryParse(boxset.ProviderIds.GetValueOrDefault("Tmdb"), out var boxsetId) && boxsetId == id

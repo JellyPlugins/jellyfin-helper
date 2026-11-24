@@ -398,6 +398,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryCacheServiceTests.cs            # Disk/memory snapshots; bounded single-writer waits, cancellation and safe deferred disposal
 │   │       ├── DiscoveryCacheServiceConstructionTests.cs # Constructor guards and directory-creation behaviour
+│   │       ├── DiscoveryDismissalIdentityStoreTests.cs   # Independent durable identities, bounded ownership/storage, cold-read recovery and transactional publication
 │   │       ├── DiscoveryFeedbackStoreTests.cs          # Typed receipt recovery, dependent watches, bounded backpressure and atomic training views
 │   │       ├── DiscoveryImpressionStoreTests.cs        # Generation vs real impressions, frozen features, response-window censoring and durable write failures
 │   │       ├── CertificationResolverTests.cs          # Movie/TV country certificates, malformed/unknown data, adult latching and individual Jellyfin account limits
@@ -488,6 +489,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ContentDescriptorTests.cs              # Evidence-based Anime/live-action/format classification; uncertain or conflicting data stays unknown
 │       │   ├── TitleMetadataSnapshotTests.cs          # Immutable Seerr metadata, stable IDs and unknown-versus-empty fields
 │       │   ├── ProviderKeywordTests.cs                # Immutable paired keyword identities and provider labels
+│       │   ├── ProducerEvidenceTests.cs               # Provider/kind/ID production evidence, missing/empty fields and source expiry
+│       │   ├── CreditRootBeforeAfterTests.cs           # Credit-source and parent-capture regressions
+│       │   ├── CreditRootContractsTests.cs             # Identity, availability, billing and historical credit contracts
+│       │   ├── ProducerConsumerParityTests.cs         # Producer identity parity across inference, historical reconstruction, reasons and diversity
+│       │   ├── ProducerProvenanceBaselineReproTests.cs # Unqualified broadcaster/legacy labels never establish producer affinity
 │       │   ├── TitleMetadataCacheTests.cs             # Scoped reverse aliases, field chronology, expiry-filtered saves and generation-aware bounded persistence
 │       │   ├── SupplementalMetadataTests.cs           # Scoped supersession, field acquisition times, idempotent formats and independent-source conflicts
 │       │   ├── SupplementaryTitleMetadataServiceTests.cs # Optional bounded ARR metadata acquisition and unavailable providers
@@ -533,6 +539,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── NeuralExplanationStateTests.cs            # Exact forward-score/state preservation and removal effects with raw/standardized model inputs
 │       │   ├── ModelSnapshotTests.cs                     # Detached continuing fits, Adam isolation, immutable v6 predictors and inference parity
 │       │   ├── LanguageFeatureImputationTests.cs           # Learned/Neural fitting-only priors, legacy refits/restart and normalization isolation
+│       │   ├── FeatureDerivationContractTests.cs           # Forward-only cohort markers and retained legacy inputs
 │       │   ├── ModelInputFeaturesTests.cs                   # Exact v6 inputs, bounded missing coordinates and fitting-only context means
 │       │   ├── ContentFitConfidenceTests.cs               # Score-space confidence without extra ML coordinates or double application
 │       │   ├── EnsembleAdmissionEvaluatorTests.cs        # Compatible observation views, independent calibration/acceptance and minority/incumbent protections
@@ -758,6 +765,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── TitleMetadataMerger.cs # Scoped freshness/replacement, independent-source provenance and conflict-safe projections
 │   │   │   ├── TitleProviderIdentity.cs # Typed TVDB/IMDb aliases from the same Jellyfin item
 │   │   │   ├── ProviderKeyword.cs # Immutable keyword ID/label pairs for language-independent story matching
+│   │   │   ├── ProviderStudioReference.cs # Provider/kind/ID entities; producer identity is independent of broadcaster names
+│   │   │   ├── ProducerEvidence.cs # Shared current/historical producer keys, unknown/empty semantics and legacy isolation
 │   │   │   ├── TitleMetadataCache.cs # Shared bounded provider-scoped metadata; scheduled refresh and persistence only
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
@@ -881,6 +890,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrCrewMember.cs       # Crew member DTO
 │   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
 │   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
+│   │       ├── DiscoveryDismissalIdentityStore.cs # Independent bounded permanent dismissal identities and atomic per-user publication
 │   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
 │   │       ├── DiscoveryFeedbackRecoveryJournal.cs # Bounded durable server-owned original feedback evidence
 │   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
@@ -1198,6 +1208,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Seerr/Discovery/`
 
 - `DiscoveryCacheServiceTests.cs`
+- `DiscoveryDismissalIdentityStoreTests.cs`
 - `DiscoveryFeedbackStoreTests.cs`
 - `DiscoveryRecommendationTests.cs`
 - `DiscoveryRegressionTests.cs`
@@ -1503,6 +1514,14 @@ while the editor closes, including after Escape.
 
 - `CollaborativeFilter.cs`
 - `ContentAffinityResolver.cs`
+- `CountryIdentity.cs` - Canonical country facts and per-title deduplication without inferring countries from locations
+- `CreditField.cs`
+- `CreditIdentityIndex.cs`
+- `CreditMetadataCapture.cs`
+- `CreditMetadataSnapshot.cs`
+- `CreditPreferenceProfile.cs`
+- `PersonCredit.cs`
+- `ProviderPersonIdentity.cs`
 - `ContentScoring.cs`
 - `DiversityReranker.cs`
 - `Engine.cs`
@@ -1533,6 +1552,8 @@ while the editor closes, including after Escape.
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Scoring/`
 
 - `CandidateFeatures.cs`
+- `FeatureDerivationContract.cs` - Forward-only derivation provenance and uniform evidence cohorts outside the V6 vector
+- `CreditFeatureImputation.cs` - Model-specific missing-credit handling without changing the V6 coordinates
 - `DefaultWeights.cs`
 - `EnsembleBlendBounds.cs` - Groups the per-user ensemble blend bounds (alpha min/max and genre-penalty floor) into one value, resolved from configuration with ensemble defaults
 - `EnsembleScoringStrategy.cs`
@@ -1597,6 +1618,7 @@ the heuristic rules and ensemble blend limits are unchanged.
 
 - `AllowedQualityProfile.cs`
 - `DiscoveryCacheService.cs`
+- `DiscoveryDismissalIdentityStore.cs`
 - `DiscoveryFeedbackEntry.cs`
 - `DiscoveryFeedbackResult.cs`
 - `DiscoveryDismissedItem.cs`
