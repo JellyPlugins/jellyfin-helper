@@ -59,8 +59,14 @@ public sealed class CreditRootContractsTests
         var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(native, metadata);
         Assert.Equal(item.Id, resolved.SourceItemId);
         Assert.Equal(77, resolved.TmdbId);
-        if (wrongTitle) Assert.Null(resolved.Cast);
-        else if (knownEmpty) Assert.Empty(resolved.People());
+        if (wrongTitle)
+        {
+            Assert.Null(resolved.Cast);
+        }
+        else if (knownEmpty)
+        {
+            Assert.Empty(resolved.People());
+        }
         else
         {
             Assert.Equal("Actor", Assert.Single(resolved.People()).Name);

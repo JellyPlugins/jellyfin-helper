@@ -43,7 +43,7 @@ public sealed class EngineFullPipelineTests
         var content = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ResolveContentAffinity", flags)!.Invoke(engine, [item])!;
         var served = Assert.IsType<CreditMetadataSnapshot>(content.GetType().GetProperty("Credits")!.GetValue(content));
         Assert.Equal(captured.Cast, served.Cast);
-        Assert.Empty(item.ProviderIds.Where(pair => pair.Key != "Tmdb"));
+        Assert.DoesNotContain(item.ProviderIds, pair => pair.Key != "Tmdb");
     }
     [Fact]
     public void BatchRosterRemovalExcludesTheStaleProfileFromBothResultsAndCommunityPopularity()

@@ -94,7 +94,7 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
             }
 
             return Task.FromResult(JsonResponse(int.TryParse(path.Split('/')[^1], out var id)
-                ? $$"""{"id":{{id}},"genres":[{"id":28,"name":"Action"}],"credits":{"cast":[],"crew":[]}}"""
+                ? $$"""{"id":{{id}},"genres":[{"id":28,"name":"Action"}],"credits":{"cast":[],"crew":[] } }"""
                 : """{"results":[],"pageInfo":{"results":0}}"""));
         };
         _cache.BeforeSaveWait = () =>
