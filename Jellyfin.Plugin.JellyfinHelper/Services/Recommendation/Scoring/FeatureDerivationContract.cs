@@ -21,12 +21,25 @@ internal static class FeatureDerivationContract
         => fitting.Concat(holdout).Select(row => row.Features?.FeatureDerivationVersion ?? 0)
             .Where(version => version >= 0 && version <= CandidateFeatures.CurrentFeatureDerivationVersion).DefaultIfEmpty(0).Max();
 
-    /// <summary>Selects existing rows without changing features, identities, weights, labels or timestamps.</summary>
+    /// <summary>Selects observed inputs without relabeling them; incompatible nested comparisons are withheld.</summary>
     /// <param name="examples">Original observations.</param>
     /// <param name="version">The selected input derivation.</param>
-    /// <returns>A detached row array, retaining each original observation object.</returns>
+    /// <returns>Original rows, or a choice-free copy when nested comparisons have incompatible provenance.</returns>
     internal static TrainingExample[] SelectCohort(IEnumerable<TrainingExample> examples, int version)
-        => examples.Where(row => row.Features is not null && row.Features.FeatureDerivationVersion == version).ToArray();
+        => examples.Where(row => row.Features is not null && row.Features.FeatureDerivationVersion == version)
+            .Select(row => WithoutIncompatibleChoice(row, version)).ToArray();
+
+    private static TrainingExample WithoutIncompatibleChoice(TrainingExample row, int version)
+    {
+        if (row.Choice is null || row.Choice.HasCompatibleDerivation(version))
+        {
+            return row;
+        }
+
+        var copy = row.Copy();
+        copy.Choice = null;
+        return copy;
+    }
 
     /// <summary>Prevents mixed or unsupported feature derivations from claiming one admission contract.</summary>
     /// <param name="examples">The original calibration/acceptance observations.</param>
@@ -36,8 +49,9 @@ internal static class FeatureDerivationContract
     {
         version = 0;
         var found = false;
-        foreach (var features in examples.Select(row => row.Features))
+        foreach (var row in examples)
         {
+            var features = row.Features;
             if (features is null)
             {
                 return false;
@@ -49,7 +63,7 @@ internal static class FeatureDerivationContract
                 return false;
             }
 
-            if (found && version != next)
+            if ((found && version != next) || (row.Choice is not null && !row.Choice.HasCompatibleDerivation(next)))
             {
                 return false;
             }

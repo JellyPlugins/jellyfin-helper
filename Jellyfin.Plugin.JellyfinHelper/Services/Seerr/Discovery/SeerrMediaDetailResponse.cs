@@ -151,11 +151,16 @@ internal sealed class SeerrMediaDetailResponse
 
     /// <summary>Gets a value indicating whether collection membership was stated or its absence confirmed by complete movie details. Seerr omits the field for standalone movies; partial responses stay unknown.</summary>
     [JsonIgnore]
-    public bool HasCollectionMetadata => _collectionPropertyPresent || HasCompleteMovieDetails;
+    public bool HasCollectionMetadata => _collectionPropertyPresent ? Collection is null || Collection.Id > 0 : HasCompleteMovieDetails;
 
     private bool HasCompleteMovieDetails => Id > 0 && !string.IsNullOrWhiteSpace(Title) && ReleaseDate is not null
-        && Adult.HasValue && Genres is not null && Credits is not null && Keywords is not null
-        && ProductionCompanies is not null && Releases.ValueKind == JsonValueKind.Object;
+        && Adult.HasValue && Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.TitleMetadataSnapshot.CaptureGenreIds(Genres).HasValue
+        && Credits is { Cast: { } cast, Crew: { } crew }
+        && cast.All(person => person is not null && person.Id > 0 && !string.IsNullOrWhiteSpace(person.Name))
+        && crew.All(person => person is not null && person.Id > 0 && !string.IsNullOrWhiteSpace(person.Name) && !string.IsNullOrWhiteSpace(person.Job))
+        && Keywords is not null && Keywords.All(keyword => keyword is not null && keyword.Id > 0 && !string.IsNullOrWhiteSpace(keyword.Name))
+        && Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.ProducerEvidence.Capture(ProductionCompanies, Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.ProducerEvidence.CompanyKind).HasValue
+        && Releases.ValueKind == JsonValueKind.Object;
 
     /// <summary>
     ///     A single genre entry in a Seerr detail response.

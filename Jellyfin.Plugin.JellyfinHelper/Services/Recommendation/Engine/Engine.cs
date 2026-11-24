@@ -1065,11 +1065,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var contentSupported = new HashSet<Guid>();
         var tasteLanes = new Dictionary<Guid, Guid>();
         var retainedInterests = new HashSet<Guid>();
+        var servingStrategy = strategy is EnsembleScoringStrategy ensembleStrategy ? ensembleStrategy.CaptureServingSnapshot(alphaOffset).Strategy : strategy;
         var scoringContext = new UserScoringContext
         {
             Profile = userProfile,
-            Strategy = strategy,
-            AlphaOffset = alphaOffset,
+            Strategy = servingStrategy,
+            AlphaOffset = strategy is EnsembleScoringStrategy ? 0 : alphaOffset,
             GenrePreferences = genrePreferences,
             GenreNormSq = userGenreNormSq,
             CoOccurrence = coOccurrence,
@@ -1135,7 +1136,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             CaptureContentSelectionEvidence(candidate.Id, snapshot.Features, contentEligible, contentSupported, tasteLanes);
             CaptureRetainedInterest(candidate.Id, snapshot.Features, retainedInterests);
 
-            CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, strategy);
+            CaptureRankingTrace(rankingTrace, candidate, snapshot.Features, ranked.Score, servingStrategy);
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
@@ -1214,7 +1215,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             TmdbId = ResolveTitleTmdbId(candidate),
             ItemType = candidate.GetType().Name,
             InitialScore = double.IsFinite(score) ? score : null,
-            PreContentScore = strategy is EnsembleScoringStrategy or HeuristicScoringStrategy
+            PreContentScore = strategy is EnsembleScoringStrategy or EnsembleScoringStrategy.ServingScorer or HeuristicScoringStrategy
                 ? ScoringHelper.RecoverPreContentScore(score, features)
                 : null,
             ContentFitSupport = features.ContentFitSupport,
@@ -1706,7 +1707,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 context.PreferredStudios,
                 context.PeopleLookup,
                 matchedCredits,
-                content.TitleMetadata));
+                content.TitleMetadata,
+                content.EffectiveGenres));
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -2043,9 +2045,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 people = null; // People unreadable - still cache the metadata fields below.
             }
 
+            var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
             lookup[candidate.Id] = new CandidateContentAffinity(
                 ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-                ContentAffinityResolver.ResolveProductionCountries(candidate),
+                credits.ProductionCountries?.ToArray() ?? [],
                 ContentAffinityResolver.ResolveInheritedTags(candidate),
                 ContentAffinityResolver.ResolveSeriesStatus(candidate),
                 ContentAffinityResolver.ResolveSeriesEndDate(candidate),
@@ -2055,7 +2058,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 BuildStudioSet(titleMetadata))
             {
                 TmdbCollectionId = collectionIds.GetValueOrDefault(candidate.Id),
-                Credits = CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow),
+                Credits = credits,
                 OwnTags = candidate.Tags?.ToArray() ?? [],
                 OfficialRating = candidate.OfficialRating,
                 TitleMetadata = titleMetadata,
@@ -2113,9 +2116,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             people = null;
         }
 
+        var credits = CreditMetadataCapture.WithAvailableTitleMetadata(candidate, CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow), titleMetadata);
         return new CandidateContentAffinity(
             ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
-            ContentAffinityResolver.ResolveProductionCountries(candidate),
+            credits.ProductionCountries?.ToArray() ?? [],
             ContentAffinityResolver.ResolveInheritedTags(candidate),
             ContentAffinityResolver.ResolveSeriesStatus(candidate),
             ContentAffinityResolver.ResolveSeriesEndDate(candidate),
@@ -2125,7 +2129,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             BuildStudioSet(titleMetadata))
         {
             TmdbCollectionId = LoadCollectionIds([candidate]).GetValueOrDefault(candidate.Id),
-            Credits = CreditMetadataCapture.Native(candidate, people, DateTime.UtcNow),
+            Credits = credits,
             OwnTags = candidate.Tags?.ToArray() ?? [],
             OfficialRating = candidate.OfficialRating,
             TitleMetadata = titleMetadata,
@@ -2152,7 +2156,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             people = null;
         }
 
-        return CreditMetadataCapture.Native(item, people, DateTime.UtcNow);
+        return CreditMetadataCapture.WithAvailableTitleMetadata(item, CreditMetadataCapture.Native(item, people, DateTime.UtcNow), CachedTitleMetadata(item));
     }
 
     private TitleMetadataSnapshot? CachedTitleMetadata(BaseItem candidate)

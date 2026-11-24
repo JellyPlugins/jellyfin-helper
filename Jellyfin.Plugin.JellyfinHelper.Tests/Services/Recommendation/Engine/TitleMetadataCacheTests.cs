@@ -19,6 +19,155 @@ public sealed class TitleMetadataCacheTests
     private readonly PluginConfiguration _config = new() { SeerrUrl = "https://seerr.example.test", SeerrApiKey = "encrypted-test-key" };
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedProviderArraysDoNotBecomeConfirmedEmptyMetadata(bool missing)
+    {
+        var detail = new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrMediaDetailResponse
+        {
+            Id = 77,
+            Genres = missing ? null : [null!], Keywords = missing ? null : [null!],
+            OriginCountry = missing ? null : [null!], ProductionCountries = missing ? null : [null!]
+        };
+        var captured = TitleMetadataSnapshot.FromDetail(detail, "movie", DateTime.UtcNow);
+        Assert.Null(captured.GenreIds);
+        Assert.Null(captured.KeywordIds);
+        Assert.Null(captured.Keywords);
+        Assert.Null(captured.KeywordReferences);
+        Assert.Null(captured.OriginCountries);
+        Assert.Null(captured.ProductionCountries);
+        detail.Genres = [];
+        detail.Keywords = [];
+        detail.OriginCountry = [];
+        detail.ProductionCountries = [];
+        var empty = TitleMetadataSnapshot.FromDetail(detail, "movie", DateTime.UtcNow);
+        Assert.Empty(empty.GenreIds!.Value);
+        Assert.Empty(empty.Keywords!.Value);
+        Assert.Empty(empty.OriginCountries!.Value);
+        Assert.Empty(empty.ProductionCountries!.Value);
+    }
+
+    [Fact]
+    public void AnInvalidSourceObservationListCannotCrashProjectionOrResurrectTheContainerFields()
+    {
+        var snapshot = new TitleMetadataSnapshot { TmdbId = 77, Keywords = ["unverified container"], FetchedAtUtc = DateTime.UtcNow, SourceObservations = [null!] };
+        Assert.Null(TitleMetadataMerger.Combine([snapshot]));
+        Assert.Null(TitleMetadataMerger.CombineCurrentObservations([snapshot], DateTime.UtcNow));
+        Assert.Null(snapshot.At(DateTime.UtcNow));
+        Assert.Equal(new[] { "unverified container" }, snapshot.Keywords!.Value);
+    }
+
+    [Fact]
+    public void IncompleteRecentMetadataCanRefreshAgainButRetainsTheAdmissionCooldownAndCompleteFieldTimes()
+    {
+        var cache = new TitleMetadataCache();
+        cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 77, GenreIds = [], FetchedAtUtc = DateTime.UtcNow.AddHours(-1) });
+        Assert.True(cache.TryBeginRefresh(_config, 77, "movie"));
+        Assert.False(cache.TryBeginRefresh(_config, 77, "movie"));
+        var complete = TitleMetadataSnapshot.FromDetail(new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrMediaDetailResponse
+        {
+            Id = 78, Genres = [], Keywords = [], ProductionCompanies = [],
+            Credits = new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrCredits { Cast = [], Crew = [] }
+        }, "movie", DateTime.UtcNow.AddHours(-1));
+        cache.Store(_config, complete);
+        Assert.False(cache.TryBeginRefresh(_config, 78, "movie"));
+        cache.Store(_config, complete with
+        {
+            TmdbId = 79, Credits = complete.Credits! with { TmdbId = 79 }, FetchedAtUtc = DateTime.UtcNow,
+            FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.Keywords), DateTime.UtcNow.AddDays(-8))
+        });
+        Assert.Equal((79, "movie"), Assert.Single(cache.ReserveRefreshes(_config, [(77, "movie"), (78, "movie"), (79, "movie")], 1)));
+    }
+
+    [Fact]
+    public void ANewerPartialContainerCannotOverwriteANewerIndividualFieldWithAnOlderProjection()
+    {
+        var now = DateTime.UtcNow;
+        var cache = new TitleMetadataCache();
+        cache.Store(_config, new TitleMetadataSnapshot { TmdbId = 77, GenreIds = [18], FetchedAtUtc = now.AddHours(-1) });
+        cache.Store(_config, new TitleMetadataSnapshot
+        {
+            TmdbId = 77, GenreIds = [16], Keywords = ["new keyword"], FetchedAtUtc = now,
+            FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.GenreIds), now.AddDays(-1))
+        });
+        var projected = Assert.IsType<TitleMetadataSnapshot>(cache.Get(_config, 77, "movie"));
+        Assert.Equal(new[] { 18 }, projected.GenreIds!.Value);
+        Assert.Equal(now.AddHours(-1), projected.FieldFetchedAtUtc![nameof(TitleMetadataSnapshot.GenreIds)]);
+        Assert.Equal(new[] { "new keyword" }, projected.Keywords!.Value);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HistoricalProjectionRetainsOlderFieldsAndOriginalTimesButNeverTheLaterObservation(bool independentSources)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-2);
+        var old = new TitleMetadataSnapshot { TmdbId = 77, GenreIds = [18], Keywords = ["earlier story"], FetchedAtUtc = cutoff.AddDays(-1) };
+        var later = old with { Keywords = ["later story"], FetchedAtUtc = cutoff.AddDays(1) };
+        var combined = independentSources
+            ? later with { SourceObservations = [old, later] }
+            : later with { FieldFetchedAtUtc = ImmutableDictionary<string, DateTime>.Empty.Add(nameof(TitleMetadataSnapshot.GenreIds), old.FetchedAtUtc) };
+        var row = new Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory.WatchedItemInfo { TitleMetadata = combined, Genres = ["Drama"], LocalGenres = [] };
+        var historical = row.AtMetadataCutoff(cutoff);
+        Assert.Equal(new[] { "Drama" }, historical.Genres);
+        var metadata = Assert.IsType<TitleMetadataSnapshot>(historical.TitleMetadata);
+        Assert.Equal(old.FetchedAtUtc, metadata.FetchedAtUtc);
+        Assert.Equal(old.GenreIds, metadata.GenreIds);
+        if (independentSources) Assert.Equal(old.Keywords, metadata.Keywords);
+        else Assert.Null(metadata.Keywords);
+        Assert.Same(combined, row.TitleMetadata);
+        Assert.Equal(cutoff.AddDays(1), row.TitleMetadata.FetchedAtUtc);
+        Assert.Null((old with { FetchedAtUtc = default, FieldFetchedAtUtc = null }).At(cutoff));
+    }
+
+    [Theory]
+    [InlineData("valid", true)]
+    [InlineData("unscoped", false)]
+    [InlineData("changed-source", false)]
+    [InlineData("expired", false)]
+    [InlineData("withdrawn", false)]
+    public void ACacheMissDoesNotAuthorizeUnscopedExpiredOrWithdrawnAliasMetadata(string boundary, bool valid)
+    {
+        var cache = new TitleMetadataCache();
+        _config.TraktSourcingEnabled = boundary != "withdrawn";
+        var scope = TitleMetadataCache.SourceDigest(new("trakt", "https://api.trakt.tv", "public-metadata"), null);
+        var incoming = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, Source = "trakt", SourceGenres = ["Animation"], Keywords = ["preschool"],
+            ObservationScope = boundary == "unscoped" ? null : boundary == "changed-source" ? "different" : scope,
+            FetchedAtUtc = DateTime.UtcNow.AddDays(boundary == "expired" ? -31 : -1)
+        };
+        Assert.Null(cache.Get(_config, 77, "movie"));
+        var projected = cache.CurrentProjection(_config, incoming, null);
+        Assert.Equal(valid, projected is not null);
+        if (valid) Assert.Same(incoming, projected);
+        Assert.Equal(new[] { "preschool" }, incoming.Keywords!.Value);
+    }
+
+    [Fact]
+    public void ProviderCreditFieldsExpireIndividuallyAndAnAllExpiredProjectionRemainsAnUnavailableCacheEntry()
+    {
+        var now = DateTime.UtcNow;
+        var old = TitleMetadataSnapshot.FromDetail(new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.SeerrCredits { Cast = [], Crew = [] }
+        }, "movie", now.AddDays(-31));
+        var current = old with
+        {
+            FetchedAtUtc = now,
+            Credits = old.Credits! with { Crew = old.Credits.Crew! with { AcquiredAtUtc = now.AddHours(-1) } }
+        };
+        var projected = Assert.IsType<TitleMetadataSnapshot>(TitleMetadataCache.FreshProjection(current, now));
+        Assert.Null(projected.Credits!.Cast);
+        Assert.NotNull(projected.Credits.Crew);
+        Assert.Equal(now.AddHours(-1), projected.Credits.Crew.AcquiredAtUtc);
+        Assert.Equal(now.AddDays(-31), old.Credits!.Cast!.AcquiredAtUtc);
+        var cache = new TitleMetadataCache();
+        cache.Store(_config, old with { FetchedAtUtc = now });
+        Assert.Null(cache.Get(_config, 77, "movie"));
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]

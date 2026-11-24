@@ -3,8 +3,10 @@ using System.Reflection;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -20,6 +22,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public sealed class EngineFullPipelineTests
 {
+    [Fact]
+    public void EngineScoringAndCapturedTrainingMetadataUseCachedCreditsWhenNativePeopleAreUnavailable()
+    {
+        var metadata = new TitleMetadataCache();
+        var harness = EngineTestFactory.Create(titleMetadataCache: metadata);
+        using var engine = harness.Engine;
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, Path = "/media/scoped.mkv", CommunityRating = 8, Genres = ["Drama"] };
+        var acquired = DateTime.UtcNow.AddHours(-1);
+        metadata.Store(harness.ConfigService.Object.GetConfiguration(), TitleMetadataSnapshot.FromDetail(new SeerrMediaDetailResponse
+        {
+            Id = 77, Credits = new SeerrCredits { Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }], Crew = [] }
+        }, "movie", acquired));
+        harness.LibraryManager.Setup(manager => manager.GetPeople(item)).Throws(new IOException("native credit lookup unavailable"));
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var captured = (CreditMetadataSnapshot)typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("CaptureCreditMetadata", flags)!.Invoke(engine, [item])!;
+        Assert.Equal("Actor", Assert.Single(captured.People()).Name);
+        Assert.Equal(acquired, captured.Cast!.AcquiredAtUtc);
+        Assert.Equal(item.Id, captured.SourceItemId);
+        var content = typeof(Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine).GetMethod("ResolveContentAffinity", flags)!.Invoke(engine, [item])!;
+        var served = Assert.IsType<CreditMetadataSnapshot>(content.GetType().GetProperty("Credits")!.GetValue(content));
+        Assert.Equal(captured.Cast, served.Cast);
+        Assert.Empty(item.ProviderIds.Where(pair => pair.Key != "Tmdb"));
+    }
     [Fact]
     public void BatchRosterRemovalExcludesTheStaleProfileFromBothResultsAndCommunityPopularity()
     {

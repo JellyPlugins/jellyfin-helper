@@ -64,13 +64,18 @@ public sealed record CreditMetadataSnapshot
 
     /// <summary>Filters each field independently; future or undated metadata remains unavailable.</summary>
     /// <param name="cutoff">The normalized prediction cutoff.</param>
+    /// <param name="oldest">Optional field-expiry boundary for current provider metadata.</param>
     /// <returns>A detached historical metadata view.</returns>
-    internal CreditMetadataSnapshot At(DateTime cutoff)
+    internal CreditMetadataSnapshot At(DateTime cutoff, DateTime? oldest = null)
         => this with
         {
-            Cast = Cast?.At(cutoff),
-            Crew = Crew?.At(cutoff),
-            ProductionCountries = CountriesAcquiredAtUtc is { } acquired && DateTimeNormalization.ToUtc(acquired) <= cutoff ? ProductionCountries : null,
-            CountriesAcquiredAtUtc = CountriesAcquiredAtUtc is { } time && DateTimeNormalization.ToUtc(time) <= cutoff ? CountriesAcquiredAtUtc : null
+            Cast = Cast?.At(cutoff, oldest),
+            Crew = Crew?.At(cutoff, oldest),
+            ProductionCountries = CountriesAvailable(cutoff, oldest) ? ProductionCountries : null,
+            CountriesAcquiredAtUtc = CountriesAvailable(cutoff, oldest) ? CountriesAcquiredAtUtc : null
         };
+
+    private bool CountriesAvailable(DateTime cutoff, DateTime? oldest)
+        => CountriesAcquiredAtUtc is { } acquired && acquired != default && DateTimeNormalization.ToUtc(acquired) <= cutoff
+            && (!oldest.HasValue || DateTimeNormalization.ToUtc(acquired) > oldest.Value);
 }

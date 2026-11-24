@@ -643,6 +643,28 @@ public sealed class RecommendationPlaylistServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, true, true)]
+    public void ACapturedCleanupSnapshotCannotBorrowAnOlderJournalPermissionForAReusedPlaylistId(bool snapshot, bool managed, bool removeAll, bool deleted)
+    {
+        var owner = new Jellyfin.Database.Implementations.Entities.User("viewer", "test", "test");
+        var reused = new MediaBrowser.Controller.Playlists.Playlist { Id = Guid.NewGuid(), OwnerUserId = owner.Id, Name = RecommendationPlaylistService.BuildPlaylistName(owner.Username) };
+        if (managed) reused.ProviderIds[RecommendationPlaylistService.ManagedOwnerProviderKey] = owner.Id.ToString("N");
+        var journal = new PlaylistCreationJournal(_recoveryDirectory);
+        var attempt = journal.Begin(owner.Id, new HashSet<Guid> { reused.Id });
+        Assert.True(journal.Complete(owner.Id, attempt.Id));
+        Assert.True(journal.AllowsLegacyDeletion(owner.Id, reused.Id));
+        ArrangeOwnedInventory(owner, new Dictionary<Guid, MediaBrowser.Controller.Playlists.Playlist> { [reused.Id] = reused });
+        var service = CreateSut();
+        var removed = (int)typeof(RecommendationPlaylistService).GetMethod("RemoveUserPlaylistsExcept", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(service, [owner.Id, null, TestContext.Current.CancellationToken, false, snapshot ? new HashSet<Guid>() : null, removeAll])!;
+        Assert.Equal(deleted ? 1 : 0, removed);
+        _libraryManagerMock.Verify(manager => manager.DeleteItem(It.Is<BaseItem>(item => item.Id == reused.Id), It.IsAny<DeleteOptions>()), deleted ? Times.Once() : Times.Never());
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]

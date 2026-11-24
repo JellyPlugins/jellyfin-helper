@@ -1071,7 +1071,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     private bool IsUserManagedPlaylist(BaseItem item, Guid userId, string expectedName, IReadOnlySet<Guid>? legacyDeletionIds, bool removeAll)
         => !IsPreservedPlaylist(item) && !(item is MediaBrowser.Controller.Playlists.Playlist owned && owned.OwnerUserId != Guid.Empty && owned.OwnerUserId != userId)
             && (HasManagedOwner(item, userId) || (IsManagedPlaylistName(item, expectedName)
-                && (removeAll || legacyDeletionIds?.Contains(item.Id) == true || EnsureCreationRecovery().AllowsLegacyDeletion(userId, item.Id))));
+                && (removeAll || (legacyDeletionIds is not null
+                    ? legacyDeletionIds.Contains(item.Id)
+                    : EnsureCreationRecovery().AllowsLegacyDeletion(userId, item.Id)))));
 
     private static Guid? ParseExcludedPlaylistId(string? playlistId)
         => Guid.TryParse(playlistId, out var id) ? id : null;

@@ -18,6 +18,80 @@ public sealed class CreditRootContractsTests
     private static readonly DateTime Clock = new(2026, 11, 20, 20, 0, 0, DateTimeKind.Utc);
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AScopedImdbBindingCanSupplyCreditsWithoutRewritingNativeProviderIdsOrAcceptingAConflict(bool conflict)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Imdb"] = "tt123" } };
+        var native = CreditMetadataCapture.Native(item, null, Clock);
+        var metadata = new TitleMetadataSnapshot
+        {
+            TmdbId = 77, ImdbId = conflict ? "tt456" : "tt123", Credits = Snapshot(Guid.Empty) with { TmdbId = 77, MediaType = "movie" }, FetchedAtUtc = Clock
+        };
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(item, native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(conflict ? 0 : 77, resolved.TmdbId);
+        if (conflict) Assert.Null(resolved.Cast);
+        else Assert.NotEmpty(resolved.People());
+        Assert.Equal(0, native.TmdbId);
+        Assert.Null(native.Cast);
+        Assert.False(item.ProviderIds.ContainsKey("Tmdb"));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void CachedProviderCreditsComplementOnlyUnavailableSameTitleNativeFields(bool knownEmpty, bool wrongTitle)
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" } };
+        var native = CreditMetadataCapture.Native(item, knownEmpty ? [] : null, Clock);
+        var detail = new SeerrMediaDetailResponse
+        {
+            Id = wrongTitle ? 78 : 77,
+            Credits = new SeerrCredits
+            {
+                Cast = [new SeerrCastMember { Id = 1, Name = "Actor", Order = 0 }],
+                Crew = [new SeerrCrewMember { Id = 2, Name = "Writer", Job = "Writer" }]
+            }
+        };
+        var metadata = TitleMetadataSnapshot.FromDetail(detail, "movie", Clock.AddHours(-1));
+        var resolved = CreditMetadataCapture.WithAvailableTitleMetadata(native, metadata);
+        Assert.Equal(item.Id, resolved.SourceItemId);
+        Assert.Equal(77, resolved.TmdbId);
+        if (wrongTitle) Assert.Null(resolved.Cast);
+        else if (knownEmpty) Assert.Empty(resolved.People());
+        else
+        {
+            Assert.Equal("Actor", Assert.Single(resolved.People()).Name);
+            Assert.Equal("Writer", Assert.Single(resolved.People(writers: true)).Name);
+            Assert.Equal(Clock.AddHours(-1), resolved.Cast!.AcquiredAtUtc);
+            Assert.Equal(Clock.AddHours(-1), resolved.Crew!.AcquiredAtUtc);
+        }
+
+        Assert.Equal(knownEmpty ? Clock : (DateTime?)null, native.Cast?.AcquiredAtUtc);
+        var roundtrip = JsonSerializer.Deserialize<TitleMetadataSnapshot>(JsonSerializer.Serialize(metadata))!;
+        Assert.Equal(metadata.Credits!.Cast!.AcquiredAtUtc, roundtrip.Credits!.Cast!.AcquiredAtUtc);
+        Assert.Equal(detail.Id, roundtrip.Credits.TmdbId);
+    }
+
+    [Fact]
+    public void ProviderCountryFallbackKeepsTheFieldTimeAndDoesNotOverrideAnObservedNativeEmpty()
+    {
+        var item = new Movie { Id = Guid.NewGuid(), ProviderIds = new() { ["Tmdb"] = "77" }, ProductionLocations = null! };
+        var provider = new TitleMetadataSnapshot { TmdbId = 77, ProductionCountries = ["JP"], FetchedAtUtc = Clock.AddDays(-1) };
+        var unknown = CreditMetadataCapture.Native(item, null, Clock);
+        var filled = CreditMetadataCapture.WithAvailableTitleMetadata(unknown, provider);
+        Assert.Equal(new[] { "JP" }, filled.ProductionCountries!.Value);
+        Assert.Equal(provider.FetchedAtUtc, filled.CountriesAcquiredAtUtc);
+        Assert.Null(filled.At(provider.FetchedAtUtc.AddTicks(-1)).ProductionCountries);
+        item.ProductionLocations = [];
+        var empty = CreditMetadataCapture.WithAvailableTitleMetadata(CreditMetadataCapture.Native(item, null, Clock), provider);
+        Assert.Empty(empty.ProductionCountries!.Value);
+        Assert.Equal(Clock, empty.CountriesAcquiredAtUtc);
+    }
+
+    [Theory]
     [InlineData(false, false, .8)]
     [InlineData(true, false, .8)]
     [InlineData(true, true, .5)]

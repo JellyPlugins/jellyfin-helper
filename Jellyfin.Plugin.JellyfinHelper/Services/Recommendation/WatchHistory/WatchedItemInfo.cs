@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
@@ -297,9 +298,9 @@ public sealed class WatchedItemInfo
 
     internal WatchedItemInfo AtMetadataCutoff(DateTime cutoff)
     {
+        var metadata = TitleMetadata?.At(cutoff);
         if (Credits is null && SeriesCredits is null && ProductionCountries.Count == 0
-            && (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
-                && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff)))))
+            && ReferenceEquals(metadata, TitleMetadata))
         {
             // Training's detached rows are immutable. A metadata-free prefix
             // needs no second row allocation for every historical cutoff.
@@ -311,14 +312,22 @@ public sealed class WatchedItemInfo
         copy.SeriesCredits = SeriesCredits?.At(cutoff);
         var countrySource = Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.CreditPreferenceProfile.Resolve(copy);
         copy.ProductionCountries = countrySource?.ProductionCountries is { IsDefault: false } countries ? countries.ToArray() : [];
-        if (TitleMetadata is null || (TitleMetadata.FetchedAtUtc <= cutoff
-            && (TitleMetadata.FieldFetchedAtUtc is null || TitleMetadata.FieldFetchedAtUtc.Values.All(time => time <= cutoff))))
+        if (ReferenceEquals(metadata, TitleMetadata))
         {
             return copy;
         }
 
         copy.Genres = LocalGenres?.ToArray() ?? [];
-        copy.TitleMetadata = null;
+        copy.TitleMetadata = metadata;
+        if (copy.Genres.Count == 0 && metadata?.GenreIds is { } ids)
+        {
+            copy.Genres = GenreNormalizer.Set(Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery.TmdbGenreMap.ToJellyfinGenres(ids)).ToArray();
+        }
+
+        if (copy.Genres.Count == 0 && metadata?.SourceGenres is { } labels)
+        {
+            copy.Genres = GenreNormalizer.Set(labels).ToArray();
+        }
         return copy;
     }
 }

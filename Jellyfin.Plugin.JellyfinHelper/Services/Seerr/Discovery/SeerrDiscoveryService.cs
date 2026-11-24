@@ -512,7 +512,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
-        var generationSourceScope = UserSourceScope(config);
+        var connection = new GenerationConnection(config.SeerrUrl, config.SeerrApiKey, config.SeerrSkipCertificateValidation);
+        var generationSourceScope = UserSourceScope(connection.Configuration);
 
         _pluginLog.LogInfo(
             LogCategory,
@@ -582,7 +583,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             cancellationToken.ThrowIfCancellationRequested();
 
             var outcome = await TryGenerateForUserAsync(
-                profile, config, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
+                profile, config, connection, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
 
             switch (outcome.Status)
             {
@@ -717,14 +718,16 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     }
 
     /// <inheritdoc />
-    public async Task<int> ReconcileRequestedItemsAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
+    public Task<int> ReconcileRequestedItemsAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
+        => ReconcileRequestedItemsAsync(jellyfinUserId, CaptureSeerrConfiguration(Plugin.Instance?.Configuration), cancellationToken);
+
+    private async Task<int> ReconcileRequestedItemsAsync(Guid jellyfinUserId, PluginConfiguration? config, CancellationToken cancellationToken)
     {
         if (jellyfinUserId == Guid.Empty)
         {
             return 0;
         }
 
-        var config = CaptureSeerrConfiguration(Plugin.Instance?.Configuration);
         if (config == null
             || string.IsNullOrWhiteSpace(config.SeerrUrl)
             || string.IsNullOrWhiteSpace(config.SeerrApiKey))
@@ -1109,6 +1112,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private async Task<UserGenerationOutcome> TryGenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
+        GenerationConnection connection,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         Lazy<CollectionMembershipResolver.Snapshot?> collectionMemberships,
@@ -1117,7 +1121,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         try
         {
             var result = await GenerateForUserAsync(
-                profile, config, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
+                profile, config, connection, excludedTmdbIds, seriesEpisodeCounts, collectionMemberships, cancellationToken).ConfigureAwait(false);
 
             return result != null
                 ? new UserGenerationOutcome(UserGenerationStatus.Generated, result)
@@ -2246,6 +2250,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private async Task<DiscoveryResult?> GenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
+        GenerationConnection connection,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         Lazy<CollectionMembershipResolver.Snapshot?> collectionMemberships,
@@ -2254,7 +2259,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Fold in any requests the user made outside discovery before building the exclusion set, so the fresh signal both excludes those items from this run and reaches training.
         if (config.RecommendationsTaskMode != TaskMode.DryRun)
         {
-            await ReconcileRequestedItemsAsync(profile.UserId, cancellationToken).ConfigureAwait(false);
+            await ReconcileRequestedItemsAsync(profile.UserId, connection.Configuration, cancellationToken).ConfigureAwait(false);
         }
 
         var genreCatalogVersion = GenreNormalizer.CatalogVersion;
@@ -2281,9 +2286,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // propagate so TryGenerateForUserAsync classifies it as a transient failure and preserves the
         // user's last-known-good pool rather than clearing it. (In practice the global config check at the
         // top of GenerateDiscoveryRecommendationsAsync already guards the common blank-config case.)
-        var (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, _secretProtector.Unprotect(config.SeerrApiKey));
+        var (baseUri, apiKey) = ValidateSeerrConfig(connection.Url, _secretProtector.Unprotect(connection.ApiKey));
 
-        var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
+        var client = GetSeerrClient(connection.SkipCertificateValidation);
         var allCandidates = new List<TmdbDiscoverItem>();
 
         // Correct: /api/v1/discover/movies/genre/{genreId}?page=1 Correct: /api/v1/discover/movies/language/{language}?page=1 WRONG: /api/v1/discover/movies?genre=16&sortBy=...
@@ -2441,6 +2446,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Score external candidates through the same exclusion + parental + quality filter as local
         // ones, so owned titles are never suggested or offered for duplicate requests.
         var mapped = candidates.Select(ToTmdbItem).ToList();
+        if (_titleMetadataCache is not null && CurrentMetadataConfiguration(baseUri, apiKey) is { } metadataConfiguration)
+        {
+            foreach (var candidate in mapped)
+            {
+                ApplySharedCandidateMetadata(candidate, metadataConfiguration, _serverConfiguration?.Configuration?.PreferredMetadataLanguage);
+            }
+        }
+
         var mappedCount = mapped.Count;
         var client = GetSeerrClient(config.SeerrSkipCertificateValidation);
         var enrichedKeys = new HashSet<(int TmdbId, string MediaType)>();
@@ -2914,8 +2927,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var userStrategy = isPersonalized ? _perUserRegistry.GetEnsembleForUser(context.Profile.UserId) : null;
-        featureContext = featureContext with { FeatureMeans = userStrategy?.LearnedStrategy.GetFeatureMeans() };
-        var preScored = PreScoreCandidates(context, featureContext, userStrategy);
+        var serving = userStrategy?.CaptureServingSnapshot();
+        featureContext = featureContext with { FeatureMeans = serving?.FeatureMeans };
+        var preScored = PreScoreCandidates(context, featureContext, serving?.Strategy);
         await EnrichOptionalCandidatesAsync(context, preScored, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (GenreNormalizer.CatalogVersion != catalogVersion)
@@ -2933,7 +2947,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        var recommendations = FinalScoreCandidates(context, featureContext, userStrategy);
+        var recommendations = FinalScoreCandidates(context, featureContext, serving?.Strategy);
         return await VerifySelectedTitlesAsync(context, recommendations, cancellationToken).ConfigureAwait(false);
     }
 
@@ -3091,14 +3105,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private void ApplySharedCandidateMetadata(TmdbDiscoverItem candidate, PluginConfiguration config, string? language)
     {
-        var alias = candidate.TitleMetadata;
+        var original = candidate.TitleMetadata;
+        var alias = _titleMetadataCache!.CurrentProjection(config, original, language);
+        candidate.TitleMetadata = alias;
         var cached = _titleMetadataCache!.GetForLanguage(config, candidate.Id, candidate.MediaType, 0, null, language);
         var compatible = alias is not null && alias.MediaType == candidate.MediaType && (alias.TmdbId <= 0 || alias.TmdbId == candidate.Id)
             && (cached is null || TitleProviderIdentity.Compatible(cached, alias));
-        if (alias is not null && !compatible)
+        if (original is not null && !compatible)
         {
             candidate.ProjectSourceGenres(null);
             candidate.TitleMetadata = null;
+            candidate.KnownKeywords = null;
         }
 
         if (compatible)
@@ -3115,10 +3132,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private static void ApplyCachedSnapshot(TmdbDiscoverItem candidate, TitleMetadataSnapshot? cached)
     {
-        var priorSourceGenres = candidate.TitleMetadata?.SourceGenres;
-        if (cached is not null)
+        candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(new[] { cached, candidate.TitleMetadata }.OfType<TitleMetadataSnapshot>().ToArray(), DateTime.UtcNow);
+        if (candidate.TitleMetadata?.Credits is { } credits && credits.TmdbId == candidate.Id && credits.MediaType == candidate.MediaType)
         {
-            candidate.TitleMetadata = TitleMetadataMerger.CombineCurrentObservations(candidate.TitleMetadata is null ? [cached] : [cached, candidate.TitleMetadata], DateTime.UtcNow);
+            SetCandidateCredits(candidate, credits);
+        }
+        else
+        {
+            SetCandidateCredits(candidate, null);
         }
 
         TitleMetadataSnapshot? seerr = null;
@@ -3128,18 +3149,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var projected = seerr is not null && ProjectWinningSeerrGenres(candidate, seerr.ObservationScope);
-        if (!projected && candidate.GenreIds.Count == 0 && candidate.TitleMetadata?.GenreIds is { } genreIds)
+        if (!projected)
         {
-            candidate.GenreIds = genreIds.ToList();
+            candidate.ProjectGenreIds(!candidate.HasIndependentGenreIds && candidate.TitleMetadata?.GenreIds is { } genreIds ? genreIds : null);
         }
 
-        if (priorSourceGenres.HasValue || candidate.TitleMetadata?.SourceGenres is not null)
-        {
-            // Replace represented provider labels from the reconciled observations.
-            // Unrepresented input labels remain separate instead of being erased or
-            // used to resurrect a superseded same-source value.
-            candidate.ProjectSourceGenres(candidate.TitleMetadata?.SourceGenres is { } labels ? labels : null);
-        }
+        // Projection is authoritative even when a formerly present field expired.
+        // Only independently supplied input labels survive a missing projection.
+        candidate.ProjectSourceGenres(candidate.TitleMetadata?.SourceGenres is { } labels ? labels : null);
 
         if (seerr is null || !ProjectWinningSeerrKeywords(candidate, seerr.ObservationScope))
         {
@@ -3147,7 +3164,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private static List<TmdbDiscoverItem> PreScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context features, EnsembleScoringStrategy? strategy)
+    private static List<TmdbDiscoverItem> PreScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context features, IScoringStrategy? strategy)
     {
         // Phase 1: pre-score all candidates, including any reusable provider metadata already in cache.
         var preScored = new List<(TmdbDiscoverItem Item, double Score)>(context.Candidates.Count);
@@ -3268,7 +3285,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return pending;
     }
 
-    private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, EnsembleScoringStrategy? userStrategy)
+    private static List<DiscoveryRecommendation> FinalScoreCandidates(CandidateScoringContext context, ExternalCandidateFeatureBuilder.Context featureContext, IScoringStrategy? userStrategy)
     {
         // Phase 3: score all age-eligible candidates, including those outside optional enrichment.
         // Only the selected pool is checked for current Seerr status afterward.
@@ -3361,7 +3378,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private static double ScoreExternalCandidate(CandidateFeatures features, EnsembleScoringStrategy? strategy)
+    private static double ScoreExternalCandidate(CandidateFeatures features, IScoringStrategy? strategy)
         => strategy is not null ? strategy.Score(features) : EngineConstants.ComputeColdStartPrior(features.CombinedCriticScore, features.RecencyScore, features.PopularityScore);
 
     /// <summary>Retrieves public popular/trending titles without requiring personal history or changing account filters.</summary>
@@ -4584,9 +4601,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         RegisterDetailGenres(detail);
         ApplyDetailCollection(candidate, detail);
 
-        if (detail.Keywords is not null && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
+        if (candidate.SeerrTitleMetadata.Keywords is { } keywords && acquiredAtUtc >= LatestSeerrFieldAcquisition(previous, scope, nameof(TitleMetadataSnapshot.Keywords)))
         {
-            candidate.KnownKeywords = detail.Keywords.OfType<SeerrMediaDetailResponse.GenreRef>().Select(keyword => keyword.Name).OfType<string>().Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+            candidate.KnownKeywords = keywords.ToList();
         }
 
         if (!ProjectWinningSeerrKeywords(candidate, scope))
@@ -4630,13 +4647,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         if (detail.Credits is not null)
         {
-            candidate.Credits = CreditMetadataCapture.External(detail.Credits, acquiredAtUtc, candidate.Id, candidate.MediaType)
-                .WithFallback(candidate.Credits);
-            var names = candidate.Credits.People().OrderBy(person => person.Kind == PersonKind.Director ? 0 : 1)
-                .ThenByDescending(person => person.BillingWeight).Select(person => person.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCastPerCandidate).ToList();
-            candidate.KnownPeople = names.Count > 0 || candidate.Credits.PeopleComplete ? names : null;
+            SetCandidateCredits(candidate, CreditMetadataCapture.External(detail.Credits, acquiredAtUtc, candidate.Id, candidate.MediaType).WithFallback(candidate.Credits));
         }
+    }
+
+    private static void SetCandidateCredits(TmdbDiscoverItem candidate, CreditMetadataSnapshot? credits)
+    {
+        candidate.Credits = credits;
+        if (credits is null)
+        {
+            candidate.KnownPeople = null;
+            return;
+        }
+
+        var names = credits.People().OrderBy(person => person.Kind == PersonKind.Director ? 0 : 1)
+            .ThenByDescending(person => person.BillingWeight).Select(person => person.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxCastPerCandidate).ToList();
+        candidate.KnownPeople = names.Count > 0 || credits.PeopleComplete ? names : null;
     }
 
     private bool ApplyCachedDetail(TmdbDiscoverItem candidate, CachedMediaDetail cached, string? scope)
@@ -4703,7 +4730,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Project the selected observation, not the discover list that happened to
         // arrive first. A missing field preserves IDs; a winning explicit empty clears.
-        candidate.GenreIds = selected.GenreIds!.Value.ToList();
+        candidate.ProjectGenreIds(selected.GenreIds!.Value);
         return true;
     }
 
@@ -4711,9 +4738,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     // IDs, including an authoritative empty list; independent source labels remain separate.
     private static void ApplyEnrichedMetadata(TmdbDiscoverItem candidate, SeerrMediaDetailResponse detail, bool currentGenres)
     {
-        if (currentGenres && detail.Genres is not null)
+        if (currentGenres && TitleMetadataSnapshot.CaptureGenreIds(detail.Genres) is { } genres)
         {
-            candidate.GenreIds = detail.Genres.OfType<SeerrMediaDetailResponse.GenreRef>().Where(genre => genre.Id > 0).Select(genre => genre.Id).ToList();
+            candidate.ProjectGenreIds(genres);
         }
 
         // Latch-only: a missing flag must never clear what is already known.
@@ -4974,6 +5001,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private sealed record MetadataEnrichmentResult(HashSet<(int TmdbId, string MediaType)> EnrichedKeys, bool Complete);
 
     private sealed record PersonalRetrievalContext(string? PrimaryLanguage, IReadOnlyDictionary<string, int> Seeds);
+
+    // Separate connection capture: behavioral configuration stays on the original
+    // argument and cannot be accidentally replaced by a partial configuration copy.
+    private sealed record GenerationConnection(string Url, string ApiKey, bool SkipCertificateValidation)
+    {
+        internal PluginConfiguration Configuration => new()
+        {
+            SeerrUrl = Url,
+            SeerrApiKey = ApiKey,
+            SeerrSkipCertificateValidation = SkipCertificateValidation
+        };
+    }
 
     /// <summary>
     ///     Inputs for <see cref="ScoreCandidatesForUserAsync"/>: everything the shared scoring pipeline

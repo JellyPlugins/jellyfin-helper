@@ -147,6 +147,19 @@ public sealed class ExternalAvailableMetadataTests
     }
 
     [Fact]
+    public void InvalidCollectionObjectsAndMalformedDetailsDoNotConfirmAnAbsentCollection()
+    {
+        var invalid = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"collection":{"id":0,"name":"invalid"}}""")!;
+        Assert.False(invalid.HasCollectionMetadata);
+        var malformed = JsonSerializer.Deserialize<SeerrMediaDetailResponse>("""{"id":77,"title":"Movie","releaseDate":"2020-01-01","adult":false,"genres":[null],"credits":{"cast":[],"crew":[]},"keywords":[],"productionCompanies":[],"releases":{}}""")!;
+        Assert.False(malformed.HasCollectionMetadata);
+        malformed.Genres = [];
+        Assert.True(malformed.HasCollectionMetadata);
+        malformed.Credits!.Crew = null;
+        Assert.False(malformed.HasCollectionMetadata);
+    }
+
+    [Fact]
     public void LegacyProfilesWithNullOwnMetadata_RemainSafeToPrepare()
     {
         var row = JsonSerializer.Deserialize<WatchedItemInfo>("""{"Played":true,"Studios":null,"Tags":null}""")!;

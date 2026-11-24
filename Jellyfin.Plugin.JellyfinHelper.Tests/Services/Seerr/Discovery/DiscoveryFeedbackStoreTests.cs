@@ -1599,6 +1599,50 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ANewIdentityOnlyRequestCannotBorrowAnAlreadyReservedExecutionSlot()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var store = new DiscoveryFeedbackStore(Mock.Of<IPluginLogService>(), Mock.Of<ILogger<DiscoveryFeedbackStore>>(), _tempDir)
+        {
+            WriteFeedback = (path, contents) =>
+            {
+                started.TrySetResult();
+                release.Wait(TestContext.Current.CancellationToken);
+                Jellyfin.Plugin.JellyfinHelper.Services.Common.AtomicFile.WriteAllText(path, contents);
+            }
+        };
+        var user = Guid.NewGuid();
+        var first = store.RecordRequestedAsync(user, 1000, "movie", TestContext.Current.CancellationToken);
+        Task<bool[]>? queued = null;
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            queued = Task.WhenAll(Enumerable.Range(1001, 64).Select(id => store.RecordRequestedAsync(user, id, "movie", TestContext.Current.CancellationToken)));
+            Assert.Throws<IOException>(() => store.RecordRequested(user, 9000, "movie"));
+            Assert.Equal(65, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
+            release.Set();
+            Assert.True(await first);
+            Assert.All(await queued.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), saved => Assert.True(saved));
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.DoesNotContain((9000, "movie"), store.GetRequestedItems(user));
+            Assert.Throws<IOException>(() => store.LoadAll());
+            // Only the never-admitted request needs a retry; the original 65
+            // admitted operations persisted without resubmission.
+            store.RecordRequested(user, 9000, "movie");
+            Assert.Equal(66, Assert.Single(store.LoadAll()).Entries.Count);
+            Assert.Equal(0, (int)typeof(DiscoveryFeedbackStore).GetField("_reservedWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(store)!);
+        }
+        finally
+        {
+            release.Set();
+            Task admitted = queued is null ? first : queued;
+            await admitted.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await CurrentWriter(store).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task AColdStoreLoadsTheOriginalRequestBeforeApplyingTheRetainedWatchBarrier()
     {
         var clock = new ReceiptClock { Now = DateTime.UtcNow.AddMinutes(-3) };

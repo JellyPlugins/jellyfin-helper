@@ -16,6 +16,11 @@ internal static class TitleMetadataMerger
         }
 
         var observations = snapshots.SelectMany(Observations).Distinct().ToArray();
+        if (observations.Length == 0)
+        {
+            return null;
+        }
+
         if (observations.Length == 1)
         {
             return observations[0];
@@ -104,6 +109,7 @@ internal static class TitleMetadataMerger
             ProductionCountries = Union(snapshot => snapshot.ProductionCountries, nameof(TitleMetadataSnapshot.ProductionCountries), StringComparer.OrdinalIgnoreCase),
             ProductionCompanies = Union(snapshot => snapshot.ProductionCompanies, nameof(TitleMetadataSnapshot.ProductionCompanies)),
             Networks = Union(snapshot => snapshot.Networks, nameof(TitleMetadataSnapshot.Networks)),
+            Credits = Select(snapshot => snapshot.Credits, nameof(TitleMetadataSnapshot.Credits)),
             Overview = Select(snapshot => snapshot.Overview, nameof(TitleMetadataSnapshot.Overview)),
             FetchedAtUtc = ordered.Max(snapshot => snapshot.FetchedAtUtc),
             Source = string.Join('+', ordered.Select(snapshot => snapshot.Source).Distinct(StringComparer.Ordinal)),
@@ -113,7 +119,7 @@ internal static class TitleMetadataMerger
     }
 
     internal static IEnumerable<TitleMetadataSnapshot> Observations(TitleMetadataSnapshot snapshot)
-        => snapshot.SourceObservations is { IsDefaultOrEmpty: false } sources ? sources : [snapshot];
+        => snapshot.SourceObservations is { IsDefaultOrEmpty: false } sources ? sources.OfType<TitleMetadataSnapshot>() : [snapshot];
 
     internal static TitleMetadataSnapshot? CombineCurrentObservations(IReadOnlyList<TitleMetadataSnapshot> snapshots, DateTime now)
     {

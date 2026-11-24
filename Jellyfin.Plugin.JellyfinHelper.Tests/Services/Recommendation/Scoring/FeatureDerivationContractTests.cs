@@ -120,6 +120,74 @@ public class FeatureDerivationContractTests
         Assert.Equal(0, version);
     }
 
+    [Fact]
+    public void AServingPassKeepsItsOwnModelMixtureAndMetadataPriorsAcrossPublicationAndDisposal()
+    {
+        AcceptedPrediction Prior(double bias, double mean)
+        {
+            var learned = LearnedScoringStrategy.FromAcceptedParameters(new LearnedScoringStrategy.WeightsData
+            {
+                Version = 6, Weights = new double[41], Bias = bias, TrainingGeneration = 1,
+                FeatureMeans = Enumerable.Repeat(mean, 41).ToArray(), FeatureStdDevs = Enumerable.Repeat(1d, 41).ToArray()
+            });
+            return new AcceptedPrediction(new HeuristicScoringStrategy(1), learned.CapturePredictionSnapshot(), null, new AdmissionMixture(.6, 0), 0, 2);
+        }
+
+        using var ensemble = new EnsembleScoringStrategy(new LearnedScoringStrategy(), new HeuristicScoringStrategy(1), null, null, .3, .75, 1, ownsNeural: false);
+        ensemble.InitializeOperatingPrior(Prior(.9, .2));
+        var features = new CandidateFeatures { FeatureDerivationVersion = 2, GenreSimilarity = .4, CombinedCriticScore = .5 };
+        var original = features.ToVector();
+        var snapshot = ensemble.CaptureServingSnapshot(.2);
+        var before = snapshot.Strategy.Score(features);
+        Assert.Equal(ensemble.Score(features), before, 12);
+        ensemble.InitializeOperatingPrior(Prior(-.9, .8));
+        Assert.True(Math.Abs(ensemble.Score(features) - before) > 1e-6);
+        Assert.Equal(before, snapshot.Strategy.Score(features), 12);
+        Assert.All(snapshot.FeatureMeans!, mean => Assert.Equal(.2, mean));
+        ensemble.Dispose();
+        Assert.Equal(before, snapshot.Strategy.ScoreWithExplanation(features).FinalScore, 12);
+        Assert.Equal(original, features.ToVector());
+    }
+
+    [Theory]
+    [InlineData(2, 2, true)]
+    [InlineData(1, 2, false)]
+    [InlineData(1, 1, false)]
+    [InlineData(2, 1, false)]
+    [InlineData(2, 99, false)]
+    public void NestedChoicesCannotBypassTheEnclosingInputCohortOrRewriteOriginalObservations(int chosenVersion, int alternativeVersion, bool valid)
+    {
+        var id = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var row = new TrainingExample
+        {
+            Features = new CandidateFeatures { FeatureDerivationVersion = 2, GenreSimilarity = .4 }, ObservationId = id, HasStableObservationId = true,
+            IsObserved = true, Label = .8, SampleWeight = .7, GeneratedAtUtc = now.AddDays(-2), UserId = Guid.NewGuid(),
+            Choice = new RecommendationChoiceEvidence
+            {
+                ChosenObservationId = id, AvailableAtUtc = now.AddDays(-3), RecommendedAtUtc = now.AddDays(-2), ChosenAtUtc = now.AddDays(-1),
+                ChosenFeatures = new CandidateFeatures { FeatureDerivationVersion = chosenVersion },
+                Alternatives = [new(Guid.NewGuid(), new CandidateFeatures { FeatureDerivationVersion = alternativeVersion })]
+            }
+        };
+        var original = row.Features.ToVector();
+        var choice = row.Choice;
+        Assert.Equal(valid, FeatureDerivationContract.TryResolveUniformVersion([row], out _));
+        var selected = Assert.Single(FeatureDerivationContract.SelectCohort([row], 2));
+        Assert.Equal(original, selected.Features.ToVector());
+        Assert.Equal(row.GeneratedAtUtc, selected.GeneratedAtUtc);
+        Assert.Equal(row.ObservationId, selected.ObservationId);
+        Assert.Equal(row.Label, selected.Label);
+        Assert.Equal(row.SampleWeight, selected.SampleWeight);
+        Assert.Same(choice, row.Choice);
+        Assert.Equal(chosenVersion, row.Choice.ChosenFeatures.FeatureDerivationVersion);
+        Assert.Equal(alternativeVersion, Assert.Single(row.Choice.Alternatives).Features.FeatureDerivationVersion);
+        Assert.Equal(original, row.Features.ToVector());
+        if (valid) Assert.Same(row, selected);
+        else Assert.Null(selected.Choice);
+        Assert.False(ChoiceRankingAdmissionEvaluator.HasSupport([row], now));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

@@ -473,6 +473,42 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         }
     }
 
+    /// <summary>Pins one coherent serving model, mixture and metadata priors for a complete ranking pass.</summary>
+    /// <param name="alphaOffset">The captured cohort offset; independently accepted mixtures remain unchanged.</param>
+    /// <returns>Resource-free immutable predictions and their own detached feature means.</returns>
+    internal ServingSnapshot CaptureServingSnapshot(double alphaOffset = 0)
+    {
+        lock (_syncRoot)
+        {
+            var floor = _genrePenaltyFloor;
+            var maximum = _alphaMax;
+            var prediction = _acceptedPrediction;
+            var learned = prediction?.Learned ?? _learned.CapturePredictionSnapshot();
+            var means = learned.ExportParameters().FeatureMeans;
+            Func<CandidateFeatures, double> score;
+            if (prediction is not null)
+            {
+                score = features => prediction.Score(features, maximum, floor);
+            }
+            else
+            {
+                var alpha = _qualityGateFrozen ? 0 : _alpha;
+                if (Math.Abs(alphaOffset) >= 1e-10)
+                {
+                    alpha = ResolveOffsetAlpha(alphaOffset);
+                }
+
+                var beta = _neural is null ? 0 : _neuralBeta;
+                var neural = alpha > 0 && beta > 0 ? _neural?.CapturePredictionSnapshot() : null;
+                score = features => alpha > 0 && FeatureDerivationContract.IsCompatible(features.FeatureDerivationVersion, 0)
+                    ? ComputePinnedBlendedScore(features, learned, neural, alpha, beta, floor)
+                    : ScoringHelper.ComputeContextualScore(HeuristicScoringStrategy.ScoreRaw(features), features, floor);
+            }
+
+            return new ServingSnapshot(new ServingScorer(score, Name, NameKey, floor), means is null ? null : Array.AsReadOnly(means));
+        }
+    }
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
@@ -1798,6 +1834,24 @@ public sealed partial class EnsembleScoringStrategy : IScoringStrategy, ITrainab
         {
             get => _metricsHistory;
             set => _metricsHistory = value ?? [];
+        }
+    }
+
+    internal sealed record ServingSnapshot(IScoringStrategy Strategy, IReadOnlyList<double>? FeatureMeans);
+
+    internal sealed class ServingScorer(Func<CandidateFeatures, double> score, string name, string nameKey, double floor) : IScoringStrategy
+    {
+        public string Name => name;
+
+        public string NameKey => nameKey;
+
+        public double Score(CandidateFeatures features) => score(features);
+
+        public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+        {
+            var explanation = ScoringHelper.BuildMarginalExplanation(features, Score, Name);
+            explanation.GenrePenaltyMultiplier = ScoringHelper.ComputeGenrePenalty(features, floor);
+            return explanation;
         }
     }
 

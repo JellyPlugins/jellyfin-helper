@@ -61,6 +61,62 @@ public sealed class SeerrDiscoveryServiceGenerationTests : IDisposable
     private readonly ServerConfiguration _serverConfiguration = new() { PreferredMetadataLanguage = "" };
     private readonly OffsetClock _metadataClock = new();
 
+    [Fact]
+    public async Task EveryProfileUsesTheSameConnectionEvenWhenTheLiveSourceChangesAndReturnsBeforeCommit()
+    {
+        var first = NewProfile();
+        var second = NewProfile();
+        _history.Setup(history => history.GetAllUserWatchProfiles()).Returns(Profiles(first, second));
+        _history.Setup(history => history.GetAllUserIds()).Returns([first.UserId, second.UserId]);
+        var config = Plugin.Instance!.Configuration;
+        var url = config.SeerrUrl;
+        var key = config.SeerrApiKey;
+        var certificates = config.SeerrSkipCertificateValidation;
+        var changed = false;
+        var saved = false;
+        var discoverReads = 0;
+        _handler.ResponseOverride = (request, _) =>
+        {
+            Assert.Equal(new Uri(url).Host, request.RequestUri!.Host);
+            var path = request.RequestUri.AbsolutePath;
+            if (path.Contains("/discover/", StringComparison.Ordinal))
+            {
+                discoverReads++;
+                if (!changed)
+                {
+                    changed = true;
+                    config.SeerrUrl = "https://other.example.test";
+                    config.SeerrApiKey = "other-source-key";
+                    config.SeerrSkipCertificateValidation = !certificates;
+                }
+
+                return Task.FromResult(JsonResponse(System.Text.Json.JsonSerializer.Serialize(new { results = Enumerable.Range(601, 30).Select(id => Candidate(id, 8)) }, Jellyfin.Plugin.JellyfinHelper.Services.JsonDefaults.Options)));
+            }
+
+            return Task.FromResult(JsonResponse(int.TryParse(path.Split('/')[^1], out var id)
+                ? $$"""{"id":{{id}},"genres":[{"id":28,"name":"Action"}],"credits":{"cast":[],"crew":[]}}"""
+                : """{"results":[],"pageInfo":{"results":0}}"""));
+        };
+        _cache.BeforeSaveWait = () =>
+        {
+            Assert.True(changed);
+            saved = true;
+            config.SeerrUrl = url;
+            config.SeerrApiKey = key;
+            config.SeerrSkipCertificateValidation = certificates;
+        };
+        await _sut.GenerateDiscoveryRecommendationsAsync(TestContext.Current.CancellationToken);
+        Assert.True(saved);
+        Assert.True(discoverReads >= 2);
+        var results = await _cache.LoadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { first.UserId, second.UserId }.Order(), results.Select(result => result.UserId).Order());
+        Assert.All(results, result => Assert.NotEmpty(result.Recommendations));
+        foreach (var user in new[] { first.UserId, second.UserId })
+        {
+            _feedbackStore.Verify(store => store.RecordGeneratedAsync(user, It.IsAny<string>(), It.IsAny<IReadOnlyList<DiscoveryRecommendation>>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

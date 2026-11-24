@@ -11,6 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 internal sealed class TmdbDiscoverItem
 {
     private List<int> _genreIds = [];
+    private List<int>? _independentGenreIds;
     private IReadOnlyList<string>? _independentSourceGenres;
     private IReadOnlyList<string>? _projectedSourceGenres;
     private IReadOnlyList<string>? _sourceGenres;
@@ -52,7 +53,21 @@ internal sealed class TmdbDiscoverItem
     public List<int> GenreIds
     {
         get => _genreIds;
-        set => _genreIds = value ?? [];
+        set
+        {
+            _genreIds = value ?? [];
+            _independentGenreIds = null;
+        }
+    }
+
+    internal bool HasIndependentGenreIds => (_independentGenreIds ?? _genreIds).Count > 0;
+
+    /// <summary>Replaces provider projections without losing the original discover-list evidence on expiry.</summary>
+    /// <param name="genres">Validated metadata IDs; empty clears, null restores the independent input.</param>
+    internal void ProjectGenreIds(IEnumerable<int>? genres)
+    {
+        _independentGenreIds ??= _genreIds.ToList();
+        _genreIds = genres?.Distinct().ToList() ?? _independentGenreIds.ToList();
     }
 
     /// <summary>
